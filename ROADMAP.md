@@ -21,6 +21,14 @@
 - [ ] Product / Portfolio / Blog / Testimonials / Media / Enquiry management
 - [ ] Contact form storing enquiries in D1
 
+## Staff Portal — Phase B
+- [ ] PDF export + print layouts for QT/DO/INV (then email/WhatsApp send)
+- [ ] Working-hours/overtime/late computation on attendance reports; Excel export
+- [ ] Medical certificate upload wired into leave form (media API ready)
+- [ ] CRM detail view: per-customer quotations/DO/invoices + communication history
+- [ ] Forgot/reset password flow (needs outbound email service decision)
+- [ ] Future modules (architecture ready): Payroll, Inventory, Client Portal, Mobile App
+
 ## Later
 - [ ] Bahasa Melayu language toggle
 - [ ] Visitor analytics dashboard

@@ -1,3 +1,5 @@
+import { handleStaff, type StaffUser } from "./staff";
+
 /**
  * AZ ONE OFFICIAL — Admin/API Worker (Phase 3, v0)
  * Static public site stays untouched; this Worker serves /api/v1 on its own route.
@@ -14,7 +16,10 @@ export interface Env {
   COMPANY_DOMAIN: string;
 }
 
-type Role = "super_admin" | "admin" | "editor" | "marketing";
+type Role =
+  | "super_admin" | "admin" | "editor" | "marketing"
+  | "managing_director" | "coo" | "business_dev"
+  | "finance_admin" | "live_manager" | "live_host";
 
 interface SessionUser {
   id: number;
@@ -157,8 +162,14 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
 }
 
 const ROLE_RANK: Record<Role, number> = {
+  live_host: 0,
   marketing: 1,
+  live_manager: 1,
+  business_dev: 1,
+  finance_admin: 1,
+  coo: 1,
   editor: 2,
+  managing_director: 3,
   admin: 3,
   super_admin: 4,
 };
@@ -534,6 +545,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ user });
   }
 
+  /* ---- staff portal (all routes require auth) ---- */
+
+  if (path.startsWith("/api/v1/staff/")) {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    const staffRes = await handleStaff(
+      request, env, path.slice("/api/v1/staff".length), user as StaffUser,
+    );
+    if (staffRes) return staffRes;
+    return errorResponse("not_found", "Staff route not found", 404);
+  }
+
   if (path === "/api/v1/enquiries" && method === "GET") {
     if (!atLeast(user, "marketing")) {
       return errorResponse("forbidden", "Marketing role or above required", 403);
@@ -753,7 +775,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/users" && method === "POST") {
     if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const roles = ["super_admin", "admin", "editor", "marketing"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host"];
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
@@ -785,7 +807,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const id = userMatch[1]!;
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) return errorResponse("invalid_input", "Body required", 400);
-    const roles = ["super_admin", "admin", "editor", "marketing"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host"];
     const changed: string[] = [];
 
     if (typeof body.role === "string" && roles.includes(body.role)) {

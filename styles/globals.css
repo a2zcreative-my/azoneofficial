@@ -71,6 +71,25 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+.dark {
+  --background: #10192b;
+  --foreground: #eef1f6;
+  --card: #16213a;
+  --card-foreground: #eef1f6;
+  --popover: #16213a;
+  --popover-foreground: #eef1f6;
+  --primary: #eef1f6;
+  --primary-foreground: #1a2946;
+  --secondary: #1c2942;
+  --secondary-foreground: #eef1f6;
+  --muted: #1c2942;
+  --muted-foreground: #9aa6ba;
+  --border: #263650;
+  --input: #263650;
+  --ring: #c8a96a;
+  --brand-accent-deep: #d4b57a; /* on dark, lighter gold keeps AA */
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

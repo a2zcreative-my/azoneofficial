@@ -23,3 +23,7 @@ Base: `/api/v1`, JSON, session-cookie auth for admin routes.
 | GET | /dashboard/summary | admin+ | Stats for dashboard |
 
 Error format: `{ "error": { "code": string, "message": string } }`. All request bodies validated with Zod; responses typed in `types/`.
+
+## Staff Portal API (`/api/v1/staff/*`) — all require auth
+profile GET/PATCH · users GET/PATCH (HR) · attendance POST/GET, report GET (HR) · leave POST/GET/balance, PATCH :id (cancel|approve|reject) · announcements GET/POST, POST :id/ack · tasks GET/POST/PATCH :id, comments GET/POST · customers GET/POST/PUT :id (sales roles) · docs GET/POST (auto number QT/DO/INV), PATCH :id (delivery/payment status) · notifications GET, read POST.
+Roles: super_admin, admin, editor, marketing, managing_director, coo, business_dev, finance_admin, live_manager, live_host. Module permissions in worker/src/staff.ts (PERMS map).

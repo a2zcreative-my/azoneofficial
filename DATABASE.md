@@ -1,7 +1,7 @@
 # Database
 
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
-Migration `worker/migrations/0001_init.sql` implements the schema below. Apply with `pnpm migrate:prod` from `/worker`.
+Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications). Apply with `pnpm migrate:prod` from `/worker`.
 
 Target: **Cloudflare D1 (SQLite)**. Media binaries in **R2**, referenced by key.
 

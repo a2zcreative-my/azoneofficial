@@ -1,0 +1,510 @@
+/**
+ * Staff Portal API (/api/v1/staff/*) — see 0003_staff_portal.sql
+ * Mounted from index.ts after session resolution. All routes require auth.
+ */
+
+import type { Env } from "./index";
+
+type Role =
+  | "super_admin" | "admin" | "editor" | "marketing"
+  | "managing_director" | "coo" | "business_dev"
+  | "finance_admin" | "live_manager" | "live_host";
+
+export interface StaffUser {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+}
+
+/* ---------------- module permissions ---------------- */
+
+const PERMS: Record<string, readonly Role[]> = {
+  // who can approve leave / view attendance reports / manage staff
+  hr_manage: ["super_admin", "managing_director", "coo", "admin"],
+  // who can post announcements & create/assign tasks
+  team_manage: ["super_admin", "managing_director", "coo", "admin", "live_manager"],
+  // CRM + quotations + DO
+  sales: ["super_admin", "managing_director", "business_dev", "finance_admin", "admin"],
+  // invoices & finance status changes
+  finance: ["super_admin", "managing_director", "finance_admin", "admin"],
+};
+
+function can(user: StaffUser, perm: keyof typeof PERMS): boolean {
+  return PERMS[perm]!.includes(user.role);
+}
+
+/* ---------------- helpers ---------------- */
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+function err(code: string, message: string, status: number): Response {
+  return json({ error: { code, message } }, status);
+}
+function str(v: unknown, max = 2000): v is string {
+  return typeof v === "string" && v.trim().length > 0 && v.length <= max;
+}
+
+async function notify(
+  env: Env, userId: number, kind: string, message: string, ref?: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, ?2, ?3, ?4)`,
+  ).bind(userId, kind, message, ref ?? null).run();
+}
+
+async function audit(
+  env: Env, userId: number, action: string, entity?: string, entityId?: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO audit_log (user_id, action, entity, entity_id) VALUES (?1, ?2, ?3, ?4)`,
+  ).bind(userId, action, entity ?? null, entityId ?? null).run();
+}
+
+const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
+const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
+
+async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string> {
+  const year = new Date().getFullYear();
+  await env.DB.prepare(
+    `INSERT INTO doc_counters (doc_type, year, counter) VALUES (?1, ?2, 1)
+     ON CONFLICT(doc_type, year) DO UPDATE SET counter = counter + 1`,
+  ).bind(docType, year).run();
+  const row = await env.DB.prepare(
+    `SELECT counter FROM doc_counters WHERE doc_type = ?1 AND year = ?2`,
+  ).bind(docType, year).first<{ counter: number }>();
+  return `${docType}${year}${String(row!.counter).padStart(5, "0")}`;
+}
+
+/* ---------------- router ---------------- */
+
+export async function handleStaff(
+  request: Request,
+  env: Env,
+  path: string, // already stripped of /api/v1/staff prefix, starts with /
+  user: StaffUser,
+): Promise<Response | null> {
+  const method = request.method;
+  const body =
+    ["POST", "PUT", "PATCH"].includes(method)
+      ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
+      : null;
+
+  /* ---- me / profile ---- */
+
+  if (path === "/profile" && method === "GET") {
+    const row = await env.DB.prepare(
+      `SELECT id, email, name, role, employee_id, position, department, phone, employment_status
+       FROM users WHERE id = ?1`,
+    ).bind(user.id).first();
+    return json({ profile: row });
+  }
+  if (path === "/profile" && method === "PATCH") {
+    // staff may update their own phone + name only
+    const sets: string[] = [];
+    const vals: (string | number)[] = [];
+    if (str(body?.phone, 40)) { sets.push(`phone = ?${sets.length + 1}`); vals.push(body!.phone as string); }
+    if (str(body?.name, 120)) { sets.push(`name = ?${sets.length + 1}`); vals.push(body!.name as string); }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
+      .bind(...vals, user.id).run();
+    await audit(env, user.id, "staff.profile_update");
+    return json({ ok: true });
+  }
+
+  /* ---- staff directory (managers) ---- */
+
+  if (path === "/users" && method === "GET") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, email, role, employee_id, position, department, phone, employment_status, is_active
+       FROM users ORDER BY name`,
+    ).all();
+    return json({ users: results });
+  }
+  const staffUser = path.match(/^\/users\/(\d+)$/);
+  if (staffUser && method === "PATCH") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const id = staffUser[1]!;
+    const fields = ["employee_id", "position", "department", "employment_status"] as const;
+    const sets: string[] = [];
+    const vals: string[] = [];
+    for (const f of fields) {
+      if (str(body?.[f], 120)) { sets.push(`${f} = ?${sets.length + 1}`); vals.push(body![f] as string); }
+    }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
+      .bind(...vals, id).run();
+    await audit(env, user.id, "staff.hr_update", "users", id);
+    return json({ ok: true });
+  }
+
+  /* ---- attendance ---- */
+
+  if (path === "/attendance" && method === "POST") {
+    const types = ["clock_in", "clock_out", "break_in", "break_out"];
+    if (!body || typeof body.type !== "string" || !types.includes(body.type)) {
+      return err("invalid_input", `type must be one of: ${types.join(", ")}`, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).bind(
+      user.id,
+      body.type,
+      request.headers.get("CF-Connecting-IP"),
+      (request.headers.get("User-Agent") ?? "").slice(0, 300),
+      str(body.gps, 100) ? body.gps : null,
+    ).run();
+    return json({ ok: true }, 201);
+  }
+
+  if (path === "/attendance" && method === "GET") {
+    const url = new URL(request.url);
+    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const targetUser = url.searchParams.get("user_id");
+    const forUser = targetUser && can(user, "hr_manage") ? Number(targetUser) : user.id;
+    const { results } = await env.DB.prepare(
+      `SELECT type, ip, created_at FROM attendance_records
+       WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+       ORDER BY created_at DESC LIMIT 400`,
+    ).bind(forUser, month).all();
+    return json({ month, records: results });
+  }
+
+  if (path === "/attendance/report" && method === "GET") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const url = new URL(request.url);
+    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const { results } = await env.DB.prepare(
+      `SELECT u.name, a.user_id, a.type, a.created_at
+       FROM attendance_records a JOIN users u ON u.id = a.user_id
+       WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
+    ).bind(month).all();
+    return json({ month, records: results });
+  }
+
+  /* ---- leave ---- */
+
+  if (path === "/leave" && method === "POST") {
+    if (
+      !body || typeof body.type !== "string" || !LEAVE_TYPES.includes(body.type as never) ||
+      !str(body.start_date, 10) || !str(body.end_date, 10) ||
+      typeof body.days !== "number" || body.days <= 0 || body.days > 60
+    ) {
+      return err("invalid_input", "type, start_date, end_date, and days are required", 400);
+    }
+    const res = await env.DB.prepare(
+      `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+    ).bind(
+      user.id, body.type, body.start_date, body.end_date, body.days,
+      str(body.reason, 1000) ? body.reason : null,
+      typeof body.mc_media_id === "number" ? body.mc_media_id : null,
+    ).first<{ id: number }>();
+    await audit(env, user.id, "leave.apply", "leave_requests", String(res?.id));
+    return json({ id: res?.id }, 201);
+  }
+
+  if (path === "/leave" && method === "GET") {
+    const url = new URL(request.url);
+    const all = url.searchParams.get("all") === "1" && can(user, "hr_manage");
+    const { results } = await env.DB.prepare(
+      all
+        ? `SELECT l.*, u.name AS user_name FROM leave_requests l JOIN users u ON u.id = l.user_id ORDER BY l.created_at DESC LIMIT 200`
+        : `SELECT * FROM leave_requests WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 100`,
+    ).bind(...(all ? [] : [user.id])).all();
+    return json({ leave: results });
+  }
+
+  if (path === "/leave/balance" && method === "GET") {
+    const year = new Date().getFullYear();
+    const balances: Record<string, { entitled: number; used: number }> = {};
+    for (const t of LEAVE_TYPES) {
+      const ent = await env.DB.prepare(
+        `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
+      ).bind(user.id, year, t).first<{ entitled: number }>();
+      const used = await env.DB.prepare(
+        `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
+         WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
+         AND start_date LIKE ?3 || '%'`,
+      ).bind(user.id, t, String(year)).first<{ used: number }>();
+      balances[t] = { entitled: ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0, used: used?.used ?? 0 };
+    }
+    return json({ year, balances });
+  }
+
+  const leaveMatch = path.match(/^\/leave\/(\d+)$/);
+  if (leaveMatch && method === "PATCH") {
+    const id = leaveMatch[1]!;
+    const row = await env.DB.prepare(
+      `SELECT user_id, status FROM leave_requests WHERE id = ?1`,
+    ).bind(id).first<{ user_id: number; status: string }>();
+    if (!row) return err("not_found", "Leave request not found", 404);
+
+    const action = body?.action;
+    if (action === "cancel") {
+      if (row.user_id !== user.id || row.status !== "pending") {
+        return err("forbidden", "Only your own pending requests can be cancelled", 403);
+      }
+      await env.DB.prepare(`UPDATE leave_requests SET status = 'cancelled' WHERE id = ?1`).bind(id).run();
+      return json({ ok: true });
+    }
+    if (action === "approve" || action === "reject") {
+      if (!can(user, "hr_manage")) return err("forbidden", "Approval rights required", 403);
+      if (row.status !== "pending") return err("invalid_input", "Request is not pending", 400);
+      const status = action === "approve" ? "approved" : "rejected";
+      await env.DB.prepare(
+        `UPDATE leave_requests SET status = ?1, reviewed_by = ?2, review_comment = ?3 WHERE id = ?4`,
+      ).bind(status, user.id, str(body?.comment, 500) ? body!.comment : null, id).run();
+      await notify(env, row.user_id, "leave", `Your leave request #${id} was ${status}`, `leave:${id}`);
+      await audit(env, user.id, `leave.${action}`, "leave_requests", id);
+      return json({ ok: true });
+    }
+    return err("invalid_input", "action must be cancel, approve, or reject", 400);
+  }
+
+  /* ---- announcements ---- */
+
+  if (path === "/announcements" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT a.*, (SELECT COUNT(*) FROM announcement_acks k
+                    WHERE k.announcement_id = a.id AND k.user_id = ?1) AS acked
+       FROM announcements a ORDER BY a.created_at DESC LIMIT 50`,
+    ).bind(user.id).all();
+    return json({ announcements: results });
+  }
+  if (path === "/announcements" && method === "POST") {
+    if (!can(user, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!body || !str(body.title, 200) || !str(body.body, 5000)) {
+      return err("invalid_input", "title and body are required", 400);
+    }
+    const cats = ["news", "meeting", "holiday", "kpi", "training"];
+    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "news";
+    const res = await env.DB.prepare(
+      `INSERT INTO announcements (title, body, category, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+    ).bind(body.title, body.body, category, user.id).first<{ id: number }>();
+    await audit(env, user.id, "announcement.create", "announcements", String(res?.id));
+    return json({ id: res?.id }, 201);
+  }
+  const ackMatch = path.match(/^\/announcements\/(\d+)\/ack$/);
+  if (ackMatch && method === "POST") {
+    await env.DB.prepare(
+      `INSERT INTO announcement_acks (announcement_id, user_id) VALUES (?1, ?2)
+       ON CONFLICT(announcement_id, user_id) DO NOTHING`,
+    ).bind(ackMatch[1], user.id).run();
+    return json({ ok: true });
+  }
+
+  /* ---- tasks ---- */
+
+  if (path === "/tasks" && method === "GET") {
+    const url = new URL(request.url);
+    const all = url.searchParams.get("all") === "1" && can(user, "team_manage");
+    const { results } = await env.DB.prepare(
+      all
+        ? `SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to ORDER BY t.created_at DESC LIMIT 200`
+        : `SELECT * FROM tasks WHERE assigned_to = ?1 ORDER BY created_at DESC LIMIT 100`,
+    ).bind(...(all ? [] : [user.id])).all();
+    return json({ tasks: results });
+  }
+  if (path === "/tasks" && method === "POST") {
+    if (!can(user, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!body || !str(body.title, 200) || typeof body.assigned_to !== "number") {
+      return err("invalid_input", "title and assigned_to are required", 400);
+    }
+    const prio = ["low", "normal", "high", "urgent"];
+    const res = await env.DB.prepare(
+      `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+    ).bind(
+      body.title, str(body.description, 5000) ? body.description : null,
+      body.assigned_to, user.id,
+      typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
+      str(body.deadline, 10) ? body.deadline : null,
+    ).first<{ id: number }>();
+    await notify(env, body.assigned_to, "task", `New task assigned: ${body.title as string}`, `task:${res?.id}`);
+    await audit(env, user.id, "task.create", "tasks", String(res?.id));
+    return json({ id: res?.id }, 201);
+  }
+  const taskMatch = path.match(/^\/tasks\/(\d+)$/);
+  if (taskMatch && method === "PATCH") {
+    const id = taskMatch[1]!;
+    const row = await env.DB.prepare(`SELECT assigned_to FROM tasks WHERE id = ?1`)
+      .bind(id).first<{ assigned_to: number }>();
+    if (!row) return err("not_found", "Task not found", 404);
+    if (row.assigned_to !== user.id && !can(user, "team_manage")) {
+      return err("forbidden", "Not your task", 403);
+    }
+    const sets: string[] = [];
+    const vals: (string | number)[] = [];
+    if (typeof body?.progress === "number" && body.progress >= 0 && body.progress <= 100) {
+      sets.push(`progress = ?${sets.length + 1}`); vals.push(body.progress);
+    }
+    if (typeof body?.status === "string" && ["open", "in_progress", "completed"].includes(body.status)) {
+      sets.push(`status = ?${sets.length + 1}`); vals.push(body.status);
+    }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
+      .bind(...vals, id).run();
+    return json({ ok: true });
+  }
+  const commentMatch = path.match(/^\/tasks\/(\d+)\/comments$/);
+  if (commentMatch && method === "POST") {
+    if (!body || !str(body.comment, 2000)) return err("invalid_input", "comment is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO task_comments (task_id, user_id, comment, attachment_media_id) VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(
+      commentMatch[1], user.id, body.comment,
+      typeof body.attachment_media_id === "number" ? body.attachment_media_id : null,
+    ).run();
+    return json({ ok: true }, 201);
+  }
+  if (commentMatch && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT c.comment, c.created_at, u.name FROM task_comments c
+       JOIN users u ON u.id = c.user_id WHERE c.task_id = ?1 ORDER BY c.created_at`,
+    ).bind(commentMatch[1]).all();
+    return json({ comments: results });
+  }
+
+  /* ---- CRM customers ---- */
+
+  if (path === "/customers" && (method === "GET" || method === "POST")) {
+    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT * FROM customers ORDER BY company LIMIT 300`,
+      ).all();
+      return json({ customers: results });
+    }
+    if (!body || !str(body.company, 200)) return err("invalid_input", "company is required", 400);
+    const res = await env.DB.prepare(
+      `INSERT INTO customers (company, contact_person, phone, email, address, notes, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+    ).bind(
+      body.company,
+      str(body.contact_person, 120) ? body.contact_person : null,
+      str(body.phone, 40) ? body.phone : null,
+      str(body.email, 200) ? body.email : null,
+      str(body.address, 500) ? body.address : null,
+      str(body.notes, 2000) ? body.notes : null,
+      user.id,
+    ).first<{ id: number }>();
+    await audit(env, user.id, "customer.create", "customers", String(res?.id));
+    return json({ id: res?.id }, 201);
+  }
+  const custMatch = path.match(/^\/customers\/(\d+)$/);
+  if (custMatch && method === "PUT") {
+    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    const fields = ["company", "contact_person", "phone", "email", "address", "notes"] as const;
+    const sets: string[] = [];
+    const vals: string[] = [];
+    for (const f of fields) {
+      if (str(body?.[f], 2000)) { sets.push(`${f} = ?${sets.length + 1}`); vals.push(body![f] as string); }
+    }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    await env.DB.prepare(`UPDATE customers SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
+      .bind(...vals, custMatch[1]!).run();
+    return json({ ok: true });
+  }
+
+  /* ---- sales documents (QT / DO / INV) ---- */
+
+  if (path === "/docs" && method === "GET") {
+    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    const url = new URL(request.url);
+    const t = url.searchParams.get("type");
+    const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
+    const { results } = await env.DB.prepare(
+      `SELECT d.*, c.company FROM sales_documents d
+       JOIN customers c ON c.id = d.customer_id ${filter}
+       ORDER BY d.created_at DESC LIMIT 200`,
+    ).all();
+    return json({ docs: results });
+  }
+  if (path === "/docs" && method === "POST") {
+    if (!body || typeof body.doc_type !== "string" || !["QT", "DO", "INV"].includes(body.doc_type)) {
+      return err("invalid_input", "doc_type must be QT, DO, or INV", 400);
+    }
+    const docType = body.doc_type as "QT" | "DO" | "INV";
+    if (docType === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+      return err("forbidden", "Insufficient rights for this document type", 403);
+    }
+    if (typeof body.customer_id !== "number" || !Array.isArray(body.items) || body.items.length === 0) {
+      return err("invalid_input", "customer_id and items are required", 400);
+    }
+    const items = (body.items as { name?: unknown; qty?: unknown; unit_price_cents?: unknown }[])
+      .filter((i) => str(i.name, 200) && typeof i.qty === "number" && i.qty > 0 && typeof i.unit_price_cents === "number" && i.unit_price_cents >= 0)
+      .map((i) => ({ name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number }));
+    if (items.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
+
+    const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents, 0);
+    const discount = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
+    const taxPct = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
+    const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100)));
+
+    const number = await docNumber(env, docType);
+    const res = await env.DB.prepare(
+      `INSERT INTO sales_documents
+       (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
+        notes, valid_until, delivery_status, payment_status, due_date, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
+    ).bind(
+      docType, number, body.customer_id, JSON.stringify(items), discount, taxPct, total,
+      str(body.notes, 2000) ? body.notes : null,
+      docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
+      docType === "DO" ? "pending" : null,
+      docType === "INV" ? "unpaid" : null,
+      docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
+      user.id,
+    ).first<{ id: number }>();
+    await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
+    return json({ id: res?.id, doc_number: number, total_cents: total }, 201);
+  }
+  const docMatch = path.match(/^\/docs\/(\d+)$/);
+  if (docMatch && method === "PATCH") {
+    const id = docMatch[1]!;
+    const doc = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
+      .bind(id).first<{ doc_type: string }>();
+    if (!doc) return err("not_found", "Document not found", 404);
+    if (doc.doc_type === "INV") {
+      if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+      const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
+      if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
+      await env.DB.prepare(`UPDATE sales_documents SET payment_status = ?1 WHERE id = ?2`)
+        .bind(body!.payment_status, id).run();
+    } else if (doc.doc_type === "DO") {
+      if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+      const ok = typeof body?.delivery_status === "string" && ["pending", "delivered"].includes(body.delivery_status);
+      if (!ok) return err("invalid_input", "delivery_status must be pending|delivered", 400);
+      await env.DB.prepare(`UPDATE sales_documents SET delivery_status = ?1 WHERE id = ?2`)
+        .bind(body!.delivery_status, id).run();
+    } else {
+      return err("invalid_input", "Quotations have no status updates yet", 400);
+    }
+    await audit(env, user.id, "doc.update_status", "sales_documents", id);
+    return json({ ok: true });
+  }
+
+  /* ---- notifications ---- */
+
+  if (path === "/notifications" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT id, kind, message, ref, is_read, created_at FROM notifications
+       WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 50`,
+    ).bind(user.id).all();
+    return json({ notifications: results });
+  }
+  if (path === "/notifications/read" && method === "POST") {
+    await env.DB.prepare(`UPDATE notifications SET is_read = 1 WHERE user_id = ?1`)
+      .bind(user.id).run();
+    return json({ ok: true });
+  }
+
+  return null; // not a staff route
+}
