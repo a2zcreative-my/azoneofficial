@@ -22,7 +22,10 @@ export function Footer() {
               {SITE_CONFIG.name}
             </p>
             <p className="mt-3 text-sm leading-relaxed text-white/60">
-              {SITE_CONFIG.tagline}. Home of {SITE_CONFIG.brand.fashion}.
+              {SITE_CONFIG.slogan}
+            </p>
+            <p className="mt-4 text-xs leading-relaxed text-white/50">
+              {SITE_CONFIG.address}
             </p>
             <a
               href={whatsappUrl()}
@@ -84,10 +87,44 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-white/10 pt-6">
+        <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-white/40">
             © {year} {SITE_CONFIG.legalName}. All rights reserved.
           </p>
+          <ul className="flex gap-6">
+            <li>
+              <Link
+                href="/case-studies"
+                className="text-xs text-white/40 transition-colors hover:text-white"
+              >
+                Case Studies
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/careers"
+                className="text-xs text-white/40 transition-colors hover:text-white"
+              >
+                Careers
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/privacy"
+                className="text-xs text-white/40 transition-colors hover:text-white"
+              >
+                Privacy Policy
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/terms"
+                className="text-xs text-white/40 transition-colors hover:text-white"
+              >
+                Terms &amp; Conditions
+              </Link>
+            </li>
+          </ul>
         </div>
       </div>
     </footer>

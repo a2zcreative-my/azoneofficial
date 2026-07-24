@@ -18,7 +18,7 @@ export function Navbar() {
         className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6"
       >
         <Link
-          href="#top"
+          href="/"
           className="text-sm font-semibold tracking-[0.2em] uppercase"
           onClick={() => setOpen(false)}
         >

@@ -3,7 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 
 import { whatsappUrl } from "@/constants/content";
-import { CTA_LABEL, SITE_CONFIG } from "@/constants/site";
+import { SITE_CONFIG } from "@/constants/site";
 
 function LiveBadge() {
   return (
@@ -42,16 +42,16 @@ export function Hero() {
         {...fade(0.1)}
         className="mt-8 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl"
       >
-        Your brand, in front of buyers,{" "}
-        <span className="text-gold">in real time</span>
+        Grow your sales through{" "}
+        <span className="text-gold">live commerce</span>
       </motion.h1>
 
       <motion.p
         {...fade(0.2)}
         className="text-muted-foreground mt-6 max-w-xl text-base leading-relaxed sm:text-lg"
       >
-        {SITE_CONFIG.tagline}. TikTok Live hosting, live commerce management,
-        and social commerce strategy — and home of{" "}
+        Helping brands increase sales through professional live hosts and
+        complete TikTok Live commerce management — home of{" "}
         <span className="font-medium text-foreground">
           {SITE_CONFIG.brand.fashion}
         </span>
@@ -68,7 +68,7 @@ export function Hero() {
           rel="noopener noreferrer"
           className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-12 items-center rounded-full px-8 text-sm font-medium transition-colors"
         >
-          {CTA_LABEL}
+          Book free consultation
         </a>
         <a
           href="#services"

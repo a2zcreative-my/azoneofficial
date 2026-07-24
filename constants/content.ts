@@ -1,9 +1,9 @@
 import {
   BarChart3,
-  Camera,
+  Clapperboard,
   Megaphone,
+  Palette,
   Radio,
-  ShoppingBag,
   Users,
 } from "lucide-react";
 
@@ -22,8 +22,9 @@ import type {
 
 export const CONTACT = {
   // WhatsApp number in international format, digits only.
-  whatsapp: "60123456789", // TODO: replace with the real AZ ONE WhatsApp number
-  whatsappMessage: "Hi AZ ONE OFFICIAL, I'd like to book a consultation.",
+  whatsapp: "60123834821",
+  whatsappMessage:
+    "Hi AZ ONE OFFICIAL, I'm interested in your Live Commerce services. I would like to know more.",
   email: "hello@azoneofficial.com", // TODO: confirm mailbox
   socials: {
     tiktok: "https://www.tiktok.com/@azoneofficial", // TODO: confirm handle
@@ -62,7 +63,7 @@ export const STATISTICS: readonly Statistic[] = [
 
 export const SERVICES: readonly Service[] = [
   {
-    title: "TikTok Live hosting",
+    title: "Live host service",
     description:
       "Trained hosts who sell — product pitching, pinned-deal pacing, and comment conversion, in Bahasa Melayu and English.",
     icon: Radio,
@@ -74,28 +75,28 @@ export const SERVICES: readonly Service[] = [
     icon: BarChart3,
   },
   {
-    title: "Social commerce strategy",
+    title: "TikTok strategy",
     description:
-      "Account positioning, content calendar, and campaign planning that feed your live room instead of fighting it.",
+      "Account positioning, campaign planning, and a content calendar that feed your live room instead of fighting it.",
     icon: Megaphone,
   },
   {
-    title: "Studio & production",
+    title: "Creative design",
     description:
-      "Lighting, framing, and set design that make products look worth buying — from our studio or on-site at yours.",
-    icon: Camera,
+      "Covers, overlays, product cards, and campaign visuals that make your brand look worth stopping the scroll for.",
+    icon: Palette,
   },
   {
-    title: "Host training",
+    title: "Video editing & content creation",
     description:
-      "Turn your own team into confident live sellers with our hosting curriculum, scripts, and live drills.",
+      "Live-session highlights cut into short-form content that keeps selling long after the stream ends.",
+    icon: Clapperboard,
+  },
+  {
+    title: "Business consultation",
+    description:
+      "Brand positioning, pricing, and channel strategy — advised from the seller's chair, because we sell live too.",
     icon: Users,
-  },
-  {
-    title: "Brand partnerships",
-    description:
-      "Consignment and revenue-share models for brands that want sales first and fixed costs later.",
-    icon: ShoppingBag,
   },
 ] as const;
 
@@ -114,29 +115,47 @@ export const TESTIMONIALS: readonly Testimonial[] = [] as const;
 export const ELFIA = {
   eyebrow: "Our house brand",
   title: "ELFIA",
-  tagline: "Premium fashion, born live",
-  body: "ELFIA is AZ ONE's own fashion label — designed in Malaysia and sold the way we know best: live. Every drop is launched on TikTok Live, so our audience sees the fabric move before they ever tap checkout.",
+  tagline: "Premium hijabs, born live",
+  body: "ELFIA is AZ ONE's own hijab label — premium chiffon shawls in essential neutrals, designed in Malaysia for office, everyday, and active wear. Every drop is launched on TikTok Live, so our audience sees the fabric move before they ever tap checkout.",
   cta: "Watch the next drop live",
 } as const;
 
 export const ELFIA_PRODUCTS: readonly ElfiaProduct[] = [
   {
-    name: "Signature Collection",
-    category: "Ready-to-wear",
-    imageSrc: "", // TODO(Alīf): add /public/elfia/signature.jpg
-    imageAlt: "ELFIA Signature Collection ready-to-wear pieces",
-  },
-  {
-    name: "Live Exclusive Drops",
-    category: "Limited",
-    imageSrc: "", // TODO(Alīf): add /public/elfia/drops.jpg
-    imageAlt: "ELFIA limited pieces sold only during live sessions",
-  },
-  {
-    name: "Essentials",
+    name: "The Signature Shawl — Taupe",
     category: "Everyday",
-    imageSrc: "", // TODO(Alīf): add /public/elfia/essentials.jpg
-    imageAlt: "ELFIA everyday essential pieces",
+    imageSrc: "/elfia/shawl-taupe.jpg",
+    imageAlt: "ELFIA signature chiffon shawl in taupe, styled with a white blazer",
+  },
+  {
+    name: "The Signature Shawl — Beige",
+    category: "Everyday",
+    imageSrc: "/elfia/shawl-beige.jpg",
+    imageAlt: "ELFIA signature chiffon shawl in beige, styled with a white blazer",
+  },
+  {
+    name: "The Signature Shawl — Grey",
+    category: "Everyday",
+    imageSrc: "/elfia/shawl-grey-front.jpg",
+    imageAlt: "ELFIA signature chiffon shawl in light grey, front draped styling",
+  },
+  {
+    name: "Corporate Series — Blush",
+    category: "Workwear",
+    imageSrc: "/elfia/corporate.jpg",
+    imageAlt: "ELFIA corporate series hijab in blush, styled with a black suit",
+  },
+  {
+    name: "Active Hijab — Black",
+    category: "Active",
+    imageSrc: "/elfia/active.jpg",
+    imageAlt: "ELFIA active sports hijab in black, worn on court",
+  },
+  {
+    name: "The Neutral Collection",
+    category: "Collection",
+    imageSrc: "/elfia/collection.jpg",
+    imageAlt: "ELFIA neutral collection — black, taupe, beige, and grey chiffon shawls",
   },
 ] as const;
 
@@ -199,7 +218,7 @@ export const FAQS: readonly FaqItem[] = [
   {
     question: "What is ELFIA?",
     answer:
-      "ELFIA is our own premium fashion brand, built and sold through live commerce. It is proof that the playbook we offer clients is one we run — and win with — ourselves.",
+      "ELFIA is our own premium hijab brand — chiffon shawls in essential neutrals for office, everyday, and active wear — built and sold through live commerce. It is proof that the playbook we offer clients is one we run ourselves.",
   },
   {
     question: "How do I get started?",

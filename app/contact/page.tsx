@@ -1,0 +1,115 @@
+import { Mail, MapPin, MessageCircle } from "lucide-react";
+import type { Metadata } from "next";
+
+import { ContactForm } from "@/components/contact/contact-form";
+import { PageShell } from "@/components/layout/page-shell";
+import { CONTACT, whatsappUrl } from "@/constants/content";
+import { SITE_CONFIG } from "@/constants/site";
+
+export const metadata: Metadata = {
+  title: "Contact",
+  description:
+    "Contact AZ ONE OFFICIAL — book a free live commerce consultation on WhatsApp or visit us in Johor Bahru.",
+};
+
+const MAP_EMBED_SRC = `https://www.google.com/maps?q=${encodeURIComponent(
+  SITE_CONFIG.address,
+)}&output=embed`;
+
+export default function ContactPage() {
+  return (
+    <PageShell
+      eyebrow="Contact"
+      title="Let's talk about your next live"
+    >
+      <section>
+        <p>
+          The fastest way to reach us is WhatsApp — tell us about your brand
+          and we'll recommend the right starting package. No commitment.
+        </p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <a
+            href={whatsappUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-12 items-center justify-center gap-2 rounded-full px-8 text-sm font-medium transition-colors"
+          >
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            WhatsApp +60 12-383 4821
+          </a>
+          <a
+            href={`mailto:${CONTACT.email}`}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border px-8 text-sm font-medium transition-colors hover:bg-secondary"
+          >
+            <Mail className="h-4 w-4" aria-hidden="true" />
+            {CONTACT.email}
+          </a>
+        </div>
+      </section>
+
+      <section>
+        <h2>Or send a message</h2>
+        <p className="mt-3 mb-6">
+          Prefer writing it down? Send us the details and we&apos;ll reply by
+          email or WhatsApp.
+        </p>
+        <ContactForm />
+      </section>
+
+      <section>
+        <h2>Visit us</h2>
+        <p className="mt-3 flex items-start gap-2">
+          <MapPin className="text-gold mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{SITE_CONFIG.address}</span>
+        </p>
+        <div className="mt-6 overflow-hidden rounded-xl border border-border">
+          <iframe
+            src={MAP_EMBED_SRC}
+            title="AZ ONE OFFICIAL office location on Google Maps"
+            className="h-80 w-full"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        </div>
+      </section>
+
+      <section>
+        <h2>Follow us</h2>
+        <ul className="mt-3 space-y-2">
+          <li>
+            <a
+              href={CONTACT.socials.tiktok}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground underline"
+            >
+              TikTok
+            </a>{" "}
+            — where we go live
+          </li>
+          <li>
+            <a
+              href={CONTACT.socials.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground underline"
+            >
+              Instagram
+            </a>
+          </li>
+          <li>
+            <a
+              href={CONTACT.socials.facebook}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground underline"
+            >
+              Facebook
+            </a>
+          </li>
+        </ul>
+      </section>
+    </PageShell>
+  );
+}

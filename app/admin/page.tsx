@@ -1,0 +1,487 @@
+"use client";
+
+/**
+ * AZ ONE OFFICIAL — Admin (v0, modest)
+ * Static-exported client app talking to the API Worker at /api/v1
+ * (same origin via the azoneofficial.com/api/* route).
+ */
+
+import { useCallback, useEffect, useState } from "react";
+
+const API = "/api/v1";
+
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+}
+
+interface Enquiry {
+  id: number;
+  name: string;
+  company: string | null;
+  phone: string | null;
+  email: string | null;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
+interface CrudItem {
+  id: number;
+  [key: string]: unknown;
+}
+
+async function api<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ ok: boolean; status: number; data: T | null }> {
+  try {
+    const res = await fetch(`${API}${path}`, {
+      credentials: "include",
+      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+      ...init,
+    });
+    const data = res.status === 204 ? null : ((await res.json()) as T);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
+const inputClass =
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
+const btnClass =
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-50";
+const btnGhost =
+  "inline-flex h-9 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
+
+/* ---------------- Login ---------------- */
+
+function Login({ onLogin }: { onLogin: (u: User) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    const res = await api<{ user: User }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    setBusy(false);
+    if (res.ok && res.data) {
+      onLogin(res.data.user);
+    } else if (res.status === 429) {
+      setError("Too many attempts — try again in 15 minutes.");
+    } else if (res.status === 0) {
+      setError("Can't reach the API. Is the Worker deployed on /api/*?");
+    } else {
+      setError("Email or password is incorrect.");
+    }
+  };
+
+  return (
+    <div className="mx-auto mt-24 w-full max-w-sm px-6">
+      <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
+        Admin
+      </p>
+      <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+      <div className="mt-8 space-y-4">
+        <input
+          className={inputClass}
+          placeholder="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+        />
+        <input
+          className={inputClass}
+          placeholder="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          onKeyDown={(e) => e.key === "Enter" && void submit()}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <button
+          type="button"
+          className={btnClass}
+          disabled={busy || !email || !password}
+          onClick={() => void submit()}
+        >
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Enquiries ---------------- */
+
+const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
+
+function Enquiries() {
+  const [items, setItems] = useState<Enquiry[]>([]);
+  const load = useCallback(async () => {
+    const res = await api<{ enquiries: Enquiry[] }>("/enquiries");
+    if (res.ok && res.data) setItems(res.data.enquiries);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setStatus = async (id: number, status: string) => {
+    await api(`/enquiries/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    void load();
+  };
+
+  if (items.length === 0)
+    return <p className="text-muted-foreground text-sm">No enquiries yet.</p>;
+
+  return (
+    <div className="space-y-4">
+      {items.map((e) => (
+        <article key={e.id} className="rounded-xl border border-border p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">
+              {e.name}
+              {e.company ? ` — ${e.company}` : ""}
+            </p>
+            <select
+              className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+              value={e.status}
+              onChange={(ev) => void setStatus(e.id, ev.target.value)}
+            >
+              {ENQUIRY_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {e.email ?? "no email"} · {e.phone ?? "no phone"} · {e.created_at}
+          </p>
+          <p className="mt-2 text-sm">{e.message}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Generic CRUD panel ---------------- */
+
+interface FieldDef {
+  key: string;
+  label: string;
+  type?: "text" | "textarea" | "number" | "checkbox";
+}
+
+function CrudPanel({
+  resource,
+  fields,
+  titleKey,
+}: {
+  resource: string;
+  fields: FieldDef[];
+  titleKey: string;
+}) {
+  const [items, setItems] = useState<CrudItem[]>([]);
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await api<{ items: CrudItem[] }>(`/${resource}`);
+    if (res.ok && res.data) setItems(res.data.items);
+  }, [resource]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async () => {
+    setError("");
+    const res = editingId
+      ? await api(`/${resource}/${editingId}`, { method: "PUT", body: JSON.stringify(draft) })
+      : await api(`/${resource}`, { method: "POST", body: JSON.stringify(draft) });
+    if (!res.ok) {
+      setError("Save failed — check required fields.");
+      return;
+    }
+    setDraft({});
+    setEditingId(null);
+    void load();
+  };
+
+  const remove = async (id: number) => {
+    await api(`/${resource}/${id}`, { method: "DELETE" });
+    void load();
+  };
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold tracking-tight">
+          {editingId ? `Edit #${editingId}` : "Add new"}
+        </h3>
+        {fields.map((f) => (
+          <label key={f.key} className="block">
+            <span className="text-muted-foreground mb-1 block text-xs font-medium">
+              {f.label}
+            </span>
+            {f.type === "textarea" ? (
+              <textarea
+                className={inputClass}
+                rows={4}
+                value={String(draft[f.key] ?? "")}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+              />
+            ) : f.type === "checkbox" ? (
+              <input
+                type="checkbox"
+                checked={Boolean(draft[f.key])}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked ? 1 : 0 }))}
+              />
+            ) : (
+              <input
+                className={inputClass}
+                type={f.type === "number" ? "number" : "text"}
+                value={String(draft[f.key] ?? "")}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    [f.key]: f.type === "number" ? Number(e.target.value) : e.target.value,
+                  }))
+                }
+              />
+            )}
+          </label>
+        ))}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex gap-2">
+          <button type="button" className={btnClass} onClick={() => void save()}>
+            {editingId ? "Save changes" : "Create"}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => {
+                setEditingId(null);
+                setDraft({});
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-tight">Existing</h3>
+        {items.length === 0 && (
+          <p className="text-muted-foreground text-sm">Nothing here yet.</p>
+        )}
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+          >
+            <span className="truncate text-sm">
+              #{item.id} — {String(item[titleKey] ?? "(untitled)")}
+            </span>
+            <span className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                className="text-xs underline"
+                onClick={() => {
+                  setEditingId(item.id);
+                  const d: Record<string, unknown> = {};
+                  for (const f of fields) d[f.key] = item[f.key] ?? "";
+                  setDraft(d);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="text-destructive text-xs underline"
+                onClick={() => void remove(item.id)}
+              >
+                Delete
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Dashboard ---------------- */
+
+function Dashboard() {
+  const [summary, setSummary] = useState<{
+    enquiries?: { total: number; new_count: number };
+    products?: { total: number };
+  } | null>(null);
+  useEffect(() => {
+    void api<typeof summary>("/dashboard/summary").then((r) => {
+      if (r.ok) setSummary(r.data);
+    });
+  }, []);
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {[
+        { label: "Total enquiries", value: summary?.enquiries?.total },
+        { label: "New enquiries", value: summary?.enquiries?.new_count },
+        { label: "Products", value: summary?.products?.total },
+      ].map((s) => (
+        <div key={s.label} className="rounded-xl border border-border p-5">
+          <p className="text-3xl font-semibold">{s.value ?? "—"}</p>
+          <p className="text-muted-foreground mt-1 text-sm">{s.label}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Shell ---------------- */
+
+const TABS = [
+  "Dashboard",
+  "Enquiries",
+  "Products",
+  "Posts",
+  "Portfolio",
+  "Testimonials",
+] as const;
+type Tab = (typeof TABS)[number];
+
+export default function AdminPage() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checked, setChecked] = useState(false);
+  const [tab, setTab] = useState<Tab>("Dashboard");
+
+  useEffect(() => {
+    void api<{ user: User }>("/auth/me").then((r) => {
+      if (r.ok && r.data) setUser(r.data.user);
+      setChecked(true);
+    });
+  }, []);
+
+  if (!checked) return null;
+  if (!user) return <Login onLogin={setUser} />;
+
+  const logout = async () => {
+    await api("/auth/logout", { method: "POST" });
+    setUser(null);
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-gold text-xs font-medium tracking-[0.3em] uppercase">
+            Admin
+          </p>
+          <h1 className="text-xl font-semibold tracking-tight">
+            AZ ONE OFFICIAL
+          </h1>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-muted-foreground text-sm">
+            {user.name} · {user.role}
+          </span>
+          <button type="button" className={btnGhost} onClick={() => void logout()}>
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      <nav className="mt-8 flex flex-wrap gap-2" aria-label="Admin sections">
+        {TABS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={
+              t === tab
+                ? "bg-primary text-primary-foreground rounded-full px-4 py-1.5 text-sm font-medium"
+                : "rounded-full border border-border px-4 py-1.5 text-sm hover:bg-secondary"
+            }
+          >
+            {t}
+          </button>
+        ))}
+      </nav>
+
+      <main className="mt-8">
+        {tab === "Dashboard" && <Dashboard />}
+        {tab === "Enquiries" && <Enquiries />}
+        {tab === "Products" && (
+          <CrudPanel
+            resource="products"
+            titleKey="name"
+            fields={[
+              { key: "slug", label: "Slug (unique)" },
+              { key: "name", label: "Name" },
+              { key: "category", label: "Category" },
+              { key: "description", label: "Description", type: "textarea" },
+              { key: "price_cents", label: "Price (sen — leave 0 for live-only)", type: "number" },
+              { key: "inventory", label: "Inventory", type: "number" },
+              { key: "is_featured", label: "Featured", type: "checkbox" },
+              { key: "is_visible", label: "Visible", type: "checkbox" },
+            ]}
+          />
+        )}
+        {tab === "Posts" && (
+          <CrudPanel
+            resource="posts"
+            titleKey="title"
+            fields={[
+              { key: "slug", label: "Slug (unique)" },
+              { key: "title", label: "Title" },
+              { key: "excerpt", label: "Excerpt", type: "textarea" },
+              { key: "body", label: "Body", type: "textarea" },
+              { key: "status", label: "Status (draft/scheduled/published)" },
+              { key: "category", label: "Category" },
+            ]}
+          />
+        )}
+        {tab === "Portfolio" && (
+          <CrudPanel
+            resource="portfolio"
+            titleKey="client"
+            fields={[
+              { key: "client", label: "Client" },
+              { key: "summary", label: "Summary", type: "textarea" },
+              { key: "result", label: "Result" },
+              { key: "is_published", label: "Published", type: "checkbox" },
+            ]}
+          />
+        )}
+        {tab === "Testimonials" && (
+          <CrudPanel
+            resource="testimonials"
+            titleKey="author"
+            fields={[
+              { key: "author", label: "Author" },
+              { key: "company", label: "Company" },
+              { key: "position", label: "Position" },
+              { key: "review", label: "Review", type: "textarea" },
+              { key: "rating", label: "Rating (1–5)", type: "number" },
+              { key: "is_published", label: "Published", type: "checkbox" },
+            ]}
+          />
+        )}
+      </main>
+    </div>
+  );
+}

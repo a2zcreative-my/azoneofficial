@@ -1,0 +1,18 @@
+name = "azoneofficial-api"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+account_id = "39fe816a63f159da3b17cc254a89d105"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "azoneofficial"
+database_id = "d9df2d7a-8303-4396-a4ee-a26836a4c9a8"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "azoneofficial"
+
+[vars]
+ALLOWED_ORIGIN = "https://azoneofficial.com"
+# Secrets (set via `wrangler secret put`, never commit):
+#   SESSION_PEPPER — random 32+ char string mixed into password hashing

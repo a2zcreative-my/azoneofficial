@@ -38,3 +38,22 @@ constants/    Site config, nav, content data
 styles/       Global CSS + design tokens
 public/       Static assets
 ```
+
+## Documentation
+
+| File | Purpose |
+|---|---|
+| CHANGELOG.md | Version history |
+| FEATURES.md | Implemented functionality |
+| ROADMAP.md | Planned work & pre-launch checklist |
+| ARCHITECTURE.md | System design + Phase 3 decision |
+| DATABASE.md | D1 schema design (Phase 3) |
+| API.md | API design (Phase 3) |
+| DEPLOYMENT.md | Build, deploy, rollback |
+| SECURITY.md | Security posture & Phase 3 requirements |
+| CONTRIBUTING.md | Branches, commits, PRs, standards |
+| ADMIN_GUIDE.md | Admin CMS design & permissions |
+| USER_GUIDE.md | How to use & edit the site today |
+
+## Status
+Phases 1–2 complete (full public site, static export). Phase 3 (admin CMS on Workers + D1 + R2) pending architecture decision — see ARCHITECTURE.md.
