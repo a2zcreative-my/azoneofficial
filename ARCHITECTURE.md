@@ -23,3 +23,10 @@ Master prompt requires an admin CMS with Cloudflare Workers + D1 + R2. A static 
 
 ## Folder structure
 See README.md. Rule: pages compose components; components read constants; no content hard-coded in components.
+
+## Design principles (mandated)
+Premium corporate: modern, minimal, elegant, professional, clean, trustworthy, mobile-first.
+Avoid: gradients, flashy animation, overly rounded elements, neon colors, busy backgrounds, inconsistent spacing, clutter.
+System: 8px spacing grid · max two font families (currently one: Poppins) · clear hierarchy · WCAG 2.1 AA contrast (deep gold #7D6027 for accent text on light; brand gold #C8A96A only decorative or on navy) · navy focus-visible outlines · consistent 8px radius (12px cards) · subtle shadows · reusable components · generous whitespace.
+Every page answers: What is this? Why trust it? What should I do next?
+If an element does not improve usability or clarity, remove it.

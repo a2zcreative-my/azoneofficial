@@ -2,6 +2,7 @@ import { Mail, MapPin, MessageCircle } from "lucide-react";
 import type { Metadata } from "next";
 
 import { ContactForm } from "@/components/contact/contact-form";
+import { Editable } from "@/components/live/editable";
 import { PageShell } from "@/components/layout/page-shell";
 import { CONTACT, whatsappUrl } from "@/constants/content";
 import { SITE_CONFIG } from "@/constants/site";
@@ -24,8 +25,10 @@ export default function ContactPage() {
     >
       <section>
         <p>
-          The fastest way to reach us is WhatsApp — tell us about your brand
-          and we'll recommend the right starting package. No commitment.
+          <Editable
+            k="contact.intro"
+            fallback="The fastest way to reach us is WhatsApp — tell us about your brand and we'll recommend the right starting package. No commitment."
+          />
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <a
@@ -59,7 +62,7 @@ export default function ContactPage() {
       <section>
         <h2>Visit us</h2>
         <p className="mt-3 flex items-start gap-2">
-          <MapPin className="text-gold mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+          <MapPin className="text-gold-deep mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{SITE_CONFIG.address}</span>
         </p>
         <div className="mt-6 overflow-hidden rounded-xl border border-border">

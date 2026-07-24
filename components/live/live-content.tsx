@@ -40,7 +40,7 @@ export function LivePortfolio({ fallback }: { fallback: React.ReactNode }) {
           <h2 className="text-lg font-semibold text-foreground">{item.client}</h2>
           {item.summary && <p className="mt-1 text-sm">{item.summary}</p>}
           {item.result && (
-            <p className="text-gold mt-3 text-sm font-medium">{item.result}</p>
+            <p className="text-gold-deep mt-3 text-sm font-medium">{item.result}</p>
           )}
         </article>
       ))}
@@ -82,7 +82,7 @@ export function LiveTestimonials() {
         {items.map((t) => (
           <figure key={t.id} className="h-full rounded-xl border border-border p-6">
             {typeof t.rating === "number" && t.rating > 0 && (
-              <p className="text-gold text-sm" aria-label={`${t.rating} out of 5 stars`}>
+              <p className="text-gold-deep text-sm" aria-label={`${t.rating} out of 5 stars`}>
                 {"★".repeat(Math.min(5, t.rating))}
                 <span className="text-border">{"★".repeat(Math.max(0, 5 - t.rating))}</span>
               </p>

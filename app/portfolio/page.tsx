@@ -52,7 +52,7 @@ export default function PortfolioPage() {
                     {item.client}
                   </h2>
                   <p className="mt-1 text-sm">{item.summary}</p>
-                  <p className="text-gold mt-3 text-sm font-medium">{item.result}</p>
+                  <p className="text-gold-deep mt-3 text-sm font-medium">{item.result}</p>
                 </article>
               ))}
             </section>

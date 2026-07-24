@@ -9,7 +9,8 @@
   --brand-primary: #1a2946;
   --brand-background: #ffffff;
   --brand-neutral: #f6f7f9;
-  --brand-accent: #c8a96a;
+  --brand-accent: #c8a96a; /* decorative + on-dark text (AA on navy) */
+  --brand-accent-deep: #7d6027; /* text on light backgrounds (AA: 5.0:1 on white) */
   --brand-accent-soft: #e6d7b8;
 
   /* Semantic tokens (shadcn/ui compatible) */
@@ -31,8 +32,8 @@
   --destructive-foreground: #ffffff;
   --border: #e6e9ee;
   --input: #e6e9ee;
-  --ring: #c8a96a;
-  --radius: 0.75rem;
+  --ring: #1a2946;
+  --radius: 0.5rem;
 }
 
 @theme inline {
@@ -59,6 +60,7 @@
   --color-brand: var(--brand-primary);
   --color-brand-neutral: var(--brand-neutral);
   --color-gold: var(--brand-accent);
+  --color-gold-deep: var(--brand-accent-deep);
   --color-gold-soft: var(--brand-accent-soft);
 
   --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
@@ -76,6 +78,11 @@
 
   html {
     scroll-behavior: smooth;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 
   body {

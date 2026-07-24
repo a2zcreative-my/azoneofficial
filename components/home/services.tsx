@@ -16,7 +16,7 @@ export function Services() {
           const Icon = service.icon;
           return (
             <Reveal key={service.title} delay={(i % 3) * 0.08}>
-              <article className="group h-full rounded-xl border border-border bg-background p-6 transition-shadow hover:shadow-md">
+              <article className="group h-full rounded-xl border border-border bg-background p-6 transition-shadow hover:shadow-sm">
                 <span className="bg-gold-soft text-foreground inline-flex h-11 w-11 items-center justify-center rounded-lg">
                   <Icon className="h-5 w-5" aria-hidden="true" />
                 </span>

@@ -35,7 +35,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
     <>
       <Navbar />
       <main className="bg-brand pt-16 text-white">
-        <div className="mx-auto w-full max-w-6xl px-5 py-14 sm:px-6 sm:py-20">
+        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
           <nav aria-label="Breadcrumb" className="text-sm text-white/50">
             <Link href="/products" className="hover:text-white">
               ELFIA
@@ -89,7 +89,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
                   href={CONTACT.socials.tiktok}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-full px-8 text-sm font-medium text-black transition-colors"
+                  className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
                 >
                   Watch the next drop live
                 </a>
@@ -97,7 +97,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
                   href={whatsappUrl()}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-12 items-center justify-center rounded-full border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
+                  className="inline-flex h-12 items-center justify-center rounded-lg border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
                 >
                   Ask on WhatsApp
                 </a>

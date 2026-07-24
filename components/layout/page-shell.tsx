@@ -14,10 +14,10 @@ export function PageShell({ eyebrow, title, updated, children }: PageShellProps)
   return (
     <>
       <Navbar />
-      <main className="px-5 pt-28 pb-16 sm:px-6 sm:pt-32 sm:pb-20">
+      <main className="px-6 pt-28 pb-16 sm:pt-32 sm:pb-24">
         <article className="mx-auto w-full max-w-3xl">
           <header className="mb-10">
-            <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
+            <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">
               {eyebrow}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">

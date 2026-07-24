@@ -26,7 +26,7 @@ export function Showcase() {
             {DELIVERABLES.map((item) => (
               <li key={item} className="flex items-start gap-3">
                 <CheckCircle2
-                  className="text-gold mt-0.5 h-5 w-5 shrink-0"
+                  className="text-gold-deep mt-0.5 h-5 w-5 shrink-0"
                   aria-hidden="true"
                 />
                 <span className="text-base leading-relaxed">{item}</span>
@@ -38,7 +38,7 @@ export function Showcase() {
         <Reveal delay={0.1}>
           <div className="rounded-xl border border-border bg-brand-neutral p-8">
             <p className="text-xs font-medium tracking-[0.25em] uppercase">
-              <span className="text-gold">●</span> Live session, simulated view
+              <span className="text-gold-deep">●</span> Live session, simulated view
             </p>
             <div className="mt-6 space-y-3 text-sm">
               <p className="rounded-lg bg-background px-4 py-3">

@@ -50,7 +50,7 @@ export function Navbar() {
             href={whatsappUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-full px-5 text-sm font-medium transition-colors"
+            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium transition-colors"
           >
             {CTA_LABEL}
           </a>
@@ -101,7 +101,7 @@ export function Navbar() {
               href={whatsappUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-primary text-primary-foreground inline-flex h-10 w-full items-center justify-center rounded-full text-sm font-medium"
+              className="bg-primary text-primary-foreground inline-flex h-10 w-full items-center justify-center rounded-lg text-sm font-medium"
               onClick={() => setOpen(false)}
             >
               {CTA_LABEL}

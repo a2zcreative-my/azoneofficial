@@ -15,7 +15,7 @@ export function Process() {
         {PROCESS.map((step, i) => (
           <Reveal key={step.step} delay={i * 0.1}>
             <li className="h-full rounded-xl border border-border bg-background p-6">
-              <span className="text-gold text-sm font-semibold tracking-[0.2em]">
+              <span className="text-gold-deep text-sm font-semibold tracking-[0.2em]">
                 {String(step.step).padStart(2, "0")}
               </span>
               <h3 className="mt-3 text-lg font-semibold tracking-tight">

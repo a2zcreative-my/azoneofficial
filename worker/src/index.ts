@@ -9,6 +9,9 @@ export interface Env {
   MEDIA: R2Bucket;
   ALLOWED_ORIGIN: string;
   SESSION_PEPPER: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  COMPANY_DOMAIN: string;
 }
 
 type Role = "super_admin" | "admin" | "editor" | "marketing";
@@ -123,6 +126,22 @@ function getCookie(req: Request, name: string): string | null {
 
 const SESSION_COOKIE = "azone_session";
 const SESSION_TTL_HOURS = 12;
+const OAUTH_STATE_COOKIE = "azone_oauth_state";
+
+async function createSession(env: Env, userId: number): Promise<string> {
+  const token = randomHex(32);
+  await env.DB.prepare(
+    `INSERT INTO sessions (id, user_id, expires_at)
+     VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
+  )
+    .bind(token, userId)
+    .run();
+  return token;
+}
+
+function sessionCookie(token: string): string {
+  return `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`;
+}
 
 async function getSessionUser(req: Request, env: Env): Promise<SessionUser | null> {
   const token = getCookie(req, SESSION_COOKIE);
@@ -289,6 +308,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true, service: "azoneofficial-api" });
   }
 
+  if (path === "/api/v1/content-public" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM site_content`,
+    ).all();
+    return json(
+      { content: results },
+      200,
+      { "Cache-Control": "public, max-age=60" },
+    );
+  }
+
   if (path === "/api/v1/enquiries" && method === "POST") {
     const allowed = await checkRateLimit(env, `enquiry:${clientIp(request)}`, 5, 3600);
     if (!allowed) {
@@ -337,21 +367,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("invalid_credentials", "Email or password is incorrect", 401);
     }
 
-    const token = randomHex(32);
-    await env.DB.prepare(
-      `INSERT INTO sessions (id, user_id, expires_at)
-       VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
-    )
-      .bind(token, user.id)
-      .run();
+    const token = await createSession(env, user.id);
     await audit(env, user.id, "auth.login");
 
     return json(
       { user: { id: user.id, email: user.email, name: user.name, role: user.role } },
       200,
-      {
-        "Set-Cookie": `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`,
-      },
+      { "Set-Cookie": sessionCookie(token) },
     );
   }
 
@@ -363,6 +385,144 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true }, 200, {
       "Set-Cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
     });
+  }
+
+  /* ---- self-registration (pending approval) ---- */
+
+  if (path === "/api/v1/auth/register" && method === "POST") {
+    const allowedReg = await checkRateLimit(env, `register:${clientIp(request)}`, 5, 3600);
+    if (!allowedReg) return errorResponse("rate_limited", "Too many registrations — try again later", 429);
+
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const emailOk =
+      body && typeof body.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email);
+    if (
+      !body || !emailOk || !isNonEmptyString(body.name, 120) ||
+      !isNonEmptyString(body.password, 200) || (body.password as string).length < 10
+    ) {
+      return errorResponse("invalid_input", "Valid email, name, and a password of 10+ characters are required", 400);
+    }
+    const email = (body.email as string).toLowerCase().trim();
+    const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+    try {
+      // Always pending (is_active = 0): password registration cannot prove
+      // email ownership, so a super admin must activate the account.
+      const res = await env.DB.prepare(
+        `INSERT INTO users (email, password_hash, name, role, is_active)
+         VALUES (?1, ?2, ?3, 'marketing', 0) RETURNING id`,
+      )
+        .bind(email, hash, (body.name as string).trim())
+        .first<{ id: number }>();
+      await audit(env, null, "auth.register_pending", "users", String(res?.id));
+      return json({ ok: true, pending: true, message: "Account created — awaiting approval by an administrator." }, 201);
+    } catch {
+      return errorResponse("conflict", "An account with this email already exists", 409);
+    }
+  }
+
+  /* ---- Google OAuth ---- */
+
+  const redirectUri = `${env.ALLOWED_ORIGIN}/api/v1/auth/google/callback`;
+
+  if (path === "/api/v1/auth/google" && method === "GET") {
+    const state = randomHex(16);
+    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authUrl.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", "openid email profile");
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("prompt", "select_account");
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: authUrl.toString(),
+        "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+      },
+    });
+  }
+
+  if (path === "/api/v1/auth/google/callback" && method === "GET") {
+    const url2 = new URL(request.url);
+    const code = url2.searchParams.get("code");
+    const state = url2.searchParams.get("state");
+    const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
+    const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+
+    if (!code || !state || !cookieState || state !== cookieState) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+      });
+    }
+
+    // Exchange code for tokens
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }),
+    });
+    const tokens = (await tokenRes.json().catch(() => null)) as { access_token?: string } | null;
+    if (!tokenRes.ok || !tokens?.access_token) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+      });
+    }
+
+    // Fetch verified profile
+    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const profile = (await profileRes.json().catch(() => null)) as
+      | { email?: string; email_verified?: boolean; name?: string }
+      | null;
+    if (!profileRes.ok || !profile?.email || profile.email_verified !== true) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+      });
+    }
+
+    const email = profile.email.toLowerCase().trim();
+    let account = await env.DB.prepare(
+      `SELECT id, is_active FROM users WHERE email = ?1`,
+    )
+      .bind(email)
+      .first<{ id: number; is_active: number }>();
+
+    if (!account) {
+      // Google-verified email: auto-activate company domain, otherwise pending
+      const isCompany = email.endsWith(`@${env.COMPANY_DOMAIN}`);
+      const res = await env.DB.prepare(
+        `INSERT INTO users (email, password_hash, name, role, is_active)
+         VALUES (?1, 'oauth$google', ?2, 'marketing', ?3) RETURNING id, is_active`,
+      )
+        .bind(email, profile.name ?? email, isCompany ? 1 : 0)
+        .first<{ id: number; is_active: number }>();
+      account = res!;
+      await audit(env, null, isCompany ? "auth.google_signup_active" : "auth.google_signup_pending", "users", String(account.id));
+    }
+
+    if (!account.is_active) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/admin?pending=1", "Set-Cookie": clearState },
+      });
+    }
+
+    const token = await createSession(env, account.id);
+    await audit(env, account.id, "auth.login_google");
+    const headers = new Headers({ Location: "/admin" });
+    headers.append("Set-Cookie", sessionCookie(token));
+    headers.append("Set-Cookie", clearState);
+    return new Response(null, { status: 302, headers });
   }
 
   /* ---- authenticated ---- */

@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [0.9.0] — 2026-07-24
+### Added
+- No-code content editing is live end-to-end: public `/content-public` endpoint (60s cache) + `<Editable>` component; hero headline/subheadline, About paragraphs, CTA heading, footer slogan, and Contact intro now read D1 overrides with static fallback
+- Visitor analytics: Cloudflare Web Analytics beacon, token-gated in `constants/site.ts` (inert until token set)
+
+## [0.8.0] — 2026-07-24
+### Changed — UI/UX redesign pass (premium corporate principles)
+- WCAG 2.1 AA contrast: new deep-gold token (#7D6027, 5.0:1) for accent text on light backgrounds; footer text raised from 40% to 60% white; navy focus-visible outlines site-wide
+- Consistent radius system: pill buttons replaced with 8px-radius buttons; cards on the same scale; only true dots remain circular
+- 8px spacing grid: all section/page paddings normalized to multiples of 8
+- Subtle shadows only (shadow-sm on hover)
+- Every page ends with a clear next step: About and FAQ pages gained consultation CTAs
+
+## [0.7.0] — 2026-07-24
+### Added
+- Google OAuth sign-in for /admin (state-cookie CSRF protection, verified-email requirement); company-domain Google accounts auto-activate
+- Self-registration on /admin (rate-limited): any valid email, created pending until super-admin approval
+- Login screen: Continue with Google, register mode, pending/oauth notices
+### Changed
+- Contact email: hello@ → admin@azoneofficial.com
+
 ## [0.6.0] — 2026-07-24
 ### Added
 - User management: API (super_admin only — create, role change, activate/deactivate with session revocation, password reset) + admin Users tab

@@ -9,6 +9,9 @@ Base: `/api/v1`, JSON, session-cookie auth for admin routes.
 | Method | Route | Auth | Purpose |
 |---|---|---|---|
 | POST | /auth/login | public (rate-limited) | Create session |
+| POST | /auth/register | public (rate-limited) | Self-register (pending approval) |
+| GET | /auth/google | public | Redirect to Google OAuth |
+| GET | /auth/google/callback | public | OAuth callback → session or pending |
 | POST | /auth/logout | session | Destroy session |
 | GET | /content/:key | public | Read site content |
 | PUT | /content/:key | editor+ | Update site content |

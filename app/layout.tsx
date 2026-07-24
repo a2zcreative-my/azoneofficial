@@ -75,6 +75,13 @@ export default function RootLayout({ children }: RootLayoutProps) {
             __html: JSON.stringify(organizationJsonLd),
           }}
         />
+        {SITE_CONFIG.cfAnalyticsToken && (
+          <script
+            defer
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={JSON.stringify({ token: SITE_CONFIG.cfAnalyticsToken })}
+          />
+        )}
         {children}
       </body>
     </html>

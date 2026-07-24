@@ -27,7 +27,7 @@ function ProductCard({ product }: { product: ElfiaProduct }) {
             </span>
           </div>
         )}
-        <span className="text-foreground absolute top-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-medium">
+        <span className="text-foreground absolute top-4 left-4 rounded-md bg-white/90 px-3 py-1 text-xs font-medium">
           {product.category}
         </span>
       </div>
@@ -60,7 +60,7 @@ export function Elfia() {
               href={CONTACT.socials.tiktok}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-gold hover:bg-gold/85 mt-8 inline-flex h-12 items-center rounded-full px-8 text-sm font-medium text-black transition-colors"
+              className="bg-gold hover:bg-gold/85 mt-8 inline-flex h-12 items-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
             >
               {ELFIA.cta}
             </a>

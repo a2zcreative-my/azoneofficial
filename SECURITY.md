@@ -16,5 +16,10 @@
 - **Audit logging**: every mutating admin action recorded in `audit_log`
 - **Secrets**: only in Cloudflare environment bindings — never committed
 
+## Authentication modes
+- Password login (PBKDF2 + pepper, rate-limited)
+- Google OAuth 2.0 (authorization code + state cookie; requires Google-verified email)
+- Self-registration: open to any valid email but always created **inactive** — password registration cannot prove mailbox ownership, so a super admin must approve. Google-verified company-domain accounts auto-activate; this is safe because Google attests email ownership.
+
 ## Reporting
 Security concerns: contact the team via the address in constants/content.ts.

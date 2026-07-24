@@ -16,7 +16,7 @@ export default function ProductsPage() {
     <>
       <Navbar />
       <main className="bg-brand pt-16 text-white">
-        <div className="mx-auto w-full max-w-6xl px-6 py-20 sm:py-28">
+        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
           <header className="max-w-2xl">
             <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
               {ELFIA.eyebrow}
@@ -55,7 +55,7 @@ export default function ProductsPage() {
                       </span>
                     </div>
                   )}
-                  <span className="absolute top-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-black">
+                  <span className="absolute top-4 left-4 rounded-md bg-white/90 px-3 py-1 text-xs font-medium text-black">
                     {product.category}
                   </span>
                 </div>
@@ -81,7 +81,7 @@ export default function ProductsPage() {
                 href={CONTACT.socials.tiktok}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-full px-8 text-sm font-medium text-black transition-colors"
+                className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
               >
                 {ELFIA.cta}
               </a>
@@ -89,7 +89,7 @@ export default function ProductsPage() {
                 href={whatsappUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-12 items-center justify-center rounded-full border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
+                className="inline-flex h-12 items-center justify-center rounded-lg border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
               >
                 Ask about ELFIA on WhatsApp
               </a>

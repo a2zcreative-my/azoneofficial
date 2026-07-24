@@ -14,6 +14,9 @@ export const SITE_CONFIG = {
   brand: {
     fashion: "ELFIA",
   },
+  // Cloudflare Web Analytics token — Cloudflare dashboard → Analytics → Web Analytics
+  // → Add a site → copy the token here. Leave "" to disable the beacon.
+  cfAnalyticsToken: "",
 } as const;
 
 export const NAV_ITEMS: readonly NavItem[] = [

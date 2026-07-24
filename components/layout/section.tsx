@@ -25,7 +25,7 @@ export function Section({
     <section
       id={id}
       className={cn(
-        "scroll-mt-24 px-5 py-16 sm:px-6 sm:py-28",
+        "scroll-mt-24 px-6 py-16 sm:py-24",
         dark ? "bg-brand text-white" : "bg-background text-foreground",
         className,
       )}
@@ -34,7 +34,7 @@ export function Section({
         {(eyebrow || title || intro) && (
           <header className="mb-12 max-w-2xl sm:mb-16">
             {eyebrow && (
-              <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
+              <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">
                 {eyebrow}
               </p>
             )}

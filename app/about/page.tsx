@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { PageShell } from "@/components/layout/page-shell";
 import { ABOUT } from "@/constants/content";
+import { whatsappUrl } from "@/constants/content";
 import { WHY_CHOOSE_US } from "@/constants/pages";
 import { SITE_CONFIG } from "@/constants/site";
 
@@ -39,6 +40,21 @@ export default function AboutPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <p>
+          Want to see how this applies to your brand?{" "}
+          <a
+            href={whatsappUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-foreground underline"
+          >
+            Book a free consultation on WhatsApp
+          </a>
+          .
+        </p>
       </section>
     </PageShell>
   );

@@ -14,5 +14,8 @@ bucket_name = "azoneofficial"
 
 [vars]
 ALLOWED_ORIGIN = "https://azoneofficial.com"
+GOOGLE_CLIENT_ID = "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID"
+COMPANY_DOMAIN = "azoneofficial.com"
 # Secrets (set via `wrangler secret put`, never commit):
 #   SESSION_PEPPER — random 32+ char string mixed into password hashing
+#   GOOGLE_CLIENT_SECRET — from the same Google Cloud OAuth client

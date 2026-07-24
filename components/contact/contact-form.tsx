@@ -130,7 +130,7 @@ export function ContactForm() {
         type="button"
         onClick={submit}
         disabled={status === "sending" || !form.name.trim() || !form.message.trim()}
-        className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 items-center rounded-full px-8 text-sm font-medium transition-colors disabled:opacity-50"
+        className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 items-center rounded-lg px-8 text-sm font-medium transition-colors disabled:opacity-50"
       >
         {status === "sending" ? "Sending…" : "Send message"}
       </button>

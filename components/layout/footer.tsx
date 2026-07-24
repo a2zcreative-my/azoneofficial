@@ -1,6 +1,7 @@
 import { Facebook, Instagram, Music2 } from "lucide-react";
 import Link from "next/link";
 
+import { Editable } from "@/components/live/editable";
 import { CONTACT, whatsappUrl } from "@/constants/content";
 import { CTA_LABEL, NAV_ITEMS, SITE_CONFIG } from "@/constants/site";
 
@@ -25,7 +26,7 @@ export function Footer() {
               className="h-8 w-auto"
             />
             <p className="mt-3 text-sm leading-relaxed text-white/60">
-              {SITE_CONFIG.slogan}
+              <Editable k="footer.slogan" fallback={SITE_CONFIG.slogan} />
             </p>
             <p className="mt-4 text-xs leading-relaxed text-white/50">
               {SITE_CONFIG.address}
@@ -42,7 +43,7 @@ export function Footer() {
 
           <div className="grid grid-cols-2 gap-12 sm:grid-cols-2">
             <nav aria-label="Footer">
-              <p className="text-xs font-medium tracking-[0.2em] text-white/40 uppercase">
+              <p className="text-xs font-medium tracking-[0.2em] text-white/60 uppercase">
                 Explore
               </p>
               <ul className="mt-4 space-y-2">
@@ -60,7 +61,7 @@ export function Footer() {
             </nav>
 
             <div>
-              <p className="text-xs font-medium tracking-[0.2em] text-white/40 uppercase">
+              <p className="text-xs font-medium tracking-[0.2em] text-white/60 uppercase">
                 Follow us
               </p>
               <ul className="mt-4 space-y-2">
@@ -91,14 +92,14 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-white/40">
+          <p className="text-xs text-white/60">
             © {year} {SITE_CONFIG.legalName}. All rights reserved.
           </p>
           <ul className="flex gap-6">
             <li>
               <Link
                 href="/case-studies"
-                className="text-xs text-white/40 transition-colors hover:text-white"
+                className="text-xs text-white/60 transition-colors hover:text-white"
               >
                 Case Studies
               </Link>
@@ -106,7 +107,7 @@ export function Footer() {
             <li>
               <Link
                 href="/careers"
-                className="text-xs text-white/40 transition-colors hover:text-white"
+                className="text-xs text-white/60 transition-colors hover:text-white"
               >
                 Careers
               </Link>
@@ -114,7 +115,7 @@ export function Footer() {
             <li>
               <Link
                 href="/privacy"
-                className="text-xs text-white/40 transition-colors hover:text-white"
+                className="text-xs text-white/60 transition-colors hover:text-white"
               >
                 Privacy Policy
               </Link>
@@ -122,7 +123,7 @@ export function Footer() {
             <li>
               <Link
                 href="/terms"
-                className="text-xs text-white/40 transition-colors hover:text-white"
+                className="text-xs text-white/60 transition-colors hover:text-white"
               >
                 Terms &amp; Conditions
               </Link>
@@ -130,7 +131,7 @@ export function Footer() {
             <li>
               <Link
                 href="/admin"
-                className="text-xs text-white/40 transition-colors hover:text-white"
+                className="text-xs text-white/60 transition-colors hover:text-white"
               >
                 Admin Login
               </Link>

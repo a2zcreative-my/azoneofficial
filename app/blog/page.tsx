@@ -32,7 +32,7 @@ export default function BlogPage() {
             <p className="mt-2 text-sm">{post.excerpt}</p>
             <Link
               href={`/blog/${post.slug}`}
-              className="text-gold mt-3 inline-block text-sm font-medium hover:underline"
+              className="text-gold-deep mt-3 inline-block text-sm font-medium hover:underline"
             >
               Read more →
             </Link>

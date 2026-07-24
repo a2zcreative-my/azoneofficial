@@ -6,9 +6,16 @@ Separate Worker serving `/api/v1` — the public site stays static.
 ```bash
 cd worker
 pnpm install
-pnpm wrangler secret put SESSION_PEPPER   # random 32+ chars, generate once, never lose
-pnpm migrate:prod                          # apply 0001_init.sql to D1
+pnpm wrangler secret put SESSION_PEPPER       # random 32+ chars, generate once, never lose
+pnpm wrangler secret put GOOGLE_CLIENT_SECRET # from the Google OAuth client (below)
+pnpm migrate:prod                             # apply migrations to D1
 ```
+
+## Google sign-in setup (one-time)
+1. Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (type: Web application)
+2. Authorized redirect URI: `https://azoneofficial.com/api/v1/auth/google/callback`
+3. Put the Client ID into `wrangler.toml` (`GOOGLE_CLIENT_ID`) and the Client Secret into the secret above
+4. Sign-in rules: Google-verified `@azoneofficial.com` accounts are activated automatically (role: marketing — raise it in Users). Other Google accounts and all password registrations are created as **pending** until a super admin activates them.
 
 ## Create the first super admin
 Generate a password hash locally (`wrangler dev` + a temporary route, or a small node script using the same PBKDF2 format `pbkdf2$310000$<salt>$<hash>`), then:

@@ -25,7 +25,7 @@ export const CONTACT = {
   whatsapp: "60123834821",
   whatsappMessage:
     "Hi AZ ONE OFFICIAL, I'm interested in your Live Commerce services. I would like to know more.",
-  email: "hello@azoneofficial.com", // TODO: confirm mailbox
+  email: "admin@azoneofficial.com",
   socials: {
     tiktok: "https://www.tiktok.com/@azoneofficial", // TODO: confirm handle
     instagram: "https://www.instagram.com/azoneofficial", // TODO: confirm handle

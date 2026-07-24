@@ -11,6 +11,7 @@ import {
 import { useEffect, useRef } from "react";
 
 import { Section } from "@/components/layout/section";
+import { Editable } from "@/components/live/editable";
 import { Reveal } from "@/components/ui/reveal";
 import { ABOUT, STATISTICS } from "@/constants/content";
 import type { Statistic } from "@/types";
@@ -39,7 +40,7 @@ function StatCounter({ stat }: { stat: Statistic }) {
     <div className="border-t border-border pt-6">
       <p className="text-4xl font-semibold tracking-tight sm:text-5xl">
         <motion.span ref={ref}>{rounded}</motion.span>
-        <span className="text-gold">{stat.suffix}</span>
+        <span className="text-gold-deep">{stat.suffix}</span>
       </p>
       <p className="text-muted-foreground mt-2 text-sm">{stat.label}</p>
     </div>
@@ -49,15 +50,16 @@ function StatCounter({ stat }: { stat: Statistic }) {
 export function About() {
   return (
     <Section id="about" eyebrow={ABOUT.eyebrow} title={ABOUT.title}>
+      {/* Editable keys: about.body1, about.body2 (Admin -> Content) */}
       <div className="grid gap-12 lg:grid-cols-2 lg:gap-20">
         <Reveal>
           <div className="space-y-5">
-            {ABOUT.body.map((paragraph) => (
+            {ABOUT.body.map((paragraph, i) => (
               <p
                 key={paragraph}
                 className="text-muted-foreground text-base leading-relaxed"
               >
-                {paragraph}
+                <Editable k={`about.body${i + 1}`} fallback={paragraph} />
               </p>
             ))}
           </div>
