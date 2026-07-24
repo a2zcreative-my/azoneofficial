@@ -15,5 +15,11 @@ All content is edited in code, then pushed to deploy:
 
 After editing: commit → push → Cloudflare deploys.
 
+## Login (/login)
+One login for everyone. After signing in (email/password or Google) you are routed automatically: customers → /account, operational staff → /portal, admin/CMS roles → /admin. Registration is open and creates a customer account instantly; staff access is assigned by administrators in Admin → Users.
+
+## Customer account (/account)
+Your details, your enquiry history (enquiries sent from the contact page with your email appear here with live status), and quick links to ELFIA.
+
 ## Staff Portal (/portal)
-Sign in at /admin, then open /portal. Everyone: clock in/out and breaks, attendance history, apply/cancel leave and see balances, tasks, announcements (acknowledge), notifications, profile (phone editable), light/dark mode. Managers (MD/COO/Admin/Live Manager): approve/reject leave, team attendance report, post announcements, assign tasks, HR fields in staff directory. Sales roles (BD/Finance/MD/Admin): customers + quotations/DO; invoices are finance-only. Live Hosts see only their own attendance, leave, tasks, announcements, and profile.
+Sign in at /login, then open /portal. Everyone: clock in/out and breaks, attendance history, apply/cancel leave and see balances, tasks, announcements (acknowledge), notifications, profile (phone editable), light/dark mode. Managers (MD/COO/Admin/Live Manager): approve/reject leave, team attendance report, post announcements, assign tasks, HR fields in staff directory. Sales roles (BD/Finance/MD/Admin): customers + quotations/DO; invoices are finance-only. Live Hosts see only their own attendance, leave, tasks, announcements, and profile.

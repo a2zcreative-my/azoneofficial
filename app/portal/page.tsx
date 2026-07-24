@@ -625,6 +625,10 @@ export default function PortalPage() {
   }, [user, tab]);
 
   if (!checked) return null;
+  if (user?.role === "customer") {
+    if (typeof window !== "undefined") window.location.replace("/account");
+    return null;
+  }
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
@@ -633,7 +637,7 @@ export default function PortalPage() {
         <p className="text-muted-foreground mt-3 text-sm">
           The Staff Portal is for AZ ONE OFFICIAL employees only.
         </p>
-        <a href="/admin" className={`${btnClass} mt-6`}>Go to login</a>
+        <a href="/login" className={`${btnClass} mt-6`}>Go to login</a>
       </div>
     );
   }

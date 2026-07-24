@@ -27,9 +27,9 @@ export const CONTACT = {
     "Hi AZ ONE OFFICIAL, I'm interested in your Live Commerce services. I would like to know more.",
   email: "admin@azoneofficial.com",
   socials: {
-    tiktok: "https://www.tiktok.com/@azoneofficial", // TODO: confirm handle
-    instagram: "https://www.instagram.com/azoneofficial", // TODO: confirm handle
-    facebook: "https://www.facebook.com/azoneofficial", // TODO: confirm handle
+    tiktok: "https://www.tiktok.com/@azoneofficialhq",
+    instagram: "https://www.instagram.com/azoneofficialhq",
+    facebook: "https://www.facebook.com/azoneofficialhq",
   },
 } as const;
 

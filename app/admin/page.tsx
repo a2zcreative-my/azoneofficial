@@ -57,163 +57,6 @@ const btnClass =
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
-/* ---------------- Login ---------------- */
-
-function Login({ onLogin }: { onLogin: (u: User) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("pending")) {
-      setNotice("Your account is awaiting approval by an administrator.");
-    } else if (q.get("error") === "oauth") {
-      setError("Google sign-in didn't complete — please try again.");
-    }
-  }, []);
-
-  const submit = async () => {
-    setBusy(true);
-    setError("");
-    setNotice("");
-
-    if (mode === "register") {
-      const res = await api<{ pending?: boolean }>("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, name, password }),
-      });
-      setBusy(false);
-      if (res.ok) {
-        setMode("login");
-        setPassword("");
-        setNotice("Account created — you can sign in once an administrator approves it.");
-      } else if (res.status === 409) {
-        setError("An account with this email already exists.");
-      } else if (res.status === 429) {
-        setError("Too many registrations — try again later.");
-      } else {
-        setError("Check all fields — password needs 10+ characters.");
-      }
-      return;
-    }
-
-    const res = await api<{ user: User }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-    setBusy(false);
-    if (res.ok && res.data) {
-      onLogin(res.data.user);
-    } else if (res.status === 429) {
-      setError("Too many attempts — try again in 15 minutes.");
-    } else if (res.status === 0) {
-      setError("Can't reach the API. Is the Worker deployed on /api/*?");
-    } else {
-      setError("Email or password is incorrect — or the account is not yet approved.");
-    }
-  };
-
-  return (
-    <div className="mx-auto mt-24 w-full max-w-sm px-6">
-      <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">
-        Admin
-      </p>
-      <h1 className="text-2xl font-semibold tracking-tight">
-        {mode === "login" ? "Sign in" : "Create an account"}
-      </h1>
-
-      <a
-        href={`${API}/auth/google`}
-        className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border text-sm font-medium transition-colors hover:bg-secondary"
-      >
-        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-          <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.5 13.3l7.9 6.2C12.3 13.6 17.7 9.5 24 9.5z"/>
-          <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.4 6.9-17.7z"/>
-          <path fill="#FBBC05" d="M10.4 28.7a14.6 14.6 0 0 1 0-9.2l-7.9-6.2a24 24 0 0 0 0 21.6l7.9-6.2z"/>
-          <path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.7-6c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.7-4.1-13.6-9.9l-7.9 6.2C6.5 42.6 14.6 48 24 48z"/>
-        </svg>
-        Continue with Google
-      </a>
-
-      <div className="my-6 flex items-center gap-3">
-        <span className="h-px flex-1 bg-border" />
-        <span className="text-muted-foreground text-xs">or with email</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-
-      <div className="space-y-4">
-        {mode === "register" && (
-          <input
-            className={inputClass}
-            placeholder="Your name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoComplete="name"
-          />
-        )}
-        <input
-          className={inputClass}
-          placeholder="Email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="username"
-        />
-        <input
-          className={inputClass}
-          placeholder={mode === "register" ? "Password (10+ characters)" : "Password"}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete={mode === "register" ? "new-password" : "current-password"}
-          onKeyDown={(e) => e.key === "Enter" && void submit()}
-        />
-        {notice && <p className="text-sm text-foreground">{notice}</p>}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          type="button"
-          className={btnClass}
-          disabled={
-            busy || !email || !password || (mode === "register" && !name)
-          }
-          onClick={() => void submit()}
-        >
-          {busy
-            ? "Please wait…"
-            : mode === "login"
-              ? "Sign in"
-              : "Create account"}
-        </button>
-        <button
-          type="button"
-          className="text-muted-foreground block text-sm underline"
-          onClick={() => {
-            setMode(mode === "login" ? "register" : "login");
-            setError("");
-            setNotice("");
-          }}
-        >
-          {mode === "login"
-            ? "New here? Create an account"
-            : "Already have an account? Sign in"}
-        </button>
-        {mode === "register" && (
-          <p className="text-muted-foreground text-xs">
-            New accounts need approval by an administrator before first sign-in.
-            Signing in with a Google {`@azoneofficial.com`} account is approved
-            automatically.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ---------------- Enquiries ---------------- */
 
 const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
@@ -790,7 +633,14 @@ export default function AdminPage() {
   }, []);
 
   if (!checked) return null;
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) {
+    if (typeof window !== "undefined") window.location.replace("/login");
+    return null;
+  }
+  if (user.role === "customer") {
+    if (typeof window !== "undefined") window.location.replace("/account");
+    return null;
+  }
 
   const logout = async () => {
     await api("/auth/logout", { method: "POST" });

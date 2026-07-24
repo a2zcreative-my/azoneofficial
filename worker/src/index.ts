@@ -14,12 +14,14 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
+  SETUP_TOKEN: string;
 }
 
 type Role =
   | "super_admin" | "admin" | "editor" | "marketing"
   | "managing_director" | "coo" | "business_dev"
-  | "finance_admin" | "live_manager" | "live_host";
+  | "finance_admin" | "live_manager" | "live_host"
+  | "customer";
 
 interface SessionUser {
   id: number;
@@ -63,6 +65,18 @@ async function hashPassword(
     256,
   );
   return toHex(bits);
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return toHex(buf);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 function randomHex(bytes: number): string {
@@ -135,12 +149,16 @@ const OAUTH_STATE_COOKIE = "azone_oauth_state";
 
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
+  // Store only the hash: a leaked sessions table cannot be replayed.
+  const tokenHash = await sha256Hex(token);
   await env.DB.prepare(
     `INSERT INTO sessions (id, user_id, expires_at)
      VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
   )
-    .bind(token, userId)
+    .bind(tokenHash, userId)
     .run();
+  // Opportunistic housekeeping: purge expired sessions.
+  await env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
   return token;
 }
 
@@ -149,8 +167,9 @@ function sessionCookie(token: string): string {
 }
 
 async function getSessionUser(req: Request, env: Env): Promise<SessionUser | null> {
-  const token = getCookie(req, SESSION_COOKIE);
-  if (!token) return null;
+  const raw = getCookie(req, SESSION_COOKIE);
+  if (!raw) return null;
+  const token = await sha256Hex(raw);
   const row = await env.DB.prepare(
     `SELECT u.id, u.email, u.name, u.role
      FROM sessions s JOIN users u ON u.id = s.user_id
@@ -162,6 +181,7 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
 }
 
 const ROLE_RANK: Record<Role, number> = {
+  customer: 0,
   live_host: 0,
   marketing: 1,
   live_manager: 1,
@@ -389,13 +409,56 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/auth/logout" && method === "POST") {
-    const token = getCookie(request, SESSION_COOKIE);
-    if (token) {
-      await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`).bind(token).run();
+    const raw = getCookie(request, SESSION_COOKIE);
+    if (raw) {
+      await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`)
+        .bind(await sha256Hex(raw)).run();
     }
     return json({ ok: true }, 200, {
       "Set-Cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
     });
+  }
+
+  /* ---- one-time super admin bootstrap ---- */
+  // Works ONLY while no super_admin exists AND with the SETUP_TOKEN secret.
+  // No emails or passwords are hardcoded anywhere. Self-disables permanently.
+
+  if (path === "/api/v1/auth/setup" && method === "POST") {
+    const allowedSetup = await checkRateLimit(env, `setup:${clientIp(request)}`, 5, 3600);
+    if (!allowedSetup) return errorResponse("rate_limited", "Too many attempts", 429);
+
+    const existing = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin'`,
+    ).first<{ n: number }>();
+    if ((existing?.n ?? 0) > 0) {
+      return errorResponse("gone", "Setup already completed", 410);
+    }
+
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (
+      !body || typeof body.token !== "string" || !env.SETUP_TOKEN ||
+      !timingSafeEqual(body.token, env.SETUP_TOKEN)
+    ) {
+      return errorResponse("forbidden", "Invalid setup token", 403);
+    }
+    const emailOk =
+      typeof body.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email);
+    if (
+      !emailOk || !isNonEmptyString(body.name, 120) ||
+      !isNonEmptyString(body.password, 200) || (body.password as string).length < 12
+    ) {
+      return errorResponse("invalid_input", "email, name, and a password of 12+ characters are required", 400);
+    }
+    const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+    const res = await env.DB.prepare(
+      `INSERT INTO users (email, password_hash, name, role, is_active)
+       VALUES (?1, ?2, ?3, 'super_admin', 1) RETURNING id`,
+    )
+      .bind((body.email as string).toLowerCase().trim(), hash, (body.name as string).trim())
+      .first<{ id: number }>();
+    await audit(env, res?.id ?? null, "auth.bootstrap_super_admin", "users", String(res?.id));
+    const token = await createSession(env, res!.id);
+    return json({ ok: true }, 201, { "Set-Cookie": sessionCookie(token) });
   }
 
   /* ---- self-registration (pending approval) ---- */
@@ -416,16 +479,22 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const email = (body.email as string).toLowerCase().trim();
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
-      // Always pending (is_active = 0): password registration cannot prove
-      // email ownership, so a super admin must activate the account.
+      // Public registration = customer account, active immediately.
+      // Customers can only ever see their own data; staff/admin roles are
+      // assigned exclusively by a super admin, so this is safe by design.
       const res = await env.DB.prepare(
         `INSERT INTO users (email, password_hash, name, role, is_active)
-         VALUES (?1, ?2, ?3, 'marketing', 0) RETURNING id`,
+         VALUES (?1, ?2, ?3, 'customer', 1) RETURNING id`,
       )
         .bind(email, hash, (body.name as string).trim())
         .first<{ id: number }>();
-      await audit(env, null, "auth.register_pending", "users", String(res?.id));
-      return json({ ok: true, pending: true, message: "Account created — awaiting approval by an administrator." }, 201);
+      await audit(env, res?.id ?? null, "auth.register_customer", "users", String(res?.id));
+      const token = await createSession(env, res!.id);
+      return json(
+        { ok: true, user: { id: res!.id, email, name: (body.name as string).trim(), role: "customer" } },
+        201,
+        { "Set-Cookie": sessionCookie(token) },
+      );
     } catch {
       return errorResponse("conflict", "An account with this email already exists", 409);
     }
@@ -509,16 +578,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .first<{ id: number; is_active: number }>();
 
     if (!account) {
-      // Google-verified email: auto-activate company domain, otherwise pending
+      // Google-verified email: company domain -> staff-side (marketing) account;
+      // everyone else -> active customer account.
       const isCompany = email.endsWith(`@${env.COMPANY_DOMAIN}`);
       const res = await env.DB.prepare(
         `INSERT INTO users (email, password_hash, name, role, is_active)
-         VALUES (?1, 'oauth$google', ?2, 'marketing', ?3) RETURNING id, is_active`,
+         VALUES (?1, 'oauth$google', ?2, ?3, 1) RETURNING id, is_active`,
       )
-        .bind(email, profile.name ?? email, isCompany ? 1 : 0)
+        .bind(email, profile.name ?? email, isCompany ? "marketing" : "customer")
         .first<{ id: number; is_active: number }>();
       account = res!;
-      await audit(env, null, isCompany ? "auth.google_signup_active" : "auth.google_signup_pending", "users", String(account.id));
+      await audit(env, null, isCompany ? "auth.google_signup_company" : "auth.google_signup_customer", "users", String(account.id));
     }
 
     if (!account.is_active) {
@@ -528,9 +598,16 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       });
     }
 
+    const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+      .bind(account.id).first<{ role: Role }>();
+    const dest =
+      roleRow?.role === "customer" ? "/account"
+      : ["coo", "business_dev", "finance_admin", "live_manager", "live_host"].includes(roleRow?.role ?? "")
+        ? "/portal"
+        : "/admin";
     const token = await createSession(env, account.id);
     await audit(env, account.id, "auth.login_google");
-    const headers = new Headers({ Location: "/admin" });
+    const headers = new Headers({ Location: dest });
     headers.append("Set-Cookie", sessionCookie(token));
     headers.append("Set-Cookie", clearState);
     return new Response(null, { status: 302, headers });
@@ -549,6 +626,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path.startsWith("/api/v1/staff/")) {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    if (user.role === "customer") return errorResponse("forbidden", "Staff access only", 403);
     const staffRes = await handleStaff(
       request, env, path.slice("/api/v1/staff".length), user as StaffUser,
     );
@@ -604,6 +682,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ enquiries, products, posts, testimonials, activity });
   }
 
+  /* ---- customer account ---- */
+
+  if (path === "/api/v1/account/enquiries" && method === "GET") {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    // Email ownership is only proven for Google sign-ins. Password accounts
+    // see just the enquiries submitted after their registration, so nobody
+    // can register a stranger's email and read that person's history.
+    const acct = await env.DB.prepare(
+      `SELECT password_hash, created_at FROM users WHERE id = ?1`,
+    ).bind(user.id).first<{ password_hash: string; created_at: string }>();
+    const verified = acct?.password_hash.startsWith("oauth$") ?? false;
+    const { results } = await env.DB.prepare(
+      verified
+        ? `SELECT id, message, status, created_at FROM enquiries
+           WHERE email = ?1 ORDER BY created_at DESC LIMIT 50`
+        : `SELECT id, message, status, created_at FROM enquiries
+           WHERE email = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 50`,
+    ).bind(...(verified ? [user.email] : [user.email, acct?.created_at ?? ""])).all();
+    return json({ enquiries: results });
+  }
+
   /* ---- site content ---- */
 
   const contentMatch = path.match(/^\/api\/v1\/content\/([\w.\-]+)$/);
@@ -639,6 +738,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   const mediaServe = path.match(/^\/api\/v1\/media\/file\/(.+)$/);
   if (mediaServe && method === "GET") {
     const key = decodeURIComponent(mediaServe[1]!);
+    // Keys under private/ (e.g. medical certificates) require staff auth.
+    if (key.startsWith("private/") && (!user || user.role === "customer")) {
+      return errorResponse("forbidden", "Staff access required", 403);
+    }
     const obj = await env.MEDIA.get(key);
     if (!obj) return errorResponse("not_found", "File not found", 404);
     const headers = new Headers();
@@ -775,7 +878,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/users" && method === "POST") {
     if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host", "customer"];
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
@@ -807,7 +910,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const id = userMatch[1]!;
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) return errorResponse("invalid_input", "Body required", 400);
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host", "customer"];
     const changed: string[] = [];
 
     if (typeof body.role === "string" && roles.includes(body.role)) {

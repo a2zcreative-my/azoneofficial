@@ -17,12 +17,15 @@ pnpm migrate:prod                             # apply migrations to D1
 3. Put the Client ID into `wrangler.toml` (`GOOGLE_CLIENT_ID`) and the Client Secret into the secret above
 4. Sign-in rules: Google-verified `@azoneofficial.com` accounts are activated automatically (role: marketing — raise it in Users). Other Google accounts and all password registrations are created as **pending** until a super admin activates them.
 
-## Create the first super admin
-Generate a password hash locally (`wrangler dev` + a temporary route, or a small node script using the same PBKDF2 format `pbkdf2$310000$<salt>$<hash>`), then:
+## Create the first super admin (one-time bootstrap — nothing hardcoded)
+1. `pnpm wrangler secret put SETUP_TOKEN` — paste a random 32+ character string (generate with a password manager)
+2. After deploy, call once:
 ```bash
-pnpm wrangler d1 execute azoneofficial --remote --command \
-  "INSERT INTO users (email, password_hash, name, role) VALUES ('you@azoneofficial.com', '<hash>', 'Alīf', 'super_admin');"
+curl -X POST https://azoneofficial.com/api/v1/auth/setup \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<your SETUP_TOKEN>","email":"admin@azoneofficial.com","name":"Alīf","password":"<strong 12+ char password>"}'
 ```
+3. The endpoint returns 410 Gone forever after — it only works while zero super admins exist and only with the token. You can then sign in normally at /login (email/password or Google with the same email — the accounts match by email).
 
 ## Routes implemented (v0)
 - `GET  /api/v1/health`

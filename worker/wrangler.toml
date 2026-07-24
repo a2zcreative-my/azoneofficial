@@ -19,3 +19,4 @@ COMPANY_DOMAIN = "azoneofficial.com"
 # Secrets (set via `wrangler secret put`, never commit):
 #   SESSION_PEPPER — random 32+ char string mixed into password hashing
 #   GOOGLE_CLIENT_SECRET — from the same Google Cloud OAuth client
+#   SETUP_TOKEN — random 32+ chars; used ONCE to create the first super admin, then useless

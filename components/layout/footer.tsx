@@ -130,18 +130,10 @@ export function Footer() {
             </li>
             <li>
               <Link
-                href="/admin"
+                href="/login"
                 className="text-xs text-white/60 transition-colors hover:text-white"
               >
-                Admin Login
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/portal"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Staff Portal
+                Login
               </Link>
             </li>
           </ul>

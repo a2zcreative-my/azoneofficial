@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.0] — 2026-07-24 — Security audit & hardening
+### Added
+- One-time super admin bootstrap: POST /auth/setup guarded by SETUP_TOKEN secret + timing-safe compare; self-disables once a super admin exists (no hardcoded credentials anywhere)
+- Static security headers (public/_headers): nosniff, X-Frame-Options DENY, strict referrer, permissions policy
+### Security
+- Sessions stored as SHA-256 hashes (leak-resistant) with opportunistic expiry purge
+- /account/enquiries: unverified accounts limited to post-registration enquiries (email-squatting history leak closed)
+- R2 `private/` prefix requires staff auth
+Full audit report in SECURITY.md.
+
+## [1.1.1] — 2026-07-24
+### Changed
+- Official social handles confirmed and applied site-wide: TikTok/Instagram/Facebook → @azoneofficialhq (footer, contact page, ELFIA "Watch the next drop live" buttons)
+
+## [1.1.0] — 2026-07-24 — General login & role-routed access
+### Added
+- General /login (one door for everyone) with role-based routing after sign-in: customer → /account, staff-only roles → /portal, CMS roles → /admin; Google callback routes the same way
+- Customer role (migration 0004) + /account page: own details and enquiry history (matched by email); GET /api/v1/account/enquiries
+- Public registration now creates an ACTIVE customer account and signs the person in immediately (safe: customers see only their own data; staff/admin roles are assigned only by super admins)
+### Changed
+- Navbar/footer point to /login; /admin and /portal redirect unauthenticated visitors to /login and customers to /account; customers blocked from all /staff API routes
+### Removed
+- Pending-approval registration flow (replaced by customer accounts); embedded login screen inside /admin
+
 ## [1.0.0] — 2026-07-24 — Staff Portal (BMS) v1
 ### Added
 - Migration 0003: full BMS schema — expanded 10-role users (+staff profile fields), attendance, leave (+balances), announcements (+acks), tasks (+comments), customers, sales_documents with per-year auto numbering (QT/DO/INV 202600001), notifications

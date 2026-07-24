@@ -41,7 +41,7 @@ export function Navbar() {
 
         <div className="hidden items-center gap-5 md:flex">
           <Link
-            href="/admin"
+            href="/login"
             className="text-muted-foreground text-sm transition-colors hover:text-foreground"
           >
             Login
@@ -89,7 +89,7 @@ export function Navbar() {
           ))}
           <li>
             <Link
-              href="/admin"
+              href="/login"
               className="block rounded-md px-2 py-2 text-sm"
               onClick={() => setOpen(false)}
             >
