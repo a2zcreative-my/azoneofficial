@@ -3,13 +3,35 @@
 Separate Worker serving `/api/v1` — the public site stays static.
 
 ## Setup
+
+### 1. Install and apply the schema
 ```bash
 cd worker
 pnpm install
-pnpm wrangler secret put SESSION_PEPPER       # random 32+ chars, generate once, never lose
-pnpm wrangler secret put GOOGLE_CLIENT_SECRET # from the Google OAuth client (below)
 pnpm migrate:prod                             # apply migrations to D1
 ```
+
+### 2. Configure non-secret variables (Cloudflare dashboard OR CLI — never edit the code)
+Cloudflare dashboard → Workers & Pages → `azoneofficial-api` → **Settings → Variables → Plaintext variables**, add:
+- `ALLOWED_ORIGIN` = `https://azoneofficial.com`
+- `COMPANY_DOMAIN` = `azoneofficial.com`
+- `GOOGLE_CLIENT_ID` = the OAuth client ID from Google Cloud
+
+### 3. Set secrets (encrypted, never in code)
+```bash
+pnpm wrangler secret put SESSION_PEPPER       # random 32+ chars
+pnpm wrangler secret put GOOGLE_CLIENT_SECRET # from the Google OAuth client
+pnpm wrangler secret put SETUP_TOKEN          # one-time super admin bootstrap
+```
+
+### 4. Deploy and bootstrap
+```bash
+pnpm deploy
+```
+Then create your super admin via the one-time bootstrap curl below.
+
+## Local development
+Copy `.dev.vars.example` → `.dev.vars` (git-ignored), fill in the values, then `pnpm dev`.
 
 ## Google sign-in setup (one-time)
 1. Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (type: Web application)

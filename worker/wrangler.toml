@@ -13,10 +13,16 @@ binding = "MEDIA"
 bucket_name = "azoneofficial"
 
 [vars]
-ALLOWED_ORIGIN = "https://azoneofficial.com"
-GOOGLE_CLIENT_ID = "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID"
-COMPANY_DOMAIN = "azoneofficial.com"
-# Secrets (set via `wrangler secret put`, never commit):
-#   SESSION_PEPPER — random 32+ char string mixed into password hashing
-#   GOOGLE_CLIENT_SECRET — from the same Google Cloud OAuth client
-#   SETUP_TOKEN — random 32+ chars; used ONCE to create the first super admin, then useless
+# Non-secret vars kept out of source: set them in the Cloudflare dashboard
+# (Workers & Pages → your Worker → Settings → Variables) or via
+# `wrangler secret put` for the sensitive ones below. Nothing here is hardcoded.
+#
+# Non-secret plaintext variables to set:
+#   ALLOWED_ORIGIN     = https://azoneofficial.com
+#   COMPANY_DOMAIN     = azoneofficial.com
+#   GOOGLE_CLIENT_ID   = 357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com
+#
+# Secrets (set via `wrangler secret put <NAME>`, never commit):
+#   SESSION_PEPPER          — random 32+ chars mixed into password hashing
+#   GOOGLE_CLIENT_SECRET    — from the same Google Cloud OAuth client
+#   SETUP_TOKEN             — random 32+ chars; one-time super admin bootstrap

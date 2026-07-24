@@ -43,7 +43,8 @@ public/       Static assets
 
 | File | Purpose |
 |---|---|
-| CHANGELOG.md | Version history |
+| CHANGELOG.md | Version history (granular changes per release) |
+| MILESTONES.md | Milestone log — full timeline, assets, decisions |
 | FEATURES.md | Implemented functionality |
 | ROADMAP.md | Planned work & pre-launch checklist |
 | ARCHITECTURE.md | System design + Phase 3 decision |
@@ -56,4 +57,4 @@ public/       Static assets
 | USER_GUIDE.md | How to use & edit the site today |
 
 ## Status
-Phases 1–2 complete (full public site, static export). Phase 3 (admin CMS on Workers + D1 + R2) pending architecture decision — see ARCHITECTURE.md.
+v1.2.1 — full platform built (public site + Worker API + admin CMS + Staff Portal + customer accounts). Deploy checklist in DEPLOYMENT.md.

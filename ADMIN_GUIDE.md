@@ -1,5 +1,7 @@
 # Admin Guide
 
+> **First-time sign-in:** create your super admin account via the one-time bootstrap curl in `worker/README.md` (uses your SETUP_TOKEN secret; nothing is hardcoded). After that, sign in normally at `/login` with email/password or Continue with Google.
+
 > The admin v0 is LIVE at `/admin` (after Worker deploy + first super admin creation — see worker/README.md).
 
 ## Using admin v0

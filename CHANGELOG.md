@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.3] — 2026-07-24
+### Added
+- `public/og.png` (1200×630) redesigned — logo enlarged, cleaner corporate layout, navy tagline, gold accent band
+- `public/og-square.png` (1080×1080) new — square variant for WhatsApp centre-crop on mobile chat lists
+- `MILESTONES.md` — comprehensive milestone log recording every version, asset, and decision from inception
+- After deploy: use Facebook Sharing Debugger or WhatsApp's link cache reset (add ?v=2 once) to force social platforms to re-fetch
+
+## [1.2.2] — 2026-07-24
+### Changed
+- Configuration discipline: no credentials or IDs in source. `wrangler.toml` now lists only variable names with instructions; all values (including GOOGLE_CLIENT_ID as a plaintext variable) live in the Cloudflare dashboard or as secrets. Added `.dev.vars.example` for local dev; `.dev.vars` is git-ignored.
+
 ## [1.2.1] — 2026-07-24
 ### Fixed
 - Login/register error handling: 400s now show the API's real reason (was hidden as a misleading "password needs 10+ characters" for every failure); network/route-missing errors now say so plainly, so users can tell "not deployed yet" apart from "check your input"

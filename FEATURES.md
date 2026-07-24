@@ -17,6 +17,9 @@
 ## Content management (current)
 - All content lives in `constants/` (site.ts, content.ts, pages.ts) — edited in code, deployed via git push
 
+## Login UX
+- General /login and /admin: show/hide password toggle · live "X of 10 characters" counter during registration · precise error messages that distinguish API validation errors from network/deployment issues · password minimum is 10 characters everywhere
+
 ## Admin & API (implemented)
 - API Worker (`/worker`): auth + sessions, RBAC, rate limiting, audit logging, enquiries, full CRUD (products/posts/portfolio/testimonials), site content, R2 media
 - Contact form on /contact storing enquiries (WhatsApp fallback)

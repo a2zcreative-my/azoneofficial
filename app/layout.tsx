@@ -33,7 +33,10 @@ export const metadata: Metadata = {
     title: `${SITE_CONFIG.name} — ${SITE_CONFIG.tagline}`,
     description: SITE_CONFIG.description,
     locale: SITE_CONFIG.locale,
-    images: [{ url: "/og.png", width: 1200, height: 630 }],
+    images: [
+      { url: "/og.png", width: 1200, height: 630, alt: "AZ ONE OFFICIAL — Malaysia's Premium Live Commerce Agency" },
+      { url: "/og-square.png", width: 1080, height: 1080, alt: "AZ ONE OFFICIAL" },
+    ],
   },
   twitter: {
     card: "summary_large_image",

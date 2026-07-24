@@ -1,0 +1,8 @@
+# Copy to .dev.vars (git-ignored) for local `pnpm dev`
+# Real values live in Cloudflare, never in the repo.
+ALLOWED_ORIGIN=http://localhost:8787
+COMPANY_DOMAIN=azoneofficial.com
+GOOGLE_CLIENT_ID=357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com
+SESSION_PEPPER=change-me-locally
+GOOGLE_CLIENT_SECRET=change-me-locally
+SETUP_TOKEN=change-me-locally

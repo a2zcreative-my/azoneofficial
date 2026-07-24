@@ -42,6 +42,12 @@ Security concerns: contact the team via the address in constants/content.ts.
 - Static site security headers via `public/_headers`: nosniff, frame-deny, strict referrer, locked permissions
 - First super admin created via a one-time SETUP_TOKEN-protected bootstrap that self-disables — no credentials in code
 
+### v1.2.1 follow-ups
+- Password minimum harmonised to 10 characters everywhere (was inconsistently 12 in setup); login/register UI now shows the true reason on validation errors instead of blaming length.
+
+### Configuration discipline
+- Zero credentials, IDs, tokens, or environment values live in source. `wrangler.toml` lists only variable NAMES with instructions to set them in the Cloudflare dashboard or via `wrangler secret put`. Local development reads from `.dev.vars` (git-ignored). The repo is safe to publish or share without leaking any operational value.
+
 ### Known limitations (tracked in ROADMAP.md)
 - No email verification for password registrations (limits above mitigate; verification needs an outbound email service)
 - No strict Content-Security-Policy yet (Next.js inline runtime; revisit with nonce-based CSP)

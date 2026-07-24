@@ -16,7 +16,7 @@ All content is edited in code, then pushed to deploy:
 After editing: commit → push → Cloudflare deploys.
 
 ## Login (/login)
-One login for everyone. After signing in (email/password or Google) you are routed automatically: customers → /account, operational staff → /portal, admin/CMS roles → /admin. Registration is open and creates a customer account instantly; staff access is assigned by administrators in Admin → Users.
+One login for everyone. The password field has a show/hide eye toggle if you want to check what you've typed. During registration you'll see live feedback on password length. After signing in (email/password or Google) you are routed automatically: customers → /account, operational staff → /portal, admin/CMS roles → /admin. Registration is open and creates a customer account instantly; staff access is assigned by administrators in Admin → Users.
 
 ## Customer account (/account)
 Your details, your enquiry history (enquiries sent from the contact page with your email appear here with live status), and quick links to ELFIA.

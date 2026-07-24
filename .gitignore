@@ -30,3 +30,6 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+-e 
+# Wrangler local secrets
+worker/.dev.vars
