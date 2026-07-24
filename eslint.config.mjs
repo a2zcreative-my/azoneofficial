@@ -18,6 +18,8 @@ const eslintConfig = [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "@next/next/no-img-element": "off",
+      "react/no-unescaped-entities": "off",
     },
   },
   {

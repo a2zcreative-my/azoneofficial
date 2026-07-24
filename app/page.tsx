@@ -1,18 +1,29 @@
-import { SITE_CONFIG } from "@/constants/site";
+import { About } from "@/components/home/about";
+import { Cta } from "@/components/home/cta";
+import { Elfia } from "@/components/home/elfia";
+import { Faq } from "@/components/home/faq";
+import { Hero } from "@/components/home/hero";
+import { Process } from "@/components/home/process";
+import { Services } from "@/components/home/services";
+import { Showcase } from "@/components/home/showcase";
+import { Footer } from "@/components/layout/footer";
+import { Navbar } from "@/components/layout/navbar";
 
 export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
-      <p className="text-gold text-sm font-medium tracking-[0.3em] uppercase">
-        Coming together
-      </p>
-      <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-        {SITE_CONFIG.name}
-      </h1>
-      <p className="text-muted-foreground max-w-md text-base">
-        {SITE_CONFIG.tagline}. Site under construction — sections land milestone
-        by milestone.
-      </p>
-    </main>
+    <>
+      <Navbar />
+      <main>
+        <Hero />
+        <About />
+        <Services />
+        <Showcase />
+        <Elfia />
+        <Process />
+        <Faq />
+        <Cta />
+      </main>
+      <Footer />
+    </>
   );
 }
