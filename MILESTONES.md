@@ -24,6 +24,7 @@ Complete milestone log for AZ ONE OFFICIAL — every version, decision, and asse
 | v1.2.1 | 24 Jul 2026 | Login UX fixes: honest error messages, show/hide password eye toggle, live character counter |
 | v1.2.2 | 24 Jul 2026 | Configuration discipline: zero credentials or IDs in source; all values in Cloudflare dashboard/secrets |
 | v1.2.3 | 24 Jul 2026 | OG share preview redesigned + new square variant for WhatsApp centre-crop |
+| v1.2.4 | 24 Jul 2026 | /login mode switcher moved to persistent top tabs (Sign in / Create account) |
 
 ---
 

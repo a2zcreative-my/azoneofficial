@@ -2,6 +2,10 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.4] — 2026-07-24
+### Changed
+- /login: mode switcher moved to a persistent top-of-form Sign in / Create account tab pair (was a text link buried under the submit button). Both modes visible from arrival — clearer wayfinding, no more "New here?" line
+
 ## [1.2.3] — 2026-07-24
 ### Added
 - `public/og.png` (1200×630) redesigned — logo enlarged, cleaner corporate layout, navy tagline, gold accent band

@@ -114,6 +114,39 @@ export default function LoginPage() {
         automatically.
       </p>
 
+      <div
+        role="tablist"
+        aria-label="Sign in or create an account"
+        className="mt-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-secondary p-1"
+      >
+        <button
+          role="tab"
+          type="button"
+          aria-selected={mode === "login"}
+          onClick={() => { setMode("login"); setError(""); }}
+          className={
+            mode === "login"
+              ? "rounded-md bg-background px-4 py-2 text-sm font-medium shadow-sm"
+              : "text-muted-foreground rounded-md px-4 py-2 text-sm font-medium hover:text-foreground"
+          }
+        >
+          Sign in
+        </button>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={mode === "register"}
+          onClick={() => { setMode("register"); setError(""); }}
+          className={
+            mode === "register"
+              ? "rounded-md bg-background px-4 py-2 text-sm font-medium shadow-sm"
+              : "text-muted-foreground rounded-md px-4 py-2 text-sm font-medium hover:text-foreground"
+          }
+        >
+          Create account
+        </button>
+      </div>
+
       <a
         href={`${API}/auth/google`}
         className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-secondary"
@@ -190,13 +223,6 @@ export default function LoginPage() {
           onClick={() => void submit()}
         >
           {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
-        </button>
-        <button
-          type="button"
-          className="text-muted-foreground block text-sm underline"
-          onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
-        >
-          {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
         </button>
         {mode === "register" && (
           <p className="text-muted-foreground text-xs">
