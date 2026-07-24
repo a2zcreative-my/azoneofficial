@@ -565,8 +565,21 @@ function UsersPanel({ me }: { me: User }) {
           onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
-        <input className={inputClass} placeholder="Password (10+ characters)" type="password" value={draft.password}
-          onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))} />
+        <label className="block">
+          <span className="text-muted-foreground mb-1 block text-xs font-medium">Password</span>
+          <input
+            className={inputClass}
+            placeholder="10+ characters"
+            type="password"
+            value={draft.password}
+            onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))}
+          />
+          {draft.password.length > 0 && draft.password.length < 10 && (
+            <p className="text-destructive mt-1 text-xs">
+              {draft.password.length} of 10 characters
+            </p>
+          )}
+        </label>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <button type="button" className={btnClass} onClick={() => void create()}>Create user</button>
       </div>

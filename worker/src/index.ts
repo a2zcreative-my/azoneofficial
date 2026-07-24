@@ -445,9 +445,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       typeof body.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email);
     if (
       !emailOk || !isNonEmptyString(body.name, 120) ||
-      !isNonEmptyString(body.password, 200) || (body.password as string).length < 12
+      !isNonEmptyString(body.password, 200) || (body.password as string).length < 10
     ) {
-      return errorResponse("invalid_input", "email, name, and a password of 12+ characters are required", 400);
+      return errorResponse("invalid_input", "email, name, and a password of 10+ characters are required", 400);
     }
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     const res = await env.DB.prepare(

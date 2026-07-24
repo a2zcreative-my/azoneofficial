@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.1] — 2026-07-24
+### Fixed
+- Login/register error handling: 400s now show the API's real reason (was hidden as a misleading "password needs 10+ characters" for every failure); network/route-missing errors now say so plainly, so users can tell "not deployed yet" apart from "check your input"
+- Password minimum harmonised to 10 characters everywhere (setup was inconsistently 12)
+### Added
+- Show/hide password eye toggle on login/register + live character counter with progress feedback (X of 10 — Y more needed) when registering
+- Live length feedback on the admin Create User form
+
 ## [1.2.0] — 2026-07-24 — Security audit & hardening
 ### Added
 - One-time super admin bootstrap: POST /auth/setup guarded by SETUP_TOKEN secret + timing-safe compare; self-disables once a super admin exists (no hardcoded credentials anywhere)

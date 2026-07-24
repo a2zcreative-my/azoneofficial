@@ -43,6 +43,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -71,8 +72,14 @@ export default function LoginPage() {
         setError("An account with this email already exists — sign in instead.");
       } else if (res.status === 429) {
         setError("Too many registrations — try again later.");
+      } else if (res.status === 400) {
+        // Show the real reason from the API instead of guessing
+        const msg = (res.data as { error?: { message?: string } } | null)?.error?.message;
+        setError(msg ?? "Please check the details and try again.");
+      } else if (res.status === 0 || res.status === 404) {
+        setError("Can't reach the sign-up service. The API Worker may not be deployed yet — please contact your administrator.");
       } else {
-        setError("Check all fields — password needs 10+ characters.");
+        setError("Sign-up failed — please try again in a moment.");
       }
       return;
     }
@@ -133,20 +140,53 @@ export default function LoginPage() {
         )}
         <input className={inputClass} placeholder="Email" type="email" value={email}
           onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
-        <input
-          className={inputClass}
-          placeholder={mode === "register" ? "Password (10+ characters)" : "Password"}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete={mode === "register" ? "new-password" : "current-password"}
-          onKeyDown={(e) => e.key === "Enter" && void submit()}
-        />
+        <div className="relative">
+          <input
+            className={`${inputClass} pr-11`}
+            placeholder={mode === "register" ? "Password (10+ characters)" : "Password"}
+            type={showPw ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === "register" ? "new-password" : "current-password"}
+            onKeyDown={(e) => e.key === "Enter" && void submit()}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPw((v) => !v)}
+            aria-label={showPw ? "Hide password" : "Show password"}
+            aria-pressed={showPw}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg focus:outline-none focus-visible:ring-2"
+          >
+            {showPw ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            )}
+          </button>
+        </div>
+        {mode === "register" && password.length > 0 && (
+          <p className={`text-xs ${password.length >= 10 ? "text-muted-foreground" : "text-destructive"}`}>
+            {password.length >= 10
+              ? `Password length OK (${password.length} characters)`
+              : `${password.length} of 10 characters — ${10 - password.length} more needed`}
+          </p>
+        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <button
           type="button"
           className={btnClass}
-          disabled={busy || !email || !password || (mode === "register" && !name)}
+          disabled={
+            busy ||
+            !email ||
+            !password ||
+            (mode === "register" && (!name || password.length < 10))
+          }
           onClick={() => void submit()}
         >
           {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
