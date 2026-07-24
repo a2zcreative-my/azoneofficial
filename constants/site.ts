@@ -4,6 +4,7 @@ export const SITE_CONFIG = {
   name: "AZ ONE OFFICIAL",
   legalName: "AZ One Official (JM1046169-H)",
   tagline: "Malaysia's Premium Live Commerce Agency",
+  brandTagline: "Live . Connect . Grow.",
   slogan: "Empowering Brands Through Live Commerce and Digital Connections.",
   address:
     "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor, Malaysia",

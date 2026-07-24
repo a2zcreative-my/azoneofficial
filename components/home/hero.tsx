@@ -39,9 +39,16 @@ export function Hero() {
         <LiveBadge />
       </motion.div>
 
+      <motion.p
+        {...fade(0.05)}
+        className="text-gold-deep mt-6 text-xs font-medium tracking-[0.35em] uppercase"
+      >
+        {SITE_CONFIG.brandTagline}
+      </motion.p>
+
       <motion.h1
         {...fade(0.1)}
-        className="mt-8 max-w-3xl text-[2.1rem] leading-tight font-semibold tracking-tight text-balance sm:text-6xl"
+        className="mt-4 max-w-3xl text-[2.1rem] leading-tight font-semibold tracking-tight text-balance sm:text-6xl"
       >
         <Editable
           k="home.hero.headline"

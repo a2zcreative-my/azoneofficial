@@ -25,6 +25,9 @@ export function Footer() {
               alt={SITE_CONFIG.name}
               className="h-8 w-auto"
             />
+            <p className="text-gold mt-3 text-xs font-medium tracking-[0.35em] uppercase">
+              {SITE_CONFIG.brandTagline}
+            </p>
             <p className="mt-3 text-sm leading-relaxed text-white/60">
               <Editable k="footer.slogan" fallback={SITE_CONFIG.slogan} />
             </p>

@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     description: SITE_CONFIG.description,
     locale: SITE_CONFIG.locale,
     images: [
-      { url: "/og.png", width: 1200, height: 630, alt: "AZ ONE OFFICIAL — Malaysia's Premium Live Commerce Agency" },
+      { url: "/og.png", width: 1200, height: 630, alt: "AZ ONE OFFICIAL — Live . Connect . Grow" },
       { url: "/og-square.png", width: 1080, height: 1080, alt: "AZ ONE OFFICIAL" },
     ],
   },
