@@ -326,10 +326,21 @@ function CrudPanel({
 
 /* ---------------- Dashboard ---------------- */
 
+interface Activity {
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  created_at: string;
+  user_name: string | null;
+}
+
 function Dashboard() {
   const [summary, setSummary] = useState<{
     enquiries?: { total: number; new_count: number };
     products?: { total: number };
+    posts?: { total: number };
+    testimonials?: { total: number };
+    activity?: Activity[];
   } | null>(null);
   useEffect(() => {
     void api<typeof summary>("/dashboard/summary").then((r) => {
@@ -337,17 +348,324 @@ function Dashboard() {
     });
   }, []);
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      {[
-        { label: "Total enquiries", value: summary?.enquiries?.total },
-        { label: "New enquiries", value: summary?.enquiries?.new_count },
-        { label: "Products", value: summary?.products?.total },
-      ].map((s) => (
-        <div key={s.label} className="rounded-xl border border-border p-5">
-          <p className="text-3xl font-semibold">{s.value ?? "—"}</p>
-          <p className="text-muted-foreground mt-1 text-sm">{s.label}</p>
-        </div>
-      ))}
+    <div className="space-y-8">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          { label: "Total enquiries", value: summary?.enquiries?.total },
+          { label: "New enquiries", value: summary?.enquiries?.new_count },
+          { label: "Products", value: summary?.products?.total },
+          { label: "Posts", value: summary?.posts?.total },
+          { label: "Testimonials", value: summary?.testimonials?.total },
+        ].map((s) => (
+          <div key={s.label} className="rounded-xl border border-border p-5">
+            <p className="text-3xl font-semibold">{s.value ?? "—"}</p>
+            <p className="text-muted-foreground mt-1 text-sm">{s.label}</p>
+          </div>
+        ))}
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold tracking-tight">Recent activity</h3>
+        <ul className="mt-3 space-y-1.5">
+          {(summary?.activity ?? []).map((a, i) => (
+            <li key={i} className="text-muted-foreground text-sm">
+              <span className="text-foreground">{a.user_name ?? "system"}</span>{" "}
+              — {a.action}
+              {a.entity_id ? ` #${a.entity_id}` : ""} · {a.created_at}
+            </li>
+          ))}
+          {(summary?.activity ?? []).length === 0 && (
+            <li className="text-muted-foreground text-sm">No activity yet.</li>
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Media ---------------- */
+
+interface MediaItem {
+  id: number;
+  r2_key: string;
+  kind: string;
+  alt: string | null;
+  created_at: string;
+}
+
+function MediaPanel() {
+  const [items, setItems] = useState<MediaItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await api<{ media: MediaItem[] }>("/media");
+    if (res.ok && res.data) setItems(res.data.media);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      const kind = file.type.startsWith("video") ? "video" : file.type.startsWith("image") ? "image" : "document";
+      const res = await fetch(
+        `${API}/media?filename=${encodeURIComponent(file.name)}&kind=${kind}`,
+        { method: "POST", credentials: "include", headers: { "Content-Type": file.type }, body: file },
+      );
+      if (!res.ok) setError("Upload failed.");
+    } catch {
+      setError("Upload failed — is the API reachable?");
+    }
+    setBusy(false);
+    void load();
+  };
+
+  const remove = async (id: number) => {
+    await api(`/media/${id}`, { method: "DELETE" });
+    void load();
+  };
+
+  return (
+    <div className="space-y-6">
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold">Upload file</span>
+        <input
+          type="file"
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void upload(f);
+            e.target.value = "";
+          }}
+          className="text-sm"
+        />
+      </label>
+      {busy && <p className="text-muted-foreground text-sm">Uploading…</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((m) => (
+          <div key={m.id} className="rounded-lg border border-border p-3">
+            {m.kind === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`${API}/media/file/${encodeURIComponent(m.r2_key)}`}
+                alt={m.alt ?? m.r2_key}
+                className="h-32 w-full rounded-md object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <p className="text-muted-foreground flex h-32 items-center justify-center text-xs">
+                {m.kind}
+              </p>
+            )}
+            <p className="mt-2 truncate text-xs">{m.r2_key}</p>
+            <div className="mt-1 flex justify-between">
+              <button
+                type="button"
+                className="text-xs underline"
+                onClick={() => void navigator.clipboard.writeText(`${API}/media/file/${encodeURIComponent(m.r2_key)}`)}
+              >
+                Copy URL
+              </button>
+              <button
+                type="button"
+                className="text-destructive text-xs underline"
+                onClick={() => void remove(m.id)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-muted-foreground text-sm">No media yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Site content ---------------- */
+
+interface ContentRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
+function ContentPanel() {
+  const [rows, setRows] = useState<ContentRow[]>([]);
+  const [key, setKey] = useState("");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await api<{ content: ContentRow[] }>("/content");
+    if (res.ok && res.data) setRows(res.data.content);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async () => {
+    setError("");
+    if (!key.trim()) return;
+    let parsed: unknown = value;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      /* store as plain string */
+    }
+    const res = await api(`/content/${encodeURIComponent(key.trim())}`, {
+      method: "PUT",
+      body: JSON.stringify({ value: parsed }),
+    });
+    if (!res.ok) {
+      setError("Save failed.");
+      return;
+    }
+    setKey("");
+    setValue("");
+    void load();
+  };
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold tracking-tight">Set content</h3>
+        <p className="text-muted-foreground text-xs">
+          Keys use dot notation, e.g. <code>home.hero.headline</code>. Values can
+          be plain text or JSON.
+        </p>
+        <input
+          className={inputClass}
+          placeholder="key (e.g. home.hero.headline)"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <textarea
+          className={inputClass}
+          rows={4}
+          placeholder="value"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <button type="button" className={btnClass} onClick={() => void save()}>
+          Save
+        </button>
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-tight">Existing keys</h3>
+        {rows.length === 0 && <p className="text-muted-foreground text-sm">No content keys yet.</p>}
+        {rows.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            className="block w-full rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary"
+            onClick={() => {
+              setKey(r.key);
+              setValue(r.value.startsWith('"') ? (JSON.parse(r.value) as string) : r.value);
+            }}
+          >
+            <span className="font-medium">{r.key}</span>
+            <span className="text-muted-foreground block truncate text-xs">{r.value}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Users (super admin) ---------------- */
+
+interface AdminUser {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  is_active: number;
+}
+
+const ROLES = ["super_admin", "admin", "editor", "marketing"] as const;
+
+function UsersPanel({ me }: { me: User }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await api<{ users: AdminUser[] }>("/users");
+    if (res.ok && res.data) setUsers(res.data.users);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const create = async () => {
+    setError("");
+    const res = await api("/users", { method: "POST", body: JSON.stringify(draft) });
+    if (!res.ok) {
+      setError(res.status === 409 ? "Email already exists." : "Check all fields — password needs 10+ characters.");
+      return;
+    }
+    setDraft({ email: "", name: "", role: "editor", password: "" });
+    void load();
+  };
+
+  const patch = async (id: number, body: Record<string, unknown>) => {
+    await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+    void load();
+  };
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold tracking-tight">Add user</h3>
+        <input className={inputClass} placeholder="Email" value={draft.email}
+          onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
+        <input className={inputClass} placeholder="Name" value={draft.name}
+          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+        <select className={inputClass} value={draft.role}
+          onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
+          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <input className={inputClass} placeholder="Password (10+ characters)" type="password" value={draft.password}
+          onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))} />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <button type="button" className={btnClass} onClick={() => void create()}>Create user</button>
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-tight">Team</h3>
+        {users.map((u) => (
+          <div key={u.id} className="rounded-lg border border-border px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium">
+                {u.name} <span className="text-muted-foreground">· {u.email}</span>
+              </span>
+              <span className="flex items-center gap-2">
+                <select
+                  className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                  value={u.role}
+                  disabled={u.id === me.id}
+                  onChange={(e) => void patch(u.id, { role: e.target.value })}
+                >
+                  {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+                {u.id !== me.id && (
+                  <button
+                    type="button"
+                    className="text-xs underline"
+                    onClick={() => void patch(u.id, { is_active: u.is_active ? 0 : 1 })}
+                  >
+                    {u.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                )}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -361,6 +679,9 @@ const TABS = [
   "Posts",
   "Portfolio",
   "Testimonials",
+  "Media",
+  "Content",
+  "Users",
 ] as const;
 type Tab = (typeof TABS)[number];
 
@@ -406,7 +727,7 @@ export default function AdminPage() {
       </header>
 
       <nav className="mt-8 flex flex-wrap gap-2" aria-label="Admin sections">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t !== "Users" || user.role === "super_admin").map((t) => (
           <button
             key={t}
             type="button"
@@ -467,6 +788,9 @@ export default function AdminPage() {
             ]}
           />
         )}
+        {tab === "Media" && <MediaPanel />}
+        {tab === "Content" && <ContentPanel />}
+        {tab === "Users" && user.role === "super_admin" && <UsersPanel me={user} />}
         {tab === "Testimonials" && (
           <CrudPanel
             resource="testimonials"

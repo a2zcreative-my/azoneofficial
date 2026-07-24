@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 
+import { ELFIA_PRODUCTS } from "@/constants/content";
 import { BLOG_POSTS } from "@/constants/pages";
 import { SITE_CONFIG } from "@/constants/site";
 
@@ -30,5 +31,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     lastModified: new Date(post.date),
   }));
 
-  return [...staticRoutes, ...blogRoutes];
+  const productRoutes = ELFIA_PRODUCTS.map((p) => ({
+    url: `${base}/products/${p.slug}`,
+    lastModified: new Date(),
+  }));
+
+  return [...staticRoutes, ...blogRoutes, ...productRoutes];
 }

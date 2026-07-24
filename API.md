@@ -3,7 +3,7 @@
 ## Current
 No API — the site is fully static. Leads arrive via WhatsApp deep links (`https://wa.me/60123834821`) and email.
 
-## Phase 3 — IMPLEMENTED in `/worker`: health · enquiries (POST public rate-limited, GET/PATCH marketing+) · auth (login rate-limited/logout/me) · dashboard summary · content GET/PUT · media upload/serve/delete (R2) · full CRUD for products/posts/portfolio/testimonials (editor+ write, admin+ delete, public reads filtered). Table below is the reference.
+## Phase 3 — IMPLEMENTED in `/worker`: health · enquiries (POST public rate-limited, GET/PATCH marketing+) · auth (login rate-limited/logout/me) · dashboard summary · content GET/PUT · media upload/serve/delete (R2) · full CRUD for products/posts/portfolio/testimonials (editor+ write, admin+ delete, public reads filtered). Also implemented: GET /content (editor+ listing) · users management (GET/POST /users, PATCH /users/:id — super_admin only) · dashboard summary now includes posts/testimonials counts and recent audit activity. Table below is the reference.
 Base: `/api/v1`, JSON, session-cookie auth for admin routes.
 
 | Method | Route | Auth | Purpose |

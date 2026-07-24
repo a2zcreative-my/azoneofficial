@@ -18,9 +18,12 @@ export function Footer() {
       <div className="mx-auto w-full max-w-6xl">
         <div className="flex flex-col gap-12 md:flex-row md:justify-between">
           <div className="max-w-sm">
-            <p className="text-sm font-semibold tracking-[0.2em] uppercase">
-              {SITE_CONFIG.name}
-            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-white.png"
+              alt={SITE_CONFIG.name}
+              className="h-8 w-auto"
+            />
             <p className="mt-3 text-sm leading-relaxed text-white/60">
               {SITE_CONFIG.slogan}
             </p>
@@ -122,6 +125,14 @@ export function Footer() {
                 className="text-xs text-white/40 transition-colors hover:text-white"
               >
                 Terms &amp; Conditions
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/admin"
+                className="text-xs text-white/40 transition-colors hover:text-white"
+              >
+                Admin Login
               </Link>
             </li>
           </ul>

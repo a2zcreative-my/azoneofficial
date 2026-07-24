@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [0.6.0] — 2026-07-24
+### Added
+- User management: API (super_admin only — create, role change, activate/deactivate with session revocation, password reset) + admin Users tab
+- Admin Media tab: upload to R2, image previews, copy-URL, delete
+- Admin Content tab: key-value site content editor (dot-notation keys, JSON or text values)
+- Dashboard: posts/testimonials counts + recent-activity feed from audit log
+- ELFIA individual product pages (/products/[slug]) with descriptions, galleries (grey shawl: 4 angles), "price announced live" panel, cross-links; added to sitemap
+- Public D1 reads: /portfolio and homepage testimonials render published D1 items at runtime with graceful static fallback
+### Changed
+- Product cards on homepage and /products now link to detail pages
+
 ## [0.5.0] — 2026-07-24
 ### Added
 - Rate limiting (D1 fixed-window): login 10/15min, enquiries 5/hour per IP (migration 0002)

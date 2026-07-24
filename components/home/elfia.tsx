@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Section } from "@/components/layout/section";
 import { Reveal } from "@/components/ui/reveal";
 import { CONTACT, ELFIA, ELFIA_PRODUCTS } from "@/constants/content";
@@ -5,7 +6,7 @@ import type { ElfiaProduct } from "@/types";
 
 function ProductCard({ product }: { product: ElfiaProduct }) {
   return (
-    <article className="group">
+    <Link href={`/products/${product.slug}`} className="group block">
       <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-white/10 bg-white/5">
         {product.imageSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -30,8 +31,10 @@ function ProductCard({ product }: { product: ElfiaProduct }) {
           {product.category}
         </span>
       </div>
-      <h3 className="mt-4 text-base font-medium">{product.name}</h3>
-    </article>
+      <h3 className="mt-4 text-base font-medium group-hover:underline">
+        {product.name}
+      </h3>
+    </Link>
   );
 }
 
@@ -44,7 +47,7 @@ export function Elfia() {
             <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
               {ELFIA.eyebrow}
             </p>
-            <h2 className="text-5xl font-semibold tracking-[0.15em] sm:text-6xl">
+            <h2 className="text-4xl font-semibold tracking-[0.12em] sm:text-6xl sm:tracking-[0.15em]">
               {ELFIA.title}
             </h2>
             <p className="text-gold mt-3 text-sm tracking-[0.2em] uppercase">

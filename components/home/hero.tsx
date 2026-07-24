@@ -32,7 +32,7 @@ export function Hero() {
   return (
     <section
       id="top"
-      className="flex min-h-screen flex-col items-center justify-center px-6 pt-16 text-center"
+      className="flex min-h-[92svh] flex-col items-center justify-center px-6 pt-20 text-center sm:min-h-screen"
     >
       <motion.div {...fade(0)}>
         <LiveBadge />
@@ -40,7 +40,7 @@ export function Hero() {
 
       <motion.h1
         {...fade(0.1)}
-        className="mt-8 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl"
+        className="mt-8 max-w-3xl text-[2.1rem] leading-tight font-semibold tracking-tight text-balance sm:text-6xl"
       >
         Grow your sales through{" "}
         <span className="text-gold">live commerce</span>

@@ -1,6 +1,7 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { Section } from "@/components/layout/section";
+import { LiveTestimonials } from "@/components/live/live-content";
 import { Reveal } from "@/components/ui/reveal";
 import { TESTIMONIALS } from "@/constants/content";
 
@@ -57,6 +58,8 @@ export function Showcase() {
           </div>
         </Reveal>
       </div>
+
+      <LiveTestimonials />
 
       {TESTIMONIALS.length > 0 && (
         <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

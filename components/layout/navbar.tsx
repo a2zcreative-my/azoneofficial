@@ -17,12 +17,13 @@ export function Navbar() {
         aria-label="Main"
         className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6"
       >
-        <Link
-          href="/"
-          className="text-sm font-semibold tracking-[0.2em] uppercase"
-          onClick={() => setOpen(false)}
-        >
-          {SITE_CONFIG.name}
+        <Link href="/" onClick={() => setOpen(false)} className="flex items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt={SITE_CONFIG.name}
+            className="h-7 w-auto"
+          />
         </Link>
 
         <ul className="hidden items-center gap-8 md:flex">
@@ -38,7 +39,13 @@ export function Navbar() {
           ))}
         </ul>
 
-        <div className="hidden md:block">
+        <div className="hidden items-center gap-5 md:flex">
+          <Link
+            href="/admin"
+            className="text-muted-foreground text-sm transition-colors hover:text-foreground"
+          >
+            Login
+          </Link>
           <a
             href={whatsappUrl()}
             target="_blank"
@@ -80,6 +87,15 @@ export function Navbar() {
               </Link>
             </li>
           ))}
+          <li>
+            <Link
+              href="/admin"
+              className="block rounded-md px-2 py-2 text-sm"
+              onClick={() => setOpen(false)}
+            >
+              Login
+            </Link>
+          </li>
           <li className="mt-2">
             <a
               href={whatsappUrl()}

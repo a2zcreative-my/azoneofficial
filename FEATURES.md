@@ -22,5 +22,8 @@
 - Contact form on /contact storing enquiries (WhatsApp fallback)
 - Admin UI at /admin: dashboard, enquiry workflow, CRUD panels
 
+- Admin Media/Content/Users screens; dashboard activity feed
+- ELFIA product detail pages with galleries; portfolio + testimonials read published D1 content at runtime (static fallback)
+
 ## Not yet implemented
-- Admin media-upload and site-content screens, user management UI, public pages reading from D1 (still constants-driven), ELFIA per-product pages — see ROADMAP.md
+- Hero/about/services site-content reads on public pages (Content API + editor exist; wiring is per-section as content gets created), blog posts from D1 (static posts remain source of truth), ELFIA RM pricing (awaiting decision — "announced live" shown meanwhile) — see ROADMAP.md

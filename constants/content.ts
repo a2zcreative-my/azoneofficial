@@ -122,40 +122,64 @@ export const ELFIA = {
 
 export const ELFIA_PRODUCTS: readonly ElfiaProduct[] = [
   {
+    slug: "signature-shawl-taupe",
     name: "The Signature Shawl — Taupe",
     category: "Everyday",
     imageSrc: "/elfia/shawl-taupe.jpg",
     imageAlt: "ELFIA signature chiffon shawl in taupe, styled with a white blazer",
+    description:
+      "Our signature premium chiffon in warm taupe — soft drape, opaque coverage, and a matte finish that pairs with everything from office whites to weekend neutrals.",
   },
   {
+    slug: "signature-shawl-beige",
     name: "The Signature Shawl — Beige",
     category: "Everyday",
     imageSrc: "/elfia/shawl-beige.jpg",
     imageAlt: "ELFIA signature chiffon shawl in beige, styled with a white blazer",
+    description:
+      "The same signature chiffon in soft beige — a warm neutral that flatters every skin tone and layers beautifully over light workwear.",
   },
   {
+    slug: "signature-shawl-grey",
     name: "The Signature Shawl — Grey",
     category: "Everyday",
     imageSrc: "/elfia/shawl-grey-front.jpg",
     imageAlt: "ELFIA signature chiffon shawl in light grey, front draped styling",
+    description:
+      "Cool light grey in our signature chiffon — clean and contemporary. Shown here in front-draped, side, and back styling so you can see the full fall of the fabric.",
+    gallery: [
+      "/elfia/shawl-grey-front.jpg",
+      "/elfia/shawl-grey.jpg",
+      "/elfia/shawl-grey-profile.jpg",
+      "/elfia/shawl-grey-back.jpg",
+    ],
   },
   {
+    slug: "corporate-blush",
     name: "Corporate Series — Blush",
     category: "Workwear",
     imageSrc: "/elfia/corporate.jpg",
     imageAlt: "ELFIA corporate series hijab in blush, styled with a black suit",
+    description:
+      "Built for the boardroom: a structured drape in soft blush that holds its shape through a full working day, styled here against a tailored black suit.",
   },
   {
+    slug: "active-black",
     name: "Active Hijab — Black",
     category: "Active",
     imageSrc: "/elfia/active.jpg",
     imageAlt: "ELFIA active sports hijab in black, worn on court",
+    description:
+      "A breathable sports hijab that stays put from warm-up to match point — lightweight, quick-dry, and secure without pins.",
   },
   {
+    slug: "neutral-collection",
     name: "The Neutral Collection",
     category: "Collection",
     imageSrc: "/elfia/collection.jpg",
     imageAlt: "ELFIA neutral collection — black, taupe, beige, and grey chiffon shawls",
+    description:
+      "All four essential neutrals — black, taupe, beige, and grey — the foundation of an effortless rotation. Collection bundles are announced during live drops.",
   },
 ] as const;
 

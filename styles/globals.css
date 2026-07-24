@@ -6,31 +6,31 @@
 
 :root {
   /* Brand palette */
-  --brand-primary: #000000;
+  --brand-primary: #1a2946;
   --brand-background: #ffffff;
-  --brand-neutral: #f8f8f8;
+  --brand-neutral: #f6f7f9;
   --brand-accent: #c8a96a;
   --brand-accent-soft: #e6d7b8;
 
   /* Semantic tokens (shadcn/ui compatible) */
   --background: #ffffff;
-  --foreground: #000000;
+  --foreground: #1a2946;
   --card: #ffffff;
-  --card-foreground: #000000;
+  --card-foreground: #1a2946;
   --popover: #ffffff;
-  --popover-foreground: #000000;
-  --primary: #000000;
+  --popover-foreground: #1a2946;
+  --primary: #1a2946;
   --primary-foreground: #ffffff;
-  --secondary: #f8f8f8;
-  --secondary-foreground: #000000;
-  --muted: #f8f8f8;
-  --muted-foreground: #6b6b6b;
+  --secondary: #f6f7f9;
+  --secondary-foreground: #1a2946;
+  --muted: #f6f7f9;
+  --muted-foreground: #5d6778;
   --accent: #c8a96a;
-  --accent-foreground: #000000;
+  --accent-foreground: #1a2946;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #e8e8e8;
-  --input: #e8e8e8;
+  --border: #e6e9ee;
+  --input: #e6e9ee;
   --ring: #c8a96a;
   --radius: 0.75rem;
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 
 import { Footer } from "@/components/layout/footer";
@@ -20,7 +21,7 @@ export default function ProductsPage() {
             <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
               {ELFIA.eyebrow}
             </p>
-            <h1 className="text-5xl font-semibold tracking-[0.15em] sm:text-6xl">
+            <h1 className="text-4xl font-semibold tracking-[0.12em] sm:text-6xl sm:tracking-[0.15em]">
               {ELFIA.title}
             </h1>
             <p className="text-gold mt-3 text-sm tracking-[0.2em] uppercase">
@@ -33,7 +34,7 @@ export default function ProductsPage() {
 
           <section className="mt-16 grid grid-cols-1 gap-8 sm:grid-cols-3">
             {ELFIA_PRODUCTS.map((product) => (
-              <article key={product.name} className="group">
+              <Link key={product.slug} href={`/products/${product.slug}`} className="group block">
                 <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-white/10 bg-white/5">
                   {product.imageSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -58,8 +59,10 @@ export default function ProductsPage() {
                     {product.category}
                   </span>
                 </div>
-                <h2 className="mt-4 text-base font-medium">{product.name}</h2>
-              </article>
+                <h2 className="mt-4 text-base font-medium group-hover:underline">
+                  {product.name}
+                </h2>
+              </Link>
             ))}
           </section>
 

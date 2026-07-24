@@ -7,7 +7,9 @@
 2. **Dashboard** — enquiry and product counts
 3. **Enquiries** — every contact-form submission with a status workflow: new → contacted → qualified → closed
 4. **Products / Posts / Portfolio / Testimonials** — create, edit, delete; public pages show only published/visible items
-5. Not yet in the UI: media upload screen, site-content editor, user management (API supports content + media already)
+5. **Media** — upload files to R2, preview images, copy public URLs, delete
+6. **Content** — edit site content by key (e.g. `home.hero.headline`); values can be text or JSON
+7. **Users** (super admin only) — add team members, change roles, activate/deactivate (deactivation revokes sessions), reset passwords
 
 ## Roles & permissions (planned)
 | Capability | Super Admin | Admin | Editor | Marketing |

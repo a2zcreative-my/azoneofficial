@@ -412,7 +412,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        FROM enquiries`,
     ).first();
     const products = await env.DB.prepare(`SELECT COUNT(*) AS total FROM products`).first();
-    return json({ enquiries, products });
+    const posts = await env.DB.prepare(`SELECT COUNT(*) AS total FROM posts`).first();
+    const testimonials = await env.DB.prepare(`SELECT COUNT(*) AS total FROM testimonials`).first();
+    const { results: activity } = await env.DB.prepare(
+      `SELECT a.action, a.entity, a.entity_id, a.created_at, u.name AS user_name
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC LIMIT 15`,
+    ).all();
+    return json({ enquiries, products, posts, testimonials, activity });
   }
 
   /* ---- site content ---- */
@@ -561,6 +568,89 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       await audit(env, user.id, `${cfg.table}.delete`, cfg.table, id);
       return json({ ok: true });
     }
+  }
+
+  /* ---- content listing (editor+) ---- */
+
+  if (path === "/api/v1/content" && method === "GET") {
+    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT key, value, updated_at FROM site_content ORDER BY key`,
+    ).all();
+    return json({ content: results });
+  }
+
+  /* ---- user management (super_admin only) ---- */
+
+  if (path === "/api/v1/users" && method === "GET") {
+    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT id, email, name, role, is_active, created_at FROM users ORDER BY id`,
+    ).all();
+    return json({ users: results });
+  }
+
+  if (path === "/api/v1/users" && method === "POST") {
+    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const roles = ["super_admin", "admin", "editor", "marketing"];
+    if (
+      !body ||
+      !isNonEmptyString(body.email, 200) ||
+      !isNonEmptyString(body.name, 120) ||
+      !isNonEmptyString(body.password, 200) ||
+      (body.password as string).length < 10 ||
+      typeof body.role !== "string" ||
+      !roles.includes(body.role)
+    ) {
+      return errorResponse("invalid_input", "email, name, role, and a password of 10+ characters are required", 400);
+    }
+    const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+    try {
+      const res = await env.DB.prepare(
+        `INSERT INTO users (email, password_hash, name, role) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+      )
+        .bind((body.email as string).toLowerCase().trim(), hash, (body.name as string).trim(), body.role)
+        .first<{ id: number }>();
+      await audit(env, user.id, "user.create", "users", String(res?.id), { role: body.role });
+      return json({ id: res?.id }, 201);
+    } catch {
+      return errorResponse("conflict", "A user with this email already exists", 409);
+    }
+  }
+
+  const userMatch = path.match(/^\/api\/v1\/users\/(\d+)$/);
+  if (userMatch && method === "PATCH") {
+    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    const id = userMatch[1]!;
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return errorResponse("invalid_input", "Body required", 400);
+    const roles = ["super_admin", "admin", "editor", "marketing"];
+    const changed: string[] = [];
+
+    if (typeof body.role === "string" && roles.includes(body.role)) {
+      await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(body.role, id).run();
+      changed.push("role");
+    }
+    if (typeof body.is_active === "number") {
+      if (String(user.id) === id && body.is_active === 0) {
+        return errorResponse("invalid_input", "You cannot deactivate your own account", 400);
+      }
+      await env.DB.prepare(`UPDATE users SET is_active = ?1 WHERE id = ?2`).bind(body.is_active ? 1 : 0, id).run();
+      if (!body.is_active) {
+        await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
+      }
+      changed.push("is_active");
+    }
+    if (isNonEmptyString(body.password, 200) && (body.password as string).length >= 10) {
+      const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+      await env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(hash, id).run();
+      await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
+      changed.push("password");
+    }
+    if (changed.length === 0) return errorResponse("invalid_input", "Nothing to update", 400);
+    await audit(env, user.id, "user.update", "users", id, { changed });
+    return json({ ok: true });
   }
 
   return errorResponse("not_found", "Route not found", 404);

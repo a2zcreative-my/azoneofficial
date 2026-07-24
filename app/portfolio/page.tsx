@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { PageShell } from "@/components/layout/page-shell";
+import { LivePortfolio } from "@/components/live/live-content";
 import { CONTACT, whatsappUrl } from "@/constants/content";
 import { PORTFOLIO_ITEMS } from "@/constants/pages";
 
@@ -13,7 +14,9 @@ export const metadata: Metadata = {
 export default function PortfolioPage() {
   return (
     <PageShell eyebrow="Portfolio" title="Work that sells, live">
-      {PORTFOLIO_ITEMS.length === 0 ? (
+      <LivePortfolio
+        fallback={
+          PORTFOLIO_ITEMS.length === 0 ? (
         <section>
           <p>
             We're preparing our client showcase — real sessions, real numbers,
@@ -41,19 +44,21 @@ export default function PortfolioPage() {
             for recent session results.
           </p>
         </section>
-      ) : (
-        <section className="grid gap-6 sm:grid-cols-2">
-          {PORTFOLIO_ITEMS.map((item) => (
-            <article key={item.client} className="rounded-xl border border-border p-5">
-              <h2 className="text-lg font-semibold text-foreground">
-                {item.client}
-              </h2>
-              <p className="mt-1 text-sm">{item.summary}</p>
-              <p className="text-gold mt-3 text-sm font-medium">{item.result}</p>
-            </article>
-          ))}
-        </section>
-      )}
+          ) : (
+            <section className="grid gap-6 sm:grid-cols-2">
+              {PORTFOLIO_ITEMS.map((item) => (
+                <article key={item.client} className="rounded-xl border border-border p-5">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {item.client}
+                  </h2>
+                  <p className="mt-1 text-sm">{item.summary}</p>
+                  <p className="text-gold mt-3 text-sm font-medium">{item.result}</p>
+                </article>
+              ))}
+            </section>
+          )
+        }
+      />
     </PageShell>
   );
 }
