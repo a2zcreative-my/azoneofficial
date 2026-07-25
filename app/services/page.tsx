@@ -22,8 +22,8 @@ export default function ServicesPage() {
             key={title}
             className="flex items-start gap-4 rounded-xl border border-border p-5"
           >
-            <span className="bg-brand text-gold inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg">
-              <Icon className="h-5 w-5" aria-hidden="true" />
+            <span className="bg-brand text-gold inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
+              <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
             </span>
             <div>
               <h2 className="text-lg font-semibold text-foreground">{title}</h2>

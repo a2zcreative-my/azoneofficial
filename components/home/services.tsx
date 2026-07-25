@@ -17,8 +17,8 @@ export function Services() {
           return (
             <Reveal key={service.title} delay={(i % 3) * 0.08}>
               <article className="group h-full rounded-xl border border-border bg-background p-6 transition-shadow hover:shadow-sm">
-                <span className="bg-brand text-gold inline-flex h-12 w-12 items-center justify-center rounded-lg">
-                  <Icon className="h-6 w-6" aria-hidden="true" />
+                <span className="bg-brand text-gold inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
+                  <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
                 </span>
                 <h3 className="mt-5 text-lg font-semibold tracking-tight">
                   {service.title}

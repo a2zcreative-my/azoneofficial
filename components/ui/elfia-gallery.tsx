@@ -14,16 +14,31 @@ import type { ElfiaProduct } from "@/types";
  */
 export function ElfiaGallery({
   products,
+  autoPlay = true,
+  interval = 3500,
 }: {
   products: readonly ElfiaProduct[];
+  /** Advance on its own; manual controls always remain available. */
+  autoPlay?: boolean;
+  /** Milliseconds between automatic advances. */
+  interval?: number;
 }) {
   const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  // Bumped on any manual input so the timer restarts from that moment
+  const [nudge, setNudge] = useState(0);
+  const [offScreen, setOffScreen] = useState(false);
+  const [tabHidden, setTabHidden] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number | null>(null);
   const touchDeltaX = useRef(0);
 
   const count = products.length;
   const go = useCallback(
-    (dir: number) => setActive((i) => (i + dir + count) % count),
+    (dir: number) => {
+      setActive((i) => (i + dir + count) % count);
+      setNudge((n) => n + 1);
+    },
     [count],
   );
 
@@ -33,6 +48,7 @@ export function ElfiaGallery({
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
+    setPaused(true);
     if (!e.touches[0]) return;
     touchStartX.current = e.touches[0].clientX;
     touchDeltaX.current = 0;
@@ -45,7 +61,44 @@ export function ElfiaGallery({
     if (Math.abs(touchDeltaX.current) > 48) go(touchDeltaX.current < 0 ? 1 : -1);
     touchStartX.current = null;
     touchDeltaX.current = 0;
+    setPaused(false);
+    setNudge((n) => n + 1);
   };
+
+  // Autoplay — paused on hover/focus/touch, when the tab is hidden, when the
+  // carousel is off screen, and entirely for prefers-reduced-motion users.
+  useEffect(() => {
+    if (!autoPlay || paused || offScreen || tabHidden || count <= 1) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const id = window.setInterval(
+      () => setActive((i) => (i + 1) % count),
+      interval,
+    );
+    return () => window.clearInterval(id);
+  }, [autoPlay, paused, offScreen, tabHidden, count, interval, nudge, active]);
+
+  // Don't animate in a background tab
+  useEffect(() => {
+    const onVisibility = () => setTabHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // Don't animate while scrolled past
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry) setOffScreen(!entry.isIntersecting);
+      },
+      { threshold: 0.2 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Preload the neighbours of the active slide
   useEffect(() => {
@@ -60,7 +113,12 @@ export function ElfiaGallery({
 
   return (
     <div
+      ref={rootRef}
       className="relative select-none"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={() => setPaused(false)}
       role="region"
       aria-roledescription="carousel"
       aria-label="ELFIA product gallery"
@@ -178,7 +236,7 @@ export function ElfiaGallery({
         </button>
       </div>
 
-      <p className="sr-only" aria-live="polite">
+      <p className="sr-only" aria-live={autoPlay && !paused ? "off" : "polite"}>
         Showing item {active + 1} of {count}: {products[active]?.name}
       </p>
     </div>

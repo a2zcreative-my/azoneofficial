@@ -121,3 +121,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.15 — 25 Jul 2026 — Mobile audit
 - Full pass for narrow-screen defects: iOS input zoom, footer email overflow, unscrollable mobile menu, clipped gallery caption, swipe/scroll conflict, tight button padding, iOS safe-area
 - Explicit viewport config with viewport-fit=cover and brand theme-color
+
+## v1.2.16 — 25 Jul 2026 — Carousel autoplay + icon redesign
+- ELFIA carousel now auto-advances every 3.5s with full manual control retained; pauses on hover/focus/swipe/hidden-tab/off-screen and respects reduced motion
+- Service icon family redesigned on a single 24px/1.5px grid; ambiguous target-and-arrow glyph replaced with concentric rings
