@@ -125,3 +125,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.16 — 25 Jul 2026 — Carousel autoplay + icon redesign
 - ELFIA carousel now auto-advances every 3.5s with full manual control retained; pauses on hover/focus/swipe/hidden-tab/off-screen and respects reduced motion
 - Service icon family redesigned on a single 24px/1.5px grid; ambiguous target-and-arrow glyph replaced with concentric rings
+
+## v1.2.17 — 25 Jul 2026 — Mobile autoplay fix
+- Carousel autoplay repaired for touch devices: touchcancel handling, mouse-only hover pause, keyboard-only focus pause, separate swipe state, plus a 6s watchdog

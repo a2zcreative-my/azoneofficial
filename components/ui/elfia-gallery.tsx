@@ -27,6 +27,7 @@ export function ElfiaGallery({
   const [paused, setPaused] = useState(false);
   // Bumped on any manual input so the timer restarts from that moment
   const [nudge, setNudge] = useState(0);
+  const [swiping, setSwiping] = useState(false);
   const [offScreen, setOffScreen] = useState(false);
   const [tabHidden, setTabHidden] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -48,7 +49,7 @@ export function ElfiaGallery({
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
-    setPaused(true);
+    setSwiping(true);
     if (!e.touches[0]) return;
     touchStartX.current = e.touches[0].clientX;
     touchDeltaX.current = 0;
@@ -61,14 +62,22 @@ export function ElfiaGallery({
     if (Math.abs(touchDeltaX.current) > 48) go(touchDeltaX.current < 0 ? 1 : -1);
     touchStartX.current = null;
     touchDeltaX.current = 0;
-    setPaused(false);
+    setSwiping(false);
     setNudge((n) => n + 1);
+  };
+
+  // Fires instead of touchend when the browser takes the gesture over as a
+  // page scroll — without this the carousel stayed paused for good.
+  const onTouchCancel = () => {
+    touchStartX.current = null;
+    touchDeltaX.current = 0;
+    setSwiping(false);
   };
 
   // Autoplay — paused on hover/focus/touch, when the tab is hidden, when the
   // carousel is off screen, and entirely for prefers-reduced-motion users.
   useEffect(() => {
-    if (!autoPlay || paused || offScreen || tabHidden || count <= 1) return;
+    if (!autoPlay || paused || swiping || offScreen || tabHidden || count <= 1) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     const id = window.setInterval(
@@ -76,7 +85,19 @@ export function ElfiaGallery({
       interval,
     );
     return () => window.clearInterval(id);
-  }, [autoPlay, paused, offScreen, tabHidden, count, interval, nudge, active]);
+  }, [autoPlay, paused, swiping, offScreen, tabHidden, count, interval, nudge, active]);
+
+  // Safety net: no combination of stuck events should be able to pause the
+  // carousel forever. If paused/swiping persists with no further interaction,
+  // resume after 6s.
+  useEffect(() => {
+    if (!autoPlay || (!paused && !swiping)) return;
+    const id = window.setTimeout(() => {
+      setPaused(false);
+      setSwiping(false);
+    }, 6000);
+    return () => window.clearTimeout(id);
+  }, [autoPlay, paused, swiping]);
 
   // Don't animate in a background tab
   useEffect(() => {
@@ -115,9 +136,25 @@ export function ElfiaGallery({
     <div
       ref={rootRef}
       className="relative select-none"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocusCapture={() => setPaused(true)}
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse") setPaused(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse") setPaused(false);
+      }}
+      onFocusCapture={(e) => {
+        // Keyboard focus pauses; a tap or click on the arrows must not
+        try {
+          if (
+            e.target instanceof HTMLElement &&
+            e.target.matches(":focus-visible")
+          ) {
+            setPaused(true);
+          }
+        } catch {
+          // :focus-visible unsupported — skip the pause rather than throw
+        }
+      }}
       onBlurCapture={() => setPaused(false)}
       role="region"
       aria-roledescription="carousel"
@@ -130,6 +167,7 @@ export function ElfiaGallery({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {products.map((product, i) => {
           // Signed shortest distance from the active card (wraps around)
