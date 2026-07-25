@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.10] — 2026-07-25
+### Changed
+- Hero: "We sell live" pill badge replaced with the transparent company logo (`/logo.png`, no pill background, h-16/h-20 responsive) — hero now opens logo → "LIVE . CONNECT . GROW." eyebrow → headline, mirroring the OG banner layout. Logo has no tagline baked in, so the eyebrow is kept (no duplication)
+
+## [1.2.9] — 2026-07-25
+### Fixed
+- WhatsApp link preview inconsistency: openGraph now declares only the landscape `og.png` (1200×630). With both landscape and square variants listed, WhatsApp sometimes picked `og-square.png` and rendered the compact small-thumbnail layout instead of the large banner card. `og-square.png` stays in `/public` (unreferenced) in case it's wanted later.
+### Note
+- WhatsApp caches previews per exact URL (with/without trailing slash are separate entries) for up to ~30 days — after deploy, re-scrape via Facebook Sharing Debugger and/or share the link once with `?v=2` to force a fresh fetch
+
 ## [1.2.8] — 2026-07-25
 ### Deployed
 - azoneofficial.com live — v0.1 under-construction page retired

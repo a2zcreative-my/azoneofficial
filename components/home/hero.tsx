@@ -9,13 +9,12 @@ import { SITE_CONFIG } from "@/constants/site";
 
 function LiveBadge() {
   return (
-    <span className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-1.5 text-xs font-medium tracking-[0.25em] uppercase">
-      <span className="relative flex h-2 w-2" aria-hidden="true">
-        <span className="bg-gold absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 motion-reduce:animate-none" />
-        <span className="bg-gold relative inline-flex h-2 w-2 rounded-full" />
-      </span>
-      We sell live
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/logo.png"
+      alt="AZ ONE OFFICIAL"
+      className="mx-auto h-16 w-auto sm:h-20"
+    />
   );
 }
 
