@@ -19,7 +19,7 @@ type Props = {
 };
 
 const base =
-  "inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg px-8 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto sm:min-w-[180px]";
+  "inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg px-6 text-center text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto sm:min-w-[180px] sm:px-8";
 
 const variants = {
   primary:

@@ -71,7 +71,7 @@ export function Navbar() {
       <div
         id="mobile-menu"
         className={cn(
-          "border-b border-border bg-background md:hidden",
+          "max-h-[calc(100svh-4rem)] overflow-y-auto border-b border-border bg-background md:hidden",
           open ? "block" : "hidden",
         )}
       >

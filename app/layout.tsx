@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { ScrollToTop } from "@/components/ui/scroll-to-top";
 import { SITE_CONFIG } from "@/constants/site";
 import "@/styles/globals.css";
 
@@ -67,6 +68,13 @@ const organizationJsonLd = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#1a2946",
+};
+
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable}>
@@ -85,6 +93,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           />
         )}
         {children}
+        <ScrollToTop />
       </body>
     </html>
   );

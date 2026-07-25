@@ -68,7 +68,7 @@ export function ElfiaGallery({
       onKeyDown={onKeyDown}
     >
       <div
-        className="relative h-[420px] w-full overflow-hidden sm:h-[480px]"
+        className="relative h-[440px] w-full touch-pan-y overflow-hidden sm:h-[500px]"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -116,7 +116,7 @@ export function ElfiaGallery({
             <figure
               key={product.slug}
               aria-hidden={!isCenter}
-              className="absolute top-1/2 left-1/2 w-[72%] max-w-[300px] transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none sm:w-[52%] sm:max-w-[320px]"
+              className="absolute top-1/2 left-1/2 w-[72%] max-w-[260px] transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none sm:w-[52%] sm:max-w-[320px]"
               style={{
                 transform: `translate(-50%, -50%) translateX(${offset * 62}%) scale(${1 - abs * 0.14})`,
                 zIndex: 10 - abs,

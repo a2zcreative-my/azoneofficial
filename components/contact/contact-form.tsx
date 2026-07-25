@@ -47,7 +47,7 @@ export function ContactForm() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring";
+    "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm";
 
   return (
     <div className="space-y-4">

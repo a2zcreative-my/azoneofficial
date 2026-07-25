@@ -14,7 +14,7 @@ export function FaqList() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <div className="max-w-3xl divide-y divide-border border-y border-border">
+    <div className="w-full divide-y divide-border border-y border-border">
       {FAQS.map((item, i) => {
         const isOpen = openIndex === i;
         const panelId = `faq-panel-${i}`;
@@ -47,7 +47,7 @@ export function FaqList() {
               hidden={!isOpen}
               className="pb-5"
             >
-              <p className="text-muted-foreground text-sm leading-relaxed">
+              <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed">
                 {item.answer}
               </p>
             </div>

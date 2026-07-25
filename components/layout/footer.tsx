@@ -15,10 +15,10 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="bg-brand px-6 py-16 text-white">
+    <footer id="site-footer" className="bg-brand px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="flex flex-col gap-12 md:flex-row md:justify-between">
-          <div className="max-w-sm">
+        <div className="grid gap-10 md:grid-cols-4 md:gap-8">
+          <div className="max-w-sm md:col-span-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-white.png"
@@ -38,14 +38,14 @@ export function Footer() {
               href={whatsappUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gold mt-6 inline-flex items-center text-sm font-medium hover:underline"
+              className="text-gold mt-5 inline-flex items-center text-sm font-medium hover:underline"
             >
               {CTA_LABEL} →
             </a>
           </div>
 
-          <div className="grid grid-cols-2 gap-12 sm:grid-cols-2">
-            <nav aria-label="Footer">
+          <div className="grid min-w-0 grid-cols-2 gap-6 sm:gap-8 md:col-span-2">
+            <nav aria-label="Footer" className="min-w-0">
               <p className="text-xs font-medium tracking-[0.2em] text-white/60 uppercase">
                 Explore
               </p>
@@ -84,7 +84,7 @@ export function Footer() {
                 <li>
                   <a
                     href={`mailto:${CONTACT.email}`}
-                    className="text-sm text-white/70 transition-colors hover:text-white"
+                    className="text-sm break-words text-white/70 transition-colors hover:text-white [overflow-wrap:anywhere]"
                   >
                     {CONTACT.email}
                   </a>
@@ -94,11 +94,11 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-10 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-white/60">
             © {year} {SITE_CONFIG.legalName}. All rights reserved.
           </p>
-          <ul className="flex gap-6">
+          <ul className="flex flex-wrap gap-x-6 gap-y-2">
             <li>
               <Link
                 href="/case-studies"

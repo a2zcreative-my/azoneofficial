@@ -112,3 +112,12 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Consistent header block (eyebrow / h1 / intro) on every inner page; /faq gained a proper page header for the first time
 - FAQ accordion extracted to a shared component so the home section and /faq cannot drift
 - Content re-flowed for the wider frame: 2-col grids on /services and /blog, side-by-side form + map on /contact
+
+## v1.2.14 — 25 Jul 2026 — Navigation & footer polish
+- Site-wide back-to-top button with footer-aware visibility
+- FAQ accordion now fills the standardised page width (no dead space on the right)
+- Footer rebalanced to an even grid and tightened vertically
+
+## v1.2.15 — 25 Jul 2026 — Mobile audit
+- Full pass for narrow-screen defects: iOS input zoom, footer email overflow, unscrollable mobile menu, clipped gallery caption, swipe/scroll conflict, tight button padding, iOS safe-area
+- Explicit viewport config with viewport-fit=cover and brand theme-color
