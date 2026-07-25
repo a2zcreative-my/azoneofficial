@@ -1,11 +1,11 @@
 import {
-  BarChart3,
-  Clapperboard,
-  Megaphone,
-  Palette,
-  Radio,
-  Users,
-} from "lucide-react";
+  IconConsult,
+  IconDesign,
+  IconLiveCommerce,
+  IconLiveHost,
+  IconStrategy,
+  IconVideo,
+} from "@/components/ui/service-icons";
 
 import type {
   ElfiaProduct,
@@ -66,37 +66,37 @@ export const SERVICES: readonly Service[] = [
     title: "Live host service",
     description:
       "Trained hosts who sell — product pitching, pinned-deal pacing, and comment conversion, in Bahasa Melayu and English.",
-    icon: Radio,
+    icon: IconLiveHost,
   },
   {
     title: "Live commerce management",
     description:
       "We run the whole session: rundown, offers, moderation, order push, and post-live reporting. You watch the numbers.",
-    icon: BarChart3,
+    icon: IconLiveCommerce,
   },
   {
     title: "TikTok strategy",
     description:
       "Account positioning, campaign planning, and a content calendar that feed your live room instead of fighting it.",
-    icon: Megaphone,
+    icon: IconStrategy,
   },
   {
     title: "Creative design",
     description:
       "Covers, overlays, product cards, and campaign visuals that make your brand look worth stopping the scroll for.",
-    icon: Palette,
+    icon: IconDesign,
   },
   {
     title: "Video editing & content creation",
     description:
       "Live-session highlights cut into short-form content that keeps selling long after the stream ends.",
-    icon: Clapperboard,
+    icon: IconVideo,
   },
   {
     title: "Business consultation",
     description:
       "Brand positioning, pricing, and channel strategy — advised from the seller's chair, because we sell live too.",
-    icon: Users,
+    icon: IconConsult,
   },
 ] as const;
 

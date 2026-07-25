@@ -1,5 +1,6 @@
 import { Section } from "@/components/layout/section";
 import { Editable } from "@/components/live/editable";
+import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/ui/reveal";
 import { whatsappUrl } from "@/constants/content";
 import { CTA_LABEL } from "@/constants/site";
@@ -22,14 +23,11 @@ export function Cta() {
             Book a short consultation on WhatsApp — we'll review your brand and
             recommend the right starting package. No commitment, no pressure.
           </p>
-          <a
-            href={whatsappUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 mt-8 inline-flex h-12 items-center rounded-lg px-8 text-sm font-medium transition-colors"
-          >
-            {CTA_LABEL}
-          </a>
+          <div className="mt-8">
+            <Button href={whatsappUrl()} external>
+              {CTA_LABEL}
+            </Button>
+          </div>
         </div>
       </Reveal>
     </Section>

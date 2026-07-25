@@ -68,16 +68,32 @@ async function audit(
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
 const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
 
+/**
+ * Document numbers (v1.2.7): {TYPE}{YYYYMMDD}-{NN}-AZOO, e.g. DO20260725-01-AZOO.
+ * Daily counter per type (Asia/Kuala_Lumpur); widens past 99/day automatically.
+ * Legacy numbers (QT202600001) issued before v1.2.7 remain valid — never renumbered.
+ * Spec: DOCUMENT-NUMBERING.md
+ */
+function todayKL(): string {
+  const now = new Date(Date.now() + 8 * 60 * 60 * 1000); // UTC+8, no DST
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
+  return `${y}${m}${d}`;
+}
+
 async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string> {
-  const year = new Date().getFullYear();
+  const day = todayKL();
   await env.DB.prepare(
-    `INSERT INTO doc_counters (doc_type, year, counter) VALUES (?1, ?2, 1)
-     ON CONFLICT(doc_type, year) DO UPDATE SET counter = counter + 1`,
-  ).bind(docType, year).run();
+    `INSERT INTO doc_counters_daily (doc_type, day, counter) VALUES (?1, ?2, 1)
+     ON CONFLICT(doc_type, day) DO UPDATE SET counter = counter + 1`,
+  ).bind(docType, day).run();
   const row = await env.DB.prepare(
-    `SELECT counter FROM doc_counters WHERE doc_type = ?1 AND year = ?2`,
-  ).bind(docType, year).first<{ counter: number }>();
-  return `${docType}${year}${String(row!.counter).padStart(5, "0")}`;
+    `SELECT counter FROM doc_counters_daily WHERE doc_type = ?1 AND day = ?2`,
+  ).bind(docType, day).first<{ counter: number }>();
+  const seq = row!.counter;
+  const nn = String(seq).padStart(seq > 99 ? 3 : 2, "0");
+  return `${docType}${day}-${nn}-AZOO`;
 }
 
 /* ---------------- router ---------------- */

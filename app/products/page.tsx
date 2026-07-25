@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
+import { Button } from "@/components/ui/button";
+import { ElfiaGallery } from "@/components/ui/elfia-gallery";
 import { CONTACT, ELFIA, ELFIA_PRODUCTS, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
@@ -32,38 +34,38 @@ export default function ProductsPage() {
             </p>
           </header>
 
-          <section className="mt-16 grid grid-cols-1 gap-8 sm:grid-cols-3">
-            {ELFIA_PRODUCTS.map((product) => (
-              <Link key={product.slug} href={`/products/${product.slug}`} className="group block">
-                <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                  {product.imageSrc ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={product.imageSrc}
-                      alt={product.imageAlt}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div
-                      role="img"
-                      aria-label={product.imageAlt}
-                      className="flex h-full w-full items-center justify-center"
-                    >
-                      <span className="text-gold text-5xl font-light tracking-[0.3em]">
-                        E
+          {/* Coverflow gallery — centre card links to its detail page */}
+          <section className="mt-16" aria-label="Product gallery">
+            <ElfiaGallery products={ELFIA_PRODUCTS} />
+          </section>
+
+          {/* Direct links to every detail page (the carousel shows one at a time) */}
+          <section className="mt-16" aria-label="All products">
+            <h2 className="text-xl font-semibold tracking-tight">
+              Explore the range
+            </h2>
+            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {ELFIA_PRODUCTS.map((product) => (
+                <li key={product.slug}>
+                  <Link
+                    href={`/products/${product.slug}`}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-white/15 px-5 py-4 transition-colors hover:border-white/40 hover:bg-white/5"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium">
+                        {product.name}
                       </span>
-                    </div>
-                  )}
-                  <span className="absolute top-4 left-4 rounded-md bg-white/90 px-3 py-1 text-xs font-medium text-black">
-                    {product.category}
-                  </span>
-                </div>
-                <h2 className="mt-4 text-base font-medium group-hover:underline">
-                  {product.name}
-                </h2>
-              </Link>
-            ))}
+                      <span className="text-gold mt-0.5 block text-xs tracking-wide uppercase">
+                        {product.category}
+                      </span>
+                    </span>
+                    <span aria-hidden="true" className="text-white/50">
+                      →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section className="mt-16 max-w-2xl">
@@ -77,22 +79,12 @@ export default function ProductsPage() {
               drop.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <a
-                href={CONTACT.socials.tiktok}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
-              >
+              <Button href={CONTACT.socials.tiktok} external variant="gold">
                 {ELFIA.cta}
-              </a>
-              <a
-                href={whatsappUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-12 items-center justify-center rounded-lg border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
-              >
+              </Button>
+              <Button href={whatsappUrl()} external variant="outlineLight">
                 Ask about ELFIA on WhatsApp
-              </a>
+              </Button>
             </div>
           </section>
         </div>

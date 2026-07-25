@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
 
 export interface NavItem {
   label: string;
@@ -8,7 +8,7 @@ export interface NavItem {
 export interface Service {
   title: string;
   description: string;
-  icon: LucideIcon;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
 export interface Statistic {

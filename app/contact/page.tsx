@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { ContactForm } from "@/components/contact/contact-form";
 import { Editable } from "@/components/live/editable";
 import { PageShell } from "@/components/layout/page-shell";
+import { Button } from "@/components/ui/button";
 import { CONTACT, whatsappUrl } from "@/constants/content";
 import { SITE_CONFIG } from "@/constants/site";
 
@@ -31,22 +32,14 @@ export default function ContactPage() {
           />
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <a
-            href={whatsappUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-12 items-center justify-center gap-2 rounded-full px-8 text-sm font-medium transition-colors"
-          >
+          <Button href={whatsappUrl()} external>
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             WhatsApp +60 12-383 4821
-          </a>
-          <a
-            href={`mailto:${CONTACT.email}`}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border px-8 text-sm font-medium transition-colors hover:bg-secondary"
-          >
+          </Button>
+          <Button href={`mailto:${CONTACT.email}`} external variant="outline">
             <Mail className="h-4 w-4" aria-hidden="true" />
             {CONTACT.email}
-          </a>
+          </Button>
         </div>
       </section>
 

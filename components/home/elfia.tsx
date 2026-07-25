@@ -1,47 +1,13 @@
-import Link from "next/link";
 import { Section } from "@/components/layout/section";
+import { Button } from "@/components/ui/button";
+import { ElfiaGallery } from "@/components/ui/elfia-gallery";
 import { Reveal } from "@/components/ui/reveal";
 import { CONTACT, ELFIA, ELFIA_PRODUCTS } from "@/constants/content";
-import type { ElfiaProduct } from "@/types";
-
-function ProductCard({ product }: { product: ElfiaProduct }) {
-  return (
-    <Link href={`/products/${product.slug}`} className="group block">
-      <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-white/10 bg-white/5">
-        {product.imageSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={product.imageSrc}
-            alt={product.imageAlt}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-        ) : (
-          <div
-            role="img"
-            aria-label={product.imageAlt}
-            className="flex h-full w-full items-center justify-center"
-          >
-            <span className="text-gold text-5xl font-light tracking-[0.3em]">
-              E
-            </span>
-          </div>
-        )}
-        <span className="text-foreground absolute top-4 left-4 rounded-md bg-white/90 px-3 py-1 text-xs font-medium">
-          {product.category}
-        </span>
-      </div>
-      <h3 className="mt-4 text-base font-medium group-hover:underline">
-        {product.name}
-      </h3>
-    </Link>
-  );
-}
 
 export function Elfia() {
   return (
     <Section id="elfia" dark>
-      <div className="grid gap-12 lg:grid-cols-5 lg:gap-16">
+      <div className="grid items-center gap-12 lg:grid-cols-5 lg:gap-16">
         <div className="lg:col-span-2">
           <Reveal>
             <p className="text-gold mb-3 text-xs font-medium tracking-[0.3em] uppercase">
@@ -56,23 +22,18 @@ export function Elfia() {
             <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">
               {ELFIA.body}
             </p>
-            <a
-              href={CONTACT.socials.tiktok}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-gold hover:bg-gold/85 mt-8 inline-flex h-12 items-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
-            >
-              {ELFIA.cta}
-            </a>
+            <div className="mt-8">
+              <Button href={CONTACT.socials.tiktok} external variant="gold">
+                {ELFIA.cta}
+              </Button>
+            </div>
           </Reveal>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 lg:col-span-3">
-          {ELFIA_PRODUCTS.map((product, i) => (
-            <Reveal key={product.name} delay={i * 0.1}>
-              <ProductCard product={product} />
-            </Reveal>
-          ))}
+        <div className="lg:col-span-3">
+          <Reveal delay={0.1}>
+            <ElfiaGallery products={ELFIA_PRODUCTS} />
+          </Reveal>
         </div>
       </div>
     </Section>

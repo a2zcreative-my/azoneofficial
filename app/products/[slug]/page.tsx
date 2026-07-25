@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
+import { Button } from "@/components/ui/button";
 import { CONTACT, ELFIA_PRODUCTS, whatsappUrl } from "@/constants/content";
 
 interface ProductPageProps {
@@ -85,22 +86,12 @@ export default async function ProductPage({ params }: ProductPageProps) {
               </div>
 
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <a
-                  href={CONTACT.socials.tiktok}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-gold hover:bg-gold/85 inline-flex h-12 items-center justify-center rounded-lg px-8 text-sm font-medium text-black transition-colors"
-                >
+                <Button href={CONTACT.socials.tiktok} external variant="gold">
                   Watch the next drop live
-                </a>
-                <a
-                  href={whatsappUrl()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-12 items-center justify-center rounded-lg border border-white/20 px-8 text-sm font-medium text-white transition-colors hover:bg-white/10"
-                >
+                </Button>
+                <Button href={whatsappUrl()} external variant="outlineLight">
                   Ask on WhatsApp
-                </a>
+                </Button>
               </div>
 
               <div className="mt-10">

@@ -93,3 +93,11 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## Deployment status
 
 **As of 24 Jul 2026**: Build v1.2.3 complete in the zip. Live production still on v0.1.0 (verified via public fetch — the coming-soon page). Deploy checklist in `DEPLOYMENT.md` and the tracking `azone-website-tasks.md`.
+
+## v1.2.6 – v1.2.8 — 25 Jul 2026 — Launch day + UI pass + numbering
+- **Site went LIVE** on azoneofficial.com (deploy checklist completed; v0.1 page retired)
+- ELFIA coverflow gallery replaces the grid on home + /products (`components/ui/elfia-gallery.tsx`) — mobile swipe, keyboard, a11y, zero deps; centre card links to its detail page
+- Professional service icon family (`components/ui/service-icons.tsx`) on navy/gold chips
+- Shared Button (`components/ui/button.tsx`) — consistent h-12 / rounded-lg / min-width across hero, CTA, ELFIA, products, product detail, contact (fixed contact's rounded-full drift)
+- Sales doc numbering → `{TYPE}{YYYYMMDD}-{NN}-AZOO` (migration 0005, `doc_counters_daily`); legacy numbers preserved; spec in DOCUMENT-NUMBERING.md
+- New docs: REVIEW.md, DOCUMENT-NUMBERING.md, FEATURE-SUGGESTIONS.md; docs policy: append-only history

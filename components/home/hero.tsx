@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 
 import { Editable } from "@/components/live/editable";
+import { Button } from "@/components/ui/button";
 import { whatsappUrl } from "@/constants/content";
 import { SITE_CONFIG } from "@/constants/site";
 
@@ -84,20 +85,12 @@ export function Hero() {
         {...fade(0.3)}
         className="mt-10 flex flex-col items-center gap-3 sm:flex-row"
       >
-        <a
-          href={whatsappUrl()}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-12 items-center rounded-lg px-8 text-sm font-medium transition-colors"
-        >
+        <Button href={whatsappUrl()} external>
           Book free consultation
-        </a>
-        <a
-          href="#services"
-          className="inline-flex h-12 items-center rounded-lg border border-border px-8 text-sm font-medium transition-colors hover:bg-secondary"
-        >
+        </Button>
+        <Button href="#services" variant="outline">
           See what we do
-        </a>
+        </Button>
       </motion.div>
     </section>
   );
