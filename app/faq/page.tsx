@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 
-import { Faq } from "@/components/home/faq";
-import { Footer } from "@/components/layout/footer";
-import { Navbar } from "@/components/layout/navbar";
+import { PageShell } from "@/components/layout/page-shell";
+import { FaqList } from "@/components/ui/faq-list";
 import { whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
@@ -13,11 +12,14 @@ export const metadata: Metadata = {
 
 export default function FaqPage() {
   return (
-    <>
-      <Navbar />
-      <main className="pt-16">
-        <Faq />
-        <p className="text-muted-foreground mx-auto max-w-3xl px-6 pb-16 text-sm">
+    <PageShell
+      eyebrow="FAQ"
+      title="Before you ask"
+      intro="The questions brands ask us most, answered straight."
+    >
+      <section>
+        <FaqList />
+        <p className="mt-8 text-sm">
           Still have a question?{" "}
           <a
             href={whatsappUrl()}
@@ -29,8 +31,7 @@ export default function FaqPage() {
           </a>
           .
         </p>
-      </main>
-      <Footer />
-    </>
+      </section>
+    </PageShell>
   );
 }

@@ -14,23 +14,16 @@ export default function ServicesPage() {
     <PageShell
       eyebrow="Services"
       title="Everything a brand needs to win live"
+      intro="Pick a single service or hand us the whole channel — every engagement starts with a free consultation so we recommend only what your brand actually needs."
     >
-      <section>
-        <p>
-          Pick a single service or hand us the whole channel — every engagement
-          starts with a free consultation so we recommend only what your brand
-          actually needs.
-        </p>
-      </section>
-
-      <section className="space-y-6">
+      <section className="grid gap-6 sm:grid-cols-2">
         {SERVICES.map(({ title, description, icon: Icon }) => (
           <article
             key={title}
             className="flex items-start gap-4 rounded-xl border border-border p-5"
           >
-            <span className="bg-gold-soft inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg">
-              <Icon className="h-5 w-5 text-black" aria-hidden="true" />
+            <span className="bg-brand text-gold inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg">
+              <Icon className="h-5 w-5" aria-hidden="true" />
             </span>
             <div>
               <h2 className="text-lg font-semibold text-foreground">{title}</h2>

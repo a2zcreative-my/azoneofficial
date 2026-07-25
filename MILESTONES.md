@@ -106,3 +106,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - WhatsApp OG preview fixed to the large landscape banner card (landscape-only openGraph); og-square.png retained but unreferenced
 - Hero "We sell live" pill replaced with the transparent company logo
 - ELFIA product renames: Taupe→Mocha, Grey→Soft Grey, Corporate Blush→Khaki (Beige unchanged); slugs updated with 301 redirects in `public/_redirects`. Note: the asset list above records the original photo filenames, which are unchanged.
+
+## v1.2.13 — 25 Jul 2026 — Site-wide layout standardisation
+- One page frame for the whole site: PageShell rebuilt on the /products layout (max-w-6xl, px-6, py-16/sm:py-24, pt-16 under the fixed navbar)
+- Consistent header block (eyebrow / h1 / intro) on every inner page; /faq gained a proper page header for the first time
+- FAQ accordion extracted to a shared component so the home section and /faq cannot drift
+- Content re-flowed for the wider frame: 2-col grids on /services and /blog, side-by-side form + map on /contact

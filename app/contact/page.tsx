@@ -43,32 +43,34 @@ export default function ContactPage() {
         </div>
       </section>
 
-      <section>
-        <h2>Or send a message</h2>
-        <p className="mt-3 mb-6">
-          Prefer writing it down? Send us the details and we&apos;ll reply by
-          email or WhatsApp.
-        </p>
-        <ContactForm />
-      </section>
+      <div className="grid gap-12 lg:grid-cols-2">
+        <section>
+          <h2>Or send a message</h2>
+          <p className="mt-3 mb-6">
+            Prefer writing it down? Send us the details and we&apos;ll reply by
+            email or WhatsApp.
+          </p>
+          <ContactForm />
+        </section>
 
-      <section>
-        <h2>Visit us</h2>
-        <p className="mt-3 flex items-start gap-2">
-          <MapPin className="text-gold-deep mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{SITE_CONFIG.address}</span>
-        </p>
-        <div className="mt-6 overflow-hidden rounded-xl border border-border">
-          <iframe
-            src={MAP_EMBED_SRC}
-            title="AZ ONE OFFICIAL office location on Google Maps"
-            className="h-80 w-full"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
-          />
-        </div>
-      </section>
+        <section>
+          <h2>Visit us</h2>
+          <p className="mt-3 flex items-start gap-2">
+            <MapPin className="text-gold-deep mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{SITE_CONFIG.address}</span>
+          </p>
+          <div className="mt-6 overflow-hidden rounded-xl border border-border">
+            <iframe
+              src={MAP_EMBED_SRC}
+              title="AZ ONE OFFICIAL office location on Google Maps"
+              className="h-80 w-full"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+            />
+          </div>
+        </section>
+      </div>
 
       <section>
         <h2>Follow us</h2>

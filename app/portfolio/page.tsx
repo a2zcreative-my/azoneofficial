@@ -13,7 +13,11 @@ export const metadata: Metadata = {
 
 export default function PortfolioPage() {
   return (
-    <PageShell eyebrow="Portfolio" title="Work that sells, live">
+    <PageShell
+      eyebrow="Portfolio"
+      title="Work that sells, live"
+      intro="Brands and live sessions produced by AZ ONE OFFICIAL."
+    >
       <LivePortfolio
         fallback={
           PORTFOLIO_ITEMS.length === 0 ? (

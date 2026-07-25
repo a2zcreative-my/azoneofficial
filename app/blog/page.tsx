@@ -12,10 +12,14 @@ export const metadata: Metadata = {
 
 export default function BlogPage() {
   return (
-    <PageShell eyebrow="Blog" title="Notes from the live room">
-      <section className="space-y-6">
+    <PageShell
+      eyebrow="Blog"
+      title="Notes from the live room"
+      intro="Practical notes on live commerce in Malaysia — what we learn running sessions, written for brand owners."
+    >
+      <section className="grid gap-6 sm:grid-cols-2">
         {BLOG_POSTS.map((post) => (
-          <article key={post.slug} className="rounded-xl border border-border p-6">
+          <article key={post.slug} className="flex h-full flex-col rounded-xl border border-border p-6">
             <p className="text-muted-foreground text-xs">
               {new Date(post.date).toLocaleDateString("en-MY", {
                 day: "numeric",
@@ -29,7 +33,7 @@ export default function BlogPage() {
                 {post.title}
               </Link>
             </h2>
-            <p className="mt-2 text-sm">{post.excerpt}</p>
+            <p className="mt-2 grow text-sm">{post.excerpt}</p>
             <Link
               href={`/blog/${post.slug}`}
               className="text-gold-deep mt-3 inline-block text-sm font-medium hover:underline"

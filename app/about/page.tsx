@@ -14,7 +14,10 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <PageShell eyebrow="About us" title={ABOUT.title}>
+    <PageShell
+      eyebrow="About us"
+      title={ABOUT.title}
+    >
       <section className="space-y-5">
         {ABOUT.body.map((paragraph) => (
           <p key={paragraph}>{paragraph}</p>
@@ -30,8 +33,8 @@ export default function AboutPage() {
         <ul className="mt-6 grid gap-6 sm:grid-cols-2">
           {WHY_CHOOSE_US.map(({ title, description, icon: Icon }) => (
             <li key={title} className="rounded-xl border border-border p-5">
-              <span className="bg-gold-soft inline-flex h-10 w-10 items-center justify-center rounded-lg">
-                <Icon className="h-5 w-5 text-black" aria-hidden="true" />
+              <span className="bg-brand text-gold inline-flex h-10 w-10 items-center justify-center rounded-lg">
+                <Icon className="h-5 w-5" aria-hidden="true" />
               </span>
               <h3 className="mt-4 text-base font-semibold text-foreground">
                 {title}
