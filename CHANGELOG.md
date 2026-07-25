@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.11] — 2026-07-25
+### Changed
+- ELFIA product names updated in `constants/content.ts`:
+  - "The Signature Shawl — Taupe" → **"The Signature Shawl — Mocha"** (slug `signature-shawl-taupe` → `signature-shawl-mocha`)
+  - "The Signature Shawl — Grey" → **"The Signature Shawl — Soft Grey"** (slug `signature-shawl-grey` → `signature-shawl-soft-grey`)
+  - "Corporate Series — Blush" → **"Corporate Series — Khaki"** (slug `corporate-blush` → `corporate-khaki`)
+  - "The Signature Shawl — Beige" unchanged; Active Hijab and Neutral Collection unchanged
+- Alt text and product descriptions reworded to match the new colour names; The Neutral Collection copy now reads "black, mocha, beige, and soft grey"
+### Added
+- `public/_redirects` — 301s from the three old product URLs to the new slugs, so any link already shared keeps working
+### Note
+- Image filenames in `/public/elfia/` unchanged (`shawl-taupe.jpg`, `corporate.jpg`, …) — internal references only, not visible to visitors. Swap the photos if the new colours are different fabric, not a rename.
+
 ## [1.2.10] — 2026-07-25
 ### Changed
 - Hero: "We sell live" pill badge replaced with the transparent company logo (`/logo.png`, no pill background, h-16/h-20 responsive) — hero now opens logo → "LIVE . CONNECT . GROW." eyebrow → headline, mirroring the OG banner layout. Logo has no tagline baked in, so the eyebrow is kept (no duplication)

@@ -101,3 +101,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Shared Button (`components/ui/button.tsx`) — consistent h-12 / rounded-lg / min-width across hero, CTA, ELFIA, products, product detail, contact (fixed contact's rounded-full drift)
 - Sales doc numbering → `{TYPE}{YYYYMMDD}-{NN}-AZOO` (migration 0005, `doc_counters_daily`); legacy numbers preserved; spec in DOCUMENT-NUMBERING.md
 - New docs: REVIEW.md, DOCUMENT-NUMBERING.md, FEATURE-SUGGESTIONS.md; docs policy: append-only history
+
+## v1.2.9 – v1.2.11 — 25 Jul 2026 — Post-launch polish
+- WhatsApp OG preview fixed to the large landscape banner card (landscape-only openGraph); og-square.png retained but unreferenced
+- Hero "We sell live" pill replaced with the transparent company logo
+- ELFIA product renames: Taupe→Mocha, Grey→Soft Grey, Corporate Blush→Khaki (Beige unchanged); slugs updated with 301 redirects in `public/_redirects`. Note: the asset list above records the original photo filenames, which are unchanged.
