@@ -162,3 +162,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.2.24 — 26 Jul 2026 — Gallery frame fix
 - Product gallery frame sized by one fixed aspect ratio and max-width only; removed the height cap that broke the ratio and left empty space beside the photo
+
+## v1.2.25 — 26 Jul 2026 — Carousel progress bar
+- Full-width scroll progress bar, counter removed, thumb tracks real scroll position and visible fraction

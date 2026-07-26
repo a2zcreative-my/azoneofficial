@@ -22,6 +22,7 @@ export function PackagesCarousel({
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const [progress, setProgress] = useState({ ratio: 1, offset: 0 });
 
   const count = packages.length;
 
@@ -30,14 +31,28 @@ export function PackagesCarousel({
     if (!el) return;
     const step = el.scrollWidth / count;
     setActive(Math.min(count - 1, Math.round(el.scrollLeft / step)));
+
+    // Visible fraction of the track, and how far along it we are
+    const ratio = el.clientWidth / el.scrollWidth;
+    const scrollable = el.scrollWidth - el.clientWidth;
+    const offset = scrollable > 0 ? el.scrollLeft / scrollable : 0;
+    setProgress({ ratio: Math.min(1, ratio), offset });
   }, [count]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
+    onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
   }, [onScroll]);
+
+  const thumbWidth = Math.max(12, progress.ratio * 100);
+  const thumbOffset = progress.offset * ((100 - thumbWidth) / thumbWidth) * 100;
 
   // Drag-to-scroll: without arrows, a mouse user needs some way to move the
   // track. Touch devices already scroll natively, so this is pointer-only.
@@ -153,23 +168,17 @@ export function PackagesCarousel({
         ))}
       </div>
 
-      <div className="mt-6 flex items-center gap-4">
-        <div
-          className="bg-border relative h-1 w-full max-w-[220px] overflow-hidden rounded-full"
-          role="presentation"
-        >
-          <span
-            className="bg-gold-deep absolute top-0 left-0 h-full rounded-full transition-all duration-300"
-            style={{
-              width: `${100 / count}%`,
-              transform: `translateX(${active * 100}%)`,
-            }}
-          />
-        </div>
-        <p className="text-muted-foreground text-sm whitespace-nowrap">
-          <span className="text-foreground font-medium">{active + 1}</span> of{" "}
-          {count}
-        </p>
+      <div
+        className="bg-border relative mt-6 h-1 w-full overflow-hidden rounded-full"
+        role="presentation"
+      >
+        <span
+          className="bg-gold-deep absolute top-0 left-0 h-full rounded-full transition-[width,transform] duration-200 ease-out"
+          style={{
+            width: `${thumbWidth}%`,
+            transform: `translateX(${thumbOffset}%)`,
+          }}
+        />
       </div>
     </div>
   );
