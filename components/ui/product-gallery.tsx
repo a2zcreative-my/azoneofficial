@@ -56,21 +56,21 @@ export function ProductGallery({
   if (count === 0) return null;
 
   return (
-    <div className="mx-auto w-full max-w-[380px] lg:max-w-[440px]">
+    <div className="mx-auto w-full max-w-[360px] sm:max-w-[400px] lg:max-w-[420px]">
       <div
         className="relative overflow-hidden rounded-xl border border-white/10 bg-white/5 touch-pan-y"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <div className="relative aspect-[4/5] max-h-[62vh]">
+        <div className="relative aspect-[4/5] w-full overflow-hidden">
           {images.map((src, i) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={src}
               src={src}
               alt={i === 0 ? alt : `${alt} — view ${i + 1}`}
-              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 motion-reduce:transition-none ${
+              className={`absolute inset-0 block h-full w-full object-cover object-center transition-opacity duration-500 motion-reduce:transition-none ${
                 i === active ? "opacity-100" : "opacity-0"
               }`}
               loading={i === 0 ? "eager" : "lazy"}

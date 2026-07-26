@@ -159,3 +159,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Per-path scroll memory with layout-settle retry fixes Back from product pages
 - Package carousel: instruction text replaced with edge fade, progress bar, counter, and card peek
 - Product gallery resized for both phone and laptop viewports
+
+## v1.2.24 — 26 Jul 2026 — Gallery frame fix
+- Product gallery frame sized by one fixed aspect ratio and max-width only; removed the height cap that broke the ratio and left empty space beside the photo
