@@ -36,8 +36,8 @@ export const CONTACT = {
   },
 } as const;
 
-export function whatsappUrl(): string {
-  const text = encodeURIComponent(CONTACT.whatsappMessage);
+export function whatsappUrl(message?: string): string {
+  const text = encodeURIComponent(message ?? CONTACT.whatsappMessage);
   return `https://wa.me/${CONTACT.whatsapp}?text=${text}`;
 }
 
@@ -278,12 +278,49 @@ export const TESTIMONIALS: readonly Testimonial[] = [] as const;
 export const ELFIA = {
   eyebrow: "Our house brand",
   title: "ELFIA",
-  /** Brand slogan (Bahasa Melayu) — leads, since it is the brand's own voice. */
+  /**
+   * Brand slogan. The Malay line is the brand's own voice and leads; the
+   * English line is its meaning, not a separate strapline — so the two are
+   * always shown together as a pair.
+   */
   slogan: "Dekat Di Mata, Menarik Di Hati",
-  tagline: "Premium hijabs, born live",
+  tagline: "At First Sight. Forever in Your Heart.",
   body: "ELFIA is AZ ONE's own hijab label — premium chiffon shawls in essential neutrals, designed in Malaysia for office, everyday, and active wear. Every drop is launched on TikTok Live, so our audience sees the fabric move before they ever tap checkout.",
   cta: "Watch the next drop live",
 } as const;
+
+/**
+ * How an ELFIA drop works. Buying live is unfamiliar to a lot of shoppers —
+ * spelling out the sequence removes the "what actually happens if I show up?"
+ * hesitation that stops people joining a session.
+ */
+export const ELFIA_DROP_STEPS = [
+  {
+    step: "01",
+    title: "We announce the drop",
+    description:
+      "Follow us on TikTok so the session lands in your feed. Each drop is announced ahead of time with the pieces and colours going live.",
+  },
+  {
+    step: "02",
+    title: "You see the fabric move",
+    description:
+      "We style every piece on camera — drape, fall, and true colour under real light. Ask anything in the comments and the host answers live.",
+  },
+  {
+    step: "03",
+    title: "Price is revealed live",
+    description:
+      "Prices are announced during the session, not before. Quantities are limited and pieces are first come, first served.",
+  },
+  {
+    step: "04",
+    title: "Checkout in the session",
+    description:
+      "Order through the pinned link while you watch. We confirm and arrange delivery straight after the drop closes.",
+  },
+] as const;
+
 
 export const ELFIA_PRODUCTS: readonly ElfiaProduct[] = [
   {

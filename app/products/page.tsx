@@ -6,12 +6,18 @@ import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { ElfiaGallery } from "@/components/ui/elfia-gallery";
-import { CONTACT, ELFIA, ELFIA_PRODUCTS, whatsappUrl } from "@/constants/content";
+import {
+  CONTACT,
+  ELFIA,
+  ELFIA_DROP_STEPS,
+  ELFIA_PRODUCTS,
+  whatsappUrl,
+} from "@/constants/content";
 
 export const metadata: Metadata = {
   title: "ELFIA",
   description:
-    "ELFIA — Dekat Di Mata, Menarik Di Hati. AZ ONE OFFICIAL's premium hijab brand: chiffon shawls in essential neutrals, launched live on TikTok.",
+    "ELFIA — Dekat Di Mata, Menarik Di Hati. At First Sight. Forever in Your Heart. AZ ONE OFFICIAL's premium hijab brand: chiffon shawls in essential neutrals, launched live on TikTok.",
 };
 
 export default function ProductsPage() {
@@ -30,7 +36,7 @@ export default function ProductsPage() {
             <p className="text-gold mt-3 text-base tracking-[0.14em] italic">
               {ELFIA.slogan}
             </p>
-            <p className="mt-2 text-xs tracking-[0.2em] text-white/60 uppercase">
+            <p className="mt-2 text-sm text-white/55 italic">
               {ELFIA.tagline}
             </p>
             <p className="mt-6 text-base leading-relaxed text-white/70">
@@ -72,6 +78,36 @@ export default function ProductsPage() {
             </ul>
           </section>
 
+          {/*
+            Buying live is unfamiliar to many shoppers. Spelling out the
+            sequence answers "what actually happens if I show up?" — the
+            hesitation that stops people joining a session at all.
+          */}
+          <section className="mt-16" aria-labelledby="how-drops-work">
+            <h2
+              id="how-drops-work"
+              className="text-xl font-semibold tracking-tight"
+            >
+              How an ELFIA drop works
+            </h2>
+            <ol className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {ELFIA_DROP_STEPS.map((item) => (
+                <li
+                  key={item.step}
+                  className="rounded-xl border border-white/10 bg-white/5 p-5"
+                >
+                  <span className="text-gold text-xs font-semibold tracking-[0.3em]">
+                    {item.step}
+                  </span>
+                  <h3 className="mt-3 text-base font-semibold">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-white/70">
+                    {item.description}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </section>
+
           <section className="mt-16 max-w-2xl">
             <h2 className="text-xl font-semibold tracking-tight">
               Where to buy
@@ -87,8 +123,12 @@ export default function ProductsPage() {
               <Button href={CONTACT.socials.tiktok} external variant="gold">
                 {ELFIA.cta}
               </Button>
-              <Button href={whatsappUrl()} external variant="outlineLight">
-                Ask about ELFIA on WhatsApp
+              <Button
+                href={whatsappUrl("Hi AZ ONE, please add me to the ELFIA drop alerts.")}
+                external
+                variant="outlineLight"
+              >
+                Get drop alerts on WhatsApp
               </Button>
             </ButtonGroup>
               </div>

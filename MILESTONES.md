@@ -165,3 +165,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.2.25 — 26 Jul 2026 — Carousel progress bar
 - Full-width scroll progress bar, counter removed, thumb tracks real scroll position and visible fraction
+
+## v1.2.26 — 26 Jul 2026 — ELFIA brand line + buying experience
+- English strapline changed to "At First Sight. Forever in Your Heart." and paired with the Malay slogan
+- Drop process explained in four steps; WhatsApp drop alerts and context-prefilled product enquiries added

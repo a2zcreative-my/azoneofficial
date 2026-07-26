@@ -73,8 +73,14 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 <Button href={CONTACT.socials.tiktok} external variant="gold">
                   Watch the next drop live
                 </Button>
-                <Button href={whatsappUrl()} external variant="outlineLight">
-                  Ask on WhatsApp
+                <Button
+                  href={whatsappUrl(
+                    `Hi AZ ONE, I'm interested in ${product.name} (ELFIA). When is the next drop?`,
+                  )}
+                  external
+                  variant="outlineLight"
+                >
+                  Ask about this piece
                 </Button>
               </ButtonGroup>
               </div>

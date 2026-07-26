@@ -19,7 +19,7 @@ export function Elfia() {
             <p className="text-gold mt-3 text-base tracking-[0.14em] italic">
               {ELFIA.slogan}
             </p>
-            <p className="mt-2 text-xs tracking-[0.2em] text-white/60 uppercase">
+            <p className="mt-2 text-sm text-white/55 italic">
               {ELFIA.tagline}
             </p>
             <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">

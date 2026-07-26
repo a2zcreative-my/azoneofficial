@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.26] — 2026-07-26
+
+### Changed
+- **ELFIA English strapline** is now *At First Sight. Forever in Your Heart.* (was "Premium hijabs, born live"). It reads as the meaning of the Malay slogan rather than a competing line, so the two are presented as a pair: *Dekat Di Mata, Menarik Di Hati* leads in gold, with the English beneath it. Restyled from uppercase label to italic sentence case, since it's now a sentence, not a tag
+- `/products` meta description carries both lines
+
+### Added — ELFIA buying experience
+- **"How an ELFIA drop works"** on `/products`: a four-step sequence — drop announced, fabric styled live on camera with comments answered, price revealed in-session, checkout through the pinned link. Buying live is unfamiliar to many shoppers, and not knowing what happens if they show up is what stops them joining a session at all
+- **Drop alerts via WhatsApp** — "Get drop alerts on WhatsApp" replaces the generic "Ask about ELFIA" CTA, capturing interest between drops with no email service required
+- **Product CTAs now prefill context**: `whatsappUrl()` accepts an optional message, so "Ask about this piece" arrives naming the exact product and asking when the next drop is — the enquiry lands qualified instead of as a bare "hi"
+
 ## [1.2.25] — 2026-07-26
 
 ### Changed
