@@ -4,6 +4,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { FaqList } from "@/components/ui/faq-list";
+import { PackagesCarousel } from "@/components/ui/packages-carousel";
 import { PACKAGES, PACKAGE_MATRIX, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
@@ -50,40 +51,7 @@ export default function PackagesPage() {
     >
       {/* Cards — the primary view, and the only one on mobile */}
       <section>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-          {PACKAGES.map((tier) => (
-            <article
-              key={tier.name}
-              className={`flex h-full flex-col rounded-xl border p-6 ${
-                tier.featured
-                  ? "border-gold-deep/40 bg-secondary/40 shadow-sm"
-                  : "border-border"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold tracking-tight">
-                  {tier.name}
-                </h2>
-                {tier.featured && (
-                  <span className="bg-brand text-gold rounded-md px-2.5 py-1 text-[11px] font-medium tracking-wide uppercase">
-                    Most chosen
-                  </span>
-                )}
-              </div>
-              <p className="text-gold-deep mt-2 text-sm font-medium">
-                {tier.cadence}
-              </p>
-              <p className="mt-3 text-sm leading-relaxed">{tier.tagline}</p>
-              <ul className="mt-5 grow space-y-2">
-                {tier.features.map((feature) => (
-                  <li key={feature} className="text-sm leading-relaxed">
-                    — {feature}
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
+        <PackagesCarousel packages={PACKAGES} />
       </section>
 
       {/* Comparison — desktop only; the cards above already say this on mobile */}

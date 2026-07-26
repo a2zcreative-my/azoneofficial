@@ -80,6 +80,33 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable}>
       <body>
+        {/*
+          Scroll behaviour:
+           - Refresh / direct load  -> start at the top of the page
+           - Back / forward         -> keep the browser's restored position, so
+                                       returning from an ELFIA product lands
+                                       back on the ELFIA section
+           - #anchor in the URL     -> left alone for the browser to handle
+          This must run before first paint, otherwise the browser has already
+          restored the old offset and jumping to the top would flash.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{
+  if(!('scrollRestoration' in history))return;
+  var e=performance.getEntriesByType('navigation')[0];
+  if(e&&e.type==='reload'&&!location.hash){
+    history.scrollRestoration='manual';
+    document.documentElement.setAttribute('data-scroll-reset','1');
+    window.addEventListener('load',function(){
+      window.scrollTo(0,0);
+      document.documentElement.removeAttribute('data-scroll-reset');
+      history.scrollRestoration='auto';
+    });
+  }
+}catch(_){}})();`,
+          }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

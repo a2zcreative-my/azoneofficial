@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.21] — 2026-07-26
+
+### Changed
+- **Package tiers are now a carousel** (`components/ui/packages-carousel.tsx`) on both the homepage and `/packages` — one card at a time on mobile, two on tablet, three on desktop, with arrows and dots. Replaces the four-across grid, which was a long stack on phones and a dense wall on desktop. Built on native scroll-snap rather than the ELFIA coverflow transform: these cards are text, and scaled/partial neighbours would hurt readability. Deliberately not autoplaying — package details need reading time
+- The `/packages` comparison matrix is unchanged and still desktop-only
+
+### Fixed
+- **Refreshing no longer restores the old scroll position.** Browsers restore scroll on reload, so a refresh mid-page left visitors where they were instead of at the top. A pre-paint script in `app/layout.tsx` now sets `history.scrollRestoration = "manual"` for reloads only, jumps to the top on load, then immediately hands control back to the browser
+- **Back navigation still returns you to where you were** — critically, that means tapping an ELFIA product and pressing back lands on the ELFIA section, not the top of the page. `scrollRestoration` is a property of the history *entry*, so leaving it on `"manual"` would have disabled that; it's reset to `"auto"` straight after the reload jump
+- URLs with a `#anchor` are left alone, so in-page links (e.g. `#packages`) still work
+- Reload jump is instant rather than animated: `html { scroll-behavior: smooth }` was making the correction visibly scroll. A `data-scroll-reset` attribute disables smooth scrolling for that one moment
+
 ## [1.2.20] — 2026-07-26
 
 ### Changed — information architecture

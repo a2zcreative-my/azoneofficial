@@ -144,3 +144,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - /packages created: tier cards + desktop comparison matrix + cost FAQs + audit CTA
 - /services returns to capability only, linking through to /packages
 - Nav restructured (Packages in, FAQ to footer); FAQ content split by intent across home / packages / faq
+
+## v1.2.21 — 26 Jul 2026 — Package carousel + scroll behaviour
+- Package tiers presented as a scroll-snap carousel on home and /packages (1/2/3 cards by breakpoint)
+- Refresh returns to the top of the page; back navigation still restores position (ELFIA product -> back -> ELFIA section)

@@ -99,6 +99,12 @@
     scroll-behavior: smooth;
   }
 
+  /* Set by the reload handler in app/layout.tsx: jumping to the top after a
+     refresh must be instant, not an animated scroll. */
+  html[data-scroll-reset="1"] {
+    scroll-behavior: auto;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
