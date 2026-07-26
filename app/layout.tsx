@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { ScrollMemory } from "@/components/ui/scroll-memory";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
 import { WhatsAppFab } from "@/components/ui/whatsapp-fab";
 import { SITE_CONFIG } from "@/constants/site";
@@ -121,6 +122,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           />
         )}
         {children}
+        <ScrollMemory />
         <WhatsAppFab />
         <ScrollToTop />
       </body>

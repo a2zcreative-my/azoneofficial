@@ -154,3 +154,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Product pages get a main-image + thumbnail gallery
 - Package carousel switched to scroll/drag only; button sizing unified through one component
 - /about restructured into a two-column layout
+
+## v1.2.23 — 26 Jul 2026 — Scroll restoration + carousel affordance
+- Per-path scroll memory with layout-settle retry fixes Back from product pages
+- Package carousel: instruction text replaced with edge fade, progress bar, counter, and card peek
+- Product gallery resized for both phone and laptop viewports

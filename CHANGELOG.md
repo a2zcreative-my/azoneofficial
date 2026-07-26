@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.23] — 2026-07-26
+
+### Fixed
+- **Back from an ELFIA product no longer lands at the top of `/products`.** Root cause: the App Router restores scroll from its own cache, but it does so before the returning page has finished laying out — the saved offset is taller than the document at that instant, so the scroll silently clamps to 0. New `components/ui/scroll-memory.tsx` records the offset per path and, on popstate navigations only, retries across animation frames until the document is genuinely tall enough to honour it. Forward navigation still starts at the top, and reload still starts at the top (unchanged inline script)
+- **Product gallery was oversized.** The 3:4 main image filled a half-page column, running taller than the viewport on laptops and pushing the price/CTA block below the fold. Now 4:5, capped at `62vh`, with the gallery constrained to 380px (440px at desktop) — roughly half the viewport height on a phone and ~60% on a laptop
+
+### Changed
+- **Package carousel affordance replaced.** The "Swipe or drag to see all 4" sentence was instructional and read awkwardly on desktop, where nobody swipes. Replaced with self-evident cues: a right-edge fade that shows only while more cards remain, a progress bar, and a plain "2 of 4" counter. Card width at desktop widened the peek so a sliver of the next tier is always visible
+- Carousel track is now keyboard-focusable (`tabIndex={0}` with a descriptive label), since removing the arrows left keyboard users without a way to move it
+
 ## [1.2.22] — 2026-07-26
 
 ### Added

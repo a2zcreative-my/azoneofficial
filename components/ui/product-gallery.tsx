@@ -56,14 +56,14 @@ export function ProductGallery({
   if (count === 0) return null;
 
   return (
-    <div>
+    <div className="mx-auto w-full max-w-[380px] lg:max-w-[440px]">
       <div
         className="relative overflow-hidden rounded-xl border border-white/10 bg-white/5 touch-pan-y"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <div className="relative aspect-[3/4]">
+        <div className="relative aspect-[4/5] max-h-[62vh]">
           {images.map((src, i) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -87,7 +87,7 @@ export function ProductGallery({
       </div>
 
       {count > 1 && (
-        <ul className="mt-4 grid grid-cols-4 gap-3">
+        <ul className="mt-3 grid grid-cols-4 gap-2.5">
           {images.map((src, i) => (
             <li key={src}>
               <button

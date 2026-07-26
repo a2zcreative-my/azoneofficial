@@ -70,7 +70,7 @@ export function PackagesCarousel({
     drag.current.active = false;
   };
 
-  const goTo = (index: number) => {
+  const _goTo = (index: number) => {
     const el = scrollerRef.current;
     if (!el) return;
     const clamped = Math.max(0, Math.min(count - 1, index));
@@ -79,8 +79,18 @@ export function PackagesCarousel({
     el.scrollTo({ left: clamped * step, behavior: reduce ? "auto" : "smooth" });
   };
 
+  const atEnd = active >= count - 1;
+
   return (
     <div className="relative">
+      {/* Fades the right edge while more cards remain — a visual cue that the
+          track continues, which reads better than an instruction sentence. */}
+      <div
+        aria-hidden="true"
+        className={`from-background pointer-events-none absolute top-0 right-0 z-10 h-full w-12 bg-gradient-to-l to-transparent transition-opacity duration-300 ${
+          atEnd ? "opacity-0" : "opacity-100"
+        }`}
+      />
       <div
         ref={scrollerRef}
         onPointerDown={onPointerDown}
@@ -89,12 +99,13 @@ export function PackagesCarousel({
         onPointerCancel={endDrag}
         className="flex cursor-grab snap-x snap-mandatory gap-6 overflow-x-auto pb-2 select-none active:cursor-grabbing [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="group"
-        aria-label="Package tiers"
+        tabIndex={0}
+        aria-label="Package tiers — scroll horizontally to see all"
       >
         {packages.map((tier) => (
           <article
             key={tier.name}
-            className={`flex shrink-0 basis-[86%] snap-center flex-col rounded-xl border p-6 sm:basis-[48%] lg:basis-[31.5%] ${
+            className={`flex shrink-0 basis-[86%] snap-center flex-col rounded-xl border p-6 sm:basis-[48%] lg:basis-[30%] ${
               tier.featured
                 ? "border-gold-deep/40 bg-secondary/40"
                 : "border-border"
@@ -142,28 +153,23 @@ export function PackagesCarousel({
         ))}
       </div>
 
-      <div className="mt-6 flex items-center gap-2">
-        {packages.map((tier, i) => (
-          <button
-            key={tier.name}
-            type="button"
-            onClick={() => goTo(i)}
-            aria-label={`Show ${tier.name}`}
-            aria-current={i === active}
-            className="group flex h-6 w-4 items-center justify-center"
-          >
-            <span
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === active
-                  ? "bg-gold-deep w-5"
-                  : "bg-border w-1.5 group-hover:bg-muted-foreground/50"
-              }`}
-            />
-          </button>
-        ))}
-        <span className="text-muted-foreground ml-2 text-xs">
-          Swipe or drag to see all {packages.length}
-        </span>
+      <div className="mt-6 flex items-center gap-4">
+        <div
+          className="bg-border relative h-1 w-full max-w-[220px] overflow-hidden rounded-full"
+          role="presentation"
+        >
+          <span
+            className="bg-gold-deep absolute top-0 left-0 h-full rounded-full transition-all duration-300"
+            style={{
+              width: `${100 / count}%`,
+              transform: `translateX(${active * 100}%)`,
+            }}
+          />
+        </div>
+        <p className="text-muted-foreground text-sm whitespace-nowrap">
+          <span className="text-foreground font-medium">{active + 1}</span> of{" "}
+          {count}
+        </p>
       </div>
     </div>
   );
