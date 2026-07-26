@@ -51,13 +51,13 @@ export function ScrollToTop() {
       aria-label="Back to top"
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible}
-      className={`bg-brand hover:bg-gold fixed right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg transition-all duration-300 hover:text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none sm:right-8 sm:bottom-8 ${
+      className={`bg-brand hover:bg-gold fixed right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition-all duration-300 hover:text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none sm:right-8 sm:bottom-8 ${
         visible
           ? "translate-y-0 opacity-100"
           : "pointer-events-none translate-y-3 opacity-0"
       }`}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M12 19V5M5 12l7-7 7 7"
           stroke="currentColor"

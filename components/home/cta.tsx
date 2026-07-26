@@ -1,6 +1,7 @@
 import { Section } from "@/components/layout/section";
 import { Editable } from "@/components/live/editable";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Reveal } from "@/components/ui/reveal";
 import { whatsappUrl } from "@/constants/content";
 
@@ -23,13 +24,15 @@ export function Cta() {
             channel, and what your buyers respond to — then tell you whether
             live is worth it for you. No commitment, no pressure.
           </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+          <div className="mt-8 flex justify-center">
+            <ButtonGroup align="center">
             <Button href={whatsappUrl()} external>
               Get a free live audit
             </Button>
             <Button href="/contact" variant="outline">
               Book a strategy call
             </Button>
+            </ButtonGroup>
           </div>
           <p className="text-muted-foreground mt-4 text-sm">
             Prefer to just message us?{" "}

@@ -10,12 +10,13 @@ import { cn } from "@/lib/utils";
  * FaqList (v1.2.13) — the accordion itself, with no section wrapper, so the
  * home page and the /faq page render identical markup inside their own frames.
  */
-export function FaqList() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
+export function FaqList({ limit }: { limit?: number }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const items = limit ? FAQS.slice(0, limit) : FAQS;
 
   return (
     <div className="w-full divide-y divide-border border-y border-border">
-      {FAQS.map((item, i) => {
+      {items.map((item, i) => {
         const isOpen = openIndex === i;
         const panelId = `faq-panel-${i}`;
         const buttonId = `faq-button-${i}`;

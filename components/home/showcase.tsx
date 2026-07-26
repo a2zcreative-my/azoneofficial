@@ -63,7 +63,7 @@ export function Showcase() {
 
       {TESTIMONIALS.length > 0 && (
         <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {TESTIMONIALS.map((t, i) => (
+          {TESTIMONIALS.slice(0, 3).map((t, i) => (
             <Reveal key={t.author} delay={i * 0.08}>
               <figure className="h-full rounded-xl border border-border p-6">
                 <blockquote className="text-sm leading-relaxed">

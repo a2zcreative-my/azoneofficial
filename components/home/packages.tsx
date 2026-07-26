@@ -1,5 +1,6 @@
 import { Section } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Reveal } from "@/components/ui/reveal";
 import { PACKAGES, whatsappUrl } from "@/constants/content";
 
@@ -77,13 +78,15 @@ export function Packages() {
         ))}
       </div>
 
-      <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-10">
+        <ButtonGroup>
         <Button href={whatsappUrl()} external>
           Get a free live audit
         </Button>
         <Button href="/contact" variant="outline">
           Book a strategy call
         </Button>
+        </ButtonGroup>
       </div>
     </Section>
   );

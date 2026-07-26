@@ -43,6 +43,11 @@ export function ElfiaGallery({
     [count],
   );
 
+  const goTo = useCallback((index: number) => {
+    setActive(index);
+    setNudge((n) => n + 1);
+  }, []);
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft") go(-1);
     if (e.key === "ArrowRight") go(1);
@@ -217,14 +222,14 @@ export function ElfiaGallery({
                 transform: `translate(-50%, -50%) translateX(${offset * 62}%) scale(${1 - abs * 0.14})`,
                 zIndex: 10 - abs,
                 opacity: visible ? 1 - abs * 0.25 : 0,
-                pointerEvents: isCenter ? "auto" : "none",
+                pointerEvents: visible ? "auto" : "none",
               }}
             >
               {isCenter ? (
                 <Link
                   href={`/products/${product.slug}`}
-                  className="group block"
-                  tabIndex={-1}
+                  className="group block cursor-pointer"
+                  aria-label={`View ${product.name}`}
                 >
                   {card}
                   <figcaption className="mt-4 text-center text-base font-medium text-white group-hover:underline">
@@ -232,7 +237,14 @@ export function ElfiaGallery({
                   </figcaption>
                 </Link>
               ) : (
-                card
+                <button
+                  type="button"
+                  onClick={() => goTo(i)}
+                  aria-label={`Show ${product.name}`}
+                  className="block w-full cursor-pointer text-left"
+                >
+                  {card}
+                </button>
               )}
             </figure>
           );
@@ -251,14 +263,22 @@ export function ElfiaGallery({
           </svg>
         </button>
 
-        <div className="flex items-center gap-2" aria-hidden="true">
+        <div className="flex items-center gap-2">
           {products.map((p, i) => (
-            <span
+            <button
               key={p.slug}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === active ? "bg-gold w-5" : "w-1.5 bg-white/25"
-              }`}
-            />
+              type="button"
+              onClick={() => goTo(i)}
+              aria-label={`Go to ${p.name}`}
+              aria-current={i === active}
+              className="group flex h-6 w-4 items-center justify-center"
+            >
+              <span
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  i === active ? "bg-gold w-5" : "w-1.5 bg-white/25 group-hover:bg-white/50"
+                }`}
+              />
+            </button>
           ))}
         </div>
 

@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.19] — 2026-07-26
+
+### Changed
+- **Carousel photos are now tappable.** Side cards were `pointer-events: none`, so only the centre image responded. Tapping a side photo now brings it to centre; tapping the centre photo opens its product page (with an `aria-label` and pointer cursor so it reads as interactive). Position dots became real buttons that jump straight to a product, instead of decoration
+- **Paired CTAs render at equal width** (`components/ui/button-group.tsx`). `min-w-[180px]` was only a floor, so "Get a free live audit" and "See packages" came out different sizes. `ButtonGroup` lays them out in equal-fraction columns — every button matches the widest in the group. Applied to hero, closing CTA, and the packages section
+- **Floating buttons aligned.** The back-to-top button was 44px and the WhatsApp button 48px at the same right offset, so their centres didn't line up; back-to-top is now 48px and both share the same right offset at every breakpoint, with the WhatsApp button exactly one button + 12px gap above
+- **Homepage FAQ shortened to 5 questions** with a "See all questions" link to `/faq`. With the six new cost FAQs the list had grown to 12 accordions — a long scroll on a phone for a section near the bottom of the page. `/faq` still shows all 12; `FaqList` takes an optional `limit`
+- FAQ accordions now start fully collapsed (the first item was open by default), so the section occupies less of a mobile screen on arrival
+- **Homepage testimonials trimmed to 3** of 7, for the same reason
+
 ## [1.2.18] — 2026-07-26
 
 ### Fixed — credibility (highest priority)

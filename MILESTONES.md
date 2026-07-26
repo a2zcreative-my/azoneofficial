@@ -134,3 +134,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Package tiers published (Starter/Growth/Scale/Enterprise) on home + /services, scope without price
 - Action-oriented CTAs (free live audit, strategy call, WhatsApp now) + floating WhatsApp button
 - Cost and logistics FAQs added to reduce pre-enquiry hesitation
+
+## v1.2.19 — 26 Jul 2026 — Interaction + mobile density
+- Carousel photos and dots made tappable (side cards were inert)
+- Equal-width CTA pairs via ButtonGroup; floating buttons aligned on one axis
+- Homepage trimmed for mobile: FAQ 5 of 12 with link to /faq, testimonials 3 of 7, accordions collapsed by default

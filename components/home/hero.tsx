@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "framer-motion";
 
 import { Editable } from "@/components/live/editable";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { whatsappUrl } from "@/constants/content";
 import { SITE_CONFIG } from "@/constants/site";
 
@@ -82,14 +83,16 @@ export function Hero() {
 
       <motion.div
         {...fade(0.3)}
-        className="mt-10 flex flex-col items-center gap-3 sm:flex-row"
+        className="mt-10 flex justify-center"
       >
-        <Button href={whatsappUrl()} external>
-          Get a free live audit
-        </Button>
-        <Button href="#packages" variant="outline">
-          See packages
-        </Button>
+        <ButtonGroup align="center">
+          <Button href={whatsappUrl()} external>
+            Get a free live audit
+          </Button>
+          <Button href="#packages" variant="outline">
+            See packages
+          </Button>
+        </ButtonGroup>
       </motion.div>
     </section>
   );
