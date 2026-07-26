@@ -85,10 +85,10 @@ export function Hero() {
         className="mt-10 flex flex-col items-center gap-3 sm:flex-row"
       >
         <Button href={whatsappUrl()} external>
-          Book free consultation
+          Get a free live audit
         </Button>
-        <Button href="#services" variant="outline">
-          See what we do
+        <Button href="#packages" variant="outline">
+          See packages
         </Button>
       </motion.div>
     </section>

@@ -3,7 +3,6 @@ import { Editable } from "@/components/live/editable";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/ui/reveal";
 import { whatsappUrl } from "@/constants/content";
-import { CTA_LABEL } from "@/constants/site";
 
 export function Cta() {
   return (
@@ -20,14 +19,30 @@ export function Cta() {
             />
           </h2>
           <p className="text-muted-foreground mt-4 text-base leading-relaxed">
-            Book a short consultation on WhatsApp — we'll review your brand and
-            recommend the right starting package. No commitment, no pressure.
+            Start with a free live audit: we review your products, your current
+            channel, and what your buyers respond to — then tell you whether
+            live is worth it for you. No commitment, no pressure.
           </p>
-          <div className="mt-8">
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Button href={whatsappUrl()} external>
-              {CTA_LABEL}
+              Get a free live audit
+            </Button>
+            <Button href="/contact" variant="outline">
+              Book a strategy call
             </Button>
           </div>
+          <p className="text-muted-foreground mt-4 text-sm">
+            Prefer to just message us?{" "}
+            <a
+              href={whatsappUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground font-medium underline"
+            >
+              WhatsApp us now
+            </a>
+            .
+          </p>
         </div>
       </Reveal>
     </Section>

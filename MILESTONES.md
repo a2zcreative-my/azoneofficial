@@ -128,3 +128,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.2.17 — 25 Jul 2026 — Mobile autoplay fix
 - Carousel autoplay repaired for touch devices: touchcancel handling, mouse-only hover pause, keyboard-only focus pause, separate swipe state, plus a 6s watchdog
+
+## v1.2.18 — 26 Jul 2026 — Credibility, packages, conversion
+- Zero-value counters removed; qualitative trust signals shown until real numbers exist
+- Package tiers published (Starter/Growth/Scale/Enterprise) on home + /services, scope without price
+- Action-oriented CTAs (free live audit, strategy call, WhatsApp now) + floating WhatsApp button
+- Cost and logistics FAQs added to reduce pre-enquiry hesitation

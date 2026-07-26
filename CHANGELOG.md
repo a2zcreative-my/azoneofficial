@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.18] — 2026-07-26
+
+### Fixed — credibility (highest priority)
+- **Homepage no longer renders "0+ / 0 / 0x".** The About counters animated up from 0 toward placeholder targets (500+ sessions, 12 hosts, 3x GMV) that were never real; on the live site they displayed as zeroes, reading as "an agency with zero experience". `STATISTICS` is now an empty array and `About` falls back to `TRUST_SIGNALS` — SSM registration (202603168673 / JM1046169-H), brand owners via ELFIA, Johor Bahru based team, BM/English hosts. All true on day one, no numbers invented. When real figures exist, repopulate `STATISTICS` and the counters return automatically
+
+### Added
+- **Packages published** (`PACKAGES` in `constants/content.ts`, `components/home/packages.tsx`): Starter / Growth / Scale / Enterprise, each with cadence plus hours, live host, reporting, creative, and consultation lines. Shown on the homepage and `/services`. No prices — quotes stay per brand, but visitors can now see scope. ⚠️ Session counts and inclusions are a first draft and need confirming against the real package sheet before launch
+- **Floating WhatsApp button** (`components/ui/whatsapp-fab.tsx`), mounted site-wide. Stacks above the back-to-top button and hides over the footer where contact links already exist
+- **Six cost/logistics FAQs**: how much, session length and time to results, using your own host, studio, on-site sessions, and whether sales are guaranteed (answered honestly — no guarantee, with what is committed instead)
+
+### Changed
+- **Stronger CTAs.** Hero: "Book free consultation" → "Get a free live audit", secondary now "See packages" (anchors to the new section). Closing CTA: single button → "Get a free live audit" + "Book a strategy call", plus an inline "WhatsApp us now" link. `CTA_LABEL` still drives the navbar button
+
 ## [1.2.17] — 2026-07-25
 ### Fixed
 - **Carousel autoplay never ran on phones.** The v1.2.16 pause logic was written for desktop input and left the carousel permanently paused on touch devices. Four separate causes:

@@ -17,6 +17,21 @@ export interface Statistic {
   label: string;
 }
 
+/** Qualitative credibility marker shown instead of counters. */
+export interface TrustSignal {
+  label: string;
+  description: string;
+}
+
+export interface PackageTier {
+  name: string;
+  tagline: string;
+  /** Availability/scale line, e.g. "1 session per week". */
+  cadence: string;
+  features: readonly string[];
+  featured?: boolean;
+}
+
 export interface Testimonial {
   quote: string;
   author: string;

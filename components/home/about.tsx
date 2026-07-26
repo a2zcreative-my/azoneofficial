@@ -13,7 +13,7 @@ import { useEffect, useRef } from "react";
 import { Section } from "@/components/layout/section";
 import { Editable } from "@/components/live/editable";
 import { Reveal } from "@/components/ui/reveal";
-import { ABOUT, STATISTICS } from "@/constants/content";
+import { ABOUT, STATISTICS, TRUST_SIGNALS } from "@/constants/content";
 import type { Statistic } from "@/types";
 
 function StatCounter({ stat }: { stat: Statistic }) {
@@ -47,7 +47,36 @@ function StatCounter({ stat }: { stat: Statistic }) {
   );
 }
 
+/**
+ * Credibility markers used while STATISTICS is empty. Counters animate from 0,
+ * so unpublished figures rendered as "0+ / 0 / 0x" — worse than showing
+ * nothing. These are facts that are true on day one.
+ */
+function TrustSignals() {
+  return (
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-1 lg:content-start xl:grid-cols-2">
+      {TRUST_SIGNALS.map((signal, i) => (
+        <Reveal key={signal.label} delay={i * 0.08}>
+          <div className="border-t border-border pt-5">
+            <p className="text-base font-semibold tracking-tight">
+              <span className="text-gold-deep mr-2" aria-hidden="true">
+                —
+              </span>
+              {signal.label}
+            </p>
+            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+              {signal.description}
+            </p>
+          </div>
+        </Reveal>
+      ))}
+    </div>
+  );
+}
+
 export function About() {
+  const hasStats = STATISTICS.length > 0;
+
   return (
     <Section id="about" eyebrow={ABOUT.eyebrow} title={ABOUT.title}>
       {/* Editable keys: about.body1, about.body2 (Admin -> Content) */}
@@ -65,13 +94,17 @@ export function About() {
           </div>
         </Reveal>
 
-        <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 lg:grid-cols-1 lg:content-start xl:grid-cols-3">
-          {STATISTICS.map((stat, i) => (
-            <Reveal key={stat.label} delay={i * 0.1}>
-              <StatCounter stat={stat} />
-            </Reveal>
-          ))}
-        </div>
+        {hasStats ? (
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 lg:grid-cols-1 lg:content-start xl:grid-cols-3">
+            {STATISTICS.map((stat, i) => (
+              <Reveal key={stat.label} delay={i * 0.1}>
+                <StatCounter stat={stat} />
+              </Reveal>
+            ))}
+          </div>
+        ) : (
+          <TrustSignals />
+        )}
       </div>
     </Section>
   );

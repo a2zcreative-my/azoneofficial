@@ -10,10 +10,12 @@ import {
 import type {
   ElfiaProduct,
   FaqItem,
+  PackageTier,
   ProcessStep,
   Service,
   Statistic,
   Testimonial,
+  TrustSignal,
 } from "@/types";
 
 /* ------------------------------------------------------------------ */
@@ -51,11 +53,110 @@ export const ABOUT = {
   ],
 } as const;
 
-export const STATISTICS: readonly Statistic[] = [
-  { value: 500, suffix: "+", label: "Live sessions hosted" },
-  { value: 12, suffix: "", label: "Trained live hosts" },
-  { value: 3, suffix: "x", label: "Average GMV growth" },
-] as const; // TODO(Alīf): replace with real numbers before launch
+/**
+ * Credibility markers shown in place of performance counters.
+ *
+ * The previous counters ("500+ sessions", "12 hosts", "3x GMV") were
+ * placeholders and rendered as 0+ / 0 / 0x on the live site, which read as
+ * "an agency with zero experience". Until there are real, defensible numbers
+ * to publish, we lead with facts that are true today and still build trust.
+ *
+ * When real figures exist, add them back via STATISTICS — do not publish
+ * estimates or aspirational numbers.
+ */
+export const TRUST_SIGNALS: readonly TrustSignal[] = [
+  {
+    label: "SSM-registered",
+    description:
+      "AZ One Official — 202603168673 (JM1046169-H). A registered Malaysian company, not a freelance side project.",
+  },
+  {
+    label: "Brand owners, not just an agency",
+    description:
+      "We build and sell ELFIA, our own hijab label, on live — so every recommendation comes from the seller's chair.",
+  },
+  {
+    label: "Johor Bahru based team",
+    description:
+      "Hosts, creative, and management in one team you can meet — with fast WhatsApp support during your sessions.",
+  },
+  {
+    label: "Bahasa Melayu & English hosts",
+    description:
+      "Trained to sell in the language your buyers actually shop in, or a natural mix of both.",
+  },
+] as const;
+
+/**
+ * Real performance figures. Empty until AZ ONE has numbers worth publishing —
+ * the About section falls back to TRUST_SIGNALS while this is empty, so no
+ * zeroes are ever rendered.
+ */
+export const STATISTICS: readonly Statistic[] = [] as const;
+
+/* ------------------------------------------------------------------ */
+/* Packages                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Published package tiers. Prices are deliberately not shown — the site sells
+ * the consultation, and pricing is quoted per brand.
+ *
+ * TODO(Alīf): confirm the session counts and inclusions below against the
+ * package sheet before this goes live. The shape is right; the specifics
+ * should match what you actually deliver.
+ */
+export const PACKAGES: readonly PackageTier[] = [
+  {
+    name: "Starter",
+    tagline: "Test live commerce properly, without committing a season to it.",
+    cadence: "1 session per week",
+    features: [
+      "2 hours per live session",
+      "1 trained live host (BM/English)",
+      "Post-session report: viewers, orders, GMV",
+      "2 creative assets per month (covers, overlays)",
+      "Onboarding consultation",
+    ],
+  },
+  {
+    name: "Growth",
+    tagline: "A real schedule, so the algorithm and your buyers learn to expect you.",
+    cadence: "3 sessions per week",
+    features: [
+      "2–3 hours per live session",
+      "Live host + comment moderator",
+      "Weekly reporting with what we change next",
+      "6 creative assets per month",
+      "Monthly strategy call",
+    ],
+    featured: true,
+  },
+  {
+    name: "Scale",
+    tagline: "Live as a primary sales channel, managed end to end.",
+    cadence: "5 sessions per week",
+    features: [
+      "Host rotation + dedicated live manager",
+      "Full session management: rundown, offers, order push",
+      "Weekly reporting + optimisation review",
+      "12 creative assets + short-form edits",
+      "Bi-weekly strategy call",
+    ],
+  },
+  {
+    name: "Enterprise",
+    tagline: "Built around your calendar, your studio, and your team.",
+    cadence: "Custom schedule",
+    features: [
+      "Daily or campaign-based scheduling",
+      "Dedicated host team and account lead",
+      "Custom reporting to your format",
+      "Full creative production",
+      "On-site sessions at your office or studio",
+    ],
+  },
+] as const;
 
 /* ------------------------------------------------------------------ */
 /* Services                                                            */
@@ -243,6 +344,36 @@ export const FAQS: readonly FaqItem[] = [
     question: "What is ELFIA?",
     answer:
       "ELFIA is our own premium hijab brand — chiffon shawls in essential neutrals for office, everyday, and active wear — built and sold through live commerce. It is proof that the playbook we offer clients is one we run ourselves.",
+  },
+  {
+    question: "How much does it cost?",
+    answer:
+      "Pricing depends on how often you go live, how many hosts you need, and how much creative work is involved — so we quote per brand rather than publish a rate card. Our packages start with one session a week and scale to a daily schedule. Tell us your products and target cadence on WhatsApp and you'll get a clear number, not a range.",
+  },
+  {
+    question: "How long is a live session, and how long before I see results?",
+    answer:
+      "Sessions typically run 2–3 hours; shorter than that rarely gives the room time to build. On results: a first session gives you a baseline, not a verdict. Brands that commit to a consistent weekly schedule usually see the picture clearly within 4–6 weeks, because live rewards repetition more than one-off effort.",
+  },
+  {
+    question: "Can I use my own host?",
+    answer:
+      "Yes. If you already have a host or an in-house team, we can run everything around them — rundown, moderation, offers, order push, and reporting — or train them on the selling techniques our hosts use. Some brands start with our host and transition to their own later.",
+  },
+  {
+    question: "Do you provide a studio?",
+    answer:
+      "Yes, we run sessions from our own setup in Johor Bahru, including lighting and the streaming setup. If your products need particular staging, tell us during consultation so we can plan it.",
+  },
+  {
+    question: "Can you come to my office or warehouse?",
+    answer:
+      "Yes. On-site sessions are available and often make sense when stock is bulky, fragile, or high-value. Travel arrangements are agreed upfront during consultation.",
+  },
+  {
+    question: "Do you guarantee sales?",
+    answer:
+      "No, and we would be careful with anyone who does. Sales depend on your product, pricing, stock, and offer as much as on hosting. What we commit to is the controllable part: trained hosts, a proper rundown, consistent sessions, and honest reporting — including when something isn't working and what we'll change.",
   },
   {
     question: "How do I get started?",

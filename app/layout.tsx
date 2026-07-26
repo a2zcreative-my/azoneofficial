@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
+import { WhatsAppFab } from "@/components/ui/whatsapp-fab";
 import { SITE_CONFIG } from "@/constants/site";
 import "@/styles/globals.css";
 
@@ -93,6 +94,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           />
         )}
         {children}
+        <WhatsAppFab />
         <ScrollToTop />
       </body>
     </html>

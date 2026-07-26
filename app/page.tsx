@@ -3,6 +3,7 @@ import { Cta } from "@/components/home/cta";
 import { Elfia } from "@/components/home/elfia";
 import { Faq } from "@/components/home/faq";
 import { Hero } from "@/components/home/hero";
+import { Packages } from "@/components/home/packages";
 import { Process } from "@/components/home/process";
 import { Services } from "@/components/home/services";
 import { Showcase } from "@/components/home/showcase";
@@ -17,6 +18,7 @@ export default function HomePage() {
         <Hero />
         <About />
         <Services />
+        <Packages />
         <Showcase />
         <Elfia />
         <Process />

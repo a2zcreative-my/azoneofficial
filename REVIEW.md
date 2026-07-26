@@ -65,3 +65,5 @@ A practical review of the three audiences the platform serves. Items marked **[q
 | v1.2.6 | 25 Jul 2026 | Initial review created (client site / staff portal / customer area + priority order). |
 | v1.2.7 | 25 Jul 2026 | Deep-dive items expanded into FEATURE-SUGGESTIONS.md; this doc stays as the audience-level review. |
 | v1.2.8 | 25 Jul 2026 | Site went live. [quick] items status: coverflow gallery ✅ built (incl. /products via ElfiaShowcase), icon family ✅ built, consistent CTAs ✅ built — all pending merge+push. Remaining from this review: trust signals/real stats, WhatsApp contact, clock-in confirmation. |
+
+| v1.2.18 | 26 Jul 2026 | Acted on client-facing review items: zero stats replaced with trust signals (was the top credibility issue), packages published, CTAs made action-oriented, floating WhatsApp added, cost FAQs written. Still open from the original review: real published metrics once available, Bahasa Melayu site version. |

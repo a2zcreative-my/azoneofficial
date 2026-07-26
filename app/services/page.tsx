@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { PageShell } from "@/components/layout/page-shell";
-import { SERVICES, whatsappUrl } from "@/constants/content";
+import { Button } from "@/components/ui/button";
+import { PACKAGES, SERVICES, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
   title: "Services",
@@ -47,6 +48,43 @@ export default function ServicesPage() {
           and we'll map it out together.
         </p>
       </section>
+      <section>
+        <h2>Packages</h2>
+        <p className="mt-3 mb-6">
+          Pricing is quoted per brand — these are the levels of support we run.
+          Every engagement starts with a free live audit.
+        </p>
+        <div className="grid gap-6 sm:grid-cols-2">
+          {PACKAGES.map((tier) => (
+            <article
+              key={tier.name}
+              className={`flex h-full flex-col rounded-xl border p-6 ${
+                tier.featured ? "border-gold-deep/40 bg-secondary/40" : "border-border"
+              }`}
+            >
+              <h3 className="text-lg font-semibold tracking-tight">{tier.name}</h3>
+              <p className="text-gold-deep mt-1 text-sm font-medium">{tier.cadence}</p>
+              <p className="mt-3 text-sm">{tier.tagline}</p>
+              <ul className="mt-4 grow space-y-2">
+                {tier.features.map((feature) => (
+                  <li key={feature} className="text-sm">
+                    — {feature}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Button href={whatsappUrl()} external>
+            Get a free live audit
+          </Button>
+          <Button href="/contact" variant="outline">
+            Book a strategy call
+          </Button>
+        </div>
+      </section>
+
     </PageShell>
   );
 }
