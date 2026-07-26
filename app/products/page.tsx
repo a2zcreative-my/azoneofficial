@@ -4,13 +4,14 @@ import type { Metadata } from "next";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { ElfiaGallery } from "@/components/ui/elfia-gallery";
 import { CONTACT, ELFIA, ELFIA_PRODUCTS, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
   title: "ELFIA",
   description:
-    "ELFIA — AZ ONE OFFICIAL's premium hijab brand: chiffon shawls in essential neutrals, launched live on TikTok.",
+    "ELFIA — Dekat Di Mata, Menarik Di Hati. AZ ONE OFFICIAL's premium hijab brand: chiffon shawls in essential neutrals, launched live on TikTok.",
 };
 
 export default function ProductsPage() {
@@ -26,7 +27,10 @@ export default function ProductsPage() {
             <h1 className="text-4xl font-semibold tracking-[0.12em] sm:text-6xl sm:tracking-[0.15em]">
               {ELFIA.title}
             </h1>
-            <p className="text-gold mt-3 text-sm tracking-[0.2em] uppercase">
+            <p className="text-gold mt-3 text-base tracking-[0.14em] italic">
+              {ELFIA.slogan}
+            </p>
+            <p className="mt-2 text-xs tracking-[0.2em] text-white/60 uppercase">
               {ELFIA.tagline}
             </p>
             <p className="mt-6 text-base leading-relaxed text-white/70">
@@ -78,14 +82,16 @@ export default function ProductsPage() {
               limited pieces sell out in-session. Follow us so you never miss a
               drop.
             </p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-6">
+                <ButtonGroup>
               <Button href={CONTACT.socials.tiktok} external variant="gold">
                 {ELFIA.cta}
               </Button>
               <Button href={whatsappUrl()} external variant="outlineLight">
                 Ask about ELFIA on WhatsApp
               </Button>
-            </div>
+            </ButtonGroup>
+              </div>
           </section>
         </div>
       </main>

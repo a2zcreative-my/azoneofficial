@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.22] — 2026-07-26
+
+### Added
+- **ELFIA brand slogan** — *Dekat Di Mata, Menarik Di Hati* — added as `ELFIA.slogan` and displayed on the homepage ELFIA section and `/products`, leading above the English tagline. Also carried into the "What is ELFIA?" FAQ answer and the `/products` meta description
+- **Professional product gallery** (`components/ui/product-gallery.tsx`) on ELFIA product pages: one large main image with a thumbnail strip, swipe on mobile, image counter, neighbour preloading. Replaces the 2-column grid, which showed every angle at once and left none of them large enough to judge fabric drape
+
+### Changed
+- **ELFIA aligned as a hijab brand everywhere.** Audited every file: "our premium fashion brand" → "our premium hijab brand" (hero + site description), "premium fashion label" → "premium hijab label" (About copy), `SITE_CONFIG.brand.fashion` → `brand.hijab`, keyword "ELFIA fashion" → "ELFIA hijab", `/about` meta description, and README
+- **Package carousel is now scroll-only** — the `< >` arrows are gone. Swipe on touch, and pointer drag-to-scroll on desktop (mice can't swipe, and with no arrows they need a way to move the track), with clickable dots and a "Swipe or drag" hint
+- **Button widths fully standardised.** `Button` now renders a real `<button>` when `href` is omitted, so the contact form submit — the last hand-rolled CTA, at `h-11` with no minimum width — uses the shared metrics. Both ELFIA pages' CTA pairs moved to `ButtonGroup` for equal widths. Audit confirms no hand-rolled button-like elements remain on public pages
+- **`/about` rebuilt to remove dead space.** It was a single narrow column inside the 6xl frame, leaving the right half empty. Now the story runs left with a "short version" facts panel alongside, "Why brands choose us" is a 3-column grid at desktop, and the closing text link became a proper CTA pair
+
 ## [1.2.21] — 2026-07-26
 
 ### Changed

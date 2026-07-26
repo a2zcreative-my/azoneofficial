@@ -73,9 +73,9 @@ export function Hero() {
               Helping brands increase sales through professional live hosts and
               complete TikTok Live commerce management — home of{" "}
               <span className="font-medium text-foreground">
-                {SITE_CONFIG.brand.fashion}
+                {SITE_CONFIG.brand.hijab}
               </span>
-              , our premium fashion brand.
+              , our premium hijab brand.
             </>
           }
         />

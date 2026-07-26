@@ -39,6 +39,37 @@ export function PackagesCarousel({
     return () => el.removeEventListener("scroll", onScroll);
   }, [onScroll]);
 
+  // Drag-to-scroll: without arrows, a mouse user needs some way to move the
+  // track. Touch devices already scroll natively, so this is pointer-only.
+  const drag = useRef({ active: false, startX: 0, startScroll: 0, moved: false });
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    drag.current = {
+      active: true,
+      startX: e.clientX,
+      startScroll: el.scrollLeft,
+      moved: false,
+    };
+    el.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const el = scrollerRef.current;
+    if (!el || !drag.current.active) return;
+    const dx = e.clientX - drag.current.startX;
+    if (Math.abs(dx) > 4) drag.current.moved = true;
+    el.scrollLeft = drag.current.startScroll - dx;
+  };
+
+  const endDrag = (e: React.PointerEvent) => {
+    const el = scrollerRef.current;
+    if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    drag.current.active = false;
+  };
+
   const goTo = (index: number) => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -52,7 +83,11 @@ export function PackagesCarousel({
     <div className="relative">
       <div
         ref={scrollerRef}
-        className="flex snap-x snap-mandatory gap-6 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className="flex cursor-grab snap-x snap-mandatory gap-6 overflow-x-auto pb-2 select-none active:cursor-grabbing [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="group"
         aria-label="Package tiers"
       >
@@ -107,51 +142,28 @@ export function PackagesCarousel({
         ))}
       </div>
 
-      <div className="mt-6 flex items-center gap-4">
-        <button
-          type="button"
-          onClick={() => goTo(active - 1)}
-          disabled={active === 0}
-          aria-label="Previous package"
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-border transition-colors hover:bg-secondary disabled:opacity-35"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
-        <div className="flex items-center gap-2">
-          {packages.map((tier, i) => (
-            <button
-              key={tier.name}
-              type="button"
-              onClick={() => goTo(i)}
-              aria-label={`Show ${tier.name}`}
-              aria-current={i === active}
-              className="group flex h-6 w-4 items-center justify-center"
-            >
-              <span
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === active
-                    ? "bg-gold-deep w-5"
-                    : "bg-border w-1.5 group-hover:bg-muted-foreground/50"
-                }`}
-              />
-            </button>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => goTo(active + 1)}
-          disabled={active === count - 1}
-          aria-label="Next package"
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-border transition-colors hover:bg-secondary disabled:opacity-35"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+      <div className="mt-6 flex items-center gap-2">
+        {packages.map((tier, i) => (
+          <button
+            key={tier.name}
+            type="button"
+            onClick={() => goTo(i)}
+            aria-label={`Show ${tier.name}`}
+            aria-current={i === active}
+            className="group flex h-6 w-4 items-center justify-center"
+          >
+            <span
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                i === active
+                  ? "bg-gold-deep w-5"
+                  : "bg-border w-1.5 group-hover:bg-muted-foreground/50"
+              }`}
+            />
+          </button>
+        ))}
+        <span className="text-muted-foreground ml-2 text-xs">
+          Swipe or drag to see all {packages.length}
+        </span>
       </div>
     </div>
   );

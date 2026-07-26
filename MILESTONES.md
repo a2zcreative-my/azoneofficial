@@ -148,3 +148,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.21 — 26 Jul 2026 — Package carousel + scroll behaviour
 - Package tiers presented as a scroll-snap carousel on home and /packages (1/2/3 cards by breakpoint)
 - Refresh returns to the top of the page; back navigation still restores position (ELFIA product -> back -> ELFIA section)
+
+## v1.2.22 — 26 Jul 2026 — ELFIA brand audit + gallery + standardisation
+- ELFIA slogan "Dekat Di Mata, Menarik Di Hati" published; every "fashion brand" reference corrected to hijab brand
+- Product pages get a main-image + thumbnail gallery
+- Package carousel switched to scroll/drag only; button sizing unified through one component
+- /about restructured into a two-column layout

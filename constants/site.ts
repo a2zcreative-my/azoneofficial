@@ -9,11 +9,11 @@ export const SITE_CONFIG = {
   address:
     "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor, Malaysia",
   description:
-    "AZ ONE OFFICIAL is a Malaysian live commerce agency helping brands grow through TikTok Live hosting, live commerce management, and social commerce strategy. Home of ELFIA, our premium fashion brand.",
+    "AZ ONE OFFICIAL is a Malaysian live commerce agency helping brands grow through TikTok Live hosting, live commerce management, and social commerce strategy. Home of ELFIA, our premium hijab brand.",
   url: "https://azoneofficial.com",
   locale: "en_MY",
   brand: {
-    fashion: "ELFIA",
+    hijab: "ELFIA",
   },
   // Cloudflare Web Analytics token — Cloudflare dashboard → Analytics → Web Analytics
   // → Add a site → copy the token here. Leave "" to disable the beacon.

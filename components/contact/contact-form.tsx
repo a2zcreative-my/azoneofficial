@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+
 import { whatsappUrl } from "@/constants/content";
 
 const API_BASE = "/api/v1";
@@ -126,14 +128,14 @@ export function ContactForm() {
         </p>
       )}
 
-      <button
-        type="button"
+      <Button
         onClick={submit}
-        disabled={status === "sending" || !form.name.trim() || !form.message.trim()}
-        className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 items-center rounded-lg px-8 text-sm font-medium transition-colors disabled:opacity-50"
+        disabled={
+          status === "sending" || !form.name.trim() || !form.message.trim()
+        }
       >
         {status === "sending" ? "Sending…" : "Send message"}
-      </button>
+      </Button>
     </div>
   );
 }

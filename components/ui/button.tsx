@@ -11,8 +11,12 @@ import type { ReactNode } from "react";
  */
 
 type Props = {
-  href: string;
+  /** Omit to render a real <button> (e.g. form submit) instead of a link. */
+  href?: string;
   external?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
+  type?: "button" | "submit";
   variant?: "primary" | "gold" | "outline" | "outlineLight";
   children: ReactNode;
   className?: string;
@@ -34,11 +38,28 @@ const variants = {
 export function Button({
   href,
   external = false,
+  onClick,
+  disabled,
+  type = "button",
   variant = "primary",
   children,
   className = "",
 }: Props) {
   const cls = `${base} ${variants[variant]} ${className}`;
+
+  if (!href) {
+    return (
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled}
+        className={`${cls} disabled:opacity-50`}
+      >
+        {children}
+      </button>
+    );
+  }
+
   if (external) {
     return (
       <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>

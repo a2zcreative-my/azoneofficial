@@ -16,7 +16,10 @@ export function Elfia() {
             <h2 className="text-4xl font-semibold tracking-[0.12em] sm:text-6xl sm:tracking-[0.15em]">
               {ELFIA.title}
             </h2>
-            <p className="text-gold mt-3 text-sm tracking-[0.2em] uppercase">
+            <p className="text-gold mt-3 text-base tracking-[0.14em] italic">
+              {ELFIA.slogan}
+            </p>
+            <p className="mt-2 text-xs tracking-[0.2em] text-white/60 uppercase">
               {ELFIA.tagline}
             </p>
             <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">

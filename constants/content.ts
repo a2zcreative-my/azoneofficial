@@ -50,7 +50,7 @@ export const ABOUT = {
   title: "Live commerce, run like a business — not an experiment",
   body: [
     "AZ ONE OFFICIAL is a Malaysian live commerce agency. We put brands in front of buyers in real time — TikTok Live hosting, end-to-end live commerce management, and social commerce strategy built around what actually converts.",
-    "We are also a brand owner ourselves: ELFIA, our premium fashion label, is built, sold, and scaled through the same live commerce playbook we run for clients. When we advise you, it is from the seller's chair, not the sidelines.",
+    "We are also a brand owner ourselves: ELFIA, our premium hijab label, is built, sold, and scaled through the same live commerce playbook we run for clients. When we advise you, it is from the seller's chair, not the sidelines.",
   ],
 } as const;
 
@@ -278,6 +278,8 @@ export const TESTIMONIALS: readonly Testimonial[] = [] as const;
 export const ELFIA = {
   eyebrow: "Our house brand",
   title: "ELFIA",
+  /** Brand slogan (Bahasa Melayu) — leads, since it is the brand's own voice. */
+  slogan: "Dekat Di Mata, Menarik Di Hati",
   tagline: "Premium hijabs, born live",
   body: "ELFIA is AZ ONE's own hijab label — premium chiffon shawls in essential neutrals, designed in Malaysia for office, everyday, and active wear. Every drop is launched on TikTok Live, so our audience sees the fabric move before they ever tap checkout.",
   cta: "Watch the next drop live",
@@ -405,7 +407,7 @@ export const FAQS: readonly FaqItem[] = [
   {
     question: "What is ELFIA?",
     answer:
-      "ELFIA is our own premium hijab brand — chiffon shawls in essential neutrals for office, everyday, and active wear — built and sold through live commerce. It is proof that the playbook we offer clients is one we run ourselves.",
+      "ELFIA — Dekat Di Mata, Menarik Di Hati — is our own premium hijab brand: chiffon shawls in essential neutrals for office, everyday, and active wear, built and sold through live commerce. It is proof that the playbook we offer clients is one we run ourselves.",
   },
   {
     question: "How much does it cost?",

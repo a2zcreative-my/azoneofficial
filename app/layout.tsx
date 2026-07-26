@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     "TikTok Live hosting Malaysia",
     "live commerce management",
     "social commerce strategy",
-    "ELFIA fashion",
+    "ELFIA hijab",
   ],
   openGraph: {
     type: "website",

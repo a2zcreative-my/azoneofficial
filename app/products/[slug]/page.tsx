@@ -5,6 +5,8 @@ import { notFound } from "next/navigation";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { ProductGallery } from "@/components/ui/product-gallery";
 import { CONTACT, ELFIA_PRODUCTS, whatsappUrl } from "@/constants/content";
 
 interface ProductPageProps {
@@ -45,26 +47,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
           </nav>
 
           <div className="mt-8 grid gap-10 lg:grid-cols-2 lg:gap-16">
-            <div className="grid grid-cols-2 gap-4">
-              {gallery.map((src, i) => (
-                <div
-                  key={src}
-                  className={
-                    i === 0 && gallery.length > 1
-                      ? "col-span-2 overflow-hidden rounded-xl border border-white/10"
-                      : "overflow-hidden rounded-xl border border-white/10"
-                  }
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={src}
-                    alt={product.imageAlt}
-                    className="h-full w-full object-cover"
-                    loading={i === 0 ? "eager" : "lazy"}
-                  />
-                </div>
-              ))}
-            </div>
+            <ProductGallery images={gallery} alt={product.imageAlt} />
 
             <div>
               <p className="text-gold text-xs font-medium tracking-[0.3em] uppercase">
@@ -85,13 +68,15 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 </p>
               </div>
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-6">
+                <ButtonGroup>
                 <Button href={CONTACT.socials.tiktok} external variant="gold">
                   Watch the next drop live
                 </Button>
                 <Button href={whatsappUrl()} external variant="outlineLight">
                   Ask on WhatsApp
                 </Button>
+              </ButtonGroup>
               </div>
 
               <div className="mt-10">

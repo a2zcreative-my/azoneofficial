@@ -1,6 +1,6 @@
 # AZ ONE OFFICIAL — Corporate Website
 
-Premium corporate landing page for AZ ONE OFFICIAL, a Malaysian live commerce agency, featuring the ELFIA fashion brand.
+Premium corporate landing page for AZ ONE OFFICIAL, a Malaysian live commerce agency, featuring the ELFIA hijab brand.
 
 ## Stack
 
