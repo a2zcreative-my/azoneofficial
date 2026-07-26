@@ -23,6 +23,12 @@ export interface TrustSignal {
   description: string;
 }
 
+export interface PackageMatrixRow {
+  feature: string;
+  /** One value per tier, in PACKAGES order. true = included, false = not. */
+  values: readonly (string | boolean)[];
+}
+
 export interface PackageTier {
   name: string;
   tagline: string;

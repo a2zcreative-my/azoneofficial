@@ -23,10 +23,10 @@ export const SITE_CONFIG = {
 export const NAV_ITEMS: readonly NavItem[] = [
   { label: "About", href: "/about" },
   { label: "Services", href: "/services" },
+  { label: "Packages", href: "/packages" },
   { label: "Portfolio", href: "/portfolio" },
   { label: "ELFIA", href: "/products" },
   { label: "Blog", href: "/blog" },
-  { label: "FAQ", href: "/faq" },
   { label: "Contact", href: "/contact" },
 ] as const;
 

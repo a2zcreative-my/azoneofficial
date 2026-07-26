@@ -139,3 +139,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Carousel photos and dots made tappable (side cards were inert)
 - Equal-width CTA pairs via ButtonGroup; floating buttons aligned on one axis
 - Homepage trimmed for mobile: FAQ 5 of 12 with link to /faq, testimonials 3 of 7, accordions collapsed by default
+
+## v1.2.20 — 26 Jul 2026 — Packages as its own page
+- /packages created: tier cards + desktop comparison matrix + cost FAQs + audit CTA
+- /services returns to capability only, linking through to /packages
+- Nav restructured (Packages in, FAQ to footer); FAQ content split by intent across home / packages / faq

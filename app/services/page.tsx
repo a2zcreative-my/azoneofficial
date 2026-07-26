@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
-import { PACKAGES, SERVICES, whatsappUrl } from "@/constants/content";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { SERVICES, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
   title: "Services",
@@ -49,40 +50,18 @@ export default function ServicesPage() {
         </p>
       </section>
       <section>
-        <h2>Packages</h2>
+        <h2>How we package this</h2>
         <p className="mt-3 mb-6">
-          Pricing is quoted per brand — these are the levels of support we run.
-          Every engagement starts with a free live audit.
+          These services are bundled into four tiers — Starter, Growth, Scale,
+          and Enterprise — so you can start at the cadence that fits and move up
+          when live starts pulling its weight. Pricing is quoted per brand.
         </p>
-        <div className="grid gap-6 sm:grid-cols-2">
-          {PACKAGES.map((tier) => (
-            <article
-              key={tier.name}
-              className={`flex h-full flex-col rounded-xl border p-6 ${
-                tier.featured ? "border-gold-deep/40 bg-secondary/40" : "border-border"
-              }`}
-            >
-              <h3 className="text-lg font-semibold tracking-tight">{tier.name}</h3>
-              <p className="text-gold-deep mt-1 text-sm font-medium">{tier.cadence}</p>
-              <p className="mt-3 text-sm">{tier.tagline}</p>
-              <ul className="mt-4 grow space-y-2">
-                {tier.features.map((feature) => (
-                  <li key={feature} className="text-sm">
-                    — {feature}
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Button href={whatsappUrl()} external>
+        <ButtonGroup>
+          <Button href="/packages">Compare packages</Button>
+          <Button href={whatsappUrl()} external variant="outline">
             Get a free live audit
           </Button>
-          <Button href="/contact" variant="outline">
-            Book a strategy call
-          </Button>
-        </div>
+        </ButtonGroup>
       </section>
 
     </PageShell>

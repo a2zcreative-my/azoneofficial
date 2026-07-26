@@ -101,6 +101,14 @@ export function Footer() {
           <ul className="flex flex-wrap gap-x-6 gap-y-2">
             <li>
               <Link
+                href="/faq"
+                className="text-xs text-white/60 transition-colors hover:text-white"
+              >
+                FAQ
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/case-studies"
                 className="text-xs text-white/60 transition-colors hover:text-white"
               >

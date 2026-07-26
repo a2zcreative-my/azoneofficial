@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.20] — 2026-07-26
+
+### Changed — information architecture
+- **Packages moved to a dedicated `/packages` page.** They were appended to `/services`, which mixed two different questions: "what can you do for me?" (capability) and "what do I get and what does it cost?" (commercial). Separating them means each page answers one question, and a prospect can be sent a direct link to `/packages` from WhatsApp — the primary sales channel
+- **`/services` now ends with a short "How we package this" strip** linking to `/packages`, instead of duplicating the tier cards
+- **Homepage packages section** now leads to `/packages` ("Compare packages") rather than repeating the detail
+- **Navigation**: `Packages` added; `FAQ` moved out of the primary nav to keep it at seven items. FAQ remains reachable from the homepage FAQ section link and is now an explicit footer link
+- FAQ content split by intent: homepage shows the five general questions, `/packages` shows the six cost/logistics questions, `/faq` still shows all twelve
+
+### Added
+- `PACKAGE_MATRIX` + comparison table on `/packages`: sessions, hours, host, reporting, creative, consultation, on-site, WhatsApp support across all four tiers. Desktop only — the tier cards already carry the same information on mobile, where a five-column table is unusable
+- `FaqList` gained an `offset` prop so a page can render a specific slice of the FAQ set
+- `/packages` added to the sitemap
+
 ## [1.2.19] — 2026-07-26
 
 ### Changed

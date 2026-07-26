@@ -10,9 +10,16 @@ import { cn } from "@/lib/utils";
  * FaqList (v1.2.13) — the accordion itself, with no section wrapper, so the
  * home page and the /faq page render identical markup inside their own frames.
  */
-export function FaqList({ limit }: { limit?: number }) {
+export function FaqList({
+  limit,
+  offset = 0,
+}: {
+  limit?: number;
+  /** Skip this many questions — lets a page show a specific slice. */
+  offset?: number;
+}) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-  const items = limit ? FAQS.slice(0, limit) : FAQS;
+  const items = FAQS.slice(offset, limit ? offset + limit : undefined);
 
   return (
     <div className="w-full divide-y divide-border border-y border-border">

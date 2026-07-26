@@ -80,11 +80,9 @@ export function Packages() {
 
       <div className="mt-10">
         <ButtonGroup>
-        <Button href={whatsappUrl()} external>
+        <Button href="/packages">Compare packages</Button>
+        <Button href={whatsappUrl()} external variant="outline">
           Get a free live audit
-        </Button>
-        <Button href="/contact" variant="outline">
-          Book a strategy call
         </Button>
         </ButtonGroup>
       </div>

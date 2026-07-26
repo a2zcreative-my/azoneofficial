@@ -10,6 +10,7 @@ import {
 import type {
   ElfiaProduct,
   FaqItem,
+  PackageMatrixRow,
   PackageTier,
   ProcessStep,
   Service,
@@ -155,6 +156,67 @@ export const PACKAGES: readonly PackageTier[] = [
       "Full creative production",
       "On-site sessions at your office or studio",
     ],
+  },
+] as const;
+
+/**
+ * Side-by-side comparison, in PACKAGES order: Starter, Growth, Scale, Enterprise.
+ *
+ * TODO(Alīf): confirm these against the real package sheet before launch —
+ * same caveat as PACKAGES above.
+ */
+export const PACKAGE_MATRIX: readonly PackageMatrixRow[] = [
+  {
+    feature: "Live sessions",
+    values: ["1 per week", "3 per week", "5 per week", "Custom schedule"],
+  },
+  {
+    feature: "Hours per session",
+    values: ["2 hours", "2–3 hours", "2–3 hours", "Custom"],
+  },
+  {
+    feature: "Live host",
+    values: [
+      "1 trained host",
+      "Host + moderator",
+      "Host rotation + live manager",
+      "Dedicated host team",
+    ],
+  },
+  {
+    feature: "Reporting",
+    values: [
+      "Post-session report",
+      "Weekly reporting",
+      "Weekly + optimisation review",
+      "Custom format",
+    ],
+  },
+  {
+    feature: "Creative",
+    values: [
+      "2 assets / month",
+      "6 assets / month",
+      "12 assets + short-form edits",
+      "Full production",
+    ],
+  },
+  {
+    feature: "Consultation",
+    values: [
+      "Onboarding call",
+      "Monthly strategy call",
+      "Bi-weekly strategy call",
+      "Dedicated account lead",
+    ],
+  },
+  {
+    feature: "On-site sessions",
+    values: [false, false, "On request", true],
+  },
+  {
+    feature: "WhatsApp support during sessions",
+    values: [true, true, true, true],
   },
 ] as const;
 
