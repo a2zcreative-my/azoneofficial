@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.27] — 2026-07-26
+
+### Fixed
+- **Refresh a product page, then press Back → landed on the wrong homepage section.** v1.2.23's scroll memory only restored on in-app `popstate` events. But once a product page has been *reloaded*, the client router cache is gone, so Back becomes a **full document load** (`navigation.type === "back_forward"`), not an in-app navigation — the restore never ran, and the browser's own restoration clamped to a shorter, still-loading document, dropping the visitor at About instead of ELFIA.
+  Both halves now handle that case: the inline script takes over restoration on `back_forward` loads *only when a stored offset exists for that path*, and `ScrollMemory` treats a `back_forward` document load the same as a popstate, applying the offset once the page is genuinely tall enough. Control is handed back to the browser (`scrollRestoration = "auto"`) as soon as the restore completes, so ordinary navigation is unaffected
+- Layout-settle window widened from ~1s to ~1.5s for slower connections
+
+### Changed
+- **Product breadcrumb given a proper position.** It sat inside the main content block below ~96px of top padding, floating in empty space. It now has its own compact strip directly under the navbar, separated by a hairline rule, using a semantic `<ol>` with a chevron separator, `aria-current="page"`, and truncation so long product names don't wrap on mobile. Content padding reduced accordingly (`py-16/24` → `py-12/16`)
+
 ## [1.2.26] — 2026-07-26
 
 ### Changed

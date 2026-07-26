@@ -169,3 +169,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.26 — 26 Jul 2026 — ELFIA brand line + buying experience
 - English strapline changed to "At First Sight. Forever in Your Heart." and paired with the Malay slogan
 - Drop process explained in four steps; WhatsApp drop alerts and context-prefilled product enquiries added
+
+## v1.2.27 — 26 Jul 2026 — Back-after-reload fix + breadcrumb
+- Scroll restoration now covers full-document back_forward loads, not just in-app popstate
+- Product breadcrumb moved to its own strip under the navbar

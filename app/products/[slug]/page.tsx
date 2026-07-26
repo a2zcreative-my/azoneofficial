@@ -38,15 +38,46 @@ export default async function ProductPage({ params }: ProductPageProps) {
     <>
       <Navbar />
       <main className="bg-brand pt-16 text-white">
-        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-24">
-          <nav aria-label="Breadcrumb" className="text-sm text-white/50">
-            <Link href="/products" className="hover:text-white">
-              ELFIA
-            </Link>{" "}
-            / <span className="text-white/80">{product.name}</span>
+        <div className="border-b border-white/10">
+          <nav
+            aria-label="Breadcrumb"
+            className="mx-auto w-full max-w-6xl px-6 py-3.5"
+          >
+            <ol className="flex items-center gap-2 text-sm">
+              <li>
+                <Link
+                  href="/products"
+                  className="text-white/55 transition-colors hover:text-white"
+                >
+                  ELFIA
+                </Link>
+              </li>
+              <li aria-hidden="true" className="text-white/25">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg>
+              </li>
+              <li
+                aria-current="page"
+                className="min-w-0 truncate text-white/85"
+              >
+                {product.name}
+              </li>
+            </ol>
           </nav>
+        </div>
 
-          <div className="mt-8 grid gap-10 lg:grid-cols-2 lg:gap-16">
+        <div className="mx-auto w-full max-w-6xl px-6 py-12 sm:py-16">
+          <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
             <ProductGallery images={gallery} alt={product.imageAlt} />
 
             <div>

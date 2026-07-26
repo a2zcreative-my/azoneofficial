@@ -96,7 +96,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
             __html: `(function(){try{
   if(!('scrollRestoration' in history))return;
   var e=performance.getEntriesByType('navigation')[0];
-  if(e&&e.type==='reload'&&!location.hash){
+  var t=e&&e.type;
+  if(t==='reload'&&!location.hash){
     history.scrollRestoration='manual';
     document.documentElement.setAttribute('data-scroll-reset','1');
     window.addEventListener('load',function(){
@@ -104,6 +105,17 @@ export default function RootLayout({ children }: RootLayoutProps) {
       document.documentElement.removeAttribute('data-scroll-reset');
       history.scrollRestoration='auto';
     });
+  }else if(t==='back_forward'){
+    /* Back after a reload is a FULL document load, not an in-app popstate.
+       The browser restores before layout finishes and clamps to a shorter
+       document, dropping you at the wrong section. Take over only when we
+       actually have a stored offset for this path; ScrollMemory applies it
+       once the page is tall enough. */
+    var m={};try{m=JSON.parse(sessionStorage.getItem('azo:scroll')||'{}');}catch(_){}
+    if(m[location.pathname]>0){
+      history.scrollRestoration='manual';
+      document.documentElement.setAttribute('data-scroll-reset','1');
+    }
   }
 }catch(_){}})();`,
           }}

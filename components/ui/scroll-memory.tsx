@@ -35,9 +35,22 @@ function writeMap(map: Record<string, number>) {
  * it. Forward navigation still starts at the top, and a reload still starts at
  * the top (handled by the inline script in app/layout.tsx).
  */
+function isBackForwardLoad(): boolean {
+  try {
+    const entry = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    return entry?.type === "back_forward";
+  } catch {
+    return false;
+  }
+}
+
 export function ScrollMemory() {
   const pathname = usePathname();
-  const isPop = useRef(false);
+  // True for in-app Back/Forward, and for a full document load that arrived
+  // via Back/Forward (e.g. Back after refreshing a product page).
+  const isPop = useRef(typeof window !== "undefined" && isBackForwardLoad());
 
   useEffect(() => {
     const onPop = () => {
@@ -76,7 +89,11 @@ export function ScrollMemory() {
     isPop.current = false;
 
     const target = readMap()[pathname] ?? 0;
-    if (target <= 0) return;
+    if (target <= 0) {
+      document.documentElement.removeAttribute("data-scroll-reset");
+      if ("scrollRestoration" in history) history.scrollRestoration = "auto";
+      return;
+    }
 
     const root = document.documentElement;
     root.setAttribute("data-scroll-reset", "1"); // suppress smooth scrolling
@@ -84,10 +101,14 @@ export function ScrollMemory() {
     let frames = 0;
     const attempt = () => {
       const max = root.scrollHeight - window.innerHeight;
-      // Wait for layout (images, fonts) to make the page tall enough
-      if (max >= target || frames > 60) {
+      // Wait for layout (images, fonts) to make the page tall enough.
+      // ~90 frames is roughly 1.5s — long enough for a slow connection,
+      // short enough that a genuinely short page does not hang here.
+      if (max >= target || frames > 90) {
         window.scrollTo(0, target);
         root.removeAttribute("data-scroll-reset");
+        // Hand control back so ordinary navigation behaves normally again
+        if ("scrollRestoration" in history) history.scrollRestoration = "auto";
         return;
       }
       frames += 1;
