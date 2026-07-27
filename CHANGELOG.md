@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.28] — 2026-07-27
+
+### Fixed
+- **`/about` "Why brands choose us" left a third of the frame empty.** `PageShell` carried a blanket `[&_section>ul]:max-w-3xl` rule, added in v1.2.13 to keep bullet lists readable — but it also caught *card grids*, capping them at 768px inside the 1152px frame. The rule now excludes lists that are themselves layouts (`:not([class*=grid]):not([class*=flex])`), so prose lists stay readable while grids use the full width. Cards go from ~243px to ~355px each. Same fix applies anywhere a grid list sits directly inside a section
+
+### Changed
+- **Footer strapline is now clearly subordinate to the logo.** "LIVE . CONNECT . GROW." rendered at `text-xs` with `0.35em` tracking — roughly 256px wide against a logo drawing only ~107px, so the strapline dominated the mark. The logo is now `h-12` (~161px wide) and the strapline `9px` at `0.08em` tracking (~150px), so it sits narrower than the logo above it, matching the lockup used in the OG banner
+
 ## [1.2.27] — 2026-07-26
 
 ### Fixed

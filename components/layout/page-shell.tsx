@@ -82,7 +82,10 @@ export function PageShell({
             className={cn(
               "mt-12 space-y-12 text-base leading-relaxed sm:mt-16",
               "[&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight",
-              "[&_section>p]:max-w-3xl [&_section>ul]:max-w-3xl",
+              // Keep running text readable, but never constrain layout
+              // lists (card grids) — that produced dead space on /about.
+              "[&_section>p]:max-w-3xl",
+              "[&_section>ul:not([class*=grid]):not([class*=flex])]:max-w-3xl",
               dark
                 ? "[&_li]:text-white/70 [&_p]:text-white/70"
                 : "[&_li]:text-muted-foreground [&_p]:text-muted-foreground",

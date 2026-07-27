@@ -173,3 +173,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.27 — 26 Jul 2026 — Back-after-reload fix + breadcrumb
 - Scroll restoration now covers full-document back_forward loads, not just in-app popstate
 - Product breadcrumb moved to its own strip under the navbar
+
+## v1.2.28 — 27 Jul 2026 — Footer lockup + /about grid width
+- Footer logo/strapline hierarchy corrected so the strapline sits narrower than the mark
+- PageShell prose rule no longer shrinks card grids, removing dead space on /about
