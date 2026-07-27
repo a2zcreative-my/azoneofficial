@@ -177,3 +177,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.28 — 27 Jul 2026 — Footer lockup + /about grid width
 - Footer logo/strapline hierarchy corrected so the strapline sits narrower than the mark
 - PageShell prose rule no longer shrinks card grids, removing dead space on /about
+
+## v1.2.29 — 27 Jul 2026 — Footer lockup centring
+- Logo and strapline wrapped as a single lockup so the strapline centres under the mark

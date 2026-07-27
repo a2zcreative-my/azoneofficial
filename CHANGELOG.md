@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.2.29] — 2026-07-27
+
+### Changed
+- **Footer strapline now centres under the logo.** The logo and "LIVE . CONNECT . GROW." were separate block elements in a left-aligned column, so the strapline aligned to the column's left edge rather than to the mark above it. They're now wrapped in an `inline-block` lockup that shrinks to the logo's width, with the strapline centred inside it — so it sits centred beneath the logo regardless of either element's width. The rest of the footer column (slogan, address, CTA) stays left-aligned as before
+
 ## [1.2.28] — 2026-07-27
 
 ### Fixed

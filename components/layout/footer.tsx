@@ -19,15 +19,22 @@ export function Footer() {
       <div className="mx-auto w-full max-w-6xl">
         <div className="grid gap-10 md:grid-cols-4 md:gap-8">
           <div className="max-w-sm md:col-span-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo-white.png"
-              alt={SITE_CONFIG.name}
-              className="h-12 w-auto"
-            />
-            <p className="text-gold mt-2.5 text-[9px] font-medium tracking-[0.08em] uppercase">
-              {SITE_CONFIG.brandTagline}
-            </p>
+            {/*
+              Lockup: an inline-block wrapper shrinks to the logo's width, so
+              centring the strapline inside it centres it under the mark —
+              rather than against the left edge of the whole footer column.
+            */}
+            <div className="inline-block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-white.png"
+                alt={SITE_CONFIG.name}
+                className="h-12 w-auto"
+              />
+              <p className="text-gold mt-2.5 text-center text-[9px] font-medium tracking-[0.08em] uppercase">
+                {SITE_CONFIG.brandTagline}
+              </p>
+            </div>
             <p className="mt-3 text-sm leading-relaxed text-white/60">
               <Editable k="footer.slogan" fallback={SITE_CONFIG.slogan} />
             </p>
