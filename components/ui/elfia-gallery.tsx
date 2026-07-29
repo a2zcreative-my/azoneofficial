@@ -115,7 +115,7 @@ export function ElfiaGallery({
     const el = rootRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setOffScreen(!entry.isIntersecting),
+      ([entry]) => setOffScreen(!entry?.isIntersecting),
       { threshold: 0.2 },
     );
     observer.observe(el);
