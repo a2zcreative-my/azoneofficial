@@ -1,6 +1,6 @@
 {
   "name": "azoneofficial",
-  "version": "1.5.1",
+  "version": "1.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
