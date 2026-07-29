@@ -1,26 +1,45 @@
 {
-  "name": "azone-workspace",
-  "version": "1.3.0",
+  "name": "azone-official",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev:azone": "pnpm --filter azoneofficial dev",
-    "dev:elfia": "pnpm --filter elfia dev",
-    "build:azone": "pnpm --filter azoneofficial build",
-    "build:elfia": "pnpm --filter elfia build",
-    "build": "pnpm -r --filter \"./apps/*\" build",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
     "format": "prettier --write .",
-    "worker:deploy": "pnpm --filter worker deploy",
-    "worker:migrate": "pnpm --filter worker migrate:prod"
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "pages:build": "npx @cloudflare/next-on-pages"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.469.0",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.54.0",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16",
+    "@eslint/eslintrc": "^3.2.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "eslint-config-prettier": "^10.1.8",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.3.0",
+    "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.4.0",
     "prettier-plugin-tailwindcss": "^0.6.9",
-    "typescript": "^5.7.0"
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.114.0"
   }
 }

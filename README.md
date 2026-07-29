@@ -1,60 +1,60 @@
-# AZ ONE OFFICIAL — multi-client workspace
+# AZ ONE OFFICIAL — Corporate Website
 
-A pnpm workspace containing the AZ ONE OFFICIAL live commerce agency site, the
-ELFIA brand site, the shared design system, and the API that serves them.
+Premium corporate landing page for AZ ONE OFFICIAL, a Malaysian live commerce agency. ELFIA, a premium hijab label, is a client — presented as the featured case study at `/portfolio/elfia`, never as a house brand (the agency pitches brands that compete with its clients).
 
-```
-apps/azoneofficial   Live commerce agency        → azoneofficial.com
-apps/elfia           ELFIA hijab brand (client)  → elfia.com.my
-packages/ui          Shared components + base stylesheet
-packages/cms         Tenant-scoped CMS client
-packages/seo         Metadata, JSON-LD, sitemap, robots
-packages/forms       Shared forms
-worker               Cloudflare Worker + D1 + R2 (multi-tenant)
-```
+## Stack
 
-## Quick start
+Next.js 15 · React 19 · TypeScript (strict) · Tailwind CSS v4 · Framer Motion · shadcn/ui · Lucide · React Hook Form · Zod
+
+## Getting started
 
 ```bash
 pnpm install
-pnpm dev:azone     # http://localhost:3000
-pnpm dev:elfia     # http://localhost:3001
+pnpm dev
 ```
 
-Other scripts: `pnpm build`, `pnpm typecheck`, `pnpm lint`,
-`pnpm worker:migrate`, `pnpm worker:deploy`.
+Open http://localhost:3000.
 
-## What this repository is
+## Scripts
 
-**AZ ONE OFFICIAL** is a live commerce agency. It sells seven services — TikTok
-Live, Shopee Live, live commerce strategy, live hosts, live operations, creative
-content, and performance marketing — and proves them through client work.
+- `pnpm dev` — local development
+- `pnpm build` — production build
+- `pnpm lint` — ESLint
+- `pnpm typecheck` — TypeScript check (no emit)
+- `pnpm format` — Prettier
 
-**ELFIA** is a client of the agency and its featured case study. ELFIA's own
-site is an independent brand experience; the only relationship it expresses is
-the "Powered by AZ ONE OFFICIAL" line in its footer.
+## Structure
 
-## Working in here
-
-- Shared behaviour goes in `packages/*`. **A package must never import from an app.**
-- Client-specific copy, routes, and palettes go in `apps/<app>/`.
-- Editable content, statistics, portfolio, testimonials, and enquiries live in
-  D1 and are scoped by tenant key.
-- Adding a client: see "Adding a client" in `docs/ARCHITECTURE.md`.
+```
+app/          App Router pages, layout, metadata
+components/
+  home/       Landing page sections
+  layout/     Navbar, footer, shared shells
+  ui/         shadcn/ui primitives
+hooks/        Reusable hooks
+lib/          Utilities
+types/        Shared TypeScript types
+constants/    Site config, nav, content data
+styles/       Global CSS + design tokens
+public/       Static assets
+```
 
 ## Documentation
 
-| Document | Covers |
+| File | Purpose |
 |---|---|
-| `docs/ARCHITECTURE.md` | Workspace shape, package boundaries, theming, multi-tenancy |
-| `docs/DEPLOYMENT.md` | Pages projects, Worker variables, migration order |
-| `docs/DATABASE.md` | Schema and migrations |
-| `docs/API.md` | Endpoints |
-| `docs/SECURITY.md` | Auth, RBAC, hardening |
-| `docs/ADMIN_GUIDE.md` / `docs/USER_GUIDE.md` | Day-to-day use |
-| `docs/DOCUMENT-NUMBERING.md` | QT/DO/INV numbering |
-| `docs/FEATURE-SUGGESTIONS.md`, `docs/ROADMAP.md` | What is next |
-| `CHANGELOG.md`, `MILESTONES.md` | History, append-only |
+| CHANGELOG.md | Version history (granular changes per release) |
+| MILESTONES.md | Milestone log — full timeline, assets, decisions |
+| FEATURES.md | Implemented functionality |
+| ROADMAP.md | Planned work & pre-launch checklist |
+| ARCHITECTURE.md | System design + Phase 3 decision |
+| DATABASE.md | D1 schema design (Phase 3) |
+| API.md | API design (Phase 3) |
+| DEPLOYMENT.md | Build, deploy, rollback |
+| SECURITY.md | Security posture & Phase 3 requirements |
+| CONTRIBUTING.md | Branches, commits, PRs, standards |
+| ADMIN_GUIDE.md | Admin CMS design & permissions |
+| USER_GUIDE.md | How to use & edit the site today |
 
-Documentation is **append-only for history**: every document carries a History
-section and version entries are never removed.
+## Status
+v1.2.1 — full platform built (public site + Worker API + admin CMS + Staff Portal + customer accounts). Deploy checklist in DEPLOYMENT.md.

@@ -1,0 +1,8 @@
+# ELFIA product slug renames (v1.2.11) — old URLs kept working
+/products/signature-shawl-taupe  /products/signature-shawl-mocha      301
+/products/signature-shawl-grey   /products/signature-shawl-soft-grey  301
+/products/corporate-blush        /products/corporate-khaki            301
+
+# v1.3.0 — ELFIA repositioned as client; agency site no longer hosts a catalogue
+/products/*  /portfolio/elfia  301
+/products    /portfolio/elfia  301

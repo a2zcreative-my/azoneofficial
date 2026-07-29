@@ -26,6 +26,7 @@ Complete milestone log for AZ ONE OFFICIAL — every version, decision, and asse
 | v1.2.3 | 24 Jul 2026 | OG share preview redesigned + new square variant for WhatsApp centre-crop |
 | v1.2.4 | 24 Jul 2026 | /login mode switcher moved to persistent top tabs (Sign in / Create account) |
 | v1.2.5 | 24 Jul 2026 | Official corporate OG design (cream/navy/gold curves) + brand tagline "Live . Connect . Grow." wired site-wide |
+| v1.3.0 | 29 Jul 2026 | ELFIA repositioned as client and featured case study; product catalogue removed; /portfolio/elfia added — copy/links/data only on the stable v1.2.29 build |
 
 ---
 
@@ -181,8 +182,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.2.29 — 27 Jul 2026 — Footer lockup centring
 - Logo and strapline wrapped as a single lockup so the strapline centres under the mark
 
-## v1.3.0 — 27 Jul 2026 — Multi-client architecture
-- Repository restructured into a pnpm workspace: apps/azoneofficial, apps/elfia, packages/{ui,cms,seo,forms}, shared worker
-- AZ ONE OFFICIAL repositioned as a live commerce agency with seven services
-- ELFIA extracted to an independent site and repositioned as a client case study (/portfolio/elfia)
-- API made multi-tenant (migration 0006); statistics moved into the CMS
+## v1.3.0 — 29 Jul 2026 — ELFIA repositioned as client
+- **Decision**: ELFIA is a client of AZ ONE OFFICIAL, never a house brand — the agency must be able to pitch brands that compete with its clients, so the agency site shows client results, not a product catalogue
+- Applied directly on the stable v1.2.29 build; layout, section sizing, spacing, and animation untouched (supersedes the abandoned v1.4/v1.5 workspace branch, whose restructure broke the deployed layout)
+- Copy repositioned site-wide: description, hero, about, trust signal, homepage ELFIA section (markup byte-identical), FAQ
+- Added /portfolio/elfia case study; PORTFOLIO_ITEMS + CASE_STUDIES populated so /portfolio and /case-studies show real work with zero page-code changes
+- Removed /products and detail pages; all catalogue URLs 301 to /portfolio/elfia; nav "ELFIA" repointed; customer area links to elfia.com.my
