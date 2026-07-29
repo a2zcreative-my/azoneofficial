@@ -55,12 +55,12 @@ export function ElfiaGallery({
 
   const onTouchStart = (e: React.TouchEvent) => {
     setSwiping(true);
-    touchStartX.current = e.touches[0].clientX;
+    touchStartX.current = e.touches[0]?.clientX ?? 0;
     touchDeltaX.current = 0;
   };
   const onTouchMove = (e: React.TouchEvent) => {
     if (touchStartX.current === null) return;
-    touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
+    touchDeltaX.current = (e.touches[0]?.clientX ?? 0) - touchStartX.current;
   };
   const onTouchEnd = () => {
     if (Math.abs(touchDeltaX.current) > 48) go(touchDeltaX.current < 0 ? 1 : -1);
