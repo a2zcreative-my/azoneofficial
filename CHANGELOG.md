@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.3.1] — 2026-07-29 — ESLint build errors fixed
+
+### Fixed
+Cloudflare Pages runs ESLint as part of `next build`; 14 rule violations caused the build to fail with exit code 1. All fixes are semantically equivalent — no copy, layout, or logic changed.
+
+- `react/no-unescaped-entities`: apostrophes and quotation marks in JSX text replaced with HTML entities (`&apos;`, `&ldquo;`, `&rdquo;`) in `app/careers/page.tsx`, `app/portal/page.tsx`, `app/portfolio/page.tsx`, `app/privacy/page.tsx`, `app/services/page.tsx`, `app/terms/page.tsx`, `components/home/showcase.tsx`
+- `@next/next/no-html-link-for-pages`: `<a href="/">` in `app/login/page.tsx` replaced with `<Link href="/">` (Next.js `next/link`); import added
+- `@typescript-eslint/no-unused-vars`: `goTo` function in `components/ui/packages-carousel.tsx` prefixed `_goTo` (dots navigation was dropped in v1.2.22; the function was left in but never called)
+
 ## [1.3.0] — 2026-07-29 — ELFIA repositioned as client; catalogue removed
 
 Applied directly on the stable v1.2.29 build. **No layout, section sizing,

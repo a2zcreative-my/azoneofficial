@@ -85,7 +85,7 @@ export function PackagesCarousel({
     drag.current.active = false;
   };
 
-  const goTo = (index: number) => {
+  const _goTo = (index: number) => {
     const el = scrollerRef.current;
     if (!el) return;
     const clamped = Math.max(0, Math.min(count - 1, index));

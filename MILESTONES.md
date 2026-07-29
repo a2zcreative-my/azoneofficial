@@ -188,3 +188,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Copy repositioned site-wide: description, hero, about, trust signal, homepage ELFIA section (markup byte-identical), FAQ
 - Added /portfolio/elfia case study; PORTFOLIO_ITEMS + CASE_STUDIES populated so /portfolio and /case-studies show real work with zero page-code changes
 - Removed /products and detail pages; all catalogue URLs 301 to /portfolio/elfia; nav "ELFIA" repointed; customer area links to elfia.com.my
+
+## v1.3.1 — 29 Jul 2026 — ESLint build fix
+- Cloudflare Pages build failed: 14 ESLint errors across 8 files (unescaped entities, plain <a> for internal link, unused var)
+- All fixed with semantic-equivalent changes; no copy, layout, or logic altered

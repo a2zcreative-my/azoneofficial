@@ -23,8 +23,8 @@ export default function PortfolioPage() {
           PORTFOLIO_ITEMS.length === 0 ? (
         <section>
           <p>
-            We're preparing our client showcase — real sessions, real numbers,
-            published with each brand's permission. It will land here soon.
+            We&apos;re preparing our client showcase — real sessions, real numbers,
+            published with each brand&apos;s permission. It will land here soon.
           </p>
           <p className="mt-4">
             Meanwhile, the best portfolio is a live one:{" "}

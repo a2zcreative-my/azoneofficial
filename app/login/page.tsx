@@ -6,6 +6,7 @@
  *   customer -> /account · staff roles -> /portal · CMS roles -> /admin
  */
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 const API = "/api/v1";
@@ -102,7 +103,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
-      <a href="/" className="inline-block">
+      <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
       </a>
