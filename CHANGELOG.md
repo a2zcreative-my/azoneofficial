@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.1] — 2026-07-29 — Shopee Live added to the live showcase
+
+### Added
+- **Shopee channel panel** in the homepage live showcase, alongside the TikTok embed. Shows the shop handle (`shopee.com.my/azoneoff`), what a Shopee session includes, and a "Watch on Shopee Live" CTA. `LIVE_SHOWCASE.shopeeLiveUrl` set; leaving it `""` hides the panel and the TikTok embed spans the section
+- Section restructured into two equal-height channel panels (`items-stretch` + `h-full`), each carrying its own full-width CTA at the base so the two columns align
+
+### Notes — why Shopee is a card and not an embed
+- Shopee sends `X-Frame-Options` / `frame-ancestors` headers that block its shop and live pages from being framed by another site, and publishes no embed or oEmbed API. An `<iframe>` would render blank or refuse to load, so the panel is a branded card that links straight to the shop, where the live badge appears during a session
+- TikTok's official creator embed is used on its side because TikTok does publish one — the asymmetry is a platform limitation, not a design choice
+- Neither platform exposes a public "live now?" API, so both CTAs are written to read correctly whether or not a session is running. The constraint is documented in `LIVE_SHOWCASE` so it isn't re-litigated later
+- Not built in this environment: run `pnpm install && pnpm build` before deploying
+
 ## [1.4.0] — 2026-07-29 — Live embed, problems section, ELFIA into Portfolio
 
 ### Added

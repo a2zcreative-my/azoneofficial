@@ -1,7 +1,7 @@
 # Features
 
 ## Public website (implemented)
-- **Home** — hero with live-pulse badge + client logo strip (temporary ELFIA wordmark → elfiaofficialstore.com), about + trust signals, problems-we-solve grid (v1.4.0), services grid, packages carousel, session showcase, live showcase (TikTok /live CTA + official creator/video embed), 4-step process, FAQ accordion, closing CTA. Navbar CTA is "Get a free live audit"
+- **Home** — hero with live-pulse badge + client logo strip (temporary ELFIA wordmark → elfiaofficialstore.com), about + trust signals, problems-we-solve grid (v1.4.0), services grid, packages carousel, session showcase, live showcase — two channel panels: TikTok official creator embed + Shopee Live branded channel card (Shopee blocks embedding), each with its own live CTA, 4-step process, FAQ accordion, closing CTA. Navbar CTA is "Get a free live audit"
 - **About** — agency story, Why Choose Us (6 points)
 - **Services** — 6 services: live host service, live commerce management, TikTok strategy, creative design, video editing & content creation, business consultation
 - **Portfolio** — client cards; the ELFIA card links out to elfiaofficialstore.com. The standalone `/portfolio/elfia` case-study page was removed in v1.4.0 (301 → /portfolio); the challenge/approach/result write-up remains on /case-studies

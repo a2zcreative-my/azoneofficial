@@ -69,29 +69,41 @@ export const PROBLEMS = [
 /* ------------------------------------------------------------------ */
 
 /**
- * Neither TikTok nor Shopee allows embedding a LIVE stream on an external
- * site, and neither exposes a public "live now?" API a static site could
- * poll. So this section leads with the /live URL — TikTok routes it to the
- * live room while a session is running and to the profile otherwise — and
- * embeds a normal TikTok video as the always-available showcase.
+ * Live channels shown on the homepage.
  *
- * TODO(Alīf): set `videoUrl` to the TikTok video that best shows the AZ ONE
- * process (a session highlight or behind-the-scenes cut). Leave "" until
- * then — the section renders a styled preview card instead of a broken
- * embed. `shopeeLiveUrl` is optional; "" hides the button.
+ * Platform reality, so nobody re-litigates this later:
+ * - A LIVE stream cannot play inside another website on either platform.
+ *   TikTok blocks its /live page from being framed; Shopee sends
+ *   `X-Frame-Options`/frame-ancestors headers that block framing of shop and
+ *   live pages outright. An <iframe> would render blank or refuse to load.
+ * - Neither exposes a public "is this account live now?" API a static export
+ *   could poll, so the site cannot branch on live status.
+ *
+ * What each platform DOES allow, and what we use:
+ * - TikTok: the official creator embed (account + latest videos, always
+ *   current). `videoUrl` pins one specific video instead, if ever wanted.
+ * - Shopee: no embed of any kind. We present a branded channel card that
+ *   links straight to the shop, where the live badge appears during a
+ *   session — the closest honest equivalent.
+ *
+ * Both platform CTAs are live-status agnostic: the TikTok /live URL routes
+ * to the live room during a session and the profile otherwise, and the
+ * Shopee shop URL surfaces the live room when one is running.
  */
 export const LIVE_SHOWCASE = {
   eyebrow: "Watch us work",
   title: "See a live session, live",
   intro:
-    "The best proof of live commerce is a live session. Catch us on TikTok while we run one — or watch how an AZ ONE session comes together, from rundown to order push.",
+    "The best proof of live commerce is a live session. Catch us on TikTok or Shopee while we run one — or watch our latest sessions and cuts right here.",
   /** Routes to the live room while live, to the profile otherwise. */
   tiktokLiveUrl: "https://www.tiktok.com/@azoneofficialhq/live",
-  /** Profile URL for TikTok\u2019s creator embed (latest videos, always current). */
+  /** Profile URL for TikTok's creator embed (latest videos, always current). */
   tiktokProfileUrl: "https://www.tiktok.com/@azoneofficialhq",
-  /** Optional Shopee Live room; "" hides the button. */
-  shopeeLiveUrl: "",
-  /** A TikTok video URL (https://www.tiktok.com/@azoneofficialhq/video/…). */
+  /** Shopee shop; the live badge appears here during a session. "" hides the card. */
+  shopeeLiveUrl: "https://shopee.com.my/azoneoff",
+  /** Shopee shop handle, shown on the channel card. */
+  shopeeHandle: "azoneoff",
+  /** Optional: pin one TikTok video instead of the creator widget. */
   videoUrl: "",
   /** Shown under the CTAs; edit to your real cadence. */
   scheduleNote: "Follow @azoneofficialhq so our next session lands in your feed.",

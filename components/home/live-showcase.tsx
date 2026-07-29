@@ -4,40 +4,34 @@ import { useEffect, useRef, useState } from "react";
 
 import { Section } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Reveal } from "@/components/ui/reveal";
 import { LIVE_SHOWCASE } from "@/constants/content";
 
 /**
- * LiveShowcase (v1.4.0) — the closest a website can get to "embed our live".
+ * LiveShowcase (v1.4.1) — our live channels, side by side.
  *
- * Platform constraint, stated plainly: TikTok does not allow a LIVE stream to
- * play inside another website (the /live page refuses to load in an iframe),
- * and there is no public API to ask "is this account live right now?". What
- * TikTok DOES support embedding is the creator profile — an official widget
- * showing the account with its latest videos, always current, no manual
- * updates. So this section:
+ * Why the two panels are built differently (see LIVE_SHOWCASE in
+ * constants/content.ts for the full note): TikTok publishes an official
+ * creator embed, so its panel shows real content in-page. Shopee blocks
+ * framing entirely (`X-Frame-Options`) and publishes no embed API, so an
+ * iframe there would render blank — its panel is a branded channel card that
+ * links straight to the shop, where the live badge appears during a session.
  *
- *   1. leads with the /live CTA (TikTok routes it to the live room during a
- *      session, to the profile otherwise — correct in both states), and
- *   2. embeds the @azoneofficialhq profile widget, so a prospective client
- *      sees real, recent session content without leaving the page. If
- *      LIVE_SHOWCASE.videoUrl is set, that specific video embeds instead.
- *
- * A styled preview card covers loading and the no-network/blocked case, so
- * the section never shows a broken player.
+ * Neither platform exposes a "live now?" API, so both CTAs are written to be
+ * correct whether or not a session is running.
  */
 
 function tiktokVideoId(url: string): string | null {
   const match = /\/video\/(\d+)/.exec(url);
-  return match ? (match[1] ?? null) : null;
+  return match ? match[1] : null;
 }
 
 function tiktokUsername(profileUrl: string): string {
   const match = /tiktok\.com\/@([^/?#]+)/.exec(profileUrl);
-  return match ? (match[1] ?? "") : "";
+  return match ? match[1] : "";
 }
 
+/** Shown while the TikTok embed loads, or if it never arrives. */
 function LivePreviewCard() {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.04] p-8">
@@ -64,10 +58,6 @@ function LivePreviewCard() {
   );
 }
 
-/**
- * Renders TikTok's official embed. With a videoUrl → that video; without →
- * the creator profile widget (latest videos, always current).
- */
 function TikTokEmbed() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -77,8 +67,8 @@ function TikTokEmbed() {
   const username = tiktokUsername(profileUrl);
 
   useEffect(() => {
-    // TikTok's embed script scans for .tiktok-embed blockquotes and upgrades
-    // them to iframes. Re-append it so it also runs after client navigation.
+    // TikTok's script scans for .tiktok-embed blockquotes and upgrades them
+    // to iframes. Re-append it so it also runs after client navigation.
     const script = document.createElement("script");
     script.src = "https://www.tiktok.com/embed.js";
     script.async = true;
@@ -86,8 +76,7 @@ function TikTokEmbed() {
 
     const started = Date.now();
     const timer = window.setInterval(() => {
-      const iframe = containerRef.current?.querySelector("iframe");
-      if (iframe) {
+      if (containerRef.current?.querySelector("iframe")) {
         setReady(true);
         window.clearInterval(timer);
       } else if (Date.now() - started > 10000) {
@@ -110,7 +99,7 @@ function TikTokEmbed() {
             className="tiktok-embed !m-0"
             cite={LIVE_SHOWCASE.videoUrl}
             data-video-id={videoId}
-            style={{ maxWidth: "605px", minWidth: "325px" }}
+            style={{ maxWidth: "605px", minWidth: "288px" }}
           >
             <section>
               <a
@@ -142,7 +131,63 @@ function TikTokEmbed() {
   );
 }
 
+/**
+ * Shopee channel panel. Shopee cannot be embedded — this is a branded card
+ * that carries the same information an embed would, and links to the shop
+ * where the live badge appears during a session.
+ */
+function ShopeePanel() {
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-white/10 bg-white/[0.04] p-8">
+      <p className="text-xs font-medium tracking-[0.25em] text-white/60 uppercase">
+        Shopee Live
+      </p>
+      <p className="mt-3 text-lg font-semibold text-white">
+        shopee.com.my/{LIVE_SHOWCASE.shopeeHandle}
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-white/65">
+        We run sessions on Shopee Live too — same rundown, same host
+        discipline, with checkout happening inside Shopee. Open the shop to
+        catch the live badge when a session is running, or browse what we sell
+        between drops.
+      </p>
+      <ul className="mt-6 space-y-2.5 text-sm text-white/70">
+        <li className="flex gap-2.5">
+          <span className="text-gold mt-px" aria-hidden="true">
+            ✓
+          </span>
+          In-app checkout, vouchers, and shop campaigns
+        </li>
+        <li className="flex gap-2.5">
+          <span className="text-gold mt-px" aria-hidden="true">
+            ✓
+          </span>
+          Sessions scheduled alongside the TikTok calendar
+        </li>
+        <li className="flex gap-2.5">
+          <span className="text-gold mt-px" aria-hidden="true">
+            ✓
+          </span>
+          Same post-live reporting: GMV, viewers, conversion
+        </li>
+      </ul>
+      <div className="mt-auto pt-8">
+        <Button
+          href={LIVE_SHOWCASE.shopeeLiveUrl}
+          external
+          variant="outlineLight"
+          className="sm:w-full"
+        >
+          Watch on Shopee Live
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function LiveShowcase() {
+  const hasShopee = Boolean(LIVE_SHOWCASE.shopeeLiveUrl);
+
   return (
     <Section
       id="live"
@@ -151,34 +196,38 @@ export function LiveShowcase() {
       title={LIVE_SHOWCASE.title}
       intro={LIVE_SHOWCASE.intro}
     >
-      <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
-        <Reveal>
-          <div>
-            <ButtonGroup>
-              <Button href={LIVE_SHOWCASE.tiktokLiveUrl} external variant="gold">
+      <div className="grid items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
+        {/* TikTok — official creator embed */}
+        <Reveal className="h-full">
+          <div className="flex h-full flex-col">
+            <div className="flex-1">
+              <TikTokEmbed />
+            </div>
+            <div className="pt-6">
+              <Button
+                href={LIVE_SHOWCASE.tiktokLiveUrl}
+                external
+                variant="gold"
+                className="sm:w-full"
+              >
                 Watch us live on TikTok
               </Button>
-              {LIVE_SHOWCASE.shopeeLiveUrl && (
-                <Button
-                  href={LIVE_SHOWCASE.shopeeLiveUrl}
-                  external
-                  variant="outlineLight"
-                >
-                  Shopee Live
-                </Button>
-              )}
-            </ButtonGroup>
-            <p className="mt-6 max-w-md text-sm leading-relaxed text-white/60">
-              Not live at this moment? The feed beside shows our latest
-              sessions and cuts — real hosts, real orders, real reporting.
-            </p>
+            </div>
           </div>
         </Reveal>
 
-        <Reveal delay={0.1}>
-          <TikTokEmbed />
-        </Reveal>
+        {/* Shopee — branded channel card (platform blocks embedding) */}
+        {hasShopee && (
+          <Reveal delay={0.1} className="h-full">
+            <ShopeePanel />
+          </Reveal>
+        )}
       </div>
+
+      <p className="mt-8 text-sm leading-relaxed text-white/55">
+        Not live at this moment? The TikTok feed shows our latest sessions and
+        cuts — real hosts, real orders, real reporting.
+      </p>
     </Section>
   );
 }

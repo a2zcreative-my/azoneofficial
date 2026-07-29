@@ -208,3 +208,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Problems-we-solve section added between About and Services (four pain\u2192solution cards)
 - Hero: ELFIA text mention replaced by a client logo strip with a temporary generated wordmark linking to elfiaofficialstore.com
 - Navbar CTA renamed to "Get a free live audit"; ELFIA nav item removed; /portfolio/elfia removed (301 \u2192 /portfolio) with the ELFIA card linking out
+
+## v1.4.1 — 29 Jul 2026 — Shopee Live channel panel
+- Live showcase now shows both channels side by side: TikTok official creator embed + Shopee branded channel card linking to shopee.com.my/azoneoff
+- Shopee blocks framing (X-Frame-Options) and offers no embed API, so its panel is a designed card rather than a broken iframe; constraint documented in constants
