@@ -30,7 +30,7 @@ import { LIVE_SHOWCASE } from "@/constants/content";
 
 function tiktokVideoId(url: string): string | null {
   const match = /\/video\/(\d+)/.exec(url);
-  return match ? match[1] : null;
+  return match ? (match[1] ?? null) : null;
 }
 
 function tiktokUsername(profileUrl: string): string {
