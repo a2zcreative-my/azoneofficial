@@ -15,7 +15,7 @@ export default function PrivacyPage() {
     <PageShell eyebrow="Legal" title="Privacy Policy" updated="24 July 2026">
       <section>
         <p>
-          {SITE_CONFIG.legalName} ("AZ ONE OFFICIAL", "we", "us") respects your
+          {SITE_CONFIG.legalName} (&quot;AZ ONE OFFICIAL&quot;, &quot;we&quot;, &quot;us&quot;) respects your
           privacy. This policy explains what personal data we collect through
           this website and our services, how we use it, and the choices you
           have. We process personal data in line with the Personal Data

@@ -54,7 +54,7 @@ export default function TermsPage() {
           names, logos, text, and images — belongs to {SITE_CONFIG.legalName}{" "}
           or its licensors and may not be used without permission. Rights in
           materials produced during an engagement are set out in that
-          engagement's agreement.
+          engagement&apos;s agreement.
         </p>
       </section>
 
@@ -62,7 +62,7 @@ export default function TermsPage() {
         <h2>Payments and cancellations</h2>
         <p>
           Payment terms, cancellation windows, and any refunds are stated in
-          each engagement's proposal or invoice. Booked live sessions cancelled
+          each engagement&apos;s proposal or invoice. Booked live sessions cancelled
           on short notice may be charged, as set out in the applicable
           proposal.
         </p>

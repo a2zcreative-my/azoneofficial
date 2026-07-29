@@ -260,7 +260,7 @@ function Leave({ user }: { user: User }) {
               <span>
                 {l.type} · {l.start_date} → {l.end_date} ({l.days}d) —{" "}
                 <span className="font-medium">{l.status}</span>
-                {l.review_comment ? <span className="text-muted-foreground"> · "{l.review_comment}"</span> : null}
+                {l.review_comment ? <span className="text-muted-foreground"> · &quot;{l.review_comment}&quot;</span> : null}
               </span>
               {l.status === "pending" && (
                 <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>

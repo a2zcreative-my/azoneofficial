@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 const API = "/api/v1";
 
@@ -102,10 +103,10 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
-      <a href="/" className="inline-block">
+      <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
-      </a>
+      </Link>
       <h1 className="mt-8 text-2xl font-semibold tracking-tight">
         {mode === "login" ? "Sign in" : "Create your account"}
       </h1>
