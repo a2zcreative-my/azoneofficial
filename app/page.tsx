@@ -1,6 +1,5 @@
 import { About } from "@/components/home/about";
 import { Cta } from "@/components/home/cta";
-import { Elfia } from "@/components/home/elfia";
 import { Faq } from "@/components/home/faq";
 import { Hero } from "@/components/home/hero";
 import { Packages } from "@/components/home/packages";
@@ -20,7 +19,6 @@ export default function HomePage() {
         <Services />
         <Packages />
         <Showcase />
-        <Elfia />
         <Process />
         <Faq />
         <Cta />

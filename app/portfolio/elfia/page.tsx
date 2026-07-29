@@ -84,12 +84,12 @@ export default function ElfiaCaseStudyPage() {
         <p className="text-muted-foreground mt-8 text-sm">
           ELFIA sells through its own store and live sessions —{" "}
           <a
-            href="https://elfia.com.my"
+            href="https://elfiaofficialstore.com"
             target="_blank"
             rel="noopener noreferrer"
             className="text-foreground font-medium underline"
           >
-            visit elfia.com.my
+            visit elfiaofficialstore.com
           </a>
           .
         </p>

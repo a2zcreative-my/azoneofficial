@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.3.2] — 2026-07-29 — ELFIA removed from the landing page
+
+### Changed
+- **Homepage no longer carries the ELFIA showcase section** (dark section with slogan and product gallery). A full brand section with product imagery on the agency's own landing page still read as a house line; a prospective client should meet ELFIA as *proof*, not as a product. The homepage now runs Hero → About → Services → Packages → Showcase → Process → FAQ → CTA
+- ELFIA remains presented as the existing successful client everywhere it counts: the hero subheadline mention, the "Operators, not observers" trust signal, the FAQ answer, the nav item, /portfolio, /case-studies, and the full case study at `/portfolio/elfia` (which keeps the work gallery — showing client work in a case study is the point)
+- **ELFIA's own landing page is elfiaofficialstore.com** — the case-study outbound link and the customer-area "ELFIA drops" card now point there (previously elfia.com.my)
+- `components/home/elfia.tsx` deleted (no longer referenced)
+
+### Notes
+- `/products` 301s and the `ELFIA` nav → `/portfolio/elfia` routing from v1.3.0 are unchanged
+- Not built in this environment: run `pnpm install && pnpm build` before deploying
+
 ## [1.3.1] — 2026-07-29 — ESLint build errors fixed
 
 ### Fixed

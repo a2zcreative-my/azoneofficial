@@ -192,3 +192,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.3.1 — 29 Jul 2026 — ESLint build fix
 - Cloudflare Pages build failed: 14 ESLint errors across 8 files (unescaped entities, plain <a> for internal link, unused var)
 - All fixed with semantic-equivalent changes; no copy, layout, or logic altered
+
+## v1.3.2 — 29 Jul 2026 — ELFIA off the landing page
+- Homepage ELFIA showcase section removed; landing page is fully AZ ONE OFFICIAL
+- ELFIA stays visible as the existing successful client: hero mention, trust signal, FAQ, nav, portfolio, and the /portfolio/elfia case study
+- ELFIA outbound links updated to the brand's own landing page: elfiaofficialstore.com

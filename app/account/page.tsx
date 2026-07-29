@@ -85,12 +85,12 @@ export default function AccountPage() {
             through ELFIA&apos;s own store.
           </p>
           <a
-            href="https://elfia.com.my"
+            href="https://elfiaofficialstore.com"
             target="_blank"
             rel="noopener noreferrer"
             className={`${btnGhost} mt-3`}
           >
-            Visit elfia.com.my
+            Visit elfiaofficialstore.com
           </a>
         </div>
       </div>
