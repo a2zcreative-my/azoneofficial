@@ -1,10 +1,10 @@
 # Features
 
 ## Public website (implemented)
-- **Home** — hero with live-pulse badge (featured-client mention only), about + trust signals, services grid, packages carousel, session showcase, live showcase (TikTok live CTA + process video embed, added v1.3.3), 4-step process, FAQ accordion, consultation CTA. The ELFIA showcase section was removed in v1.3.2 — client proof lives at /portfolio/elfia
+- **Home** — hero with live-pulse badge + client logo strip (temporary ELFIA wordmark → elfiaofficialstore.com), about + trust signals, problems-we-solve grid (v1.4.0), services grid, packages carousel, session showcase, live showcase (TikTok /live CTA + official creator/video embed), 4-step process, FAQ accordion, closing CTA. Navbar CTA is "Get a free live audit"
 - **About** — agency story, Why Choose Us (6 points)
 - **Services** — 6 services: live host service, live commerce management, TikTok strategy, creative design, video editing & content creation, business consultation
-- **Featured case study (`/portfolio/elfia`)** — the ELFIA engagement: brand, challenge, approach, result, gallery, CTA. `/products` removed in v1.3.0 (301s here); ELFIA is a client with its own separate site
+- **Portfolio** — client cards; the ELFIA card links out to elfiaofficialstore.com. The standalone `/portfolio/elfia` case-study page was removed in v1.4.0 (301 → /portfolio); the challenge/approach/result write-up remains on /case-studies
 - **Portfolio / Case Studies** — data-driven; render honest "in preparation" states while `PORTFOLIO_ITEMS` / `CASE_STUDIES` arrays are empty
 - **Blog** — static blog from `constants/pages.ts`; 2 starter posts; per-post routes via `generateStaticParams`
 - **Careers** — open-interest page (hosts, live ops, creative)

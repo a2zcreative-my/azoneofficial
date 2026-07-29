@@ -202,3 +202,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Homepage gains a "See a live session, live" section: TikTok /live CTA (self-routing: live room when live, profile otherwise) + official TikTok video embed for the process showcase
 - Graceful preview card while no video is configured or while the embed loads; Shopee Live button optional via constant
 - Documented platform constraint: live streams are not embeddable and no public live-status API exists for static sites
+
+## v1.4.0 — 29 Jul 2026 — Live embed, problems section, ELFIA into Portfolio
+- TikTok creator widget embedded in the live showcase (latest videos, always current); /live CTA keeps routing to the live room during sessions
+- Problems-we-solve section added between About and Services (four pain\u2192solution cards)
+- Hero: ELFIA text mention replaced by a client logo strip with a temporary generated wordmark linking to elfiaofficialstore.com
+- Navbar CTA renamed to "Get a free live audit"; ELFIA nav item removed; /portfolio/elfia removed (301 \u2192 /portfolio) with the ELFIA card linking out

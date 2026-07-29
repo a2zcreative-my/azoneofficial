@@ -37,6 +37,34 @@ export const CONTACT = {
 } as const;
 
 /* ------------------------------------------------------------------ */
+/* Problems we solve — homepage section.                               */
+/* ------------------------------------------------------------------ */
+
+/** Pain → solution pairs; copy written to equal length so cards match. */
+export const PROBLEMS = [
+  {
+    problem: "We went live and nobody bought",
+    solution:
+      "A session is a sales format, not a camera pointed at products. We bring a trained host and a rundown built around your best offers — pitch, answer, close, on repeat for the full session.",
+  },
+  {
+    problem: "We have no team or time to go live every week",
+    solution:
+      "We run the channel end to end: schedule, studio, host, moderation, order push, and reporting. You approve the plan and the offers; we do the rest, week after week.",
+  },
+  {
+    problem: "Views are fine, but conversion is not",
+    solution:
+      "Watchers become buyers through offer structure — pinned deals, live pricing, limited quantities, and comment moderation that answers objections in the moment. Measured per session.",
+  },
+  {
+    problem: "Everything dies when the stream ends",
+    solution:
+      "Session footage is cut into short-form content that keeps selling between lives, and every post-live report tells you what converted, what didn\u2019t, and what changes next session.",
+  },
+] as const;
+
+/* ------------------------------------------------------------------ */
 /* Live showcase — homepage section.                                   */
 /* ------------------------------------------------------------------ */
 
@@ -59,6 +87,8 @@ export const LIVE_SHOWCASE = {
     "The best proof of live commerce is a live session. Catch us on TikTok while we run one — or watch how an AZ ONE session comes together, from rundown to order push.",
   /** Routes to the live room while live, to the profile otherwise. */
   tiktokLiveUrl: "https://www.tiktok.com/@azoneofficialhq/live",
+  /** Profile URL for TikTok\u2019s creator embed (latest videos, always current). */
+  tiktokProfileUrl: "https://www.tiktok.com/@azoneofficialhq",
   /** Optional Shopee Live room; "" hides the button. */
   shopeeLiveUrl: "",
   /** A TikTok video URL (https://www.tiktok.com/@azoneofficialhq/video/…). */
@@ -322,8 +352,8 @@ export const ELFIA = {
   slogan: "Dekat Di Mata, Menarik Di Hati",
   tagline: "At First Sight. Forever in Your Heart.",
   body: "ELFIA is a premium hijab label and our featured client — chiffon shawls in essential neutrals for office, everyday, and active wear. We built its live selling channel from zero and run it end to end; every drop launches on TikTok Live, where buyers see the fabric move before they tap checkout.",
-  cta: "View the ELFIA case study",
-  ctaHref: "/portfolio/elfia",
+  cta: "Visit ELFIA",
+  ctaHref: "https://elfiaofficialstore.com",
 } as const;
 
 /**
@@ -518,6 +548,6 @@ export const FAQS: readonly FaqItem[] = [
   {
     question: "How do I get started?",
     answer:
-      "Book a consultation. It is a short call on WhatsApp where we learn about your brand and recommend the right starting package.",
+      "Get a free live audit. It is a short call on WhatsApp where we review your products and current channel, then recommend the right starting package.",
   },
 ] as const;

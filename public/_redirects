@@ -4,5 +4,8 @@
 /products/corporate-blush        /products/corporate-khaki            301
 
 # v1.3.0 — ELFIA repositioned as client; agency site no longer hosts a catalogue
-/products/*  /portfolio/elfia  301
-/products    /portfolio/elfia  301
+/products/*  /portfolio  301
+/products    /portfolio  301
+
+# v1.4.0 — case study folded into /portfolio; ELFIA lives at elfiaofficialstore.com
+/portfolio/elfia  /portfolio  301

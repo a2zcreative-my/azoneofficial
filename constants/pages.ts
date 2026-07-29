@@ -67,6 +67,8 @@ export interface PortfolioItem {
   client: string;
   summary: string;
   result: string;
+  /** External link to the client's own site; card becomes clickable. */
+  href?: string;
 }
 
 export const PORTFOLIO_ITEMS: readonly PortfolioItem[] = [
@@ -75,7 +77,8 @@ export const PORTFOLIO_ITEMS: readonly PortfolioItem[] = [
     summary:
       "Built the live selling channel from a standing start: session format, trained hosts, rundowns, and the creative that surrounds each drop.",
     result:
-      "A repeatable drop format the brand now runs on a schedule — read the full case study at /portfolio/elfia",
+      "A repeatable drop format the brand now runs on a schedule — visit elfiaofficialstore.com to see the brand live.",
+    href: "https://elfiaofficialstore.com",
   },
 ] as const;
 

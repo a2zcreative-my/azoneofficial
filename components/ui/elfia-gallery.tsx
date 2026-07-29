@@ -223,7 +223,7 @@ export function ElfiaGallery({
             >
               {isCenter ? (
                 <Link
-                  href="/portfolio/elfia"
+                  href="https://elfiaofficialstore.com"
                   className="group block cursor-pointer"
                   aria-label={`${product.name} — view the ELFIA case study`}
                 >

@@ -9,25 +9,33 @@ import { Reveal } from "@/components/ui/reveal";
 import { LIVE_SHOWCASE } from "@/constants/content";
 
 /**
- * LiveShowcase (v1.3.3) — homepage section that sends visitors to the live
- * room and shows the process on video.
+ * LiveShowcase (v1.4.0) — the closest a website can get to "embed our live".
  *
- * Platform reality this design accepts: TikTok/Shopee LIVE streams cannot be
- * embedded on an external site, and there is no public "live now?" API a
- * static export could poll. The /live URL does the routing for us — it opens
- * the live room during a session and the profile otherwise — so the primary
- * CTA is always correct without any status detection.
+ * Platform constraint, stated plainly: TikTok does not allow a LIVE stream to
+ * play inside another website (the /live page refuses to load in an iframe),
+ * and there is no public API to ask "is this account live right now?". What
+ * TikTok DOES support embedding is the creator profile — an official widget
+ * showing the account with its latest videos, always current, no manual
+ * updates. So this section:
  *
- * The visual slot holds TikTok's official video embed (blockquote +
- * embed.js) when LIVE_SHOWCASE.videoUrl is set. While it is "", or while the
- * embed script is still loading, a styled preview card renders instead — the
- * section never shows a broken iframe.
+ *   1. leads with the /live CTA (TikTok routes it to the live room during a
+ *      session, to the profile otherwise — correct in both states), and
+ *   2. embeds the @azoneofficialhq profile widget, so a prospective client
+ *      sees real, recent session content without leaving the page. If
+ *      LIVE_SHOWCASE.videoUrl is set, that specific video embeds instead.
+ *
+ * A styled preview card covers loading and the no-network/blocked case, so
+ * the section never shows a broken player.
  */
 
-/** Extract the numeric video id from a TikTok video URL. */
 function tiktokVideoId(url: string): string | null {
   const match = /\/video\/(\d+)/.exec(url);
-  return match ? (match[1] ?? null) : null;
+  return match ? match[1] : null;
+}
+
+function tiktokUsername(profileUrl: string): string {
+  const match = /tiktok\.com\/@([^/?#]+)/.exec(profileUrl);
+  return match ? match[1] : "";
 }
 
 function LivePreviewCard() {
@@ -56,31 +64,34 @@ function LivePreviewCard() {
   );
 }
 
-function TikTokEmbed({ url }: { url: string }) {
+/**
+ * Renders TikTok's official embed. With a videoUrl → that video; without →
+ * the creator profile widget (latest videos, always current).
+ */
+function TikTokEmbed() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
-  const videoId = tiktokVideoId(url);
+
+  const videoId = tiktokVideoId(LIVE_SHOWCASE.videoUrl);
+  const profileUrl = LIVE_SHOWCASE.tiktokProfileUrl;
+  const username = tiktokUsername(profileUrl);
 
   useEffect(() => {
-    if (!videoId) return;
-    // TikTok's embed script scans for .tiktok-embed blockquotes on load and
-    // upgrades them to iframes. Re-append it so it also runs after client
-    // navigation, not just on a full page load.
+    // TikTok's embed script scans for .tiktok-embed blockquotes and upgrades
+    // them to iframes. Re-append it so it also runs after client navigation.
     const script = document.createElement("script");
     script.src = "https://www.tiktok.com/embed.js";
     script.async = true;
     document.body.appendChild(script);
 
-    // Reveal the slot once the iframe exists; poll briefly, then give up
-    // gracefully (the preview card stays if the embed never materialises).
     const started = Date.now();
     const timer = window.setInterval(() => {
       const iframe = containerRef.current?.querySelector("iframe");
       if (iframe) {
         setReady(true);
         window.clearInterval(timer);
-      } else if (Date.now() - started > 8000) {
-        window.clearInterval(timer);
+      } else if (Date.now() - started > 10000) {
+        window.clearInterval(timer); // preview card stays
       }
     }, 250);
 
@@ -88,26 +99,44 @@ function TikTokEmbed({ url }: { url: string }) {
       window.clearInterval(timer);
       script.remove();
     };
-  }, [videoId]);
-
-  if (!videoId) return <LivePreviewCard />;
+  }, []);
 
   return (
     <div>
       {!ready && <LivePreviewCard />}
       <div ref={containerRef} className={ready ? "" : "sr-only"}>
-        <blockquote
-          className="tiktok-embed !m-0"
-          cite={url}
-          data-video-id={videoId}
-          style={{ maxWidth: "605px", minWidth: "325px" }}
-        >
-          <section>
-            <a href={url} target="_blank" rel="noopener noreferrer">
-              Watch how an AZ ONE OFFICIAL live session comes together
-            </a>
-          </section>
-        </blockquote>
+        {videoId ? (
+          <blockquote
+            className="tiktok-embed !m-0"
+            cite={LIVE_SHOWCASE.videoUrl}
+            data-video-id={videoId}
+            style={{ maxWidth: "605px", minWidth: "325px" }}
+          >
+            <section>
+              <a
+                href={LIVE_SHOWCASE.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Watch how an AZ ONE OFFICIAL live session comes together
+              </a>
+            </section>
+          </blockquote>
+        ) : (
+          <blockquote
+            className="tiktok-embed !m-0"
+            cite={profileUrl}
+            data-unique-id={username}
+            data-embed-type="creator"
+            style={{ maxWidth: "780px", minWidth: "288px" }}
+          >
+            <section>
+              <a href={profileUrl} target="_blank" rel="noopener noreferrer">
+                @{username} on TikTok
+              </a>
+            </section>
+          </blockquote>
+        )}
       </div>
     </div>
   );
@@ -140,14 +169,14 @@ export function LiveShowcase() {
               )}
             </ButtonGroup>
             <p className="mt-6 max-w-md text-sm leading-relaxed text-white/60">
-              Not live right now? The video shows how a managed session runs —
-              rundown, pitch, moderation, and orders confirmed on camera.
+              Not live at this moment? The feed beside shows our latest
+              sessions and cuts — real hosts, real orders, real reporting.
             </p>
           </div>
         </Reveal>
 
         <Reveal delay={0.1}>
-          <TikTokEmbed url={LIVE_SHOWCASE.videoUrl} />
+          <TikTokEmbed />
         </Reveal>
       </div>
     </Section>

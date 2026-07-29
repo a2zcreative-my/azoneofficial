@@ -50,15 +50,33 @@ export default function PortfolioPage() {
         </section>
           ) : (
             <section className="grid gap-6 sm:grid-cols-2">
-              {PORTFOLIO_ITEMS.map((item) => (
-                <article key={item.client} className="rounded-xl border border-border p-5">
-                  <h2 className="text-lg font-semibold text-foreground">
-                    {item.client}
-                  </h2>
-                  <p className="mt-1 text-sm">{item.summary}</p>
-                  <p className="text-gold-deep mt-3 text-sm font-medium">{item.result}</p>
-                </article>
-              ))}
+              {PORTFOLIO_ITEMS.map((item) => {
+                const card = (
+                  <article className="h-full rounded-xl border border-border p-5 transition-colors group-hover:bg-secondary/40">
+                    <h2 className="text-lg font-semibold text-foreground">
+                      {item.client}
+                    </h2>
+                    <p className="mt-1 text-sm">{item.summary}</p>
+                    <p className="text-gold-deep mt-3 text-sm font-medium">
+                      {item.result}
+                    </p>
+                  </article>
+                );
+                return item.href ? (
+                  <a
+                    key={item.client}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block"
+                    aria-label={`${item.client} — visit site`}
+                  >
+                    {card}
+                  </a>
+                ) : (
+                  <div key={item.client}>{card}</div>
+                );
+              })}
             </section>
           )
         }

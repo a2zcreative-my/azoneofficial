@@ -24,9 +24,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Services", href: "/services" },
   { label: "Packages", href: "/packages" },
   { label: "Portfolio", href: "/portfolio" },
-  { label: "ELFIA", href: "/portfolio/elfia" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
 ] as const;
 
-export const CTA_LABEL = "Book a consultation" as const;
+export const CTA_LABEL = "Get a free live audit" as const;
