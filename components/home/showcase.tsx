@@ -45,7 +45,7 @@ export function Showcase() {
                 🛒 Pinned: Today-only bundle — checkout in cart
               </p>
               <p className="rounded-lg bg-background px-4 py-3">
-                💬 &ldquo;sis, ada size M tak?&rdquo; — answered live, on camera
+                💬 &quot;sis, ada size M tak?&quot; — answered live, on camera
               </p>
               <p className="rounded-lg bg-background px-4 py-3">
                 📦 Order #214 confirmed while the host styles the next look
@@ -67,7 +67,7 @@ export function Showcase() {
             <Reveal key={t.author} delay={i * 0.08}>
               <figure className="h-full rounded-xl border border-border p-6">
                 <blockquote className="text-sm leading-relaxed">
-                  &ldquo;{t.quote}&rdquo;
+                  &quot;{t.quote}&quot;
                 </blockquote>
                 <figcaption className="text-muted-foreground mt-4 text-xs">
                   <span className="font-medium text-foreground">

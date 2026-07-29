@@ -15,7 +15,7 @@ interface User { id: number; email: string; name: string; role: string }
 
 const STAFF_ONLY = ["coo", "business_dev", "finance_admin", "live_manager", "live_host"];
 
-export function destinationFor(role: string): string {
+function destinationFor(role: string): string {
   if (role === "customer") return "/account";
   if (STAFF_ONLY.includes(role)) return "/portal";
   return "/admin";

@@ -85,15 +85,6 @@ export function PackagesCarousel({
     drag.current.active = false;
   };
 
-  const _goTo = (index: number) => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const clamped = Math.max(0, Math.min(count - 1, index));
-    const step = el.scrollWidth / count;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollTo({ left: clamped * step, behavior: reduce ? "auto" : "smooth" });
-  };
-
   const atEnd = active >= count - 1;
 
   return (
