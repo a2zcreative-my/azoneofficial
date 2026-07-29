@@ -2,6 +2,7 @@ import { About } from "@/components/home/about";
 import { Cta } from "@/components/home/cta";
 import { Faq } from "@/components/home/faq";
 import { Hero } from "@/components/home/hero";
+import { LiveShowcase } from "@/components/home/live-showcase";
 import { Packages } from "@/components/home/packages";
 import { Process } from "@/components/home/process";
 import { Services } from "@/components/home/services";
@@ -19,6 +20,7 @@ export default function HomePage() {
         <Services />
         <Packages />
         <Showcase />
+        <LiveShowcase />
         <Process />
         <Faq />
         <Cta />

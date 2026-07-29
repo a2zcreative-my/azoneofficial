@@ -1,7 +1,7 @@
 # Features
 
 ## Public website (implemented)
-- **Home** — hero with live-pulse badge (featured-client mention only), about + trust signals, services grid, packages carousel, session showcase, 4-step process, FAQ accordion, consultation CTA. The ELFIA showcase section was removed in v1.3.2 — client proof lives at /portfolio/elfia
+- **Home** — hero with live-pulse badge (featured-client mention only), about + trust signals, services grid, packages carousel, session showcase, live showcase (TikTok live CTA + process video embed, added v1.3.3), 4-step process, FAQ accordion, consultation CTA. The ELFIA showcase section was removed in v1.3.2 — client proof lives at /portfolio/elfia
 - **About** — agency story, Why Choose Us (6 points)
 - **Services** — 6 services: live host service, live commerce management, TikTok strategy, creative design, video editing & content creation, business consultation
 - **Featured case study (`/portfolio/elfia`)** — the ELFIA engagement: brand, challenge, approach, result, gallery, CTA. `/products` removed in v1.3.0 (301s here); ELFIA is a client with its own separate site

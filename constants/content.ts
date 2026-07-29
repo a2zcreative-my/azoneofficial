@@ -36,6 +36,37 @@ export const CONTACT = {
   },
 } as const;
 
+/* ------------------------------------------------------------------ */
+/* Live showcase — homepage section.                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Neither TikTok nor Shopee allows embedding a LIVE stream on an external
+ * site, and neither exposes a public "live now?" API a static site could
+ * poll. So this section leads with the /live URL — TikTok routes it to the
+ * live room while a session is running and to the profile otherwise — and
+ * embeds a normal TikTok video as the always-available showcase.
+ *
+ * TODO(Alīf): set `videoUrl` to the TikTok video that best shows the AZ ONE
+ * process (a session highlight or behind-the-scenes cut). Leave "" until
+ * then — the section renders a styled preview card instead of a broken
+ * embed. `shopeeLiveUrl` is optional; "" hides the button.
+ */
+export const LIVE_SHOWCASE = {
+  eyebrow: "Watch us work",
+  title: "See a live session, live",
+  intro:
+    "The best proof of live commerce is a live session. Catch us on TikTok while we run one — or watch how an AZ ONE session comes together, from rundown to order push.",
+  /** Routes to the live room while live, to the profile otherwise. */
+  tiktokLiveUrl: "https://www.tiktok.com/@azoneofficialhq/live",
+  /** Optional Shopee Live room; "" hides the button. */
+  shopeeLiveUrl: "",
+  /** A TikTok video URL (https://www.tiktok.com/@azoneofficialhq/video/…). */
+  videoUrl: "",
+  /** Shown under the CTAs; edit to your real cadence. */
+  scheduleNote: "Follow @azoneofficialhq so our next session lands in your feed.",
+} as const;
+
 export function whatsappUrl(message?: string): string {
   const text = encodeURIComponent(message ?? CONTACT.whatsappMessage);
   return `https://wa.me/${CONTACT.whatsapp}?text=${text}`;

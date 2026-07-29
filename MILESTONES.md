@@ -197,3 +197,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Homepage ELFIA showcase section removed; landing page is fully AZ ONE OFFICIAL
 - ELFIA stays visible as the existing successful client: hero mention, trust signal, FAQ, nav, portfolio, and the /portfolio/elfia case study
 - ELFIA outbound links updated to the brand's own landing page: elfiaofficialstore.com
+
+## v1.3.3 — 29 Jul 2026 — Live showcase section
+- Homepage gains a "See a live session, live" section: TikTok /live CTA (self-routing: live room when live, profile otherwise) + official TikTok video embed for the process showcase
+- Graceful preview card while no video is configured or while the embed loads; Shopee Live button optional via constant
+- Documented platform constraint: live streams are not embeddable and no public live-status API exists for static sites
