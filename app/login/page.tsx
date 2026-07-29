@@ -106,7 +106,7 @@ export default function LoginPage() {
       <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
-      </a>
+      </Link>
       <h1 className="mt-8 text-2xl font-semibold tracking-tight">
         {mode === "login" ? "Sign in" : "Create your account"}
       </h1>
