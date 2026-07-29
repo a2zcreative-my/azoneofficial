@@ -35,7 +35,7 @@ function tiktokVideoId(url: string): string | null {
 
 function tiktokUsername(profileUrl: string): string {
   const match = /tiktok\.com\/@([^/?#]+)/.exec(profileUrl);
-  return match ? match[1] : "";
+  return match ? (match[1] ?? "") : "";
 }
 
 function LivePreviewCard() {
