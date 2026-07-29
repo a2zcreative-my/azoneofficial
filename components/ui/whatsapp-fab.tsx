@@ -18,7 +18,7 @@ export function WhatsAppFab() {
     const footer = document.getElementById("site-footer");
     if (!footer) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setFooterVisible(entry.isIntersecting),
+      ([entry]) => setFooterVisible(entry?.isIntersecting ?? false),
       { rootMargin: "0px 0px -10% 0px" },
     );
     observer.observe(footer);
