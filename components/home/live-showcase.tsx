@@ -27,7 +27,7 @@ import { LIVE_SHOWCASE } from "@/constants/content";
 /** Extract the numeric video id from a TikTok video URL. */
 function tiktokVideoId(url: string): string | null {
   const match = /\/video\/(\d+)/.exec(url);
-  return match ? match[1] : null;
+  return match ? (match[1] ?? null) : null;
 }
 
 function LivePreviewCard() {
