@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 const API = "/api/v1";
 
@@ -15,7 +14,7 @@ interface User { id: number; email: string; name: string; role: string }
 
 const STAFF_ONLY = ["coo", "business_dev", "finance_admin", "live_manager", "live_host"];
 
-function destinationFor(role: string): string {
+export function destinationFor(role: string): string {
   if (role === "customer") return "/account";
   if (STAFF_ONLY.includes(role)) return "/portal";
   return "/admin";
@@ -103,10 +102,10 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
-      <Link href="/" className="inline-block">
+      <a href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
-      </Link>
+      </a>
       <h1 className="mt-8 text-2xl font-semibold tracking-tight">
         {mode === "login" ? "Sign in" : "Create your account"}
       </h1>
