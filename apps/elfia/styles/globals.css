@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@import "../../../packages/ui/styles/base.css";
+
+/* ------------------------------------------ */
+/* ELFIA — design tokens                       */
+/* Warm, quiet, editorial. Deliberately        */
+/* nothing like the agency's navy + gold.      */
+/* ------------------------------------------ */
+
+:root {
+  /* Brand palette */
+  --brand-primary: #3f3730; /* deep warm taupe */
+  --brand-neutral: #f7f3ec; /* paper */
+  --brand-accent: #b99a6b; /* soft bronze — on dark */
+  --brand-accent-deep: #7a5f37; /* on light (AA on paper) */
+  --brand-accent-soft: #ece1cf;
+
+  /* Semantic tokens consumed by shared components */
+  --color-background: #fdfbf7;
+  --color-foreground: #2c2620;
+  --color-muted-foreground: #6d6259;
+  --color-border: #e6ded2;
+  --color-secondary: #f4efe6;
+  --color-input: #ddd3c4;
+  --color-ring: #b99a6b;
+  --color-primary: #3f3730;
+  --color-primary-foreground: #fdfbf7;
+}
+
+@theme inline {
+  --color-brand: var(--brand-primary);
+  --color-brand-neutral: var(--brand-neutral);
+  --color-gold: var(--brand-accent);
+  --color-gold-deep: var(--brand-accent-deep);
+  --color-gold-soft: var(--brand-accent-soft);
+  --font-sans: var(--font-elfia), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-elfia-display), ui-serif, Georgia, serif;
+}
+
+@layer base {
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}

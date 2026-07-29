@@ -180,3 +180,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.2.29 — 27 Jul 2026 — Footer lockup centring
 - Logo and strapline wrapped as a single lockup so the strapline centres under the mark
+
+## v1.3.0 — 27 Jul 2026 — Multi-client architecture
+- Repository restructured into a pnpm workspace: apps/azoneofficial, apps/elfia, packages/{ui,cms,seo,forms}, shared worker
+- AZ ONE OFFICIAL repositioned as a live commerce agency with seven services
+- ELFIA extracted to an independent site and repositioned as a client case study (/portfolio/elfia)
+- API made multi-tenant (migration 0006); statistics moved into the CMS

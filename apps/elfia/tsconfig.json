@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "plugins": [{ "name": "next" }],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@azone/ui": ["../../packages/ui/src/index.ts"],
+      "@azone/cms": ["../../packages/cms/src/index.ts"],
+      "@azone/seo": ["../../packages/seo/src/index.ts"],
+      "@azone/forms": ["../../packages/forms/src/index.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

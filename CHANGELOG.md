@@ -2,6 +2,36 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.3.0] — 2026-07-27 — Multi-client architecture
+
+Breaking restructure. The repository is now a pnpm workspace serving several
+client sites from one shared codebase.
+
+### Added
+- **`apps/elfia`** — a completely independent ELFIA site with its own branding (warm taupe on paper, Cormorant Garamond display over Jost body — nothing like the agency navy/gold), routes (`/`, `/collections`, `/collections/[slug]`, `/products`, `/products/[slug]`, `/live`, `/journal`, `/journal/[slug]`, `/contact`), catalogue, live drop schedule, journal, sitemap, robots, 404, and its own CMS tenant. The footer carries only "Powered by AZ ONE OFFICIAL"
+- **Shared packages**: `@azone/ui` (Button, ButtonGroup, PageShell, Section, Reveal, FaqList, ProductGallery, CoverflowGallery, ScrollCarousel, ScrollMemory, ScrollToTop, WhatsAppFab, plus the base stylesheet), `@azone/cms` (CmsProvider, Editable, live readers, useStatistics), `@azone/seo` (buildMetadata, buildViewport, JSON-LD, sitemap, robots), `@azone/forms`
+- **`/portfolio`** and **`/portfolio/[slug]`** on the agency site, with ELFIA as the first case study — Challenge → Solution → Results → CTA
+- **Homepage client success story** replacing the house-brand ELFIA section
+- **Multi-tenant API**: migration `0006_multi_tenant.sql` adds a `site` column across content tables and re-keys `site_content` on `(site, key)`; the Worker resolves the tenant from Origin (falling back to a validated `?site=` parameter), echoes the matching CORS origin, and scopes every content read and write
+- `SITE_ORIGINS` Worker variable mapping origins to tenant keys
+
+### Changed
+- **Positioning**: AZ ONE OFFICIAL is a live commerce agency. Services are now TikTok Live, Shopee Live, live commerce strategy, live hosts, live operations, creative content, and performance marketing — with a redrawn seven-icon family
+- **ELFIA is a client, not an internal brand.** Every "our brand" / "house brand" / product reference on the agency site is gone; the agency app holds a `CaseStudy` record and no product data
+- **Statistics are CMS-editable** (`stats.items`). The count-up animation was removed — it animated from zero toward hard-coded targets, which is what rendered unpublished figures as `0+ / 0 / 0x`
+- Shared components decoupled from app internals: `PageShell` no longer renders chrome (apps compose their own navbar/footer), `FaqList` receives its questions, `WhatsAppFab` receives an href, the coverflow and scroll carousels are generic
+- Theming split: `packages/ui/styles/base.css` holds structure and semantic tokens but **no colours**; each app declares its own palette
+
+### Removed
+- `/products` and `/products/[slug]` from the agency site — 301 redirects to `/portfolio/elfia` preserve indexed links
+- `components/home/elfia.tsx`, the ELFIA product catalogue, drop steps, and the `ElfiaProduct` type from the agency app
+- The obsolete count-up `StatCounter` and the app-level `Statistic` type
+
+### Migration notes
+- Run `pnpm worker:migrate` **before** deploying the new Worker code
+- Two Cloudflare Pages projects are now required; both build from the repository root. See `docs/DEPLOYMENT.md`
+- Not verified by a build in this environment: run `pnpm install && pnpm build` before deploying
+
 ## [1.2.29] — 2026-07-27
 
 ### Changed

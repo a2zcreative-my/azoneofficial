@@ -1,0 +1,115 @@
+/*
+ * Shared base stylesheet for every app in the workspace.
+ *
+ * Contains structure only — resets, base element styles, focus rings, motion
+ * preferences, and the scroll-reset hook. Brand tokens (--brand-primary,
+ * --brand-accent, fonts) are declared per app in its own globals.css, which
+ * imports this file. That is what lets AZ ONE and ELFIA share components while
+ * looking nothing alike.
+ */
+
+/* Structural base — brand tokens live in each app globals.css */
+
+/*
+ * Apps declare their own :root palette (--brand-primary, --brand-accent, and
+ * the semantic tokens below) in their globals.css. Nothing brand-specific
+ * belongs in this file.
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand-primary);
+  --color-brand-neutral: var(--brand-neutral);
+  --color-gold: var(--brand-accent);
+  --color-gold-deep: var(--brand-accent-deep);
+  --color-gold-soft: var(--brand-accent-soft);
+
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+.dark {
+  --background: #10192b;
+  --foreground: #eef1f6;
+  --card: #16213a;
+  --card-foreground: #eef1f6;
+  --popover: #16213a;
+  --popover-foreground: #eef1f6;
+  --primary: #eef1f6;
+  --primary-foreground: #1a2946;
+  --secondary: #1c2942;
+  --secondary-foreground: #eef1f6;
+  --muted: #1c2942;
+  --muted-foreground: #9aa6ba;
+  --border: #263650;
+  --input: #263650;
+  --ring: #c8a96a;
+  --brand-accent-deep: #d4b57a; /* on dark, lighter gold keeps AA */
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Set by the reload handler in app/layout.tsx: jumping to the top after a
+     refresh must be instant, not an animated scroll. */
+  html[data-scroll-reset="1"] {
+    scroll-behavior: auto;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  body {
+    overflow-x: hidden;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

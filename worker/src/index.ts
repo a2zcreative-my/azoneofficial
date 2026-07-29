@@ -10,6 +10,12 @@ export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
   ALLOWED_ORIGIN: string;
+  /**
+   * JSON map of allowed origin -> tenant key, e.g.
+   *   {"https://azoneofficial.com":"azoneofficial","https://elfia.com.my":"elfia"}
+   * ALLOWED_ORIGIN stays the primary origin for cookies and OAuth redirects.
+   */
+  SITE_ORIGINS?: string;
   SESSION_PEPPER: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
@@ -128,9 +134,54 @@ function errorResponse(code: string, message: string, status: number): Response 
   return json({ error: { code, message } }, status);
 }
 
-function corsHeaders(env: Env): HeadersInit {
+/* ---------------- multi-tenancy ---------------- */
+
+const DEFAULT_SITE = "azoneofficial";
+
+function siteMap(env: Env): Record<string, string> {
+  if (!env.SITE_ORIGINS) return { [env.ALLOWED_ORIGIN]: DEFAULT_SITE };
+  try {
+    return JSON.parse(env.SITE_ORIGINS) as Record<string, string>;
+  } catch {
+    return { [env.ALLOWED_ORIGIN]: DEFAULT_SITE };
+  }
+}
+
+function allowedOrigins(env: Env): string[] {
+  return Object.keys(siteMap(env));
+}
+
+/**
+ * Resolve which client site a request belongs to.
+ *
+ * Origin wins, because it cannot be forged by a browser client. The `?site=`
+ * parameter is only honoured when it matches a configured tenant — this keeps
+ * static exports (which have no Origin on same-origin GETs) working without
+ * letting a caller read another tenant's content.
+ */
+function resolveSite(request: Request, env: Env): string {
+  const map = siteMap(env);
+  const origin = request.headers.get("Origin");
+  if (origin && map[origin]) return map[origin];
+
+  const requested = new URL(request.url).searchParams.get("site");
+  if (requested && Object.values(map).includes(requested)) return requested;
+
+  const host = request.headers.get("Host");
+  if (host) {
+    const match = Object.entries(map).find(([o]) => o.includes(host));
+    if (match) return match[1];
+  }
+  return DEFAULT_SITE;
+}
+
+function corsHeaders(env: Env, request?: Request): HeadersInit {
+  const origins = allowedOrigins(env);
+  const origin = request?.headers.get("Origin");
+  const allow = origin && origins.includes(origin) ? origin : env.ALLOWED_ORIGIN;
   return {
-    "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin",
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Credentials": "true",
@@ -302,7 +353,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    const cors = corsHeaders(env);
+    const cors = corsHeaders(env, request);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: cors });
@@ -311,7 +362,7 @@ export default {
     // Origin check on mutating requests (CSRF mitigation alongside SameSite)
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
       const origin = request.headers.get("Origin");
-      if (origin && origin !== env.ALLOWED_ORIGIN) {
+      if (origin && !allowedOrigins(env).includes(origin)) {
         return errorResponse("forbidden_origin", "Origin not allowed", 403);
       }
     }
@@ -332,6 +383,7 @@ export default {
 
 async function route(request: Request, env: Env, path: string): Promise<Response> {
   const method = request.method;
+  const site = resolveSite(request, env);
 
   /* ---- public ---- */
 
@@ -341,8 +393,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/content-public" && method === "GET") {
     const { results } = await env.DB.prepare(
-      `SELECT key, value FROM site_content`,
-    ).all();
+      `SELECT key, value FROM site_content WHERE site = ?1`,
+    ).bind(site).all();
     return json(
       { content: results },
       200,
@@ -360,8 +412,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("invalid_input", "name and message are required", 400);
     }
     await env.DB.prepare(
-      `INSERT INTO enquiries (name, company, phone, email, message)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
+      `INSERT INTO enquiries (name, company, phone, email, message, site)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
     )
       .bind(
         (body.name as string).trim(),
@@ -369,6 +421,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         isNonEmptyString(body.phone, 40) ? body.phone : null,
         isNonEmptyString(body.email, 200) ? body.email : null,
         (body.message as string).trim(),
+        site,
       )
       .run();
     return json({ ok: true }, 201);
@@ -709,8 +762,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (contentMatch) {
     const key = contentMatch[1]!;
     if (method === "GET") {
-      const row = await env.DB.prepare(`SELECT key, value, updated_at FROM site_content WHERE key = ?1`)
-        .bind(key)
+      const row = await env.DB.prepare(
+        `SELECT site, key, value, updated_at FROM site_content WHERE site = ?1 AND key = ?2`,
+      )
+        .bind(site, key)
         .first();
       if (!row) return errorResponse("not_found", "No content for this key", 404);
       return json(row);
@@ -722,13 +777,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         return errorResponse("invalid_input", "value is required", 400);
       }
       await env.DB.prepare(
-        `INSERT INTO site_content (key, value, updated_by, updated_at)
-         VALUES (?1, ?2, ?3, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = ?2, updated_by = ?3, updated_at = datetime('now')`,
+        `INSERT INTO site_content (site, key, value, updated_by, updated_at)
+         VALUES (?1, ?2, ?3, ?4, datetime('now'))
+         ON CONFLICT(site, key) DO UPDATE SET value = ?3, updated_by = ?4, updated_at = datetime('now')`,
       )
-        .bind(key, JSON.stringify(body.value), user.id)
+        .bind(site, key, JSON.stringify(body.value), user.id)
         .run();
-      await audit(env, user.id, "content.update", "site_content", key);
+      await audit(env, user.id, "content.update", "site_content", `${site}:${key}`);
       return json({ ok: true });
     }
   }

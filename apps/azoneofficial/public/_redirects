@@ -1,0 +1,9 @@
+# ELFIA moved to its own site (elfia.com.my). Product routes on the agency
+# domain now point at the client case study, so existing links keep working.
+/products                    /portfolio/elfia   301
+/products/*                  /portfolio/elfia   301
+
+# Earlier ELFIA product slug renames (kept from v1.2.11)
+/products/signature-shawl-taupe  /portfolio/elfia  301
+/products/signature-shawl-grey   /portfolio/elfia  301
+/products/corporate-blush        /portfolio/elfia  301

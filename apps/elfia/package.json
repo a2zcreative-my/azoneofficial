@@ -1,0 +1,33 @@
+{
+  "name": "elfia",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "pages:build": "npx @cloudflare/next-on-pages"
+  },
+  "dependencies": {
+    "@azone/cms": "workspace:*",
+    "@azone/forms": "workspace:*",
+    "@azone/seo": "workspace:*",
+    "@azone/ui": "workspace:*",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

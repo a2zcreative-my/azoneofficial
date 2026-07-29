@@ -48,7 +48,7 @@ The proposed date-based format is a good direction — the issue date is readabl
 - Documents numbered under the old scheme (`QT202600001` style) **remain valid and unchanged**. Do not renumber — history must stay traceable.
 - New format takes effect for documents issued **on or after the v1.2.7 deploy date**.
 - The Sales list views should display both formats transparently (no format filter needed — both are plain strings).
-- D1: add a `doc_counters` table keyed by `(type, yyyymmdd)`; see `worker/lib/numbering.ts`.
+- D1: counters live in `doc_counters_daily` keyed by `(doc_type, day)`; see `docNumber()` in `worker/src/staff.ts` and migration `0005_doc_numbering_daily.sql`.
 
 ---
 
