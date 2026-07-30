@@ -1,6 +1,16 @@
 name = "azoneofficial-api"
 main = "src/index.ts"
 compatibility_date = "2024-03-20"
+
+# Bind the API to the production domain. With these here, `wrangler deploy`
+# attaches the routes automatically — no manual dashboard step to forget.
+# Requests to azoneofficial.com/api/* hit this Worker BEFORE Cloudflare Pages,
+# which is what makes /api/v1/auth/google resolve instead of 404ing against
+# the static site.
+routes = [
+  { pattern = "azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
+  { pattern = "www.azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
+]
 account_id = "39fe816a63f159da3b17cc254a89d105"
 
 [[d1_databases]]
