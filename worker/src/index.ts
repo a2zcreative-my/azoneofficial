@@ -35,7 +35,7 @@ interface SessionUser {
  * argon2, so we use PBKDF2-SHA256 @ 310k iterations + per-user salt + server
  * pepper. Documented deviation — revisit if a vetted argon2 wasm lib is added. */
 
-const PBKDF2_ITERATIONS = 310_000;
+const PBKDF2_ITERATIONS = 100_000;
 
 function toHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)]
@@ -47,6 +47,7 @@ async function hashPassword(
   password: string,
   saltHex: string,
   pepper: string,
+  iterations: number,
 ): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -60,7 +61,7 @@ async function hashPassword(
     saltHex.match(/.{2}/g)!.map((h) => parseInt(h, 16)),
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations: PBKDF2_ITERATIONS },
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
     key,
     256,
   );
@@ -91,7 +92,7 @@ export async function createPasswordHash(
   pepper: string,
 ): Promise<string> {
   const salt = randomHex(16);
-  const hash = await hashPassword(password, salt, pepper);
+  const hash = await hashPassword(password, salt, pepper, PBKDF2_ITERATIONS);
   return `pbkdf2$${PBKDF2_ITERATIONS}$${salt}$${hash}`;
 }
 
@@ -102,10 +103,11 @@ async function verifyPassword(
 ): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iterations = parseInt(parts[1], 10);
   const salt = parts[2];
   const expected = parts[3];
-  if (!salt || !expected) return false;
-  const actual = await hashPassword(password, salt, pepper);
+  if (!salt || !expected || isNaN(iterations)) return false;
+  const actual = await hashPassword(password, salt, pepper, iterations);
   // constant-time compare
   if (actual.length !== expected.length) return false;
   let diff = 0;
