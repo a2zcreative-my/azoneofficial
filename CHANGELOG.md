@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.2] — 2026-07-30
+
+### Fixed
+- **`/api/v1/auth/google` 404 in production.** The Worker had no route bound to the domain, so `/api/*` fell through to the static Pages site, which has no such path. `worker/wrangler.toml` now declares `azoneofficial.com/api/*` (and `www.`) routes, so `wrangler deploy` attaches them automatically — the manual dashboard step that was missed can no longer be missed
+
+### Added
+- `docs/AUTH-SETUP.md` — the complete path from 404 to working Google login: deploy checklist (migrations → secrets → vars → deploy), exact Google Console origin/redirect values, what happens on first login for `@azoneofficial.com` staff vs customers, verification commands, and the www cookie caution
+
+### Notes
+- No application code changed. Staff auto-provisioning already worked as designed: company-domain Google logins create active staff accounts (role `marketing`, admin-elevatable); other emails create customer accounts
+
+
 ## [1.4.1] — 2026-07-29 — Shopee Live added to the live showcase
 
 ### Added
