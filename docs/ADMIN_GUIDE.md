@@ -171,3 +171,21 @@ is not right for a specific person.
 | Version | Change |
 |---|---|
 | v1.4.14 | Role model reduced to 11 roles; capabilities remapped; migration 0009. |
+
+
+## Leave approval flow (v1.4.15)
+
+- **Staff request** → HR review (hr_admin/admin) → pre-approval (COO or CCO) → **CEO final approval**.
+- **COO/CCO request** → HR review → **CEO final approval** (no pre-approval — they can't approve their own tier).
+- Reject at any stage ends the request. The applicant can cancel while it's still moving. No one can act on their own request. super_admin/admin can act at any stage.
+- Each reviewer sees only what's waiting at their stage, in /portal → Leave (or /admin → Staff).
+
+## ID badges (v1.4.15)
+
+/admin → Staff → Staff directory. Fill employee ID, position, department, issue
+date, blood type, then **Print badge** — it prints at 85.6 × 54 mm (government
+card size).
+
+| Version | Change |
+|---|---|
+| v1.4.15 | Leave chain + ID badge documented. |

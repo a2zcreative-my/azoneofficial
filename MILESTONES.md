@@ -254,3 +254,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.4.14 — 31 Jul 2026 — Role model overhaul
 - 11 roles (removed MD/business_dev/finance_admin/live_manager); editor/marketing → portal task roles; content editing = admin tier only
 - hr_admin attendance CSV export for payroll; CEO read-only; COO=CCO HR-level oversight; migration 0009
+
+## v1.4.15 — 31 Jul 2026 — Badges, self-tasks, attendance policy, leave chain
+- Government-size ID badge print + admin employee-field editing
+- Staff self-create tasks (open/pending/closed + deadline); customer enquiries from /account
+- Attendance policy (no break; MYT clock-in/out rules); multi-stage leave approval (HR→COO/CCO→CEO); migration 0010; tighter UI spacing

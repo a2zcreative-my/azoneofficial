@@ -157,3 +157,13 @@ Data preserved.
 | Version | Change |
 |---|---|
 | v1.4.14 | 0009 — role set reduced to 11; holders of removed roles reassigned. |
+
+
+## v1.4.15 — migration 0010_leave_chain_and_badge.sql
+Adds leave staging columns (stage, hr_by/at, preapp_by/at, final_by/at) and maps
+old statuses onto stages; adds users.id_issued_on and users.blood_type for the
+ID badge. Additive; existing rows preserved.
+
+| Version | Change |
+|---|---|
+| v1.4.15 | 0010 — leave approval chain columns + badge fields. |

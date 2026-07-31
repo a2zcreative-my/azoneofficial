@@ -24,6 +24,10 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 const card = "rounded-lg border border-border bg-card p-5";
+const inputClass =
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
+const btnClass =
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
@@ -31,6 +35,8 @@ export default function AccountPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [ask, setAsk] = useState("");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -60,7 +66,7 @@ export default function AccountPage() {
   if (!checked || !user) return null;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
+    <div className="mx-auto w-full max-w-4xl px-5 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">
@@ -115,14 +121,48 @@ export default function AccountPage() {
       </div>
 
       <div className={`${card} mt-6`}>
+        <p className="text-sm font-semibold">Ask AZ ONE OFFICIAL</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Send a question to our team — it reaches staff with your name and
+          email attached, and your thread shows below.
+        </p>
+        <textarea
+          className={`${inputClass} mt-3`}
+          rows={3}
+          placeholder="What would you like to ask?"
+          value={ask}
+          onChange={(e) => setAsk(e.target.value)}
+        />
+        <button
+          type="button"
+          className={`${btnClass} mt-2`}
+          disabled={!ask.trim() || sending}
+          onClick={async () => {
+            setSending(true);
+            const r = await fetch("/api/v1/account/enquiries", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: ask }),
+            });
+            setSending(false);
+            if (r.ok) {
+              setAsk("");
+              void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
+                setEnquiries(e.data?.enquiries ?? []),
+              );
+            }
+          }}
+        >
+          {sending ? "Sending…" : "Send enquiry"}
+        </button>
+      </div>
+
+      <div className={`${card} mt-6`}>
         <p className="text-sm font-semibold">My enquiries</p>
         {enquiries.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">
-            No enquiries yet — send one from the{" "}
-            <a href="/contact" className="text-foreground underline">
-              contact page
-            </a>{" "}
-            using this email and it will appear here.
+            No enquiries yet — send your first question above.
           </p>
         ) : (
           enquiries.map((e) => (

@@ -47,9 +47,17 @@ interface LeaveRow {
   days: number;
   reason?: string;
   status: string;
+  stage?: string;
   review_comment?: string;
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  applied: "Awaiting HR", hr_reviewed: "Awaiting pre-approval",
+  pre_approved: "Awaiting CEO", pending_final: "Awaiting CEO",
+  approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
+};
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function StatusBadge({ value }: { value: string }) {
   const tone =
     value === "approved"
@@ -96,8 +104,9 @@ export function StaffPanel() {
     void load();
   };
 
-  const pending = rows.filter((r) => r.status === "pending");
-  const decided = rows.filter((r) => r.status !== "pending");
+  const inFlight = ["applied", "hr_reviewed", "pre_approved", "pending_final"];
+  const pending = rows.filter((r) => inFlight.includes(r.stage ?? ""));
+  const decided = rows.filter((r) => !inFlight.includes(r.stage ?? ""));
 
   const leaveCard = (r: LeaveRow, withActions: boolean) => (
     <li key={r.id} className="border-border rounded-lg border px-4 py-3">
@@ -109,7 +118,7 @@ export function StaffPanel() {
             {r.days === 1 ? "day" : "days"})
           </span>
         </span>
-        <StatusBadge value={r.status} />
+        <span className="text-muted-foreground text-xs">{STAGE_LABEL[r.stage ?? ""] ?? r.status}</span>
       </div>
       {r.reason && (
         <p className="text-muted-foreground mt-1.5 text-sm">Reason: {r.reason}</p>
@@ -133,7 +142,7 @@ export function StaffPanel() {
             disabled={busy === r.id}
             onClick={() => void decide(r.id, "approve")}
           >
-            Approve
+            {r.stage === "applied" ? "Mark reviewed" : r.stage === "hr_reviewed" ? "Pre-approve" : "Final approve"}
           </button>
           <button
             type="button"

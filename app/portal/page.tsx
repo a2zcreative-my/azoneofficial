@@ -39,7 +39,7 @@ const btnClass =
   "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
-const card = "rounded-lg border border-border bg-card p-5";
+const card = "rounded-lg border border-border bg-card p-4";
 
 /**
  * Attendance timestamps are stored in UTC (datetime('now') in D1) — correct
@@ -79,7 +79,7 @@ function fmtRM(cents: number) {
 interface Notification { id: number; kind: string; message: string; is_read: number; created_at: string }
 interface Task { id: number; title: string; priority: string; deadline: string | null; status: string; progress: number; assignee?: string }
 interface Announcement { id: number; title: string; body: string; category: string; created_at: string; acked: number }
-interface LeaveReq { id: number; type: string; start_date: string; end_date: string; days: number; status: string; user_name?: string; review_comment?: string | null }
+interface LeaveReq { id: number; type: string; start_date: string; end_date: string; days: number; status: string; stage?: string; applicant_role?: string; user_id?: number; user_name?: string; review_comment?: string | null }
 
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
@@ -101,15 +101,27 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
+  const [punchResult, setPunchResult] = useState("");
   const punch = async (type: string) => {
     setBusy(type);
-    await api(`/staff/attendance`, { method: "POST", body: JSON.stringify({ type }) });
+    const res = await api<{ flag?: string }>(`/staff/attendance`, {
+      method: "POST",
+      body: JSON.stringify({ type }),
+    });
     setBusy("");
+    if (res.data?.flag) {
+      const label: Record<string, string> = {
+        ok: "On time ✓", late: "Marked late", half_day: "Half day",
+        early_out: "Early out", completed: "Completed ✓",
+      };
+      setPunchResult(`${type === "clock_in" ? "Clocked in" : "Clocked out"} — ${label[res.data.flag] ?? res.data.flag}`);
+      window.setTimeout(() => setPunchResult(""), 6000);
+    }
     void load();
   };
 
   const lastPunch = today[0]?.type;
-  const workingIn = lastPunch === "clock_in" || lastPunch === "break_out";
+  const workingIn = lastPunch === "clock_in";
 
   return (
     <div className="space-y-6">
@@ -122,17 +134,16 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           <button type="button" className={btnGhost} disabled={!!busy || !workingIn} onClick={() => void punch("clock_out")}>
             Clock out
           </button>
-          <button type="button" className={btnGhost} disabled={!!busy || !workingIn} onClick={() => void punch("break_in")}>
-            Break in
-          </button>
-          <button type="button" className={btnGhost} disabled={!!busy || lastPunch !== "break_in"} onClick={() => void punch("break_out")}>
-            Break out
-          </button>
           <button type="button" className={btnGhost} onClick={() => go("Leave")}>Apply leave</button>
           {SALES_ROLES.includes(user.role) && (
             <button type="button" className={btnGhost} onClick={() => go("Sales")}>Create quotation</button>
           )}
         </div>
+        {punchResult && <p className="mt-2 text-xs font-medium text-green-700">{punchResult}</p>}
+        <p className="text-muted-foreground mt-1 text-[11px]">
+          Shift 10:00–18:00 MYT. Clock in: by 10:00 on time · after 10:05 late · from 13:00 half day.
+          Clock out: 13:00 half day · before 18:00 early out · 18:00 completed.
+        </p>
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0
             ? "No attendance recorded today."
@@ -223,12 +234,34 @@ function Attendance({ user }: { user: User }) {
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
 
+const STAGE_LABEL: Record<string, string> = {
+  applied: "Awaiting HR review",
+  hr_reviewed: "Awaiting pre-approval",
+  pre_approved: "Awaiting CEO",
+  pending_final: "Awaiting CEO",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};
+
+// Which stage a reviewer role can act on (mirrors the Worker's chain).
+function canActOnStage(role: string, stage: string, applicantRole: string): boolean {
+  const HR = ["super_admin", "admin", "hr_admin"];
+  const PRE = ["super_admin", "admin", "coo", "cco"];
+  const FIN = ["super_admin", "admin", "ceo"];
+  if (stage === "applied") return HR.includes(role);
+  if (stage === "hr_reviewed")
+    return applicantRole === "coo" || applicantRole === "cco" ? FIN.includes(role) : PRE.includes(role);
+  if (stage === "pre_approved" || stage === "pending_final") return FIN.includes(role);
+  return false;
+}
+
 function Leave({ user }: { user: User }) {
   const [balances, setBalances] = useState<Record<string, { entitled: number; used: number }>>({});
   const [mine, setMine] = useState<LeaveReq[]>([]);
   const [all, setAll] = useState<LeaveReq[]>([]);
   const [draft, setDraft] = useState({ type: "annual", start_date: "", end_date: "", days: 1, reason: "" });
-  const canApprove = MANAGE_ROLES.includes(user.role);
+  const canApprove = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"].includes(user.role);
 
   const load = useCallback(async () => {
     const b = await api<{ balances: typeof balances }>(`/staff/leave/balance`);
@@ -237,9 +270,13 @@ function Leave({ user }: { user: User }) {
     setMine(m.data?.leave ?? []);
     if (canApprove) {
       const a = await api<{ leave: LeaveReq[] }>(`/staff/leave?all=1`);
-      setAll((a.data?.leave ?? []).filter((x) => x.status === "pending"));
+      setAll(
+        (a.data?.leave ?? []).filter(
+          (x) => canActOnStage(user.role, (x as LeaveReq).stage ?? "", (x as LeaveReq).applicant_role ?? "") && (x as { user_id?: number }).user_id !== user.id,
+        ),
+      );
     }
-  }, [canApprove]);
+  }, [canApprove, user.role, user.id]);
   useEffect(() => { void load(); }, [load]);
 
   const apply = async () => {
@@ -291,10 +328,10 @@ function Leave({ user }: { user: User }) {
             <div key={l.id} className="border-border flex items-center justify-between border-b py-2 text-sm last:border-0">
               <span>
                 {l.type} · {l.start_date} → {l.end_date} ({l.days}d) —{" "}
-                <span className="font-medium">{l.status}</span>
+                <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
                 {l.review_comment ? <span className="text-muted-foreground"> · &quot;{l.review_comment}&quot;</span> : null}
               </span>
-              {l.status === "pending" && (
+              {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
                 <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
               )}
             </div>
@@ -304,15 +341,18 @@ function Leave({ user }: { user: User }) {
 
       {canApprove && (
         <div className={card}>
-          <p className="text-sm font-semibold">Pending approvals</p>
-          {all.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing to approve.</p>}
+          <p className="text-sm font-semibold">Leave awaiting my action</p>
+          {all.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing awaiting you.</p>}
           {all.map((l) => (
             <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
               <span>
                 <span className="font-medium">{l.user_name}</span> · {l.type} · {l.start_date} → {l.end_date} ({l.days}d)
+                <span className="text-muted-foreground"> · {STAGE_LABEL[(l as LeaveReq).stage ?? ""] ?? ""}</span>
               </span>
               <span className="flex gap-2">
-                <button type="button" className={btnGhost} onClick={() => void act(l.id, "approve")}>Approve</button>
+                <button type="button" className={btnGhost} onClick={() => void act(l.id, "approve")}>
+                  {((l as LeaveReq).stage === "applied") ? "Mark reviewed" : ((l as LeaveReq).stage === "hr_reviewed" ? "Pre-approve" : "Final approve")}
+                </button>
                 <button type="button" className="text-destructive text-sm underline" onClick={() => void act(l.id, "reject")}>Reject</button>
               </span>
             </div>
@@ -342,8 +382,10 @@ function Tasks({ user }: { user: User }) {
   useEffect(() => { void load(); }, [load]);
 
   const create = async () => {
-    if (!draft.title || !draft.assigned_to) return;
-    await api(`/staff/tasks`, { method: "POST", body: JSON.stringify(draft) });
+    if (!draft.title) return;
+    // Staff self-assign; managers may pick someone. 0 = self on the server.
+    const payload = { ...draft, assigned_to: draft.assigned_to || undefined };
+    await api(`/staff/tasks`, { method: "POST", body: JSON.stringify(payload) });
     setDraft({ title: "", description: "", assigned_to: 0, priority: "normal", deadline: "" });
     void load();
   };
@@ -354,28 +396,32 @@ function Tasks({ user }: { user: User }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {canManage && (
-        <div className={card}>
-          <p className="text-sm font-semibold">Assign a task</p>
-          <div className="mt-3 space-y-3">
-            <input className={inputClass} placeholder="Title" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-            <textarea className={inputClass} rows={2} placeholder="Description" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+      <div className={card}>
+        <p className="text-sm font-semibold">{canManage ? "Create / assign a task" : "Create a task"}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          You know your work best — add your own tasks with a deadline and track
+          them as open, pending, or closed.
+        </p>
+        <div className="mt-3 space-y-3">
+          <input className={inputClass} placeholder="Title" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+          <textarea className={inputClass} rows={2} placeholder="Description" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          {canManage && (
             <select className={inputClass} value={draft.assigned_to} onChange={(e) => setDraft((d) => ({ ...d, assigned_to: Number(e.target.value) }))}>
-              <option value={0}>Assign to…</option>
+              <option value={0}>Assign to myself</option>
               {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
-            <div className="grid grid-cols-2 gap-3">
-              <select className={inputClass} value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}>
-                {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <input type="date" className={inputClass} value={draft.deadline} onChange={(e) => setDraft((d) => ({ ...d, deadline: e.target.value }))} />
-            </div>
-            <button type="button" className={btnClass} onClick={() => void create()}>Create task</button>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <select className={inputClass} value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}>
+              {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <input type="date" className={inputClass} value={draft.deadline} onChange={(e) => setDraft((d) => ({ ...d, deadline: e.target.value }))} />
           </div>
+          <button type="button" className={btnClass} onClick={() => void create()}>Create task</button>
         </div>
-      )}
+      </div>
 
-      <div className={`${card} ${canManage ? "" : "lg:col-span-2"}`}>
+      <div className={card}>
         <p className="text-sm font-semibold">{canManage ? "All tasks" : "My tasks"}</p>
         {tasks.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No tasks.</p>}
         {tasks.map((t) => (
@@ -392,7 +438,7 @@ function Tasks({ user }: { user: User }) {
                   value={t.status}
                   onChange={(e) => void update(t.id, { status: e.target.value, progress: e.target.value === "completed" ? 100 : t.progress })}
                 >
-                  {["open", "in_progress", "completed"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
+                  {[["open", "Open"], ["in_progress", "Pending"], ["completed", "Closed"]].map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
                 </select>
                 <span className="text-muted-foreground text-xs">{t.progress}%</span>
               </span>
@@ -620,7 +666,7 @@ function Profile() {
         {["name", "email", "role", "employee_id", "position", "department", "employment_status"].map((k) => (
           <div key={k} className="flex justify-between gap-4">
             <dt className="text-muted-foreground">{k.replace("_", " ")}</dt>
-            <dd className="font-medium">{profile[k] ?? "-"}</dd>
+            <dd className="font-medium">{profile[k] ?? "—"}</dd>
           </div>
         ))}
       </dl>
@@ -727,7 +773,7 @@ export default function PortalPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-8">
+    <div className="mx-auto w-full max-w-6xl px-5 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">Staff Portal</p>

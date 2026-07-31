@@ -732,6 +732,28 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* ---- customer account ---- */
 
+  if (path === "/api/v1/account/enquiries" && method === "POST") {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || !isNonEmptyString(body.message, 4000)) {
+      return errorResponse("invalid_input", "A message is required", 400);
+    }
+    // Tie the enquiry to the signed-in customer automatically — staff see who
+    // asked without the customer re-typing their details.
+    await env.DB.prepare(
+      `INSERT INTO enquiries (name, company, phone, email, message)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).bind(
+      user.name,
+      isNonEmptyString(body.company, 200) ? body.company : null,
+      isNonEmptyString(body.phone, 40) ? body.phone : null,
+      user.email,
+      (body.message as string).trim(),
+    ).run();
+    await audit(env, user.id, "account.enquiry");
+    return json({ ok: true }, 201);
+  }
+
   if (path === "/api/v1/account/enquiries" && method === "GET") {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
     // Email ownership is only proven for Google sign-ins. Password accounts

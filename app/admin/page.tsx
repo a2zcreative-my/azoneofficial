@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { StaffDirectory } from "@/components/admin/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
 import { PasswordInput } from "@/components/ui/password-input";
 import { SiteEditor } from "@/components/admin/site-editor";
@@ -287,7 +288,7 @@ function Dashboard() {
     });
   }, []);
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
           { label: "Total enquiries", value: summary?.enquiries?.total },
@@ -826,7 +827,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    <div className="mx-auto w-full max-w-6xl px-5 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">
@@ -897,7 +898,7 @@ export default function AdminPage() {
         {tab === "Website" && <SiteEditor />}
         {tab === "Advanced" && <ContentPanel />}
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
-        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <StaffPanel />}
+        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory /><div className="mt-6"><StaffPanel /></div></>}
         {tab === "Account" && <AccountPanel />}
         {tab === "Testimonials" && (
           <CrudPanel

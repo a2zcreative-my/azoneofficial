@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.15] — 2026-07-31 — Badges, self-tasks, attendance policy, leave approval chain
+
+### Added
+- **Staff ID badge** at government card size (85.6 × 54 mm, ISO/IEC 7810 ID-1): /admin → Staff → Staff directory → **Print badge**. Admin sets employee_id, position, department, issue date, blood type per person; the badge prints at true dimensions with the company mark and SSM number
+- **Admin sets employee fields** (employee_id / position / department + badge extras) inline in the new Staff directory
+- **Staff create their own tasks** with a deadline and status (open / pending / closed). Managers can still assign to others; a plain staff member self-assigns
+- **Customer enquiries from /account** — an "Ask AZ ONE OFFICIAL" box posts a question tied to the signed-in customer's name and email (`POST /api/v1/account/enquiries`), and the thread shows below
+- **Attendance CSV export** for payroll stays (hr_admin/coo/cco/admin)
+
+### Changed
+- **Attendance policy** (lunch not monitored — break in/out removed). Clock rules in Malaysia time: clock-in ≤10:00 on time · after 10:05 late · from 13:00 half day; clock-out 13:00 half day · before 18:00 early out · 18:00 completed. The dashboard confirms the result after each punch and prints the rule
+- **Leave approval chain** replaces single approve/reject:
+  - Staff: applied → HR review → CCO/COO pre-approve → CEO final approve
+  - COO/CCO applicant: applied → HR review → CEO final approve (skips pre-approval — no self-tier approval)
+  - Reject at any stage ends the request; the owner may cancel while it is still moving. No one reviews their own request. Each stage records its actor for a full audit trail
+  - Reviewers see only requests currently at a stage they can act on; the button label reflects the stage (Mark reviewed / Pre-approve / Final approve)
+- **Staff birthdays** may be maintained by hr_admin, coo, cco (via HR) and by ceo (birthday-only exception to CEO read-only)
+- **Reduced white space** across /admin, /portal, /account (tighter padding, wider content columns)
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0010) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.14] — 2026-07-31 — Role model overhaul
 
 ### Changed — roles (breaking; migration required)

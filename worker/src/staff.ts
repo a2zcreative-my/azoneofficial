@@ -133,6 +133,57 @@ async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string
 
 /* ---------------- router ---------------- */
 
+/* ---------------- leave approval chain ---------------- */
+//
+// Staff route:   applied -> hr_reviewed -> pre_approved -> approved
+// COO/CCO route: applied -> hr_reviewed ->               -> approved
+//                (they skip pre-approval — no one pre-approves their own tier)
+// Reject at any active stage is terminal.
+
+const HR_STAGE_ROLES: readonly Role[] = ["super_admin", "admin", "hr_admin"];
+const PREAPP_ROLES: readonly Role[] = ["super_admin", "admin", "coo", "cco"];
+const FINAL_ROLES: readonly Role[] = ["super_admin", "admin", "ceo"];
+
+function leaveNextStage(stage: string, applicantRole: string): string {
+  if (stage === "applied") return "hr_reviewed";
+  if (stage === "hr_reviewed") {
+    // COO/CCO applicants skip pre-approval and go straight to final.
+    return applicantRole === "coo" || applicantRole === "cco" ? "pending_final" : "pre_approved";
+  }
+  return "approved"; // pre_approved or pending_final -> final approval
+}
+
+function leaveCanActAt(
+  user: StaffUser,
+  stage: string,
+  applicantRole: string,
+  applicantId: number,
+): boolean {
+  // No one reviews their own request at any stage.
+  if (user.id === applicantId) return false;
+  if (stage === "applied") return HR_STAGE_ROLES.includes(user.role);
+  if (stage === "hr_reviewed") {
+    // COO/CCO applicants go straight to CEO; staff need COO/CCO pre-approval.
+    return applicantRole === "coo" || applicantRole === "cco"
+      ? FINAL_ROLES.includes(user.role)
+      : PREAPP_ROLES.includes(user.role);
+  }
+  if (stage === "pre_approved" || stage === "pending_final") return FINAL_ROLES.includes(user.role);
+  return false; // approved / rejected / cancelled are terminal
+}
+
+function leaveStageLabel(stage: string): string {
+  return ({
+    applied: "applied",
+    hr_reviewed: "HR review done",
+    pre_approved: "pre-approved (COO/CCO)",
+    pending_final: "awaiting CEO",
+    approved: "approved",
+    rejected: "rejected",
+    cancelled: "cancelled",
+  } as Record<string, string>)[stage] ?? stage;
+}
+
 export async function handleStaff(
   request: Request,
   env: Env,
@@ -178,16 +229,23 @@ export async function handleStaff(
   if (path === "/users" && method === "GET") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
     const { results } = await env.DB.prepare(
-      `SELECT id, name, email, role, employee_id, position, department, phone, employment_status, is_active
+      `SELECT id, name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, blood_type, birthday
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results });
   }
   const staffUser = path.match(/^\/users\/(\d+)$/);
   if (staffUser && method === "PATCH") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    // hr_admin/coo/cco/admin tier manage all staff fields. CEO is read-only
+    // everywhere EXCEPT staff birthdays, which policy lets the CEO maintain.
+    const onlyBirthday = body && Object.keys(body).length > 0 &&
+      Object.keys(body).every((k) => k === "birthday");
+    const allowed = can(user, "hr_manage") || (onlyBirthday && user.role === "ceo");
+    if (!allowed) return err("forbidden", "HR access required", 403);
     const id = staffUser[1]!;
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday"] as const;
+    // employee_id / position / department / employment_status stay hr_manage.
+    // birthday may also be set by CEO (who is otherwise read-only) per policy.
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "blood_type"] as const;
     const sets: string[] = [];
     const vals: string[] = [];
     for (const f of fields) {
@@ -203,9 +261,22 @@ export async function handleStaff(
   /* ---- attendance ---- */
 
   if (path === "/attendance" && method === "POST") {
-    const types = ["clock_in", "clock_out", "break_in", "break_out"];
+    // Lunch is not monitored — only clock_in and clock_out exist now.
+    const types = ["clock_in", "clock_out"];
     if (!body || typeof body.type !== "string" || !types.includes(body.type)) {
       return err("invalid_input", `type must be one of: ${types.join(", ")}`, 400);
+    }
+    // Classify against the shift in Malaysia time, so the record already carries
+    // the payroll meaning:
+    //   clock_in : <=10:00 ok · 10:01–12:59 late · >=13:00 half_day
+    //   clock_out: 13:00 half_day · <18:00 early_out · >=18:00 completed
+    const myt = new Date(Date.now() + 8 * 3600 * 1000);
+    const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
+    let flag: string;
+    if (body.type === "clock_in") {
+      flag = mins <= 10 * 60 ? "ok" : mins < 13 * 60 ? "late" : "half_day";
+    } else {
+      flag = mins <= 13 * 60 ? "half_day" : mins < 18 * 60 ? "early_out" : "completed";
     }
     await env.DB.prepare(
       `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
@@ -215,9 +286,11 @@ export async function handleStaff(
       body.type,
       request.headers.get("CF-Connecting-IP"),
       (request.headers.get("User-Agent") ?? "").slice(0, 300),
+      // Store the computed flag in the gps column's place would be wrong; keep
+      // gps as-is and return the flag so the UI can confirm it to the user.
       str(body.gps, 100) ? body.gps : null,
     ).run();
-    return json({ ok: true }, 201);
+    return json({ ok: true, flag }, 201);
   }
 
   if (path === "/attendance" && method === "GET") {
@@ -291,7 +364,7 @@ export async function handleStaff(
     const all = url.searchParams.get("all") === "1" && can(user, "hr_manage");
     const { results } = await env.DB.prepare(
       all
-        ? `SELECT l.*, u.name AS user_name FROM leave_requests l JOIN users u ON u.id = l.user_id ORDER BY l.created_at DESC LIMIT 200`
+        ? `SELECT l.*, u.name AS user_name, u.role AS applicant_role FROM leave_requests l JOIN users u ON u.id = l.user_id ORDER BY l.created_at DESC LIMIT 200`
         : `SELECT * FROM leave_requests WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 100`,
     ).bind(...(all ? [] : [user.id])).all();
     return json({ leave: results });
@@ -318,28 +391,60 @@ export async function handleStaff(
   if (leaveMatch && method === "PATCH") {
     const id = leaveMatch[1]!;
     const row = await env.DB.prepare(
-      `SELECT user_id, status FROM leave_requests WHERE id = ?1`,
-    ).bind(id).first<{ user_id: number; status: string }>();
+      `SELECT l.user_id, l.stage, u.role AS applicant_role
+       FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`,
+    ).bind(id).first<{ user_id: number; stage: string; applicant_role: string }>();
     if (!row) return err("not_found", "Leave request not found", 404);
 
     const action = body?.action;
+    const comment = str(body?.comment, 500) ? (body!.comment as string) : null;
+
+    // Owner may cancel while the request is still moving.
     if (action === "cancel") {
-      if (row.user_id !== user.id || row.status !== "pending") {
-        return err("forbidden", "Only your own pending requests can be cancelled", 403);
+      if (row.user_id !== user.id) return err("forbidden", "Not your request", 403);
+      if (["approved", "rejected", "cancelled"].includes(row.stage)) {
+        return err("invalid_input", "This request is already closed", 400);
       }
-      await env.DB.prepare(`UPDATE leave_requests SET status = 'cancelled' WHERE id = ?1`).bind(id).run();
+      await env.DB.prepare(`UPDATE leave_requests SET stage = 'cancelled', status = 'cancelled' WHERE id = ?1`).bind(id).run();
       return json({ ok: true });
     }
-    if (action === "approve" || action === "reject") {
-      if (!can(user, "hr_manage")) return err("forbidden", "Approval rights required", 403);
-      if (row.status !== "pending") return err("invalid_input", "Request is not pending", 400);
-      const status = action === "approve" ? "approved" : "rejected";
+
+    // Reject at any active stage ends the request.
+    if (action === "reject") {
+      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+        return err("forbidden", "You cannot act on this request at its current stage", 403);
+      }
       await env.DB.prepare(
-        `UPDATE leave_requests SET status = ?1, reviewed_by = ?2, review_comment = ?3 WHERE id = ?4`,
-      ).bind(status, user.id, str(body?.comment, 500) ? body!.comment : null, id).run();
-      await notify(env, row.user_id, "leave", `Your leave request #${id} was ${status}`, `leave:${id}`);
-      await audit(env, user.id, `leave.${action}`, "leave_requests", id);
+        `UPDATE leave_requests SET stage = 'rejected', status = 'rejected',
+           review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1`,
+      ).bind(id, comment, user.id).run();
+      await notify(env, row.user_id, "leave", `Your leave request #${id} was rejected`, `leave:${id}`);
+      await audit(env, user.id, "leave.reject", "leave_requests", id);
       return json({ ok: true });
+    }
+
+    // Approve advances one stage along the applicant's chain.
+    if (action === "approve") {
+      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+        return err("forbidden", "You cannot approve this request at its current stage", 403);
+      }
+      const next = leaveNextStage(row.stage, row.applicant_role);
+      const done = next === "approved";
+      const col =
+        row.stage === "applied" ? "hr_by = ?3, hr_at = datetime('now')"
+        : row.stage === "hr_reviewed" ? "preapp_by = ?3, preapp_at = datetime('now')"
+        : "final_by = ?3, final_at = datetime('now')";
+      await env.DB.prepare(
+        `UPDATE leave_requests SET stage = ?2, status = ?4, review_comment = COALESCE(?5, review_comment), ${col} WHERE id = ?1`,
+      ).bind(id, next, user.id, done ? "approved" : "pending", comment).run();
+      await notify(
+        env, row.user_id, "leave",
+        done ? `Your leave request #${id} is fully approved`
+             : `Your leave request #${id} advanced to ${leaveStageLabel(next)}`,
+        `leave:${id}`,
+      );
+      await audit(env, user.id, `leave.advance.${next}`, "leave_requests", id);
+      return json({ ok: true, stage: next });
     }
     return err("invalid_input", "action must be cancel, approve, or reject", 400);
   }
@@ -389,9 +494,14 @@ export async function handleStaff(
     return json({ tasks: results });
   }
   if (path === "/tasks" && method === "POST") {
-    if (!can(user, "team_manage")) return err("forbidden", "Management access required", 403);
-    if (!body || !str(body.title, 200) || typeof body.assigned_to !== "number") {
-      return err("invalid_input", "title and assigned_to are required", 400);
+    // Staff create their own tasks (they know their work). Managers may also
+    // assign to others; a plain staff member can only assign to themselves.
+    if (!body || !str(body.title, 200)) {
+      return err("invalid_input", "title is required", 400);
+    }
+    const assignedTo = typeof body.assigned_to === "number" ? body.assigned_to : user.id;
+    if (assignedTo !== user.id && !can(user, "team_manage")) {
+      return err("forbidden", "You can only create tasks for yourself", 403);
     }
     const prio = ["low", "normal", "high", "urgent"];
     const res = await env.DB.prepare(
@@ -399,11 +509,13 @@ export async function handleStaff(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
     ).bind(
       body.title, str(body.description, 5000) ? body.description : null,
-      body.assigned_to, user.id,
+      assignedTo, user.id,
       typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
       str(body.deadline, 10) ? body.deadline : null,
     ).first<{ id: number }>();
-    await notify(env, body.assigned_to, "task", `New task assigned: ${body.title as string}`, `task:${res?.id}`);
+    if (assignedTo !== user.id) {
+      await notify(env, assignedTo, "task", `New task assigned: ${body.title as string}`, `task:${res?.id}`);
+    }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
     return json({ id: res?.id }, 201);
   }
