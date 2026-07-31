@@ -147,3 +147,13 @@ CHANGELOG [1.4.7].
 | Version | Change |
 |---|---|
 | v1.4.7 | 0008 — users.role CHECK expanded to the full role set. |
+
+
+## v1.4.14 — migration 0009_role_cleanup.sql
+Reassigns removed roles (MD→admin, business_dev→cco, finance_admin→hr_admin,
+live_manager→live_host), then rebuilds users with the final 11-role CHECK.
+Data preserved.
+
+| Version | Change |
+|---|---|
+| v1.4.14 | 0009 — role set reduced to 11; holders of removed roles reassigned. |

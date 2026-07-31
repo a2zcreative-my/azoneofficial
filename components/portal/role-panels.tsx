@@ -117,15 +117,23 @@ export function HrPanel() {
           <div>
             <p className="text-sm font-semibold">Attendance verification</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Company accounts (@azoneofficial.com) · shift {shift || "10:00–18:00 MYT, Monday–Friday"}
+              Company accounts · shift {shift || "10:00–18:00 MYT, Monday–Friday"} · CSV export for payroll
             </p>
           </div>
-          <input
-            type="month"
-            className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="month"
+              className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+            />
+            <a
+              href={`/api/v1/staff/attendance/export?month=${month}`}
+              className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium"
+            >
+              Export CSV
+            </a>
+          </div>
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse">

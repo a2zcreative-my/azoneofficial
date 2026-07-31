@@ -11,10 +11,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import {
-  CommercialPanel,
   HrPanel,
   InventoryPanel,
-  OperationsPanel,
   OverviewPanel,
 } from "@/components/portal/role-panels";
 
@@ -69,8 +67,8 @@ function mytDateOf(iso: string): string {
   });
 }
 
-const MANAGE_ROLES = ["super_admin", "admin", "managing_director", "coo", "live_manager"];
-const SALES_ROLES = ["super_admin", "admin", "managing_director", "business_dev", "finance_admin", "hr_admin"];
+const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco"];
+const SALES_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco"];
 
 function fmtRM(cents: number) {
   return `RM ${(cents / 100).toFixed(2)}`;
@@ -476,7 +474,7 @@ function Sales({ user }: { user: User }) {
   const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number }>({
     doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0,
   });
-  const canInvoice = ["super_admin", "admin", "managing_director", "finance_admin"].includes(user.role);
+  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco"].includes(user.role);
 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
@@ -637,17 +635,22 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Inventory", "Commercial", "Operations", "Overview", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Inventory", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
-
+// No staff role's home is /admin any more (only super_admin/admin live there,
+// and they deep-link into portal modules via the admin Staff bridge). Kept as
+// an empty guard so the redirect logic below stays explicit.
+const CONTENT_ONLY_ROLES: string[] = [];
 
 const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
-  HR: ["hr_admin", "super_admin", "admin", "managing_director", "ceo"],
-  Inventory: ["sales_marketing", "marketing", "coo", "super_admin", "admin", "managing_director"],
-  Commercial: ["cco", "super_admin", "admin", "managing_director"],
-  Operations: ["coo", "super_admin", "admin", "managing_director"],
-  Overview: ["ceo", "managing_director", "super_admin", "admin", "coo", "cco"],
+  // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
+  HR: ["hr_admin", "coo", "cco", "super_admin", "admin"],
+  // Inventory & tracking: sales_marketing only among staff (editor/marketing
+  // and everyone else are excluded).
+  Inventory: ["sales_marketing", "super_admin", "admin"],
+  // Read-only company monitor. CEO + COO + CCO + admin tier.
+  Overview: ["ceo", "coo", "cco", "super_admin", "admin"],
 };
 type TabName = (typeof ALL_TABS)[number];
 
@@ -684,8 +687,13 @@ export default function PortalPage() {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
-  // Since admin/super_admin can view the portal and all other roles (except customer) belong here,
-  // we do not restrict access to /portal. Customers are redirected to /account above.
+  // Content-team roles work in /admin; if one lands here, send them home.
+  // (Admins are allowed to use portal modules via the admin Staff bridge, but
+  // their front door is /admin — this keeps each role's default flow clean.)
+  if (user && CONTENT_ONLY_ROLES.includes(user.role)) {
+    if (typeof window !== "undefined") window.location.replace("/admin");
+    return null;
+  }
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
@@ -778,8 +786,6 @@ export default function PortalPage() {
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
         {tab === "HR" && <HrPanel />}
         {tab === "Inventory" && <InventoryPanel />}
-        {tab === "Commercial" && <CommercialPanel />}
-        {tab === "Operations" && <OperationsPanel />}
         {tab === "Overview" && <OverviewPanel />}
         {tab === "Profile" && <Profile />}
       </main>

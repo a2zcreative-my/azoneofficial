@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.14] — 2026-07-31 — Role model overhaul
+
+### Changed — roles (breaking; migration required)
+- **Reduced to 11 roles.** Removed managing_director, business_dev, finance_admin, live_manager. Migration `0009_role_cleanup.sql` reassigns any existing holders (MD→admin, business_dev→cco, finance_admin→hr_admin, live_manager→live_host) and tightens the users.role CHECK constraint to the final set
+- **editor / marketing moved fully to /portal** as task/pipeline roles with **no inventory visibility**; website and content editing now require **super_admin or admin** only (they left the content team)
+- **hr_admin** gains **attendance CSV export for payroll** (`GET /api/v1/staff/attendance/export?month=YYYY-MM`, MYT-converted, shift-flagged) alongside docs (QT/DO/INV), leave, birthdays, task reports
+- **sales_marketing** keeps inventory/postage/materials; explicitly cannot see editor/marketing work
+- **ceo** is read-only across all role features (except admin/super_admin surfaces) — **no write**; leave decisions and suspensions stay with the admin tier (the drafted CEO kill switch was declined)
+- **coo & cco** are now identical HR-level oversight roles: docs, leave, attendance CSV, and task view across roles (excluding CEO exec data). Their earlier Operations/Commercial modules are retired; those endpoints remain reachable to the admin tier only
+- Login routing, /admin and /portal gates, role dropdowns, and portal tab gating all updated to the new set
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0009) → `npx wrangler deploy` → rebuild site. 0009 rewrites the users table (data preserved) and reassigns removed roles — review /admin → Users afterwards
+
+
 ## [1.4.13] — 2026-07-31 — Complete interface separation (audited)
 
 ### Fixed — interface boundaries

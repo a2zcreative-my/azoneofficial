@@ -250,3 +250,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.13 — 31 Jul 2026 — Complete interface separation
 - /portal bounces content roles to /admin; /account bounces non-customers; full role×interface audit — API boundary confirmed the real protection
+
+## v1.4.14 — 31 Jul 2026 — Role model overhaul
+- 11 roles (removed MD/business_dev/finance_admin/live_manager); editor/marketing → portal task roles; content editing = admin tier only
+- hr_admin attendance CSV export for payroll; CEO read-only; COO=CCO HR-level oversight; migration 0009

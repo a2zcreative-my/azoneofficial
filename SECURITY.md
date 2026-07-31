@@ -164,3 +164,16 @@ experience clean and adds depth.
 | Version | Change |
 |---|---|
 | v1.4.13 | /portal and /account boundary redirects completed; full separation audit documented. |
+
+
+## v1.4.14 — role capabilities remapped
+CONTENT_ROLES reduced to super_admin + admin (editor/marketing no longer edit
+content). New PERMS: inventory = sales_marketing only among staff; hr_manage /
+sales / finance / task_reports / payroll_export = admin tier + hr_admin + coo +
+cco; exec_view (read-only) adds ceo; task_view = admin tier + coo + cco. CEO
+holds no write permission. Every capability enforced server-side; the /admin,
+/portal, /account redirects follow the same map.
+
+| Version | Change |
+|---|---|
+| v1.4.14 | Capability sets remapped to the 11-role model; CEO read-only; content editing restricted to admin tier. |

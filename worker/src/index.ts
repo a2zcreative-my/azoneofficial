@@ -18,10 +18,10 @@ export interface Env {
 }
 
 type Role =
-  | "super_admin" | "admin" | "editor" | "marketing"
-  | "managing_director" | "ceo" | "coo" | "cco" | "business_dev"
-  | "finance_admin" | "live_manager" | "live_host"
+  | "super_admin" | "admin"
+  | "editor" | "marketing" | "live_host"
   | "hr_admin" | "sales_marketing"
+  | "ceo" | "coo" | "cco"
   | "customer";
 
 interface SessionUser {
@@ -186,17 +186,13 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
 const ROLE_RANK: Record<Role, number> = {
   customer: 0,
   live_host: 0,
+  editor: 1,
   marketing: 1,
-  sales_marketing: 1,
-  live_manager: 1,
-  business_dev: 1,
-  finance_admin: 1,
   hr_admin: 1,
-  coo: 1,
+  sales_marketing: 1,
   cco: 1,
-  editor: 2,
+  coo: 1,
   ceo: 3,
-  managing_director: 3,
   admin: 3,
   super_admin: 4,
 };
@@ -207,7 +203,7 @@ const ROLE_RANK: Record<Role, number> = {
  * must not leak them into content management. This is the API-side twin of
  * the /admin page gate.
  */
-const CONTENT_ROLES: readonly Role[] = ["super_admin", "admin", "editor", "marketing"];
+const CONTENT_ROLES: readonly Role[] = ["super_admin", "admin"];
 
 function isContentTeam(user: SessionUser | null): user is SessionUser {
   return !!user && CONTENT_ROLES.includes(user.role);
@@ -621,9 +617,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
       .bind(account.id).first<{ role: Role }>();
     const dest =
-      (roleRow?.role === "super_admin" || roleRow?.role === "admin") ? "/admin"
-      : (roleRow?.role === "customer" || roleRow?.role === "client") ? "/account"
-      : "/portal";
+      roleRow?.role === "customer" ? "/account"
+      : ["super_admin", "admin"].includes(roleRow?.role ?? "")
+        ? "/admin"
+        : "/portal";
     const token = await createSession(env, account.id);
     await audit(env, account.id, "auth.login_google");
     const headers = new Headers({ Location: dest });
@@ -931,7 +928,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/users" && method === "POST") {
     if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "customer"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
@@ -998,7 +995,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
       return errorResponse("invalid_input", "You cannot change your own role", 400);
     }
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "customer"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
     const changed: string[] = [];
 
     if (typeof body.role === "string" && roles.includes(body.role)) {

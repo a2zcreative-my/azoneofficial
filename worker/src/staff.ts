@@ -6,10 +6,10 @@
 import type { Env } from "./index";
 
 type Role =
-  | "super_admin" | "admin" | "editor" | "marketing"
-  | "managing_director" | "ceo" | "coo" | "cco" | "business_dev"
-  | "finance_admin" | "live_manager" | "live_host"
-  | "hr_admin" | "sales_marketing";
+  | "super_admin" | "admin"
+  | "editor" | "marketing" | "live_host"
+  | "hr_admin" | "sales_marketing"
+  | "ceo" | "coo" | "cco";
 
 export interface StaffUser {
   id: number;
@@ -21,24 +21,27 @@ export interface StaffUser {
 /* ---------------- module permissions ---------------- */
 
 const PERMS: Record<string, readonly Role[]> = {
-  // who can approve leave / view attendance reports / manage staff / birthdays
-  hr_manage: ["super_admin", "managing_director", "ceo", "coo", "admin", "hr_admin"],
-  // who can post announcements & create/assign tasks
-  team_manage: ["super_admin", "managing_director", "ceo", "coo", "admin", "live_manager", "hr_admin"],
-  // CRM + quotations + DO
-  sales: ["super_admin", "managing_director", "business_dev", "finance_admin", "admin", "hr_admin"],
-  // invoices & finance status changes
-  finance: ["super_admin", "managing_director", "finance_admin", "admin", "hr_admin"],
-  // HR task reports (daily / weekly / monthly)
-  task_reports: ["super_admin", "managing_director", "admin", "hr_admin"],
-  // inventory, postage tracking, marketing materials
-  inventory: ["super_admin", "managing_director", "admin", "sales_marketing", "marketing", "coo"],
-  // business development pipeline + strategy
-  bd_manage: ["super_admin", "managing_director", "admin", "cco"],
-  // daily operational + sales reports
-  ops_manage: ["super_admin", "managing_director", "admin", "coo"],
-  // read-only visibility across every module (CEO review & monitoring)
-  exec_view: ["super_admin", "managing_director", "admin", "ceo", "coo", "cco"],
+  // Approve leave / view attendance / manage staff / birthdays.
+  // COO & CCO are HR-level in this model, alongside hr_admin.
+  hr_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Post announcements & create/assign tasks.
+  team_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
+  sales: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Invoice finance status changes.
+  finance: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // HR task reports (daily / weekly / monthly).
+  task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Inventory, postage tracking, marketing materials — sales_marketing only
+  // among staff (editor/marketing explicitly do NOT get inventory visibility).
+  inventory: ["super_admin", "admin", "sales_marketing"],
+  // Read tasks across all roles (management oversight), excluding CEO exec data.
+  task_view: ["super_admin", "admin", "coo", "cco"],
+  // Attendance CSV export for payroll processing.
+  payroll_export: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Read-only visibility across every module (CEO review & monitoring) — no
+  // write. Leave decisions and suspensions stay with the admin tier.
+  exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
 };
 
 const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
@@ -560,6 +563,45 @@ export async function handleStaff(
 
   /* ---- notifications ---- */
 
+  /* ---- HR / payroll: attendance CSV export ---- */
+
+  if (path === "/attendance/export" && method === "GET") {
+    if (!can(user, "payroll_export")) return err("forbidden", "Payroll export access required", 403);
+    const url = new URL(request.url);
+    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const { results } = await env.DB.prepare(
+      `SELECT u.name, u.email, u.employee_id, a.type, a.created_at
+       FROM attendance_records a JOIN users u ON u.id = a.user_id
+       WHERE a.created_at LIKE ?1 || '%' ORDER BY u.name, a.created_at`,
+    ).bind(month).all();
+    // Convert each event to Malaysia time and flag against the shift, so the
+    // CSV that goes to payroll already reflects local working hours.
+    const rows = (results as { name: string; email: string; employee_id: string | null; type: string; created_at: string }[]).map((r) => {
+      const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
+      const dayIdx = myt.getUTCDay();
+      const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
+      const workday = dayIdx >= 1 && dayIdx <= 5;
+      const flag = !workday ? "weekend"
+        : r.type === "clock_in" && minutes > SHIFT.startMinutes ? "late"
+        : r.type === "clock_out" && minutes < SHIFT.endMinutes ? "early_out"
+        : "ok";
+      const date = myt.toISOString().slice(0, 10);
+      const time = myt.toISOString().slice(11, 16);
+      return [r.employee_id ?? "", r.name, r.email, date, time, r.type, flag];
+    });
+    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag"];
+    const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    const csv = [header, ...rows].map((row) => row.map((c) => esc(String(c))).join(",")).join("\r\n");
+    await audit(env, user.id, "attendance.export", "attendance_records", month);
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="attendance-${month}.csv"`,
+      },
+    });
+  }
+
   /* ---- HR: task reports (daily / weekly / monthly) ---- */
 
   if (path === "/task-reports" && method === "GET") {
@@ -727,7 +769,7 @@ export async function handleStaff(
   /* ---- CCO: business development pipeline ---- */
 
   if (path === "/bd" && method === "GET") {
-    if (!can(user, "bd_manage") && !can(user, "exec_view")) {
+    if (!can(user, "exec_view")) {
       return err("forbidden", "Commercial access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -739,7 +781,7 @@ export async function handleStaff(
     return json({ pipeline: results });
   }
   if (path === "/bd" && method === "POST") {
-    if (!can(user, "bd_manage")) return err("forbidden", "Commercial access required", 403);
+    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body || !str(body.client, 200)) return err("invalid_input", "client is required", 400);
     await env.DB.prepare(
       `INSERT INTO bd_pipeline (client, status, value_note, strategy, next_action, owner_id)
@@ -757,7 +799,7 @@ export async function handleStaff(
   }
   const bdMatch = path.match(/^\/bd\/(\d+)$/);
   if (bdMatch && method === "PATCH") {
-    if (!can(user, "bd_manage")) return err("forbidden", "Commercial access required", 403);
+    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body) return err("invalid_input", "Body required", 400);
     const sets: string[] = [];
     const vals: (string | number)[] = [];
@@ -776,7 +818,7 @@ export async function handleStaff(
   /* ---- COO: daily operational + sales reports ---- */
 
   if (path === "/ops-reports" && method === "GET") {
-    if (!can(user, "ops_manage") && !can(user, "exec_view")) {
+    if (!can(user, "exec_view")) {
       return err("forbidden", "Operations access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -787,7 +829,7 @@ export async function handleStaff(
     return json({ reports: results });
   }
   if (path === "/ops-reports" && method === "POST") {
-    if (!can(user, "ops_manage")) return err("forbidden", "Operations access required", 403);
+    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body || !str(body.report_date, 10) || !str(body.operational_summary, 8000)) {
       return err("invalid_input", "report_date and operational_summary are required", 400);
     }

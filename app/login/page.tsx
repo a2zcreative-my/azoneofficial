@@ -13,10 +13,17 @@ const API = "/api/v1";
 
 interface User { id: number; email: string; name: string; role: string }
 
+// Roles whose workplace is the staff portal. Content roles (admin, editor,
+// marketing) work in /admin; everyone here goes to /portal. Keep in sync with
+// PORTAL_ROLES in app/admin/page.tsx and the Worker's login destination.
+// Everyone except super_admin/admin (→ /admin) and customer (→ /account)
+// works in /portal. editor & marketing are now portal roles too.
+const STAFF_ONLY = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
+
 function destinationFor(role: string): string {
-  if (role === "customer" || role === "client") return "/account";
-  if (role === "super_admin" || role === "admin") return "/admin";
-  return "/portal";
+  if (role === "customer") return "/account";
+  if (STAFF_ONLY.includes(role)) return "/portal";
+  return "/admin";
 }
 
 async function api<T>(path: string, init?: RequestInit) {

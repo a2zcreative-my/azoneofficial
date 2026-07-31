@@ -122,3 +122,52 @@ Super admin additionally manages other admins. Staff roles remain barred from
 | Version | Change |
 |---|---|
 | v1.4.11 | Staff tab (leave administration + module bridge) added to /admin. |
+
+
+## Role model (v1.4.14) — definitive
+
+Eleven roles across three interfaces. The API enforces every capability;
+interfaces follow.
+
+### Interfaces
+- **/admin** — super_admin, admin only. Full website/content/CMS + Users + Staff (leave, etc.).
+- **/portal** — all staff roles below.
+- **/account** — customer.
+
+### Roles and capabilities
+
+| Role | Home | Capabilities |
+|---|---|---|
+| **super_admin** | /admin | Everything, incl. managing admins |
+| **admin** | /admin | Full /admin: website, content, users (suspend/force-logout/reset), Staff leave admin |
+| **editor** | /portal | Task pipeline + task updates. **No inventory visibility.** No content editing (moved to admin tier) |
+| **marketing** | /portal | Task pipeline + task updates. **No inventory visibility.** No content editing |
+| **live_host** | /portal | Task pipeline + task updates. No inventory visibility |
+| **hr_admin** | /portal | HR pipeline: documentation (QT/DO/INV), leave updates, **attendance CSV export for payroll**, birthdays, task reports |
+| **sales_marketing** | /portal | Own pipeline + tasks + **inventory control, postage tracking, materials**. Cannot see editor/marketing work |
+| **ceo** | /portal | **Read-only** view across all role features (except super_admin/admin surfaces). No write — leave decisions and suspensions stay with the admin tier |
+| **coo** | /portal | HR-level: docs (QT/DO/INV), leave updates, attendance CSV, **view tasks across all roles except CEO exec data** |
+| **cco** | /portal | Same as COO in this model: HR-docs, leave, attendance CSV, task oversight (excl. CEO exec data) |
+| **customer** | /account | Own details, enquiries, password |
+
+### Removed roles
+`managing_director`, `business_dev`, `finance_admin`, `live_manager` — removed
+in v1.4.14. Migration 0009 reassigns any existing holders (MD→admin,
+business_dev→cco, finance_admin→hr_admin, live_manager→live_host) and tightens
+the database constraint. Reassign individually in /admin → Users if a default
+is not right for a specific person.
+
+### Design notes
+- **CEO is view-only by your instruction.** The earlier draft gave CEO a kill
+  switch; that was declined to keep exec strictly monitoring. Suspending
+  resigned staff is done by admin/super_admin in /admin → Users.
+- **COO and CCO are intentionally identical** in this model (HR-docs + leave +
+  attendance CSV + task oversight). Their earlier Operations/Commercial
+  modules are retired; the underlying data endpoints remain reachable to the
+  admin tier only, so nothing is orphaned.
+- **editor/marketing lost content editing** — that now requires super_admin or
+  admin. This is the trade for moving them fully into /portal.
+
+| Version | Change |
+|---|---|
+| v1.4.14 | Role model reduced to 11 roles; capabilities remapped; migration 0009. |

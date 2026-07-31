@@ -543,7 +543,7 @@ interface AdminUser {
   is_active: number;
 }
 
-const ROLES = ["super_admin", "admin", "editor", "marketing", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "managing_director", "business_dev", "finance_admin", "live_manager", "live_host"] as const;
+const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"] as const;
 
 function UsersPanel({ me }: { me: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -774,7 +774,7 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
-
+const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
 
 /** Plain-language purpose line shown under the tab bar. */
 const TAB_HELP: Record<Tab, string> = {
@@ -808,14 +808,15 @@ export default function AdminPage() {
     if (typeof window !== "undefined") window.location.replace("/login");
     return null;
   }
-  if (user.role === "customer" || user.role === "client") {
-    if (typeof window !== "undefined") window.location.replace("/account");
+  // Data-integrity boundary: /admin is the content-management interface for
+  // admin/editor/marketing only. Staff roles work in /portal — even though
+  // the API also enforces this, they should never see this surface at all.
+  if (PORTAL_ROLES.includes(user.role)) {
+    window.location.replace("/portal");
     return null;
   }
-  // Data-integrity boundary: /admin is the content-management interface for
-  // super_admin and admin only. Other roles work in /portal.
-  if (user.role !== "super_admin" && user.role !== "admin") {
-    window.location.replace("/portal");
+  if (user.role === "customer") {
+    if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
 
