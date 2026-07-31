@@ -793,8 +793,11 @@ export function BirthdaysPanel() {
   const [saved, setSaved] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ staff: { id: number; name: string; role: string; birthday?: string | null }[] }>(`/users`);
-    if (r.data) setStaff((r.data.staff ?? []).filter((u) => u.role !== "customer"));
+    const r = await api<{ users?: { id: number; name: string; role: string; birthday?: string | null }[], staff?: { id: number; name: string; role: string; birthday?: string | null }[] }>(`/users`);
+    if (r.data) {
+      const list = r.data.users ?? r.data.staff ?? [];
+      setStaff(list.filter((u) => u.role !== "customer"));
+    }
   }, []);
   useEffect(() => {
     void load();

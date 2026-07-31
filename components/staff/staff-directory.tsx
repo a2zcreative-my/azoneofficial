@@ -100,10 +100,11 @@ export function StaffDirectory() {
 
   const [allStaff, setAllStaff] = useState<Staff[]>([]);
   const load = useCallback(async () => {
-    const res = await api<{ staff: Staff[] }>(`/users`);
+    const res = await api<{ users?: Staff[], staff?: Staff[] }>(`/users`);
     if (res.ok && res.data) {
-      setAllStaff(res.data.staff);
-      setStaff(res.data.staff.filter((u) => u.role !== "customer"));
+      const list = res.data.users ?? res.data.staff ?? [];
+      setAllStaff(list);
+      setStaff(list.filter((u) => u.role !== "customer"));
     }
   }, []);
   useEffect(() => {

@@ -47,11 +47,12 @@ export function HrAdminPanel() {
   const [payslip, setPayslip] = useState<PayslipData | null>(null);
 
   const load = useCallback(async () => {
-    const [u, h] = await Promise.all([
-      api<{ staff: Staff[] }>(`/users`),
-      api<{ holidays: Holiday[] }>(`/holidays?year=${entYear}`),
-    ]);
-    if (u.data) setStaff((u.data.staff ?? []).filter((x) => x.role !== "customer"));
+    const u = await api<{ users?: Staff[], staff?: Staff[] }>(`/users`);
+    const h = await api<{ holidays: Holiday[] }>(`/holidays?year=${entYear}`);
+    if (u.data) {
+      const list = u.data.users ?? u.data.staff ?? [];
+      setStaff(list.filter((x) => x.role !== "customer"));
+    }
     if (h.data) setHolidays(h.data.holidays ?? []);
   }, [entYear]);
   useEffect(() => {
