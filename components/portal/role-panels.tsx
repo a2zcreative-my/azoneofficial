@@ -43,6 +43,17 @@ const inputClass =
 const btnClass =
   "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const card = "rounded-lg border border-border bg-card p-5";
+
+/** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
+function dmy(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = iso.slice(0, 10).split("-");
+  if (d.length !== 3) return iso;
+  const date = `${d[2]}-${d[1]}-${d[0]}`;
+  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
+  return date + time;
+}
+
 const th = "px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase text-muted-foreground";
 const td = "px-3 py-2 text-sm";
 
@@ -159,7 +170,7 @@ export function HrPanel() {
                   <td className={`${td} font-medium`}>{r.name}</td>
                   <td className={`${td} text-muted-foreground`}>{r.email}</td>
                   <td className={td}>{r.type.replace(/_/g, " ")}</td>
-                  <td className={td}>{r.myt_time}</td>
+                  <td className={td}>{dmy(r.myt_time ?? "")}</td>
                   <td className={td}>
                     <Badge value={r.flag} />
                   </td>
@@ -206,7 +217,7 @@ export function HrPanel() {
             {reports.slice(0, 5).map((r) => (
               <li key={r.id} className="border-border rounded-lg border px-3 py-2 text-sm">
                 <span className="font-medium capitalize">{r.period}</span>{" "}
-                <span className="text-muted-foreground">· {r.report_date} · {r.author}</span>
+                <span className="text-muted-foreground">· {dmy(r.report_date)} · {r.author}</span>
                 <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">{r.content}</p>
               </li>
             ))}
@@ -660,7 +671,7 @@ export function OperationsPanel() {
           {reports.slice(0, 10).map((r) => (
             <li key={r.id} className="border-border rounded-lg border px-3 py-2">
               <p className="text-sm font-medium">
-                {r.report_date}
+                {dmy(r.report_date)}
                 {r.author && <span className="text-muted-foreground font-normal"> · {r.author}</span>}
               </p>
               <p className="mt-1 text-sm">{r.operational_summary}</p>

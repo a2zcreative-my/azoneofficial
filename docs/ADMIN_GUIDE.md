@@ -430,3 +430,43 @@ announcement was published relative to a deploy.
 | Version | Change |
 |---|---|
 | v1.4.35 | Self-registration (email or Google) always creates a customer; staff roles granted only via /admin Users or HR staff creation. |
+
+
+## Payroll (v1.4.36)
+/portal → Payroll (CEO, hr_admin, admin tier; COO/CCO read-only): pick the
+month, enter Basic/Commission/Allowance/Deduction per person (RM), Save, then
+Payslip prints the branded A4 slip. One entry per person per month — saving
+again updates it. Dates across the system now display DD-MM-YYYY; Staff
+Details and Payroll sort by rank (CEO, COO, CCO, HR, Sales & Marketing, staff).
+Unpaid leave no longer pro-rates.
+
+| Version | Change |
+|---|---|
+| v1.4.36 | DD-MM-YYYY audit; rank-sorted staff; unpaid leave full; Payroll tab + branded payslip; migration 0017. |
+
+
+## Two-factor authentication (v1.4.37)
+/admin → Account (admins) or /portal → Profile (CEO):
+1. "Turn on two-factor" → add the shown key to your authenticator app.
+2. Enter the 6-digit code to confirm.
+3. Save the eight backup codes — shown once, each usable once.
+Signing in then asks for a code after the password. Turning 2FA off requires
+your password. Lost phone and codes: another super_admin resets the account
+password, which does not disable 2FA — contact support in SECURITY.md.
+
+| Version | Change |
+|---|---|
+| v1.4.37 | 2FA enrolment for super_admin/admin/CEO; payslip states no statutory deductions apply. |
+
+
+## Attendance policy (v1.4.38)
+| Punch | Rule |
+|---|---|
+| Clock in | ≤ 10:00 on time · 10:01–12:00 late · **after 12:00 half day** |
+| Clock out | **before 18:00 early out** · 18:00 or later completed |
+One clock-in and one clock-out per day. Tapping again shows a popup with the
+time already recorded. Same thresholds power the HR verification table.
+
+| Version | Change |
+|---|---|
+| v1.4.38 | Half day after 12:00; early out before 18:00; repeat-punch popup. |

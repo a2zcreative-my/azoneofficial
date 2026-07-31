@@ -231,3 +231,32 @@ assignment in /admin Users or HR staff creation — both audit-logged.
 | Version | Change |
 |---|---|
 | v1.4.35 | Google sign-up no longer auto-assigns staff roles; self-registration = customer, always. |
+
+
+## v1.4.37 — BACKDOOR REMOVAL + 2FA (31 Jul 2026)
+
+### Incident (second occurrence)
+The literal `SuperSecretPassword123` was accepted as (a) a valid password for
+any active account at login and (b) a valid "current password" when changing
+passwords. Removed in v1.4.12, it returned via the v1.4.21 fork used as the
+base from v1.4.22 and shipped in every build through v1.4.36.
+
+Recovery sequence — run immediately after deploying v1.4.37:
+1. Deploy the fixed worker (`npx wrangler deploy`).
+2. Force every session out: `DELETE FROM sessions;` via
+   `npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions;"`
+3. Change the password of every super_admin, admin and CEO account.
+4. Change the password of every remaining staff account.
+5. Turn on 2FA for all privileged accounts (below).
+6. Review /admin → Audit for `auth.login` entries you do not recognise.
+Treat any password that was in use before this deploy as compromised.
+
+### Two-factor authentication
+TOTP (RFC 6238, 6 digits, 30s, ±1 step drift). Secrets per user; backup codes
+hashed and single-use; login issues a 5-minute challenge row instead of a
+session, capped at 5 attempts and IP rate-limited; disabling requires the
+account password. Eligible roles: super_admin, admin, ceo.
+
+| Version | Change |
+|---|---|
+| v1.4.37 | Master-password backdoor removed (2nd occurrence); TOTP 2FA + backup codes for privileged accounts. |

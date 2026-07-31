@@ -59,6 +59,8 @@ function stockStatus(stock: number): string {
 const SHIFT = {
   label: "10:00–18:00 MYT, Monday–Friday",
   startMinutes: 10 * 60,
+  // Arriving after 12:00 counts the day as a half day (v1.4.38).
+  halfDayMinutes: 12 * 60,
   endMinutes: 18 * 60,
 } as const;
 
@@ -390,27 +392,39 @@ export async function handleStaff(
     // just in the UI — a double-click or stale tab can't duplicate a punch.
     const todayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const dup = await env.DB.prepare(
-      `SELECT id FROM attendance_records
+      `SELECT id, created_at FROM attendance_records
        WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
-    ).bind(user.id, body.type, todayMYT).first<{ id: number }>();
+    ).bind(user.id, body.type, todayMYT).first<{ id: number; created_at: string }>();
     if (dup) {
-      return err(
-        "already_punched",
-        body.type === "clock_in" ? "You already clocked in today." : "You already clocked out today.",
+      // Tell them WHEN they punched, so the confirmation is useful rather
+      // than just a refusal. Time returned in Malaysia time.
+      const at = new Date(new Date(dup.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000)
+        .toISOString().slice(11, 16);
+      return json(
+        {
+          error: {
+            code: "already_punched",
+            message: body.type === "clock_in"
+              ? `You already clocked in today at ${at} MYT.`
+              : `You already clocked out today at ${at} MYT.`,
+          },
+          already: true,
+          at,
+        },
         409,
       );
     }
     // Classify against the shift in Malaysia time, so the record already carries
-    // the payroll meaning:
-    //   clock_in : <=10:00 ok · 10:01–12:59 late · >=13:00 half_day
-    //   clock_out: 13:00 half_day · <18:00 early_out · >=18:00 completed
+    // the payroll meaning (v1.4.38 thresholds):
+    //   clock_in : <=10:00 ok · 10:01–12:00 late · after 12:00 half_day
+    //   clock_out: before 18:00 early_out · >=18:00 completed
     const myt = new Date(Date.now() + 8 * 3600 * 1000);
     const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
     let flag: string;
     if (body.type === "clock_in") {
-      flag = mins <= 10 * 60 ? "ok" : mins < 13 * 60 ? "late" : "half_day";
+      flag = mins <= 10 * 60 ? "ok" : mins <= 12 * 60 ? "late" : "half_day";
     } else {
-      flag = mins <= 13 * 60 ? "half_day" : mins < 18 * 60 ? "early_out" : "completed";
+      flag = mins < 18 * 60 ? "early_out" : "completed";
     }
     await env.DB.prepare(
       `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
@@ -464,11 +478,13 @@ export async function handleStaff(
         ...r,
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
         workday,
+        // Same thresholds as the punch classifier (v1.4.38) so HR's table and
+        // the staff member's confirmation never disagree.
         flag:
           !workday ? "weekend"
-          : r.type === "clock_in" && minutes > SHIFT.startMinutes ? "late"
-          : r.type === "clock_out" && minutes < SHIFT.endMinutes ? "early_out"
-          : "ok",
+          : r.type === "clock_in"
+            ? (minutes <= SHIFT.startMinutes ? "ok" : minutes <= SHIFT.halfDayMinutes ? "late" : "half_day")
+            : (minutes < SHIFT.endMinutes ? "early_out" : "ok"),
       };
     });
     return json({ month, shift: SHIFT.label, records: annotated });
@@ -533,7 +549,9 @@ export async function handleStaff(
       const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
       // Medical (sick) leave is a statutory entitlement under Malaysia's
       // Employment Act — fully available from day one, never pro-rated.
-      const accrued = t === "medical"
+      // Unpaid leave is also never pro-rated: it costs the company nothing,
+      // so whatever total is entitled is eligible in full.
+      const accrued = t === "medical" || t === "unpaid"
         ? entitled
         : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
       balances[t] = { entitled, used: used?.used ?? 0, accrued };
@@ -1021,6 +1039,46 @@ export async function handleStaff(
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
     await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- Payroll processing (v1.4.36) ----
+     hr_manage (CEO now, hr_admin from next month, admin tier) writes;
+     exec_view reads. Amounts stored in sen. */
+
+  if (path === "/payroll" && method === "GET") {
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "Payroll access required", 403);
+    }
+    const url = new URL(request.url);
+    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const { results } = await env.DB.prepare(
+      `SELECT p.*, u.name, u.employee_id, u.position, u.department
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id
+       WHERE p.month = ?1 ORDER BY u.name`,
+    ).bind(month).all();
+    return json({ month, entries: results });
+  }
+  if (path === "/payroll" && method === "POST") {
+    if (!can(user, "hr_manage")) return err("forbidden", "Payroll access required", 403);
+    const month = str(body?.month, 7) && /^\d{4}-\d{2}$/.test(body!.month as string) ? (body!.month as string) : null;
+    if (!body || typeof body.user_id !== "number" || !month) {
+      return err("invalid_input", "user_id and month (YYYY-MM) are required", 400);
+    }
+    const cents = (v: unknown) => (typeof v === "number" && v >= 0 ? Math.round(v) : 0);
+    await env.DB.prepare(
+      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, deduction_cents, note, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       ON CONFLICT (user_id, month) DO UPDATE SET
+         basic_cents = ?3, commission_cents = ?4, allowance_cents = ?5,
+         deduction_cents = ?6, note = ?7, updated_at = datetime('now')`,
+    ).bind(
+      body.user_id, month,
+      cents(body.basic_cents), cents(body.commission_cents),
+      cents(body.allowance_cents), cents(body.deduction_cents),
+      str(body.note, 300) ? body.note : null, user.id,
+    ).run();
+    await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month });
     return json({ ok: true });
   }
 

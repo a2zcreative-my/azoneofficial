@@ -325,3 +325,15 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.35 — 31 Jul 2026 — Registration hardening
 - All self-registration = customer, always; Google company-domain auto-staff assignment removed
+
+## v1.4.36 — 31 Jul 2026 — Payroll + format audit
+- DD-MM-YYYY across the system; staff sorted by rank; unpaid leave full from day one
+- Payroll processing tab (CEO/hr_admin; COO/CCO read) with branded AZ ONE OFFICIAL payslip; migration 0017
+
+## v1.4.37 — 31 Jul 2026 — Backdoor removed + 2FA
+- CRITICAL: master-password backdoor (2nd occurrence, via forked base) removed from login and change-password
+- TOTP 2FA with hashed single-use backup codes for super_admin/admin/CEO; migration 0018
+
+## v1.4.38 — 31 Jul 2026 — Punch feedback + thresholds
+- Clock in after 12:00 = half day; clock out before 18:00 = early out (HR report aligned)
+- Repeat taps show an amber popup with the time already recorded; buttons show Clocked in/out ✓

@@ -2,6 +2,54 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.38] — 2026-07-31 — Repeat-punch popup + revised shift thresholds
+
+### Changed
+- **Attendance thresholds revised**: clocking in **after 12:00** now counts the day as a **half day** (was 13:00); clocking out **before 18:00** is an **early out**. The HR verification table uses the identical rules, so a staff member's confirmation and HR's report can never disagree
+- **Clock in / Clock out stay clickable after use.** Instead of greying out, tapping again opens a popup that confirms what already happened — "Already clocked in · Recorded at 13:08 MYT" — with an amber ring-and-exclamation animation matching the success card. Staff are never left wondering whether their tap registered
+- Buttons now show their state at a glance: **Clocked in ✓** / **Clocked out ✓** once done
+- Punch result labels spell the rule out: "Half day (after 12:00)", "Early out (before 18:00)"
+
+### Deploy
+- `npx wrangler deploy` → rebuild site. No migration
+
+
+## [1.4.37] — 2026-07-31 — CRITICAL backdoor removal + two-factor authentication
+
+### Security — CRITICAL (act on deploy)
+- **Removed a master-password backdoor that was live in the code.** The login handler accepted the literal string `SuperSecretPassword123` as a valid password for **any active account**, and the change-password handler accepted it as the "current password" — meaning anyone who knew it could sign into any account and change its password. This is the same string removed in v1.4.12; it re-entered the codebase through the v1.4.21 fork this line was rebased onto, and has been present in every build since v1.4.22. Both occurrences are now gone
+- **Required after deploying**: force all sessions out, then change the passwords of every privileged account (see SECURITY.md recovery sequence). Treat any password set while that string was live as compromised
+
+### Added — two-factor authentication (migration 0018)
+- **TOTP 2FA for super_admin, admin and CEO accounts** — RFC 6238, compatible with Google Authenticator, Authy, 1Password and Microsoft Authenticator
+- **Password alone no longer creates a session** on a 2FA account: login returns a 5-minute challenge and the session is minted only after a valid code (max 5 attempts, rate-limited per IP)
+- **Eight single-use backup codes**, shown exactly once at enrolment and stored only as hashes, for a lost phone
+- **Turning 2FA off requires the account password** — a stolen session cannot strip the second factor
+- Enrolment panel in **/admin → Account** and **/portal → Profile**; every 2FA event (enable, disable, challenge, backup-code use, 2FA login) is audit-logged
+
+### Changed
+- Payslip footnote now states plainly that **no statutory deductions (EPF/SOCSO/EIS) apply at present and basic salary is paid in full**
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0018**) → `npx wrangler deploy` → rebuild site → **then run the credential recovery above**
+
+
+## [1.4.36] — 2026-07-31 — DD-MM-YYYY everywhere, rank-sorted staff, unpaid leave, Payroll processing
+
+### Changed
+- **Date format audit — DD-MM-YYYY across the system**: announcements, documents lists and printed QT/DO/INV headers, notifications, leave requests (start → end), enquiries, task reports, HR attendance times, holidays, audit trail, and the new payslip. Dates in the database stay ISO; native date pickers already follow the device's Malaysian locale
+- **Staff Details sorted by rank**: CEO → COO → CCO → Administrative (HR) → Sales & Marketing → remaining staff roles, then by name within the same rank (Payroll uses the same order)
+- **Unpaid leave is fully eligible** — it is unpaid, so it never pro-rates; the whole entitled total is available from day one (joins medical as non-accruing)
+
+### Added — Payroll processing (migration 0017)
+- New **Payroll** tab: month picker, every staff member with **Basic + Commission + Allowance − Deduction = Net** (RM inputs, stored in sen, one entry per person per month, upsert on save, audit-logged)
+- **Branded AZ ONE OFFICIAL payslip**: A4 print with logo, SSM number and Setia Tropika address, employee details, earnings/deductions table, bold NET PAY band in brand navy, and a statutory-contributions footnote
+- **Who processes**: the CEO and hr_admin (plus admin tier) — matching the handover plan (CEO this month, hr_admin from next month); COO & CCO see the tab read-only
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0017**) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.35] — 2026-07-31 — Self-registration is always customer
 
 ### Fixed (security)

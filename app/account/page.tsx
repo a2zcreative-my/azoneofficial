@@ -31,6 +31,17 @@ const btnClass =
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
+
+/** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
+function dmy(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = iso.slice(0, 10).split("-");
+  if (d.length !== 3) return iso;
+  const date = `${d[2]}-${d[1]}-${d[0]}`;
+  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
+  return date + time;
+}
+
 export default function AccountPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
@@ -192,7 +203,7 @@ export default function AccountPage() {
             <div key={e.id} className="border-border border-b py-2 text-sm last:border-0">
               <p>{e.message}</p>
               <p className="text-muted-foreground mt-1 text-xs">
-                Status: {e.status} · {e.created_at.slice(0, 10)}
+                Status: {e.status} · {dmy(e.created_at)}
               </p>
             </div>
           ))

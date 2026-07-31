@@ -33,6 +33,17 @@ const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"];
 interface Staff { id: number; name: string; role: string; employee_id?: string | null; position?: string | null; department?: string | null }
 interface Holiday { id: number; holiday_date: string; name: string; kind: string }
 
+
+/** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
+function dmy(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = iso.slice(0, 10).split("-");
+  if (d.length !== 3) return iso;
+  const date = `${d[2]}-${d[1]}-${d[0]}`;
+  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
+  return date + time;
+}
+
 export function HrAdminPanel() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -96,7 +107,7 @@ export function HrAdminPanel() {
         <ul className="mt-3 grid max-h-64 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
           {holidays.map((h) => (
             <li key={h.id} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm">
-              <span>{h.holiday_date} · {h.name}</span>
+              <span>{dmy(h.holiday_date)} · {h.name}</span>
               <button type="button" className="text-destructive text-xs underline"
                 onClick={async () => { await api(`/holidays/${h.id}`, { method: "DELETE" }); void load(); }}>
                 Remove

@@ -6,6 +6,7 @@
  * (same origin via the azoneofficial.com/api/* route).
  */
 
+import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
@@ -904,7 +905,12 @@ export default function AdminPage() {
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
         {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory canAmend /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
         {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && <AuditPanel />}
-        {tab === "Account" && <AccountPanel />}
+        {tab === "Account" && (
+          <div className="space-y-6">
+            <AccountPanel />
+            <TwoFactorPanel />
+          </div>
+        )}
         {tab === "Testimonials" && (
           <CrudPanel
             resource="testimonials"

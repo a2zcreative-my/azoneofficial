@@ -222,3 +222,21 @@ lines on return, once. Legacy single-item columns (0015) remain readable.
 | Version | Change |
 |---|---|
 | v1.4.32 | 0016 — multi-item postage lines. |
+
+
+## v1.4.36 — migration 0017_payroll.sql
+payroll_entries: one row per (user, month) — basic/commission/allowance/
+deduction in sen, note, creator, UNIQUE(user_id, month) upsert target.
+
+| Version | Change |
+|---|---|
+| v1.4.36 | 0017 — payroll_entries. |
+
+
+## v1.4.37 — migration 0018_two_factor.sql
+users.totp_secret / totp_enabled; twofa_backup_codes (hashed, single-use);
+twofa_challenges (sha256 token, attempts, 5-minute expiry).
+
+| Version | Change |
+|---|---|
+| v1.4.37 | 0018 — two-factor authentication tables and columns. |

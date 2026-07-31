@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
+import { PayrollPanel } from "@/components/portal/payroll-panel";
+import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
   AttendanceAdminPanel,
   BirthdaysPanel,
@@ -89,7 +91,19 @@ interface LeaveReq { id: number; type: string; start_date: string; end_date: str
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
  * check draw, brand navy, auto-dismisses. Pure CSS keyframes — no library.
  */
-function PunchToast({ title, sub }: { title: string; sub: string }) {
+
+/** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
+function dmy(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = iso.slice(0, 10).split("-");
+  if (d.length !== 3) return iso;
+  const date = `${d[2]}-${d[1]}-${d[0]}`;
+  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
+  return date + time;
+}
+
+function PunchToast({ title, sub, variant = "success" }: { title: string; sub: string; variant?: "success" | "notice" }) {
+  const colour = variant === "success" ? "#1a2946" : "#d97706";
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
       <style>{`
@@ -105,11 +119,19 @@ function PunchToast({ title, sub }: { title: string; sub: string }) {
         aria-live="polite"
       >
         <svg viewBox="0 0 52 52" className="mx-auto h-14 w-14" aria-hidden="true">
-          <circle cx="26" cy="26" r="24" fill="none" stroke="#1a2946" strokeWidth="2.5"
+          <circle cx="26" cy="26" r="24" fill="none" stroke={colour} strokeWidth="2.5"
             strokeDasharray="151" style={{ animation: "punch-ring .6s ease-out .1s both" }} />
-          <path d="M15 27l7.5 7.5L37 20" fill="none" stroke="#1a2946" strokeWidth="3.5"
-            strokeLinecap="round" strokeLinejoin="round" strokeDasharray="36"
-            style={{ animation: "punch-check .35s ease-out .55s both" }} />
+          {variant === "success" ? (
+            <path d="M15 27l7.5 7.5L37 20" fill="none" stroke={colour} strokeWidth="3.5"
+              strokeLinecap="round" strokeLinejoin="round" strokeDasharray="36"
+              style={{ animation: "punch-check .35s ease-out .55s both" }} />
+          ) : (
+            <g style={{ animation: "punch-check .35s ease-out .55s both" }}>
+              <path d="M26 14v16" fill="none" stroke={colour} strokeWidth="3.5" strokeLinecap="round"
+                strokeDasharray="16" />
+              <circle cx="26" cy="37" r="2.2" fill={colour} />
+            </g>
+          )}
         </svg>
         <p className="mt-3 text-base font-semibold">{title}</p>
         <p className="text-muted-foreground mt-0.5 text-sm">{sub}</p>
@@ -138,7 +160,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const [punchToast, setPunchToast] = useState<{ title: string; sub: string } | null>(null);
+  const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
   const [punchError, setPunchError] = useState("");
   const punch = async (type: string) => {
     setBusy(type);
@@ -148,10 +170,22 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
       body: JSON.stringify({ type }),
     });
     setBusy("");
+    if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
+      // Already punched today — confirm it with the recorded time rather than
+      // leaving the person unsure whether the tap registered.
+      setPunchToast({
+        title: type === "clock_in" ? "Already clocked in" : "Already clocked out",
+        sub: res.data?.error?.message?.replace(/^You already clocked (in|out) today at /, "Recorded at ") ?? "Recorded earlier today",
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 3200);
+      void load();
+      return;
+    }
     if (res.ok && res.data?.flag) {
       const label: Record<string, string> = {
-        ok: "On time", late: "Marked late", half_day: "Half day",
-        early_out: "Early out", completed: "Shift completed",
+        ok: "On time", late: "Marked late", half_day: "Half day (after 12:00)",
+        early_out: "Early out (before 18:00)", completed: "Shift completed",
       };
       const now = new Date(Date.now() + 8 * 3600 * 1000);
       const hhmm = now.toISOString().slice(11, 16);
@@ -174,11 +208,11 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={btnClass} disabled={!!busy || hasIn} onClick={() => void punch("clock_in")}>
-            Clock in
+          <button type="button" className={btnClass} disabled={!!busy} onClick={() => void punch("clock_in")}>
+            {hasIn ? "Clocked in ✓" : "Clock in"}
           </button>
-          <button type="button" className={btnGhost} disabled={!!busy || hasOut || !hasIn} onClick={() => void punch("clock_out")}>
-            Clock out
+          <button type="button" className={btnGhost} disabled={!!busy} onClick={() => void punch("clock_out")}>
+            {hasOut ? "Clocked out ✓" : "Clock out"}
           </button>
           <button type="button" className={btnGhost} onClick={() => go("Leave")}>Apply leave</button>
           {SALES_ROLES.includes(user.role) && (
@@ -186,7 +220,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
-        {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} />}
+        {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} variant={punchToast.variant} />}
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0
             ? "No attendance recorded today."
@@ -210,7 +244,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           ) : (
             leave.map((l) => (
               <p key={l.id} className="mt-2 text-sm">
-                {l.type} · {l.start_date} → {l.end_date} ({l.days}d)
+                {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
               </p>
             ))
           )}
@@ -401,7 +435,7 @@ function Leave({ user }: { user: User }) {
           {mine.map((l) => (
             <div key={l.id} className="border-border flex items-center justify-between border-b py-2 text-sm last:border-0">
               <span>
-                {l.type} · {l.start_date} → {l.end_date} ({l.days}d) —{" "}
+                {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d) —{" "}
                 <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
                 {l.review_comment ? <span className="text-muted-foreground"> · &quot;{l.review_comment}&quot;</span> : null}
               </span>
@@ -422,7 +456,7 @@ function Leave({ user }: { user: User }) {
           {all.map((l) => (
             <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
               <span>
-                <span className="font-medium">{l.user_name}</span> · {l.type} · {l.start_date} → {l.end_date} ({l.days}d)
+                <span className="font-medium">{l.user_name}</span> · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
                 <span className="text-muted-foreground"> · {STAGE_LABEL[(l as LeaveReq).stage ?? ""] ?? ""}</span>
               </span>
               <span className="flex gap-2">
@@ -585,7 +619,7 @@ function Announcements({ user }: { user: User }) {
                   New
                 </span>
               )}
-              {a.title} <span className="text-muted-foreground font-normal">· {a.category} · {a.created_at.slice(0, 10)}</span></p>
+              {a.title} <span className="text-muted-foreground font-normal">· {a.category} · {dmy(a.created_at)}</span></p>
             {a.acked ? (
               <span className="text-muted-foreground text-xs">Acknowledged ✓</span>
             ) : (
@@ -638,7 +672,7 @@ async function printDoc(id: number) {
   <div class="hd">
     <div class="brand">AZ ONE OFFICIAL<small>LIVE COMMERCE AGENCY</small></div>
     <div class="doc"><h2>${title}</h2><div>${doc.doc_number}</div>
-      <div style="color:#5b6472">${(doc.created_at || "").slice(0, 10)}</div></div>
+      <div style="color:#5b6472">${dmy(doc.created_at)}</div></div>
   </div>
   <div class="party"><strong>To:</strong> ${doc.company}${doc.contact_person ? " · " + doc.contact_person : ""}<br/>
     ${doc.address ?? ""}${doc.customer_phone ? "<br/>" + doc.customer_phone : ""}</div>
@@ -764,7 +798,7 @@ function Sales({ user }: { user: User }) {
           <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span>
               <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
-              <span className="text-muted-foreground"> · {d.created_at.slice(0, 10)}</span>
+              <span className="text-muted-foreground"> · {dmy(d.created_at)}</span>
             </span>
             {d.doc_type === "INV" && canInvoice && (
               <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs" value={d.payment_status ?? "unpaid"} onChange={(e) => void setStatus(d, e.target.value)}>
@@ -849,7 +883,7 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Inventory", "Birthdays", "Overview", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Inventory", "Birthdays", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -860,6 +894,7 @@ const CONTENT_ONLY_ROLES: string[] = [];
 const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
   // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
   HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
+  Payroll: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["sales_marketing", "super_admin", "admin"],
@@ -1000,7 +1035,7 @@ export default function PortalPage() {
               ) : (
                 n.message
               )}{" "}
-              <span className="text-muted-foreground text-xs">· {n.created_at.slice(0, 16)}</span>
+              <span className="text-muted-foreground text-xs">· {dmy(n.created_at)}</span>
             </p>
           ))}
           </div>
@@ -1042,11 +1077,19 @@ export default function PortalPage() {
             {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
           </>
         )}
+        {tab === "Payroll" && (
+          <PayrollPanel readOnly={["coo", "cco"].includes(user.role)} />
+        )}
         {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
         {tab === "Inventory" && <InventoryPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
-        {tab === "Profile" && <Profile />}
+        {tab === "Profile" && (
+          <div className="space-y-6">
+            <Profile />
+            <TwoFactorPanel />
+          </div>
+        )}
       </main>
     </div>
   );

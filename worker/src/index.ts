@@ -150,6 +150,91 @@ const SESSION_COOKIE = "azone_session";
 const SESSION_TTL_HOURS = 12;
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 
+
+/* ================= Two-factor authentication (TOTP, v1.4.37) =================
+   Standard RFC 6238 TOTP: 6 digits, 30-second steps, HMAC-SHA1 — compatible
+   with Google Authenticator, Authy, 1Password and Microsoft Authenticator.
+   Secrets never leave the server except once, at enrolment. */
+
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32Encode(bytes: Uint8Array): string {
+  let bits = 0, value = 0, out = "";
+  for (const b of bytes) {
+    value = (value << 8) | b;
+    bits += 8;
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(secret: string): Uint8Array {
+  let bits = 0, value = 0;
+  const out: number[] = [];
+  for (const ch of secret.toUpperCase().replace(/=+$/, "")) {
+    const idx = B32.indexOf(ch);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return new Uint8Array(out);
+}
+
+/** The 6-digit code for a given 30s counter. */
+async function totpAt(secret: string, counter: number): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw", base32Decode(secret) as unknown as BufferSource,
+    { name: "HMAC", hash: "SHA-1" }, false, ["sign"],
+  );
+  const msg = new ArrayBuffer(8);
+  const view = new DataView(msg);
+  view.setUint32(0, Math.floor(counter / 2 ** 32));
+  view.setUint32(4, counter >>> 0);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg));
+  const offset = sig[sig.length - 1] & 0x0f;
+  const bin =
+    ((sig[offset] & 0x7f) << 24) | (sig[offset + 1] << 16) |
+    (sig[offset + 2] << 8) | sig[offset + 3];
+  return String(bin % 1_000_000).padStart(6, "0");
+}
+
+/** Verify a code, allowing ±1 step (~30s) of clock drift. */
+async function totpVerify(secret: string, code: string): Promise<boolean> {
+  const clean = (code ?? "").replace(/\s/g, "");
+  if (!/^\d{6}$/.test(clean)) return false;
+  const counter = Math.floor(Date.now() / 30000);
+  for (const c of [counter - 1, counter, counter + 1]) {
+    if (await totpAt(secret, c) === clean) return true;
+  }
+  return false;
+}
+
+function randomSecret(): string {
+  return base32Encode(crypto.getRandomValues(new Uint8Array(20)));
+}
+
+/** Backup codes: 8 single-use codes, shown once, stored hashed. */
+function makeBackupCodes(): string[] {
+  const codes: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const n = crypto.getRandomValues(new Uint32Array(1))[0] % 100_000_000;
+    const str = String(n).padStart(8, "0");
+    codes.push(`${str.slice(0, 4)}-${str.slice(4)}`);
+  }
+  return codes;
+}
+
+/** Roles that may (and should) protect their account with 2FA. */
+const TWOFA_ROLES = ["super_admin", "admin", "ceo"];
+
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
   // Store only the hash: a leaked sessions table cannot be replayed.
@@ -407,11 +492,23 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind((body.email as string).toLowerCase().trim())
       .first<SessionUser & { password_hash: string }>();
 
-    if (
-      !user ||
-      (body.password !== "SuperSecretPassword123" && !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER)))
-    ) {
+    if (!user || !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER))) {
       return errorResponse("invalid_credentials", "Email or password is incorrect", 401);
+    }
+
+    // Two-factor (v1.4.37): the password alone does not create a session for
+    // an account with 2FA on. Issue a short-lived challenge; the session is
+    // minted only by POST /auth/2fa/verify with a valid code.
+    const twofa = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ totp_enabled: number }>();
+    if (twofa?.totp_enabled) {
+      const challenge = crypto.randomUUID() + crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO twofa_challenges (id, user_id, expires_at)
+         VALUES (?1, ?2, datetime('now', '+5 minutes'))`,
+      ).bind(await sha256Hex(challenge), user.id).run();
+      await audit(env, user.id, "auth.2fa_challenge");
+      return json({ twofa_required: true, challenge }, 200);
     }
 
     const token = await createSession(env, user.id);
@@ -422,6 +519,135 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       200,
       { "Set-Cookie": sessionCookie(token) },
     );
+  }
+
+  /* ---- two-factor authentication (v1.4.37) ---- */
+
+  if (path === "/api/v1/auth/2fa/verify" && method === "POST") {
+    const allowed2fa = await checkRateLimit(env, `2fa:${clientIp(request)}`, 10, 900);
+    if (!allowed2fa) return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || !isNonEmptyString(body.challenge, 200) || !isNonEmptyString(body.code, 20)) {
+      return errorResponse("invalid_input", "challenge and code are required", 400);
+    }
+    const id = await sha256Hex(body.challenge as string);
+    const ch = await env.DB.prepare(
+      `SELECT user_id, attempts FROM twofa_challenges
+       WHERE id = ?1 AND expires_at > datetime('now')`,
+    ).bind(id).first<{ user_id: number; attempts: number }>();
+    if (!ch) return errorResponse("challenge_expired", "This sign-in attempt expired — start again", 401);
+    if (ch.attempts >= 5) {
+      await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+      return errorResponse("too_many_attempts", "Too many incorrect codes — sign in again", 401);
+    }
+    const row = await env.DB.prepare(
+      `SELECT id, email, name, role, totp_secret FROM users WHERE id = ?1 AND is_active = 1`,
+    ).bind(ch.user_id).first<SessionUser & { totp_secret: string }>();
+    if (!row?.totp_secret) return errorResponse("invalid_state", "Two-factor is not configured", 400);
+
+    const code = (body.code as string).trim();
+    let ok = await totpVerify(row.totp_secret, code);
+    if (!ok) {
+      // Backup code path: single use, matched against stored hashes.
+      const hash = await sha256Hex(code.toUpperCase());
+      const backup = await env.DB.prepare(
+        `SELECT id FROM twofa_backup_codes WHERE user_id = ?1 AND code_hash = ?2 AND used_at IS NULL`,
+      ).bind(ch.user_id, hash).first<{ id: number }>();
+      if (backup) {
+        await env.DB.prepare(`UPDATE twofa_backup_codes SET used_at = datetime('now') WHERE id = ?1`)
+          .bind(backup.id).run();
+        await audit(env, ch.user_id, "auth.2fa_backup_used");
+        ok = true;
+      }
+    }
+    if (!ok) {
+      await env.DB.prepare(`UPDATE twofa_challenges SET attempts = attempts + 1 WHERE id = ?1`).bind(id).run();
+      return errorResponse("invalid_code", "That code is not correct", 401);
+    }
+    await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+    const token = await createSession(env, row.id);
+    await audit(env, row.id, "auth.login_2fa");
+    return json(
+      { user: { id: row.id, email: row.email, name: row.name, role: row.role } },
+      200,
+      { "Set-Cookie": sessionCookie(token) },
+    );
+  }
+
+  if (path === "/api/v1/auth/2fa/status" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    const row = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_enabled: number }>();
+    const codes = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`,
+    ).bind(me.id).first<{ n: number }>();
+    return json({
+      enabled: Boolean(row?.totp_enabled),
+      eligible: TWOFA_ROLES.includes(me.role),
+      backup_codes_left: codes?.n ?? 0,
+    });
+  }
+
+  if (path === "/api/v1/auth/2fa/setup" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    if (!TWOFA_ROLES.includes(me.role)) {
+      return errorResponse("forbidden", "Two-factor is available for admin and CEO accounts", 403);
+    }
+    // A fresh secret each time setup is opened; it only becomes active once a
+    // code from it is verified in /enable.
+    const secret = randomSecret();
+    await env.DB.prepare(`UPDATE users SET totp_secret = ?1 WHERE id = ?2`).bind(secret, me.id).run();
+    const label = encodeURIComponent(`AZ ONE OFFICIAL:${me.email}`);
+    return json({
+      secret,
+      otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=AZ%20ONE%20OFFICIAL&digits=6&period=30`,
+    });
+  }
+
+  if (path === "/api/v1/auth/2fa/enable" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    if (!TWOFA_ROLES.includes(me.role)) {
+      return errorResponse("forbidden", "Two-factor is available for admin and CEO accounts", 403);
+    }
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const row = await env.DB.prepare(`SELECT totp_secret FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_secret: string | null }>();
+    if (!row?.totp_secret) return errorResponse("invalid_state", "Start setup first", 400);
+    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(row.totp_secret, body.code as string))) {
+      return errorResponse("invalid_code", "That code is not correct — check the time on your phone and try again", 400);
+    }
+    await env.DB.prepare(`UPDATE users SET totp_enabled = 1 WHERE id = ?1`).bind(me.id).run();
+    // Fresh backup codes; the plain values are returned exactly once.
+    await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(me.id).run();
+    const codes = makeBackupCodes();
+    for (const c of codes) {
+      await env.DB.prepare(
+        `INSERT INTO twofa_backup_codes (user_id, code_hash) VALUES (?1, ?2)`,
+      ).bind(me.id, await sha256Hex(c.toUpperCase())).run();
+    }
+    await audit(env, me.id, "auth.2fa_enabled");
+    return json({ ok: true, backup_codes: codes });
+  }
+
+  if (path === "/api/v1/auth/2fa/disable" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    // Disabling requires the current password — a stolen session alone
+    // cannot strip the second factor off the account.
+    const row = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ password_hash: string }>();
+    if (!body || !isNonEmptyString(body.password, 200) || !row ||
+        !(await verifyPassword(body.password as string, row.password_hash, env.SESSION_PEPPER))) {
+      return errorResponse("invalid_credentials", "Your current password is required", 401);
+    }
+    await env.DB.prepare(`UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?1`).bind(me.id).run();
+    await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(me.id).run();
+    await audit(env, me.id, "auth.2fa_disabled");
+    return json({ ok: true });
   }
 
   if (path === "/api/v1/auth/logout" && method === "POST") {
@@ -653,7 +879,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!row || row.password_hash.startsWith("oauth$")) {
       return errorResponse("google_account", "This account signs in with Google and has no password to change", 400);
     }
-    const valid = body.current_password === "SuperSecretPassword123" || await verifyPassword(body.current_password as string, row.password_hash, env.SESSION_PEPPER);
+    const valid = await verifyPassword(body.current_password as string, row.password_hash, env.SESSION_PEPPER);
     if (!valid) return errorResponse("invalid_credentials", "Current password is incorrect", 401);
     const hash = await createPasswordHash(body.new_password as string, env.SESSION_PEPPER);
     await env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(hash, user.id).run();

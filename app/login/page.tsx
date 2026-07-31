@@ -51,6 +51,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [code, setCode] = useState("");
+
+  const verifyCode = async () => {
+    setBusy(true);
+    setError("");
+    const res = await api<{ user: User }>("/auth/2fa/verify", {
+      method: "POST",
+      body: JSON.stringify({ challenge, code }),
+    });
+    setBusy(false);
+    if (res.ok && res.data?.user) {
+      window.location.replace(destinationFor(res.data.user.role));
+    } else if (res.status === 429) {
+      setError("Too many attempts — try again in 15 minutes.");
+    } else {
+      setError("That code is not correct. Check your authenticator app, or use a backup code.");
+    }
+  };
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -90,11 +109,17 @@ export default function LoginPage() {
       return;
     }
 
-    const res = await api<{ user: User }>("/auth/login", {
+    const res = await api<{ user: User; twofa_required?: boolean; challenge?: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
     setBusy(false);
+    if (res.ok && res.data?.twofa_required && res.data.challenge) {
+      // Password accepted; no session yet — ask for the authenticator code.
+      setChallenge(res.data.challenge);
+      setError("");
+      return;
+    }
     if (res.ok && res.data?.user) {
       window.location.replace(destinationFor(res.data.user.role));
     } else if (res.status === 429) {
@@ -112,6 +137,41 @@ export default function LoginPage() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
       </Link>
+      {challenge ? (
+        <div className="mt-8">
+          <h1 className="text-2xl font-semibold tracking-tight">Two-factor verification</h1>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Enter the 6-digit code from your authenticator app. You can also use
+            one of your backup codes.
+          </p>
+          <input
+            className="border-input bg-background mt-4 w-full rounded-lg border px-3 py-2 text-center text-lg tracking-[0.3em]"
+            inputMode="numeric"
+            autoFocus
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && code.length >= 6 && void verifyCode()}
+          />
+          {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
+          <button
+            type="button"
+            disabled={busy || code.length < 6}
+            className="bg-primary text-primary-foreground mt-4 w-full rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
+            onClick={() => void verifyCode()}
+          >
+            {busy ? "Verifying…" : "Verify and sign in"}
+          </button>
+          <button
+            type="button"
+            className="text-muted-foreground mt-3 w-full text-xs underline"
+            onClick={() => { setChallenge(""); setCode(""); setError(""); }}
+          >
+            Back to sign in
+          </button>
+        </div>
+      ) : (
+      <>
       <h1 className="mt-8 text-2xl font-semibold tracking-tight">
         {mode === "login" ? "Sign in" : "Create your account"}
       </h1>
@@ -238,6 +298,8 @@ export default function LoginPage() {
           </p>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
