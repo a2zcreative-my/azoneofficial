@@ -34,3 +34,49 @@ No code changes should be required to update website content. Every editable str
 
 ## Until Phase 3 ships
 Content is edited in `constants/*.ts` and deployed by git push — see USER_GUIDE.md.
+
+
+## Role matrix (v1.4.4)
+
+Roles are assigned in **/admin → Users**. Staff sign in with their
+`@azoneofficial.com` Google account (auto-provisioned) or email + password, and
+land in **/portal**. Every rule below is enforced server-side; the tabs are a
+convenience, not the boundary. Standard working shift: **10:00am–6:00pm MYT,
+Monday–Friday** — all attendance events are flagged against it (late / early
+out / weekend).
+
+| Role | Portal tabs | Can do |
+|---|---|---|
+| **HR & Administrative** (`hr_admin`) | HR, Sales, Leave, Attendance, Tasks, Profile | Verify every staff member's attendance in a table (company accounts, shift-checked); file task reports daily/weekly/monthly; create QT/DO/INV numbered `QT-AZOODDMMYY-X`; administer Annual/Medical/Emergency leave (approve/reject in Leave); maintain staff birthdays via the staff directory; own clock in/out |
+| **Sales & Marketing** (`sales_marketing`) | Inventory, Leave, Attendance, Tasks, Profile | Update sales-side inventory in real time (stock counts auto-set in_stock/low/out_of_stock); keep postage tracking records current; request and track marketing materials; apply for leave; clock in/out |
+| **Chief Commercial Officer** (`cco`) | Commercial, Leave, Attendance, Profile | Maintain the business development pipeline — open / pending / KIV / closed won / closed lost — with strategy and next-action notes per deal; apply for leave; clock in/out |
+| **Chief Operation Officer** (`coo`) | Operations, Inventory, HR view, Leave, Attendance, Profile | File the daily operational status and daily sales results (one per day, re-submitting updates it); record operation strategy for sales & marketing; apply for leave; clock in/out |
+| **Chief Executive Officer** (`ceo`) | Overview, HR view, Leave, Attendance, Profile | Read-only monitoring across the whole company: who clocked in today, pending leave, documents issued, low stock, BD pipeline totals, latest operational report |
+
+Notes:
+- `hr_admin` gets the Sales tab because document creation (QT/DO/INV) is an
+  administrative duty here; finance status changes stay with `finance_admin`.
+- The CEO deliberately has **no edit rights** in the modules — review and
+  monitoring only, per the role definition.
+- Leave types supported: Annual, Medical, Emergency (unchanged from v1.2.x).
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.4 | Role matrix added: hr_admin, sales_marketing, cco, ceo (+existing coo duties expanded). |
+
+
+## Editing the website (v1.4.5)
+
+/admin → **Website** edits the live site's text field by field — each field is
+labelled with where it appears (hero, about, services, showcase, footer,
+statistics). Save one field at a time; the site picks it up on the next page
+load. An empty field falls back to the built-in default, so nothing here can
+blank the page. Anything not listed lives in **Advanced** (raw content keys).
+Text that is structural — service card contents, package tiers, page layouts —
+stays in code by design: changing structure safely needs a build, not a live
+edit.
+
+| Version | Change |
+|---|---|
+| v1.4.5 | Website tab added; Products tab removed; Advanced replaces raw Content. |

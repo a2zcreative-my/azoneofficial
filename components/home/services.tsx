@@ -1,4 +1,5 @@
 import { Section } from "@/components/layout/section";
+import { Editable } from "@/components/live/editable";
 import { Reveal } from "@/components/ui/reveal";
 import { SERVICES } from "@/constants/content";
 
@@ -7,8 +8,8 @@ export function Services() {
     <Section
       id="services"
       eyebrow="Services"
-      title="Everything a brand needs to win live"
-      intro="From your first trial session to a full monthly live schedule — pick a lane or hand us the whole channel."
+      title={<Editable k="home.services.title" fallback="Everything a brand needs to win live" />}
+      intro={<Editable k="home.services.intro" fallback="From your first trial session to a full monthly live schedule — pick a lane or hand us the whole channel." />}
       className="bg-brand-neutral"
     >
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

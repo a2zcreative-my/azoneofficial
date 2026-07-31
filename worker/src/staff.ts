@@ -7,8 +7,9 @@ import type { Env } from "./index";
 
 type Role =
   | "super_admin" | "admin" | "editor" | "marketing"
-  | "managing_director" | "coo" | "business_dev"
-  | "finance_admin" | "live_manager" | "live_host";
+  | "managing_director" | "ceo" | "coo" | "cco" | "business_dev"
+  | "finance_admin" | "live_manager" | "live_host"
+  | "hr_admin" | "sales_marketing";
 
 export interface StaffUser {
   id: number;
@@ -20,15 +21,39 @@ export interface StaffUser {
 /* ---------------- module permissions ---------------- */
 
 const PERMS: Record<string, readonly Role[]> = {
-  // who can approve leave / view attendance reports / manage staff
-  hr_manage: ["super_admin", "managing_director", "coo", "admin"],
+  // who can approve leave / view attendance reports / manage staff / birthdays
+  hr_manage: ["super_admin", "managing_director", "ceo", "coo", "admin", "hr_admin"],
   // who can post announcements & create/assign tasks
-  team_manage: ["super_admin", "managing_director", "coo", "admin", "live_manager"],
+  team_manage: ["super_admin", "managing_director", "ceo", "coo", "admin", "live_manager", "hr_admin"],
   // CRM + quotations + DO
-  sales: ["super_admin", "managing_director", "business_dev", "finance_admin", "admin"],
+  sales: ["super_admin", "managing_director", "business_dev", "finance_admin", "admin", "hr_admin"],
   // invoices & finance status changes
-  finance: ["super_admin", "managing_director", "finance_admin", "admin"],
+  finance: ["super_admin", "managing_director", "finance_admin", "admin", "hr_admin"],
+  // HR task reports (daily / weekly / monthly)
+  task_reports: ["super_admin", "managing_director", "admin", "hr_admin"],
+  // inventory, postage tracking, marketing materials
+  inventory: ["super_admin", "managing_director", "admin", "sales_marketing", "marketing", "coo"],
+  // business development pipeline + strategy
+  bd_manage: ["super_admin", "managing_director", "admin", "cco"],
+  // daily operational + sales reports
+  ops_manage: ["super_admin", "managing_director", "admin", "coo"],
+  // read-only visibility across every module (CEO review & monitoring)
+  exec_view: ["super_admin", "managing_director", "admin", "ceo", "coo", "cco"],
 };
+
+const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
+const BD_STATUSES = ["open", "pending", "kiv", "closed_won", "closed_lost"];
+
+function stockStatus(stock: number): string {
+  return stock === 0 ? "out_of_stock" : stock <= 5 ? "low" : "in_stock";
+}
+
+/** Company working shift (Malaysia time). Used to flag attendance events. */
+const SHIFT = {
+  label: "10:00–18:00 MYT, Monday–Friday",
+  startMinutes: 10 * 60,
+  endMinutes: 18 * 60,
+} as const;
 
 function can(user: StaffUser, perm: keyof typeof PERMS): boolean {
   return PERMS[perm]!.includes(user.role);
@@ -69,7 +94,11 @@ const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] 
 const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
 
 /**
- * Document numbers (v1.2.7): {TYPE}{YYYYMMDD}-{NN}-AZOO, e.g. DO20260725-01-AZOO.
+ * Document numbers (v1.4.4): {TYPE}-AZOO{DDMMYY}-{X}, e.g. QT-AZOO300726-1.
+ * X is the running number for that document type on that day (no padding, per
+ * the format the business specified). Previous format {TYPE}{YYYYMMDD}-{NN}-AZOO
+ * (v1.2.7) remains valid on documents already issued — numbers are never
+ * reissued or rewritten.
  * Daily counter per type (Asia/Kuala_Lumpur); widens past 99/day automatically.
  * Legacy numbers (QT202600001) issued before v1.2.7 remain valid — never renumbered.
  * Spec: DOCUMENT-NUMBERING.md
@@ -83,7 +112,12 @@ function todayKL(): string {
 }
 
 async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string> {
-  const day = todayKL();
+  // Malaysia time (UTC+8) decides which business day the number belongs to
+  const now = new Date(Date.now() + 8 * 3600 * 1000);
+  const day = now.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD (counter key)
+  const dd = day.slice(6, 8);
+  const mm = day.slice(4, 6);
+  const yy = day.slice(2, 4);
   await env.DB.prepare(
     `INSERT INTO doc_counters_daily (doc_type, day, counter) VALUES (?1, ?2, 1)
      ON CONFLICT(doc_type, day) DO UPDATE SET counter = counter + 1`,
@@ -91,9 +125,7 @@ async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string
   const row = await env.DB.prepare(
     `SELECT counter FROM doc_counters_daily WHERE doc_type = ?1 AND day = ?2`,
   ).bind(docType, day).first<{ counter: number }>();
-  const seq = row!.counter;
-  const nn = String(seq).padStart(seq > 99 ? 3 : 2, "0");
-  return `${docType}${day}-${nn}-AZOO`;
+  return `${docType}-AZOO${dd}${mm}${yy}-${row?.counter ?? 1}`;
 }
 
 /* ---------------- router ---------------- */
@@ -146,7 +178,7 @@ export async function handleStaff(
   if (staffUser && method === "PATCH") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
     const id = staffUser[1]!;
-    const fields = ["employee_id", "position", "department", "employment_status"] as const;
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday"] as const;
     const sets: string[] = [];
     const vals: string[] = [];
     for (const f of fields) {
@@ -197,11 +229,30 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT u.name, a.user_id, a.type, a.created_at
+      `SELECT u.name, u.email, a.user_id, a.type, a.created_at
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
-    return json({ month, records: results });
+    // Working shift: 10:00–18:00 Malaysia time, Monday–Friday. Timestamps are
+    // stored UTC; annotate each event against the shift so HR verifies at a
+    // glance instead of doing timezone arithmetic per row.
+    const annotated = (results as { created_at: string; type: string }[]).map((r) => {
+      const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
+      const dayIdx = myt.getUTCDay(); // after +8h shift this is the MYT weekday
+      const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
+      const workday = dayIdx >= 1 && dayIdx <= 5;
+      return {
+        ...r,
+        myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
+        workday,
+        flag:
+          !workday ? "weekend"
+          : r.type === "clock_in" && minutes > SHIFT.startMinutes ? "late"
+          : r.type === "clock_out" && minutes < SHIFT.endMinutes ? "early_out"
+          : "ok",
+      };
+    });
+    return json({ month, shift: SHIFT.label, records: annotated });
   }
 
   /* ---- leave ---- */
@@ -508,6 +559,287 @@ export async function handleStaff(
   }
 
   /* ---- notifications ---- */
+
+  /* ---- HR: task reports (daily / weekly / monthly) ---- */
+
+  if (path === "/task-reports" && method === "GET") {
+    if (!can(user, "task_reports") && !can(user, "exec_view")) {
+      return err("forbidden", "HR or executive access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT t.id, t.period, t.report_date, t.content, t.created_at, u.name AS author
+       FROM task_reports t LEFT JOIN users u ON u.id = t.created_by
+       ORDER BY t.report_date DESC, t.id DESC LIMIT 100`,
+    ).all();
+    return json({ reports: results });
+  }
+  if (path === "/task-reports" && method === "POST") {
+    if (!can(user, "task_reports")) return err("forbidden", "HR access required", 403);
+    const periods = ["daily", "weekly", "monthly"];
+    if (
+      !body || typeof body.period !== "string" || !periods.includes(body.period) ||
+      !str(body.report_date, 10) || !str(body.content, 8000)
+    ) {
+      return err("invalid_input", "period (daily/weekly/monthly), report_date and content are required", 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO task_reports (period, report_date, content, created_by) VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(body.period, body.report_date, body.content, user.id).run();
+    await audit(env, user.id, "hr.task_report", "task_reports");
+    return json({ ok: true }, 201);
+  }
+
+  /* ---- HR: upcoming staff birthdays ---- */
+
+  if (path === "/birthdays" && method === "GET") {
+    // Any staff member can see upcoming birthdays; HR maintains them via
+    // PATCH /users/:id (birthday field).
+    const { results } = await env.DB.prepare(
+      `SELECT name, birthday FROM users
+       WHERE birthday IS NOT NULL AND is_active = 1 AND role != 'customer'
+       ORDER BY substr(birthday, 6)`,
+    ).all();
+    return json({ birthdays: results });
+  }
+
+  /* ---- Sales & marketing: inventory ---- */
+
+  if (path === "/inventory" && method === "GET") {
+    if (!can(user, "inventory") && !can(user, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT i.*, u.name AS updated_by_name FROM inventory_items i
+       LEFT JOIN users u ON u.id = i.updated_by ORDER BY i.name`,
+    ).all();
+    return json({ items: results });
+  }
+  if (path === "/inventory" && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!body || !str(body.sku, 60) || !str(body.name, 200)) {
+      return err("invalid_input", "sku and name are required", 400);
+    }
+    const stock = typeof body.stock === "number" && body.stock >= 0 ? Math.floor(body.stock) : 0;
+    try {
+      await env.DB.prepare(
+        `INSERT INTO inventory_items (sku, name, stock, status, note, updated_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(body.sku, body.name, stock, stockStatus(stock), str(body.note, 500) ? body.note : null, user.id).run();
+    } catch {
+      return err("conflict", "An item with this SKU already exists", 409);
+    }
+    await audit(env, user.id, "inventory.create");
+    return json({ ok: true }, 201);
+  }
+  const invMatch = path.match(/^\/inventory\/(\d+)$/);
+  if (invMatch && method === "PATCH") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!body || typeof body.stock !== "number" || body.stock < 0) {
+      return err("invalid_input", "stock (>= 0) is required", 400);
+    }
+    const stock = Math.floor(body.stock);
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = ?1, status = ?2,
+         note = COALESCE(?3, note), updated_by = ?4, updated_at = datetime('now')
+       WHERE id = ?5`,
+    ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, user.id, invMatch[1]).run();
+    await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- Sales & marketing: postage tracking ---- */
+
+  if (path === "/postage" && method === "GET") {
+    if (!can(user, "inventory") && !can(user, "exec_view")) {
+      return err("forbidden", "Access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM postage_records ORDER BY updated_at DESC LIMIT 200`,
+    ).all();
+    return json({ records: results });
+  }
+  if (path === "/postage" && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!body || !str(body.order_ref, 100)) return err("invalid_input", "order_ref is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(
+      body.order_ref,
+      str(body.courier, 80) ? body.courier : null,
+      str(body.tracking_no, 120) ? body.tracking_no : null,
+      POSTAGE_STATUSES.includes(body.status as string) ? (body.status as string) : "preparing",
+      str(body.note, 500) ? body.note : null,
+      user.id,
+    ).run();
+    await audit(env, user.id, "postage.create");
+    return json({ ok: true }, 201);
+  }
+  const postMatch = path.match(/^\/postage\/(\d+)$/);
+  if (postMatch && method === "PATCH") {
+    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!body || !POSTAGE_STATUSES.includes(body.status as string)) {
+      return err("invalid_input", `status must be one of: ${POSTAGE_STATUSES.join(", ")}`, 400);
+    }
+    await env.DB.prepare(
+      `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(?2, tracking_no),
+         note = COALESCE(?3, note), updated_by = ?4, updated_at = datetime('now') WHERE id = ?5`,
+    ).bind(body.status, str(body.tracking_no, 120) ? body.tracking_no : null,
+           str(body.note, 500) ? body.note : null, user.id, postMatch[1]).run();
+    await audit(env, user.id, "postage.update", "postage_records", postMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- Marketing materials ---- */
+
+  if (path === "/materials" && method === "GET") {
+    if (!can(user, "inventory") && !can(user, "exec_view")) {
+      return err("forbidden", "Access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT m.*, u.name AS requested_by_name FROM material_requests m
+       LEFT JOIN users u ON u.id = m.requested_by ORDER BY m.created_at DESC LIMIT 100`,
+    ).all();
+    return json({ materials: results });
+  }
+  if (path === "/materials" && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!body || !str(body.title, 200)) return err("invalid_input", "title is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO material_requests (title, description, requested_by) VALUES (?1, ?2, ?3)`,
+    ).bind(body.title, str(body.description, 2000) ? body.description : null, user.id).run();
+    await audit(env, user.id, "materials.create");
+    return json({ ok: true }, 201);
+  }
+  const matMatch = path.match(/^\/materials\/(\d+)$/);
+  if (matMatch && method === "PATCH") {
+    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    const statuses = ["requested", "in_progress", "done", "rejected"];
+    if (!body || !statuses.includes(body.status as string)) {
+      return err("invalid_input", `status must be one of: ${statuses.join(", ")}`, 400);
+    }
+    await env.DB.prepare(
+      `UPDATE material_requests SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
+    ).bind(body.status, matMatch[1]).run();
+    return json({ ok: true });
+  }
+
+  /* ---- CCO: business development pipeline ---- */
+
+  if (path === "/bd" && method === "GET") {
+    if (!can(user, "bd_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "Commercial access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT b.*, u.name AS owner_name FROM bd_pipeline b
+       LEFT JOIN users u ON u.id = b.owner_id
+       ORDER BY CASE b.status WHEN 'open' THEN 0 WHEN 'pending' THEN 1 WHEN 'kiv' THEN 2 ELSE 3 END,
+                b.updated_at DESC LIMIT 200`,
+    ).all();
+    return json({ pipeline: results });
+  }
+  if (path === "/bd" && method === "POST") {
+    if (!can(user, "bd_manage")) return err("forbidden", "Commercial access required", 403);
+    if (!body || !str(body.client, 200)) return err("invalid_input", "client is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO bd_pipeline (client, status, value_note, strategy, next_action, owner_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(
+      body.client,
+      BD_STATUSES.includes(body.status as string) ? (body.status as string) : "open",
+      str(body.value_note, 300) ? body.value_note : null,
+      str(body.strategy, 2000) ? body.strategy : null,
+      str(body.next_action, 300) ? body.next_action : null,
+      user.id,
+    ).run();
+    await audit(env, user.id, "bd.create");
+    return json({ ok: true }, 201);
+  }
+  const bdMatch = path.match(/^\/bd\/(\d+)$/);
+  if (bdMatch && method === "PATCH") {
+    if (!can(user, "bd_manage")) return err("forbidden", "Commercial access required", 403);
+    if (!body) return err("invalid_input", "Body required", 400);
+    const sets: string[] = [];
+    const vals: (string | number)[] = [];
+    if (BD_STATUSES.includes(body.status as string)) { sets.push(`status = ?${sets.length + 1}`); vals.push(body.status as string); }
+    if (str(body.strategy, 2000)) { sets.push(`strategy = ?${sets.length + 1}`); vals.push(body.strategy as string); }
+    if (str(body.next_action, 300)) { sets.push(`next_action = ?${sets.length + 1}`); vals.push(body.next_action as string); }
+    if (str(body.value_note, 300)) { sets.push(`value_note = ?${sets.length + 1}`); vals.push(body.value_note as string); }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    sets.push(`updated_at = datetime('now')`);
+    await env.DB.prepare(`UPDATE bd_pipeline SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
+      .bind(...vals, bdMatch[1]!).run();
+    await audit(env, user.id, "bd.update", "bd_pipeline", bdMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- COO: daily operational + sales reports ---- */
+
+  if (path === "/ops-reports" && method === "GET") {
+    if (!can(user, "ops_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "Operations access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT o.*, u.name AS author FROM ops_reports o
+       LEFT JOIN users u ON u.id = o.created_by
+       ORDER BY o.report_date DESC LIMIT 60`,
+    ).all();
+    return json({ reports: results });
+  }
+  if (path === "/ops-reports" && method === "POST") {
+    if (!can(user, "ops_manage")) return err("forbidden", "Operations access required", 403);
+    if (!body || !str(body.report_date, 10) || !str(body.operational_summary, 8000)) {
+      return err("invalid_input", "report_date and operational_summary are required", 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO ops_reports (report_date, operational_summary, sales_summary, strategy_note, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(report_date, created_by) DO UPDATE SET
+         operational_summary = ?2, sales_summary = ?3, strategy_note = ?4`,
+    ).bind(
+      body.report_date,
+      body.operational_summary,
+      str(body.sales_summary, 8000) ? body.sales_summary : null,
+      str(body.strategy_note, 4000) ? body.strategy_note : null,
+      user.id,
+    ).run();
+    await audit(env, user.id, "ops.report", "ops_reports");
+    return json({ ok: true }, 201);
+  }
+
+  /* ---- CEO: whole-company overview (read-only) ---- */
+
+  if (path === "/overview" && method === "GET") {
+    if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const [attendance, pendingLeave, docs, lowStock, bd, latestOps] = await Promise.all([
+      env.DB.prepare(
+        `SELECT COUNT(DISTINCT user_id) AS n FROM attendance_records
+         WHERE type = 'clock_in' AND date(created_at, '+8 hours') = ?1`,
+      ).bind(today).first(),
+      env.DB.prepare(`SELECT COUNT(*) AS n FROM leave_requests WHERE status = 'pending'`).first(),
+      env.DB.prepare(
+        `SELECT doc_type, COUNT(*) AS n FROM sales_documents GROUP BY doc_type`,
+      ).all(),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM inventory_items WHERE status IN ('low', 'out_of_stock')`,
+      ).first(),
+      env.DB.prepare(`SELECT status, COUNT(*) AS n FROM bd_pipeline GROUP BY status`).all(),
+      env.DB.prepare(
+        `SELECT report_date, operational_summary, sales_summary FROM ops_reports
+         ORDER BY report_date DESC LIMIT 1`,
+      ).first(),
+    ]);
+    return json({
+      date: today,
+      clocked_in_today: (attendance as { n: number } | null)?.n ?? 0,
+      pending_leave: (pendingLeave as { n: number } | null)?.n ?? 0,
+      documents: docs.results,
+      low_stock_items: (lowStock as { n: number } | null)?.n ?? 0,
+      bd_pipeline: bd.results,
+      latest_ops_report: latestOps,
+    });
+  }
 
   if (path === "/notifications" && method === "GET") {
     const { results } = await env.DB.prepare(

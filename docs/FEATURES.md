@@ -1,10 +1,10 @@
 # Features
 
 ## Public website (implemented)
-- **Home** — hero with live-pulse badge, about + animated statistics, services grid, session showcase, ELFIA dark section, 4-step process, FAQ accordion, consultation CTA
+- **Home** — hero with live-pulse badge + client logo strip (temporary ELFIA wordmark → elfiaofficialstore.com), about + trust signals, problems-we-solve grid (v1.4.0), services grid, packages carousel, session showcase, live showcase — two channel panels: TikTok official creator embed + Shopee Live branded channel card (Shopee blocks embedding), each with its own live CTA, 4-step process, FAQ accordion, closing CTA. Navbar CTA is "Get a free live audit"
 - **About** — agency story, Why Choose Us (6 points)
 - **Services** — 6 services: live host service, live commerce management, TikTok strategy, creative design, video editing & content creation, business consultation
-- **Products (ELFIA)** — brand page with categories; purchases happen during TikTok Live sessions
+- **Portfolio** — client cards; the ELFIA card links out to elfiaofficialstore.com. The standalone `/portfolio/elfia` case-study page was removed in v1.4.0 (301 → /portfolio); the challenge/approach/result write-up remains on /case-studies
 - **Portfolio / Case Studies** — data-driven; render honest "in preparation" states while `PORTFOLIO_ITEMS` / `CASE_STUDIES` arrays are empty
 - **Blog** — static blog from `constants/pages.ts`; 2 starter posts; per-post routes via `generateStaticParams`
 - **Careers** — open-interest page (hosts, live ops, creative)
@@ -26,7 +26,29 @@
 - Admin UI at /admin: dashboard, enquiry workflow, CRUD panels
 
 - Admin Media/Content/Users screens; dashboard activity feed
-- ELFIA product detail pages with galleries; portfolio + testimonials read published D1 content at runtime (static fallback)
+- Portfolio + testimonials read published D1 content at runtime (static fallback); ELFIA product detail pages removed in v1.3.0 (client's own site carries the catalogue)
 
 ## Not yet implemented
 - Hero/about/services site-content reads on public pages (Content API + editor exist; wiring is per-section as content gets created), blog posts from D1 (static posts remain source of truth), ELFIA RM pricing (awaiting decision — "announced live" shown meanwhile) — see ROADMAP.md
+
+
+## v1.4.3–v1.4.4 additions
+
+**Account control (v1.4.3)**
+- Admin-grade user management for the `admin` role with server-side escalation guards (super admin untouchable)
+- Kill switch per account: Force logout (revoke all sessions) and Suspend/Reinstate (block sign-in + revoke, with SUSPENDED badge)
+- Self-service change password (Account tab in /admin, Profile in /portal); rotates out every other session on success; Google-only accounts directed to Google
+
+**Company role modules (v1.4.4)**
+- HR & Administrative — attendance verification table (all company accounts, events flagged against the 10:00am–6:00pm MYT Mon–Fri shift), daily/weekly/monthly task reports, staff birthdays, leave administration, QT/DO/INV creation
+- Sales & Marketing — real-time inventory (auto in_stock/low/out_of_stock), postage tracking records, marketing material request pipeline
+- Chief Commercial Officer — BD pipeline (open / pending / KIV / closed won / closed lost) with strategy + next action per deal
+- Chief Operation Officer — daily operational + sales report (one per day, resubmit to update), operation strategy notes
+- Chief Executive Officer — read-only company overview (attendance today, pending leave, documents, low stock, pipeline, latest ops report)
+- Document numbering: {TYPE}-AZOO{DDMMYY}-{X}
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.3 | Kill switch, admin user management, change password. |
+| v1.4.4 | Five company role modules, shift-checked attendance, new doc numbering. |

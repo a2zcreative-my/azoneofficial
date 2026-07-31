@@ -1,4 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
+import { Editable } from "@/components/live/editable";
 
 import { Section } from "@/components/layout/section";
 import { LiveTestimonials } from "@/components/live/live-content";
@@ -17,8 +18,8 @@ export function Showcase() {
     <Section
       id="showcase"
       eyebrow="Showcase"
-      title="What a session with us looks like"
-      intro="No mystery, no vanity metrics. Every live session is planned, produced, and reported like a campaign."
+      title={<Editable k="home.showcase.title" fallback="What a session with us looks like" />}
+      intro={<Editable k="home.showcase.intro" fallback="No mystery, no vanity metrics. Every live session is planned, produced, and reported like a campaign." />}
     >
       <div className="grid gap-10 lg:grid-cols-2 lg:gap-20">
         <Reveal>

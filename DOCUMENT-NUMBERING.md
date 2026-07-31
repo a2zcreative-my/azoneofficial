@@ -58,3 +58,25 @@ The proposed date-based format is a good direction — the issue date is readabl
 |---|---|---|---|
 | v1.2.0–v1.2.6 | 2026 | `{TYPE}{YYYY}{NNNNN}` e.g. `QT202600001` | Yearly running counter per type. Retired for new docs from v1.2.7; existing numbers preserved. |
 | v1.2.7 | 25 Jul 2026 | `{TYPE}{YYYYMMDD}-{NN}-AZOO` | Date-based with daily sequence + issuer code. Adopted from Alīf's proposal `DO20260725-AZOO`, refined with a daily sequence to prevent same-day collisions. |
+
+
+## v1.4.4 — current format: {TYPE}-AZOO{DDMMYY}-{X}
+
+Examples: `QT-AZOO300726-1`, `DO-AZOO300726-2`, `INV-AZOO010826-1`.
+
+- `TYPE` — QT (quotation), DO (delivery order), INV (invoice)
+- `AZOO` — company mark, now positioned after the type per business preference
+- `DDMMYY` — issue date in Malaysia time (UTC+8)
+- `X` — running number for that type on that day, starting at 1, no padding
+
+Counters remain per-type-per-day in `doc_counters_daily` (migration 0005), so
+the sequence resets each business day and two documents can never share a
+number. **Documents already issued under earlier formats keep their numbers** —
+formats are never applied retroactively and numbers are never reissued.
+
+## History (do not remove)
+| Version | Format | Example |
+|---|---|---|
+| v1.2.5 | {TYPE}2026{NNNNN} (yearly counter) | QT202600001 |
+| v1.2.7 | {TYPE}{YYYYMMDD}-{NN}-AZOO (daily counter) | DO20260725-01-AZOO |
+| v1.4.4 | {TYPE}-AZOO{DDMMYY}-{X} (daily counter) | QT-AZOO300726-1 |

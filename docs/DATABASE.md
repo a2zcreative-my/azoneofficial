@@ -1,7 +1,7 @@
 # Database
 
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
-Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept), `0006_multi_tenant.sql` (adds a `site` column to site_content, portfolio_items, posts, testimonials, enquiries and products; rebuilds site_content unique on (site, key); backfills existing rows to 'azoneofficial'). Apply with `pnpm migrate:prod` from `/worker`.
+Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
 Target: **Cloudflare D1 (SQLite)**. Media binaries in **R2**, referenced by key.
 
@@ -116,19 +116,21 @@ CREATE TABLE audit_log (
 - Every schema change documented here + CHANGELOG.md
 
 
-## Multi-tenancy (v1.3.0)
+## v1.4.4 — migration 0007_role_modules.sql
 
-Every tenant-owned table carries a `site` column. `site_content` is unique on
-`(site, key)`, so `azoneofficial` and `elfia` can hold the same key with
-different values. The Worker resolves the tenant from the request Origin (see
-`docs/ARCHITECTURE.md` §5) and scopes all reads and writes to it.
+Additive migration behind the expanded role set:
 
-Staff portal, attendance, leave, sales documents, users, sessions and audit
-tables are **not** tenant-scoped: they belong to AZ ONE OFFICIAL as a company,
-not to a client site.
+| Table / change | Purpose |
+|---|---|
+| `users.birthday` (new column) | Staff birthdays, maintained by HR via the staff directory |
+| `inventory_items` | Sales-side stock; status auto-derived: 0 → out_of_stock, ≤5 → low, else in_stock |
+| `postage_records` | Shipment tracking: preparing → shipped → in_transit → delivered / returned |
+| `material_requests` | Marketing material pipeline: requested → in_progress → done / rejected |
+| `bd_pipeline` | CCO deal tracking: open / pending / kiv / closed_won / closed_lost, with strategy + next action |
+| `ops_reports` | COO daily operational + sales report; UNIQUE (report_date, created_by) — resubmitting a day updates it |
+| `task_reports` | HR daily / weekly / monthly reports |
 
 ## History (do not remove)
 | Version | Change |
 |---|---|
-| v1.2.7 | `doc_counters_daily` added for date-based document numbering. |
-| v1.3.0 | Multi-tenant `site` column across content tables; `site_content` re-keyed on `(site, key)`. |
+| v1.4.4 | 0007_role_modules.sql — role-module tables + users.birthday. |

@@ -29,32 +29,25 @@ profile GET/PATCH · users GET/PATCH (HR) · attendance POST/GET, report GET (HR
 Roles: super_admin, admin, editor, marketing, managing_director, coo, business_dev, finance_admin, live_manager, live_host. Module permissions in worker/src/staff.ts (PERMS map).
 
 
-## Tenancy (v1.3.0)
+## v1.4.4 — staff role-module endpoints (`/api/v1/staff/…`)
 
-All content endpoints are scoped to a client site. The Worker resolves the
-tenant in this order:
+All permission-checked server-side (see the matrix in ADMIN_GUIDE.md).
 
-1. `Origin` header matched against the `SITE_ORIGINS` map — authoritative.
-2. `?site=<key>` query parameter — honoured only if it names a configured
-   tenant. Needed because statically exported pages make same-origin GETs with
-   no `Origin` header.
-3. `Host` header — fallback.
+| Endpoint | Methods | Who | Notes |
+|---|---|---|---|
+| `/attendance/report` | GET | hr_manage | Now returns per-event `myt_time` and `flag` (ok / late / early_out / weekend) against the 10:00–18:00 MYT Mon–Fri shift |
+| `/task-reports` | GET, POST | HR writes; executives read | `period`: daily / weekly / monthly |
+| `/birthdays` | GET | all staff | Sorted by month-day; HR maintains via `PATCH /users/:id` (`birthday`) |
+| `/inventory`, `/inventory/:id` | GET, POST, PATCH | sales_marketing/marketing/coo write; executives read | Stock changes auto-set status |
+| `/postage`, `/postage/:id` | GET, POST, PATCH | same as inventory | Status: preparing / shipped / in_transit / delivered / returned |
+| `/materials`, `/materials/:id` | GET, POST, PATCH | same as inventory | Status: requested / in_progress / done / rejected |
+| `/bd`, `/bd/:id` | GET, POST, PATCH | cco writes; executives read | Status: open / pending / kiv / closed_won / closed_lost |
+| `/ops-reports` | GET, POST | coo writes; executives read | One per day per author; resubmit updates |
+| `/overview` | GET | exec_view (ceo + management) | Read-only aggregate: attendance today, pending leave, docs, low stock, pipeline, latest ops report |
 
-Affected endpoints: `GET /api/v1/content-public`, `GET /api/v1/portfolio`,
-`GET /api/v1/testimonials`, `POST /api/v1/enquiries`, and the admin
-`GET|PUT /api/v1/content/:key` pair.
-
-`POST /api/v1/enquiries` stores the resolved tenant with the enquiry, so the
-admin inbox can be filtered per client.
-
-### Statistics
-
-Statistics are content, not code. Publish them at key `stats.items` as a JSON
-array of `{ "value": "500+", "label": "Live sessions hosted" }`. Values are
-strings so `3x` and `RM1.2M` are valid. An empty array makes the site show
-qualitative trust signals instead of zeroes.
+Document numbering on `POST /docs` now issues `{TYPE}-AZOO{DDMMYY}-{X}`.
 
 ## History (do not remove)
 | Version | Change |
 |---|---|
-| v1.3.0 | Tenant scoping added to content endpoints; `stats.items` content key introduced. |
+| v1.4.4 | Role-module endpoints; shift-flagged attendance report; new doc number format. |

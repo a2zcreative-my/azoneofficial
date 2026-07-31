@@ -27,3 +27,27 @@ Error format: `{ "error": { "code": string, "message": string } }`. All request 
 ## Staff Portal API (`/api/v1/staff/*`) — all require auth
 profile GET/PATCH · users GET/PATCH (HR) · attendance POST/GET, report GET (HR) · leave POST/GET/balance, PATCH :id (cancel|approve|reject) · announcements GET/POST, POST :id/ack · tasks GET/POST/PATCH :id, comments GET/POST · customers GET/POST/PUT :id (sales roles) · docs GET/POST (auto number QT/DO/INV), PATCH :id (delivery/payment status) · notifications GET, read POST.
 Roles: super_admin, admin, editor, marketing, managing_director, coo, business_dev, finance_admin, live_manager, live_host. Module permissions in worker/src/staff.ts (PERMS map).
+
+
+## v1.4.4 — staff role-module endpoints (`/api/v1/staff/…`)
+
+All permission-checked server-side (see the matrix in ADMIN_GUIDE.md).
+
+| Endpoint | Methods | Who | Notes |
+|---|---|---|---|
+| `/attendance/report` | GET | hr_manage | Now returns per-event `myt_time` and `flag` (ok / late / early_out / weekend) against the 10:00–18:00 MYT Mon–Fri shift |
+| `/task-reports` | GET, POST | HR writes; executives read | `period`: daily / weekly / monthly |
+| `/birthdays` | GET | all staff | Sorted by month-day; HR maintains via `PATCH /users/:id` (`birthday`) |
+| `/inventory`, `/inventory/:id` | GET, POST, PATCH | sales_marketing/marketing/coo write; executives read | Stock changes auto-set status |
+| `/postage`, `/postage/:id` | GET, POST, PATCH | same as inventory | Status: preparing / shipped / in_transit / delivered / returned |
+| `/materials`, `/materials/:id` | GET, POST, PATCH | same as inventory | Status: requested / in_progress / done / rejected |
+| `/bd`, `/bd/:id` | GET, POST, PATCH | cco writes; executives read | Status: open / pending / kiv / closed_won / closed_lost |
+| `/ops-reports` | GET, POST | coo writes; executives read | One per day per author; resubmit updates |
+| `/overview` | GET | exec_view (ceo + management) | Read-only aggregate: attendance today, pending leave, docs, low stock, pipeline, latest ops report |
+
+Document numbering on `POST /docs` now issues `{TYPE}-AZOO{DDMMYY}-{X}`.
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.4 | Role-module endpoints; shift-flagged attendance report; new doc number format. |

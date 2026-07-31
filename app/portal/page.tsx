@@ -3,11 +3,20 @@
 /**
  * AZ ONE OFFICIAL — Staff Portal v1 (/portal)
  * Internal only. Shares auth with /admin (session cookie -> API Worker).
- * Modules: Dashboard, Attendance, Leave, Tasks, Announcements, Sales, Profile.
+ * Modules: Dashboard, Attendance, Leave, Tasks, Announcements, Sales, Profile,
+ * plus role modules (v1.4.4): HR, Inventory, Commercial, Operations, Overview.
  * Desktop-first, responsive; light/dark mode.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { ChangePasswordForm } from "@/components/account/change-password-form";
+import {
+  CommercialPanel,
+  HrPanel,
+  InventoryPanel,
+  OperationsPanel,
+  OverviewPanel,
+} from "@/components/portal/role-panels";
 
 const API = "/api/v1";
 
@@ -35,7 +44,7 @@ const btnGhost =
 const card = "rounded-lg border border-border bg-card p-5";
 
 const MANAGE_ROLES = ["super_admin", "admin", "managing_director", "coo", "live_manager"];
-const SALES_ROLES = ["super_admin", "admin", "managing_director", "business_dev", "finance_admin"];
+const SALES_ROLES = ["super_admin", "admin", "managing_director", "business_dev", "finance_admin", "hr_admin"];
 
 function fmtRM(cents: number) {
   return `RM ${(cents / 100).toFixed(2)}`;
@@ -587,13 +596,32 @@ function Profile() {
         <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
       </label>
       <button type="button" className={`${btnClass} mt-3`} onClick={() => void save()}>Save</button>
+
+      <div className="mt-6 border-t border-border pt-5">
+        <p className="text-sm font-semibold">Change password</p>
+        <p className="text-muted-foreground mt-1 mb-3 text-xs">
+          Changing your password signs you out on every other device
+          immediately. Google sign-in accounts manage their password with
+          Google instead.
+        </p>
+        <ChangePasswordForm />
+      </div>
     </div>
   );
 }
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Inventory", "Commercial", "Operations", "Overview", "Profile"] as const;
+
+/** Which roles see each role-specific tab. The API enforces the same matrix. */
+const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
+  HR: ["hr_admin", "super_admin", "admin", "managing_director", "ceo"],
+  Inventory: ["sales_marketing", "marketing", "coo", "super_admin", "admin", "managing_director"],
+  Commercial: ["cco", "super_admin", "admin", "managing_director"],
+  Operations: ["coo", "super_admin", "admin", "managing_director"],
+  Overview: ["ceo", "managing_director", "super_admin", "admin", "coo", "cco"],
+};
 type TabName = (typeof ALL_TABS)[number];
 
 export default function PortalPage() {
@@ -643,7 +671,11 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
-  const tabs = ALL_TABS.filter((t) => t !== "Sales" || SALES_ROLES.includes(user.role));
+  const tabs = ALL_TABS.filter((t) => {
+    if (t === "Sales") return SALES_ROLES.includes(user.role);
+    const allowed = TAB_ROLES[t];
+    return !allowed || allowed.includes(user.role);
+  });
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -715,6 +747,11 @@ export default function PortalPage() {
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
+        {tab === "HR" && <HrPanel />}
+        {tab === "Inventory" && <InventoryPanel />}
+        {tab === "Commercial" && <CommercialPanel />}
+        {tab === "Operations" && <OperationsPanel />}
+        {tab === "Overview" && <OverviewPanel />}
         {tab === "Profile" && <Profile />}
       </main>
     </div>

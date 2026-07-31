@@ -7,6 +7,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { SiteEditor } from "@/components/admin/site-editor";
+import { ChangePasswordForm } from "@/components/account/change-password-form";
 
 const API = "/api/v1";
 
@@ -272,7 +274,7 @@ interface Activity {
 function Dashboard() {
   const [summary, setSummary] = useState<{
     enquiries?: { total: number; new_count: number };
-    products?: { total: number };
+    portfolio?: { total: number };
     posts?: { total: number };
     testimonials?: { total: number };
     activity?: Activity[];
@@ -288,8 +290,8 @@ function Dashboard() {
         {[
           { label: "Total enquiries", value: summary?.enquiries?.total },
           { label: "New enquiries", value: summary?.enquiries?.new_count },
-          { label: "Products", value: summary?.products?.total },
-          { label: "Posts", value: summary?.posts?.total },
+          { label: "Blog posts", value: summary?.posts?.total },
+          { label: "Portfolio items", value: summary?.portfolio?.total },
           { label: "Testimonials", value: summary?.testimonials?.total },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border p-5">
@@ -512,7 +514,24 @@ function ContentPanel() {
   );
 }
 
-/* ---------------- Users (super admin) ---------------- */
+/* ---------------- Account (every admin user) ---------------- */
+
+function AccountPanel() {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold tracking-tight">Change password</h3>
+        <p className="text-muted-foreground mt-1 text-xs">
+          Changing your password signs you out everywhere else — any other
+          device or stolen session loses access immediately.
+        </p>
+      </div>
+      <ChangePasswordForm />
+    </div>
+  );
+}
+
+/* ---------------- Users (admin & super admin) ---------------- */
 
 interface AdminUser {
   id: number;
@@ -522,7 +541,7 @@ interface AdminUser {
   is_active: number;
 }
 
-const ROLES = ["super_admin", "admin", "editor", "marketing"] as const;
+const ROLES = ["super_admin", "admin", "editor", "marketing", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "managing_director", "business_dev", "finance_admin", "live_manager", "live_host"] as const;
 
 function UsersPanel({ me }: { me: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -553,6 +572,11 @@ function UsersPanel({ me }: { me: User }) {
     void load();
   };
 
+  const forceLogout = async (id: number) => {
+    await api(`/users/${id}/revoke-sessions`, { method: "POST" });
+    void load();
+  };
+
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div className="space-y-3">
@@ -563,7 +587,9 @@ function UsersPanel({ me }: { me: User }) {
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
         <select className={inputClass} value={draft.role}
           onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin").map(
+            (r) => <option key={r} value={r}>{r}</option>,
+          )}
         </select>
         <label className="block">
           <span className="text-muted-foreground mb-1 block text-xs font-medium">Password</span>
@@ -585,34 +611,61 @@ function UsersPanel({ me }: { me: User }) {
       </div>
       <div className="space-y-2">
         <h3 className="text-sm font-semibold tracking-tight">Team</h3>
-        {users.map((u) => (
-          <div key={u.id} className="rounded-lg border border-border px-3 py-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium">
-                {u.name} <span className="text-muted-foreground">· {u.email}</span>
-              </span>
-              <span className="flex items-center gap-2">
-                <select
-                  className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
-                  value={u.role}
-                  disabled={u.id === me.id}
-                  onChange={(e) => void patch(u.id, { role: e.target.value })}
-                >
-                  {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-                {u.id !== me.id && (
-                  <button
-                    type="button"
-                    className="text-xs underline"
-                    onClick={() => void patch(u.id, { is_active: u.is_active ? 0 : 1 })}
+        {users.map((u) => {
+          // An admin can see a super admin but cannot act on them
+          const locked = u.role === "super_admin" && me.role !== "super_admin";
+          return (
+            <div key={u.id} className="rounded-lg border border-border px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">
+                  {u.name} <span className="text-muted-foreground">· {u.email}</span>
+                  {!u.is_active && (
+                    <span className="bg-destructive/10 text-destructive ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                      Suspended
+                    </span>
+                  )}
+                </span>
+                <span className="flex flex-wrap items-center gap-2">
+                  <select
+                    className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                    value={u.role}
+                    disabled={u.id === me.id || locked}
+                    onChange={(e) => void patch(u.id, { role: e.target.value })}
                   >
-                    {u.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                )}
-              </span>
+                    {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin" || u.role === "super_admin").map(
+                      (r) => <option key={r} value={r}>{r}</option>,
+                    )}
+                  </select>
+                  {u.id !== me.id && !locked && (
+                    <>
+                      {/* Force logout: ends every session immediately but keeps the
+                          account. First response to "this account looks odd". */}
+                      <button
+                        type="button"
+                        className="text-xs underline"
+                        onClick={() => void forceLogout(u.id)}
+                      >
+                        Force logout
+                      </button>
+                      {/* Kill switch: suspend blocks sign-in AND revokes all
+                          sessions server-side, instantly. */}
+                      <button
+                        type="button"
+                        className={u.is_active ? "text-destructive text-xs font-medium underline" : "text-xs underline"}
+                        onClick={() => {
+                          if (u.is_active && !window.confirm(`Suspend ${u.email}? They are signed out everywhere immediately and cannot sign back in until reinstated.`)) return;
+                          void patch(u.id, { is_active: u.is_active ? 0 : 1 });
+                        }}
+                      >
+                        {u.is_active ? "Suspend" : "Reinstate"}
+                      </button>
+                    </>
+                  )}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -622,16 +675,31 @@ function UsersPanel({ me }: { me: User }) {
 
 const TABS = [
   "Dashboard",
+  "Website",
   "Enquiries",
-  "Products",
-  "Posts",
   "Portfolio",
   "Testimonials",
+  "Posts",
   "Media",
-  "Content",
   "Users",
+  "Account",
+  "Advanced",
 ] as const;
 type Tab = (typeof TABS)[number];
+
+/** Plain-language purpose line shown under the tab bar. */
+const TAB_HELP: Record<Tab, string> = {
+  Dashboard: "Company snapshot and recent account activity.",
+  Website: "Edit the text on the live website — hero, about, sections, footer, statistics.",
+  Enquiries: "Messages from the contact form.",
+  Portfolio: "Client work shown on the Portfolio page.",
+  Testimonials: "Client quotes shown on the site.",
+  Posts: "Blog articles.",
+  Media: "Uploaded images and files.",
+  Users: "Staff and customer accounts — roles, suspension, force logout.",
+  Account: "Your own sign-in security.",
+  Advanced: "Raw content keys — for anything the Website tab does not cover.",
+};
 
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -682,7 +750,7 @@ export default function AdminPage() {
       </header>
 
       <nav className="mt-8 flex flex-wrap gap-2" aria-label="Admin sections">
-        {TABS.filter((t) => t !== "Users" || user.role === "super_admin").map((t) => (
+        {TABS.filter((t) => t !== "Users" || ["super_admin", "admin"].includes(user.role)).map((t) => (
           <button
             key={t}
             type="button"
@@ -699,24 +767,9 @@ export default function AdminPage() {
       </nav>
 
       <main className="mt-8">
+        <p className="text-muted-foreground -mt-2 mb-4 text-xs">{TAB_HELP[tab]}</p>
         {tab === "Dashboard" && <Dashboard />}
         {tab === "Enquiries" && <Enquiries />}
-        {tab === "Products" && (
-          <CrudPanel
-            resource="products"
-            titleKey="name"
-            fields={[
-              { key: "slug", label: "Slug (unique)" },
-              { key: "name", label: "Name" },
-              { key: "category", label: "Category" },
-              { key: "description", label: "Description", type: "textarea" },
-              { key: "price_cents", label: "Price (sen — leave 0 for live-only)", type: "number" },
-              { key: "inventory", label: "Inventory", type: "number" },
-              { key: "is_featured", label: "Featured", type: "checkbox" },
-              { key: "is_visible", label: "Visible", type: "checkbox" },
-            ]}
-          />
-        )}
         {tab === "Posts" && (
           <CrudPanel
             resource="posts"
@@ -744,8 +797,10 @@ export default function AdminPage() {
           />
         )}
         {tab === "Media" && <MediaPanel />}
-        {tab === "Content" && <ContentPanel />}
-        {tab === "Users" && user.role === "super_admin" && <UsersPanel me={user} />}
+        {tab === "Website" && <SiteEditor />}
+        {tab === "Advanced" && <ContentPanel />}
+        {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
+        {tab === "Account" && <AccountPanel />}
         {tab === "Testimonials" && (
           <CrudPanel
             resource="testimonials"

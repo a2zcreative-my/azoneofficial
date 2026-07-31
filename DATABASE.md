@@ -114,3 +114,23 @@ CREATE TABLE audit_log (
 ## Migration policy
 - Numbered SQL migrations in `/migrations`, applied via `wrangler d1 migrations`
 - Every schema change documented here + CHANGELOG.md
+
+
+## v1.4.4 — migration 0007_role_modules.sql
+
+Additive migration behind the expanded role set:
+
+| Table / change | Purpose |
+|---|---|
+| `users.birthday` (new column) | Staff birthdays, maintained by HR via the staff directory |
+| `inventory_items` | Sales-side stock; status auto-derived: 0 → out_of_stock, ≤5 → low, else in_stock |
+| `postage_records` | Shipment tracking: preparing → shipped → in_transit → delivered / returned |
+| `material_requests` | Marketing material pipeline: requested → in_progress → done / rejected |
+| `bd_pipeline` | CCO deal tracking: open / pending / kiv / closed_won / closed_lost, with strategy + next action |
+| `ops_reports` | COO daily operational + sales report; UNIQUE (report_date, created_by) — resubmitting a day updates it |
+| `task_reports` | HR daily / weekly / monthly reports |
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.4 | 0007_role_modules.sql — role-module tables + users.birthday. |

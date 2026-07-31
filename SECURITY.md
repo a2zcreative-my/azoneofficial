@@ -52,3 +52,30 @@ Security concerns: contact the team via the address in constants/content.ts.
 - No email verification for password registrations (limits above mitigate; verification needs an outbound email service)
 - No strict Content-Security-Policy yet (Next.js inline runtime; revisit with nonce-based CSP)
 - SESSION_PEPPER / SETUP_TOKEN / GOOGLE_CLIENT_SECRET live only in Cloudflare secrets — never commit them
+
+
+## v1.4.3 — account control additions
+
+- `POST /api/v1/auth/change-password`: requires the current password; minimum 10 characters; on success deletes **all** sessions for the user and re-issues one for the requesting browser, so credential rotation also evicts any stolen session. OAuth-only accounts (hash `oauth$google`) are refused — allowing a session holder to add a password would convert temporary access into permanent access.
+- `POST /api/v1/users/:id/revoke-sessions` (admin+): immediate server-side session revocation ("force logout"), audit-logged with the revoked count.
+- Role escalation guards, enforced in the Worker (not just hidden in the UI): `admin` cannot modify a `super_admin`, cannot create or grant `super_admin`, and cannot change their own role. Suspension (`is_active = 0`) both blocks login and deletes sessions.
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.3 | Change-password endpoint with full session rotation; per-user force-logout endpoint; user management opened to `admin` behind server-side escalation guards. |
+
+
+## v1.4.4 — role-module permissions
+
+Every module endpoint is capability-checked in the Worker (`PERMS` in
+staff.ts): task_reports (HR), inventory (sales & marketing + COO), bd_manage
+(CCO), ops_manage (COO), exec_view (CEO + management, read-only). UI tabs are
+convenience only — the API is the boundary. The CEO role intentionally has no
+write permission on any module. Attendance flags (late / early out / weekend)
+are computed server-side against the 10:00–18:00 MYT shift so they cannot be
+suppressed client-side.
+
+| Version | Change |
+|---|---|
+| v1.4.4 | Capability matrix extended for hr_admin, sales_marketing, cco, ceo; exec_view is read-only. |

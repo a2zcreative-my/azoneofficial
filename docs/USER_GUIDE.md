@@ -23,3 +23,41 @@ Your details, your enquiry history (enquiries sent from the contact page with yo
 
 ## Staff Portal (/portal)
 Sign in at /login, then open /portal. Everyone: clock in/out and breaks, attendance history, apply/cancel leave and see balances, tasks, announcements (acknowledge), notifications, profile (phone editable), light/dark mode. Managers (MD/COO/Admin/Live Manager): approve/reject leave, team attendance report, post announcements, assign tasks, HR fields in staff directory. Sales roles (BD/Finance/MD/Admin): customers + quotations/DO; invoices are finance-only. Live Hosts see only their own attendance, leave, tasks, announcements, and profile.
+
+
+## Staff guide — role modules (v1.4.4)
+
+Sign in at /login with your @azoneofficial.com Google account. You land in the
+staff portal (/portal); your role decides which tabs you see.
+
+**Everyone:** clock in and out in *Attendance* (shift is 10:00am–6:00pm MYT,
+Monday–Friday — late clock-ins and early clock-outs are flagged for HR
+automatically), apply for Annual / Medical / Emergency leave in *Leave*, and
+change your password in *Profile* (Google accounts manage theirs with Google).
+
+**HR & Administrative:** the *HR* tab shows the attendance verification table
+for every staff member with a shift check per event; file your daily, weekly,
+or monthly task report there; staff birthdays list at the side. Approve or
+reject leave in *Leave*. Create quotations, delivery orders, and invoices in
+*Sales* — numbers are issued automatically as QT-AZOODDMMYY-X.
+
+**Sales & Marketing:** the *Inventory* tab holds live stock (use +/− to adjust
+— status updates itself), postage tracking (set each order's status as it
+moves), and marketing material requests (request what sales needs; mark done
+when produced).
+
+**Chief Commercial Officer:** the *Commercial* tab is the BD pipeline — add a
+prospect, then keep its status honest: open, pending, KIV, closed won, or
+closed lost, with your strategy and next action on the record.
+
+**Chief Operation Officer:** the *Operations* tab takes one report per day —
+operational status, sales results, and your strategy note for sales &
+marketing. Submitting the same date again updates it.
+
+**Chief Executive Officer:** the *Overview* tab is the whole company at a
+glance — read-only by design.
+
+## History (do not remove)
+| Version | Change |
+|---|---|
+| v1.4.4 | Staff guide for the five role modules added. |
