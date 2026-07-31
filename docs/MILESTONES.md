@@ -337,3 +337,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.4.38 — 31 Jul 2026 — Punch feedback + thresholds
 - Clock in after 12:00 = half day; clock out before 18:00 = early out (HR report aligned)
 - Repeat taps show an amber popup with the time already recorded; buttons show Clocked in/out ✓
+
+## v1.4.39 — 31 Jul 2026 — CEO Sales tab fix
+- Sales content gate now matches the tab gate; CEO sees documents + customers read-only

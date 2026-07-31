@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.39] — 2026-07-31 — Fix: CEO's Sales tab rendered nothing
+
+### Fixed
+- **The CEO's Sales tab opened to a blank page.** v1.4.33 added the CEO to the tab list, but the content had a *second* role check that still excluded the CEO — so the button appeared and clicking it rendered nothing. The content gate now matches the tab gate. Audited every other tab for the same mismatch: Sales was the only one
+- **Sales for the CEO is now a proper read-only view**: the documents list with statuses and PDF printing, plus a **customer list** (company + contact). The Add customer form joins Create document in being hidden for the CEO — the API would have rejected those writes anyway, so offering them was misleading
+
+### Deploy
+- Rebuild the site (`pnpm build`) and hard refresh. No worker change, no migration
+
+
 ## [1.4.38] — 2026-07-31 — Repeat-punch popup + revised shift thresholds
 
 ### Changed

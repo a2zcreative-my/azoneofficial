@@ -737,7 +737,8 @@ function Sales({ user }: { user: User }) {
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Add customer</p>
+          <p className="text-sm font-semibold">{user.role === "ceo" ? "Customers" : "Add customer"}</p>
+          {user.role !== "ceo" && (
           <div className="mt-3 space-y-3">
             <input className={inputClass} placeholder="Company *" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
             <div className="grid grid-cols-2 gap-3">
@@ -746,6 +747,20 @@ function Sales({ user }: { user: User }) {
             </div>
             <input className={inputClass} placeholder="Email" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
             <button type="button" className={btnClass} onClick={() => void addCustomer()}>Save customer</button>
+          </div>
+          )}
+          <div className="mt-3 max-h-56 overflow-y-auto">
+            {customers.length === 0 && (
+              <p className="text-muted-foreground text-sm">No customers yet.</p>
+            )}
+            {customers.map((c) => (
+              <div key={c.id} className="border-border border-b py-1.5 text-sm last:border-0">
+                <span className="font-medium">{c.company}</span>
+                {c.contact_person && (
+                  <span className="text-muted-foreground"> · {c.contact_person}</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -1070,7 +1085,9 @@ export default function PortalPage() {
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
+        {tab === "Sales" && (SALES_ROLES.includes(user.role) || user.role === "ceo") && (
+          <Sales user={user} />
+        )}
         {tab === "HR" && (
           <>
             <HrPanel />

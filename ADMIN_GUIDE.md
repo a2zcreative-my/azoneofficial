@@ -470,3 +470,8 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.38 | Half day after 12:00; early out before 18:00; repeat-punch popup. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.39 | Fixed blank Sales tab for CEO (content gate excluded ceo); CEO Sales = read-only documents + customer list. |
