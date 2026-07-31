@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.17] — 2026-07-31 — Staff directory reaches HR; save feedback
+
+### Fixed / Changed
+- **hr_admin (and coo/cco) can now fill in employee ID, position, department and badge details.** The staff directory + ID badge tool previously lived only in /admin (super_admin/admin). It is now also in the portal **HR** tab, so hr_admin manages it in their own interface. The API already permitted them (`hr_manage` includes hr_admin) — only the UI was missing
+- The directory component moved to a shared location (`components/staff/staff-directory.tsx`) so /admin and /portal share one implementation
+- **Save now reports failure.** A failed field save was silent; it now shows "Save failed — check access" so the cause is visible instead of looking like nothing happened
+
+### Note
+- If the Staff tab still shows only leave admin + module cards (no editable employee fields), the deployed build predates v1.4.15 — deploy this build to get the directory and badge tool
+
+
 ## [1.4.16] — 2026-07-31 — Payroll, calendar, audit viewer, document PDFs
 
 ### Added

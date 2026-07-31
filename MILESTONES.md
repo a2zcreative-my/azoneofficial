@@ -263,3 +263,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.4.16 — 31 Jul 2026 — Payroll, calendar, audit, PDFs
 - Leave entitlement editor + confirmed balance deduction; public holidays calendar
 - Payslip/payroll summary (printable); audit-log viewer in /admin; off-platform notify webhook; branded QT/DO/INV PDFs
+
+## v1.4.17 — 31 Jul 2026 — Staff directory for HR
+- Employee-field editor + ID badge now in portal HR tab (hr_admin/coo/cco), shared with /admin; save failures surfaced

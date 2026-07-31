@@ -694,6 +694,8 @@ function Sales({ user }: { user: User }) {
 function Profile() {
   const [profile, setProfile] = useState<Record<string, string | null>>({});
   const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
     void api<{ profile: Record<string, string | null> }>(`/staff/profile`).then((r) => {
       if (r.data?.profile) {
@@ -703,7 +705,15 @@ function Profile() {
     });
   }, []);
   const save = async () => {
-    await api(`/staff/profile`, { method: "PATCH", body: JSON.stringify({ phone }) });
+    setSaving(true);
+    const res = await api(`/staff/profile`, { method: "PATCH", body: JSON.stringify({ phone }) });
+    setSaving(false);
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      alert("Failed to save phone number");
+    }
   };
   return (
     <div className={`${card} max-w-lg`}>
@@ -720,7 +730,9 @@ function Profile() {
         <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
         <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
       </label>
-      <button type="button" className={`${btnClass} mt-3`} onClick={() => void save()}>Save</button>
+      <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
+        {saving ? "Saving..." : saved ? "Saved!" : "Save"}
+      </button>
 
       <div className="mt-6 border-t border-border pt-5">
         <p className="text-sm font-semibold">Change password</p>

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
-import { StaffDirectory } from "@/components/admin/staff-directory";
+import { StaffDirectory } from "@/components/staff/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
 import { PasswordInput } from "@/components/ui/password-input";
 import { SiteEditor } from "@/components/admin/site-editor";

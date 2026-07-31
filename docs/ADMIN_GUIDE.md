@@ -203,3 +203,15 @@ card size).
 | Version | Change |
 |---|---|
 | v1.4.16 | Entitlement editor, holidays, payslip, audit viewer, document PDFs, notify webhook. |
+
+
+## Staff directory access (v1.4.17)
+Employee-field editing and ID badge printing are available to:
+- super_admin / admin — /admin → Staff
+- hr_admin / coo / cco — /portal → HR
+Same tool, same API. Set employee_id / position / department / issue date /
+blood type, then Print badge (85.6 × 54 mm).
+
+| Version | Change |
+|---|---|
+| v1.4.17 | Staff directory + badge added to portal HR tab (hr_admin/coo/cco); save-failure feedback. |

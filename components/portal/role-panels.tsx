@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { StaffDirectory } from "../staff/staff-directory";
 
 const API = "/api/v1/staff";
 
@@ -239,6 +240,8 @@ export function HrPanel() {
           </p>
         </div>
       </div>
+
+      <StaffDirectory />
     </div>
   );
 }
