@@ -932,17 +932,33 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (body.role === "super_admin" && !atLeast(user, "super_admin")) {
       return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
     }
+    const email = (body.email as string).toLowerCase().trim();
+    // Check the email conflict explicitly, so a constraint failure elsewhere
+    // (e.g. a role the database does not yet allow) is never mislabelled as
+    // "email already exists".
+    const existing = await env.DB.prepare(`SELECT id FROM users WHERE email = ?1`)
+      .bind(email)
+      .first<{ id: number }>();
+    if (existing) {
+      return errorResponse("email_exists", "A user with this email already exists", 409);
+    }
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
         `INSERT INTO users (email, password_hash, name, role) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
       )
-        .bind((body.email as string).toLowerCase().trim(), hash, (body.name as string).trim(), body.role)
+        .bind(email, hash, (body.name as string).trim(), body.role)
         .first<{ id: number }>();
       await audit(env, user.id, "user.create", "users", String(res?.id), { role: body.role });
       return json({ id: res?.id }, 201);
-    } catch {
-      return errorResponse("conflict", "A user with this email already exists", 409);
+    } catch (e) {
+      // Most likely a CHECK constraint (role not yet allowed by the DB) —
+      // report it as what it is, with the fix in the message.
+      return errorResponse(
+        "db_constraint",
+        "The database rejected this user. If you picked a newer role (cco, ceo, hr_admin, sales_marketing), run migration 0008 (`wrangler d1 migrations apply azoneofficial --remote`) and try again.",
+        500,
+      );
     }
   }
 

@@ -558,9 +558,17 @@ function UsersPanel({ me }: { me: User }) {
 
   const create = async () => {
     setError("");
-    const res = await api("/users", { method: "POST", body: JSON.stringify(draft) });
+    const res = await api<{ error?: { code?: string; message?: string } }>("/users", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    });
     if (!res.ok) {
-      setError(res.status === 409 ? "Email already exists." : "Check all fields — password needs 10+ characters.");
+      setError(
+        res.status === 409
+          ? "Email already exists."
+          : (res.data?.error?.message ??
+            "Check all fields — password needs 10+ characters."),
+      );
       return;
     }
     setDraft({ email: "", name: "", role: "editor", password: "" });

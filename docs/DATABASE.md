@@ -134,3 +134,16 @@ Additive migration behind the expanded role set:
 | Version | Change |
 |---|---|
 | v1.4.4 | 0007_role_modules.sql — role-module tables + users.birthday. |
+
+
+## v1.4.7 — migration 0008_expand_role_check.sql
+
+Rebuilds `users` (SQLite cannot alter a CHECK) with the role list expanded to
+the v1.4.4 set: adds `ceo`, `cco`, `hr_admin`, `sales_marketing`. Same rebuild
+pattern as 0004; all rows preserved; includes the 0007 `birthday` column in the
+new definition. Root cause and the accompanying API fix are recorded in
+CHANGELOG [1.4.7].
+
+| Version | Change |
+|---|---|
+| v1.4.7 | 0008 — users.role CHECK expanded to the full role set. |

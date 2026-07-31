@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.7] — 2026-07-31 — Fix: false "Email already exists" for new roles
+
+### Fixed
+- **Creating a user with a v1.4.4 role (cco, ceo, hr_admin, sales_marketing) failed with "Email already exists" even for brand-new emails.** Two bugs stacked: (1) migration 0007 added the new roles to the code but the users table still carried the 0004-era CHECK constraint listing only the old roles, so the insert was rejected by the database; (2) the API's catch-all translated *every* insert failure into an email conflict, so the true cause was hidden. Migration `0008_expand_role_check.sql` rebuilds the users table with the full role list (all data preserved — 0004's own rebuild pattern, plus the 0007 `birthday` column); the API now checks the email conflict explicitly and reports any remaining database rejection as what it is, with the fix in the message; the admin form displays the server's actual error instead of guessing
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0008) → `npx wrangler deploy` → rebuild site. Until 0008 runs, creating users with the new roles keeps failing — now with an honest message saying exactly that
+
+
 ## [1.4.6] — 2026-07-31 — Admin password reset
 
 ### Added

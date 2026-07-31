@@ -230,3 +230,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.6 — 31 Jul 2026 — Admin password reset
 - Per-user Reset password in /admin Users (forgotten-password flow, sessions revoked on set)
+
+## v1.4.7 — 31 Jul 2026 — Role CHECK fix
+- Migration 0008 expands users.role CHECK to the v1.4.4 roles; API stops mislabelling constraint failures as email conflicts
