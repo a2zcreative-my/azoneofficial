@@ -158,8 +158,14 @@ export async function handleStaff(
     // staff may update their own phone + name only
     const sets: string[] = [];
     const vals: (string | number)[] = [];
-    if (str(body?.phone, 40)) { sets.push(`phone = ?${sets.length + 1}`); vals.push(body!.phone as string); }
-    if (str(body?.name, 120)) { sets.push(`name = ?${sets.length + 1}`); vals.push(body!.name as string); }
+    if (typeof body?.phone === "string" && body.phone.length <= 40) {
+      sets.push(`phone = ?${sets.length + 1}`);
+      vals.push(body.phone.trim() || null);
+    }
+    if (typeof body?.name === "string" && body.name.trim().length > 0 && body.name.length <= 120) {
+      sets.push(`name = ?${sets.length + 1}`);
+      vals.push(body.name.trim());
+    }
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
       .bind(...vals, user.id).run();
