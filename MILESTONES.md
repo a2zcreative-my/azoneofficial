@@ -292,3 +292,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.25 — 31 Jul 2026 — Compact lists + photo at create
 - Fixed-height scroll areas for all long lists; add-staff photo picker with auto-upload; dashboard shift text removed
+
+## v1.4.26 — 31 Jul 2026 — Bell rings for announcements
+- Publishing an announcement notifies all active staff (bell + optional off-platform relay); notification clicks through to the tab

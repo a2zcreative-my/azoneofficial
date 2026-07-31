@@ -579,6 +579,14 @@ export async function handleStaff(
     const res = await env.DB.prepare(
       `INSERT INTO announcements (title, body, category, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
     ).bind(body.title, body.body, category, user.id).first<{ id: number }>();
+    // Ring the bell: every active staff member gets a notification (and the
+    // off-platform relay, when configured). The poster already knows.
+    const { results: recipients } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1 AND id != ?1`,
+    ).bind(user.id).all();
+    for (const r of recipients as { id: number }[]) {
+      await notify(env, r.id, "announcement", `New announcement: ${body.title as string}`, `announcement:${res?.id}`);
+    }
     await audit(env, user.id, "announcement.create", "announcements", String(res?.id));
     return json({ id: res?.id }, 201);
   }

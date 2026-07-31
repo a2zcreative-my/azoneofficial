@@ -882,7 +882,18 @@ export default function PortalPage() {
           {notifs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing yet.</p>}
           {notifs.map((n) => (
             <p key={n.id} className="mt-2 text-sm">
-              {n.message} <span className="text-muted-foreground text-xs">· {n.created_at.slice(0, 16)}</span>
+              {n.kind === "announcement" ? (
+                <button
+                  type="button"
+                  className="text-left underline-offset-2 hover:underline"
+                  onClick={() => setTab("Announcements")}
+                >
+                  {n.message}
+                </button>
+              ) : (
+                n.message
+              )}{" "}
+              <span className="text-muted-foreground text-xs">· {n.created_at.slice(0, 16)}</span>
             </p>
           ))}
         </div>

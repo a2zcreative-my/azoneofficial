@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.26] — 2026-07-31 — Bell rings for announcements
+
+### Changed
+- **Publishing an announcement now notifies every active staff member** — the bell shows "New announcement: TITLE" for everyone except the poster. Previously announcements only appeared in their own tab; the bell never knew about them
+- **Announcement notifications are clickable** — selecting one jumps straight to the Announcements tab to read and acknowledge
+- Because this goes through the standard notification path, the **off-platform relay** (NOTIFY_WEBHOOK, when configured) carries announcements too — staff who aren't signed in can still hear about them
+
+### Deploy
+- `npx wrangler deploy` (announcement handler) → rebuild site. No migration
+
+
 ## [1.4.25] — 2026-07-31 — Scrollable lists, photo at create, quieter dashboard
 
 ### Changed

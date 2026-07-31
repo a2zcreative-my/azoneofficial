@@ -311,3 +311,12 @@ to signed-in staff.
 | Version | Change |
 |---|---|
 | v1.4.25 | Scrollable list areas across tabs; photo picker in add-staff; shift-rule text removed from dashboard. |
+
+
+## v1.4.26 note
+Announcements ring the bell for all active staff (and the off-platform relay
+when configured); clicking the notification opens the Announcements tab.
+
+| Version | Change |
+|---|---|
+| v1.4.26 | Announcement publish fans out to every staff bell; clickable to the tab. |
