@@ -902,7 +902,7 @@ export default function AdminPage() {
         {tab === "Website" && <SiteEditor />}
         {tab === "Advanced" && <ContentPanel />}
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
-        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
+        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory canAmend /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
         {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && <AuditPanel />}
         {tab === "Account" && <AccountPanel />}
         {tab === "Testimonials" && (

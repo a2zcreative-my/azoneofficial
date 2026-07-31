@@ -260,3 +260,42 @@ passwords via change-password or admin reset).
 | Version | Change |
 |---|---|
 | v1.4.21 | Add-staff form updates an existing account's employee fields on email conflict. |
+
+
+## Badge & record policy (v1.4.22)
+- **Preview badge** shows the live card before printing; print matches exactly.
+- Records carry **full name (as per IC)** and **phone**; blood type is retired.
+- The badge shows the **company logo**, role, full name, employee ID, position,
+  department, phone, SSM number and issue date.
+- **Amendment lock**: HR fills empty fields; once saved, a field locks (🔒) and
+  only an admin can change it in /admin → Staff. The API enforces this — the
+  lock is real, not cosmetic. Birthdays lock the same way.
+
+| Version | Change |
+|---|---|
+| v1.4.22 | Live badge preview; amendment lock (admin-only edits of set fields); full name + phone on badge; logo replaces wordmark; blood type retired. |
+
+
+## Badge v2 (v1.4.23)
+Portrait card (54 × 85.6 mm) with: company logo, staff photo, full name, role,
+employee ID, position, department, phone, and a footer carrying the company
+location (Setia Tropika, Johor Bahru), SSM number and issue date.
+**Upload photo** on each row sets the picture (HR uploads first, replacement is
+admin-only — same lock as record fields). Photos are private: they serve only
+to signed-in staff.
+
+| Version | Change |
+|---|---|
+| v1.4.23 | Portrait badge with staff photo + company location; private photo storage. |
+
+
+## v1.4.24 notes
+- Dates in Staff Details are DD-MM-YYYY on screen (stored ISO underneath).
+- Blood type is record data only — captured at create and editable in the grid,
+  never printed on the badge.
+- The add-staff form captures birth date, ID issued and blood type up front,
+  and the temp password box has the show/hide eye.
+
+| Version | Change |
+|---|---|
+| v1.4.24 | DD-MM-YYYY display; blood type back as record-only data; create form captures birth/issued/blood; password eye on temp password. |

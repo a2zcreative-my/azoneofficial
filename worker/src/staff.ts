@@ -214,8 +214,10 @@ export async function handleStaff(
   user: StaffUser,
 ): Promise<Response | null> {
   const method = request.method;
+  // The photo route carries a binary body — JSON-parsing it would consume the
+  // stream, so it is excluded here and reads request.body directly.
   const body =
-    ["POST", "PUT", "PATCH"].includes(method)
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -268,13 +270,16 @@ export async function handleStaff(
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department, birthday, id_issued_on, blood_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
       ).bind(
         email, hash, (body.name as string).trim(), body.role,
         str(body.employee_id, 60) ? body.employee_id : null,
         str(body.position, 120) ? body.position : null,
         str(body.department, 120) ? body.department : null,
+        str(body.birthday, 10) ? body.birthday : null,
+        str(body.id_issued_on, 10) ? body.id_issued_on : null,
+        str(body.blood_type, 5) ? body.blood_type : null,
       ).first<{ id: number }>();
       await audit(env, user.id, "staff.create", "users", String(res?.id), { role: body.role });
       return json({ id: res?.id }, 201);
@@ -283,30 +288,78 @@ export async function handleStaff(
     }
   }
 
+  const photoMatch = path.match(/^\/users\/(\d+)\/photo$/);
+  if (photoMatch && method === "POST") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const id = photoMatch[1]!;
+    const target = await env.DB.prepare(`SELECT photo_key FROM users WHERE id = ?1`)
+      .bind(id).first<{ photo_key: string | null }>();
+    if (!target) return err("not_found", "Staff not found", 404);
+    // Same amendment policy as the record fields: HR sets the first photo,
+    // replacing an existing one is admin-only.
+    const adminTier = user.role === "super_admin" || user.role === "admin";
+    if (target.photo_key && !adminTier) {
+      return err("locked", "A photo is already set — replacements need an admin (/admin → Staff).", 403);
+    }
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const ct = request.headers.get("Content-Type") ?? "";
+    if (!ct.startsWith("image/")) return err("invalid_input", "Upload must be an image", 400);
+    const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : "jpg";
+    // private/ prefix: serving requires staff auth (badge preview/print run signed in)
+    const key = `private/staff-photos/${id}-${Date.now()}.${ext}`;
+    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    await env.DB.prepare(`UPDATE users SET photo_key = ?1 WHERE id = ?2`).bind(key, id).run();
+    await audit(env, user.id, "staff.photo", "users", id);
+    return json({ photo_key: key, url: `/api/v1/media/file/${encodeURIComponent(key)}` }, 201);
+  }
+
   if (path === "/users" && method === "GET") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
     const { results } = await env.DB.prepare(
-      `SELECT id, name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, blood_type, birthday
+      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results, staff: results });
   }
   const staffUser = path.match(/^\/users\/(\d+)$/);
   if (staffUser && method === "PATCH") {
-    // hr_admin/coo/cco/admin tier manage all staff fields. CEO is read-only
+    // hr_admin/coo/cco/admin tier manage staff fields. CEO is read-only
     // everywhere EXCEPT staff birthdays, which policy lets the CEO maintain.
     const onlyBirthday = body && Object.keys(body).length > 0 &&
       Object.keys(body).every((k) => k === "birthday");
     const allowed = can(user, "hr_manage") || (onlyBirthday && user.role === "ceo");
     if (!allowed) return err("forbidden", "HR access required", 403);
     const id = staffUser[1]!;
-    // employee_id / position / department / employment_status stay hr_manage.
-    // birthday may also be set by CEO (who is otherwise read-only) per policy.
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "blood_type"] as const;
+    // Amendment policy (v1.4.22): HR may FILL a field that is still empty;
+    // once a value is saved it locks, and changing it needs an admin. This
+    // keeps records stable — corrections go through /admin deliberately.
+    const adminTier = user.role === "super_admin" || user.role === "admin";
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type"] as const;
+    const current = await env.DB.prepare(
+      `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
+       FROM users WHERE id = ?1`,
+    ).bind(id).first<Record<string, string | null>>();
+    if (!current) return err("not_found", "Staff not found", 404);
     const sets: string[] = [];
     const vals: string[] = [];
+    const locked: string[] = [];
     for (const f of fields) {
-      if (str(body?.[f], 120)) { sets.push(`${f} = ?${sets.length + 1}`); vals.push(body![f] as string); }
+      if (!str(body?.[f], 200)) continue;
+      const incoming = (body![f] as string).trim();
+      const existing = (current[f] ?? "").trim();
+      if (existing && existing !== incoming && !adminTier) {
+        locked.push(f);
+        continue;
+      }
+      sets.push(`${f} = ?${sets.length + 1}`);
+      vals.push(incoming);
+    }
+    if (locked.length > 0) {
+      return err(
+        "locked",
+        `Already set and locked: ${locked.join(", ")}. Amendments need an admin (/admin → Staff).`,
+        403,
+      );
     }
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)

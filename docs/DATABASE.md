@@ -176,3 +176,20 @@ the existing leave_balances table (0003); no schema change needed there.
 | Version | Change |
 |---|---|
 | v1.4.16 | 0011 — holidays / company calendar table. |
+
+
+## v1.4.22 — migration 0012_full_name.sql
+Adds users.full_name (name as per IC, used on the ID badge). blood_type is
+retired from UI and badge but the column remains per append-only policy.
+
+| Version | Change |
+|---|---|
+| v1.4.22 | 0012 — users.full_name; blood_type retired from UI (column kept). |
+
+
+## v1.4.23 — migration 0013_staff_photo.sql
+Adds users.photo_key (R2 key under private/staff-photos/, staff-auth to serve).
+
+| Version | Change |
+|---|---|
+| v1.4.23 | 0013 — users.photo_key for the badge photo. |

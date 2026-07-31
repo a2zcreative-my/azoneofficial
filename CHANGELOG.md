@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.24] — 2026-07-31 — DD-MM-YYYY dates, richer create form, password eye
+
+### Changed
+- **Dates display and enter as DD-MM-YYYY** across the staff list and badge (birth date, ID issued). The database keeps ISO (YYYY-MM-DD) — conversion happens at the edge, so sorting, payroll queries and existing data are untouched
+- **Blood type returns as record data** (list grid + create form) after being removed in v1.4.22 — that removal was meant for the badge card only. It stays **off the badge**: field label reads "record only, not on badge"
+
+### Added
+- **Add-staff form** now captures birth date (DD-MM-YYYY), ID issued (DD-MM-YYYY) and blood type at creation — the create endpoint stores them, so a new person's record is complete in one step
+- **Temp password has the show/hide eye** — the shared PasswordInput component used everywhere else now covers the create form too
+
+### Deploy
+- `npx wrangler deploy` (create endpoint fields) → rebuild. No new migration
+
+
+## [1.4.23] — 2026-07-31 — Portrait badge, staff photo, company location
+
+### Changed
+- **Badge is now portrait** (54 × 85.6 mm — the ID-1 card rotated, lanyard style): logo on top, photo, name, role chip, details, footer. Preview and print share the layout, both portrait
+- **Company location on the badge**: the footer now shows "Setia Tropika, Johor Bahru, Malaysia" above the SSM number and issue date (one constant in the component — COMPANY_LOCATION — if the office ever moves)
+
+### Added
+- **Staff photo upload** per row (Upload photo). Stored in R2 under `private/staff-photos/` — serving requires staff sign-in, so photos are not publicly fetchable. Shown in the live preview and printed on the badge; a placeholder box prints if no photo is set
+- New endpoint `POST /api/v1/staff/users/:id/photo` (HR tier). The **amendment lock applies**: HR uploads the first photo; replacing an existing one is admin-only, same as record fields. The route reads the raw image stream (exempted from the JSON body parse)
+- Migration **0013** — `users.photo_key`
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0013) → `npx wrangler deploy` → rebuild site
+
+
+## [1.4.22] — 2026-07-31 — Badge preview, amendment lock, badge redesign
+
+### Added
+- **Live badge preview**: each staff row has a **Preview badge** toggle that renders the ID card on screen at true size (85.6 × 54 mm), updating live as you type — see exactly what will print before printing. Print uses the identical layout
+- **Full name and phone number** on the record and the badge. New `users.full_name` column (migration 0012) holds the name as per IC (e.g. "Mohd Alif Farhan Bin Nazarudin") separate from the short display name; the badge prints the full name and phone
+
+### Changed
+- **Amendment lock**: once a field is saved it greys out (🔒) for HR — filling empty fields stays open, but changing a set value is **admin-only** (/admin → Staff). Enforced server-side (the API rejects locked-field changes for non-admin with a clear message), not just visually. Applies to birthdays too, including the CEO's birthday tab
+- **Badge uses the AZ ONE OFFICIAL logo** (public/logo.png) instead of the text wordmark
+- **Blood type retired** from the form, the record grid, and the badge. The database column stays (append-only schema policy) but is no longer shown or edited
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0012) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.21] — 2026-07-31 — Update existing staff from the add form
 
 ### Changed

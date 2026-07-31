@@ -803,14 +803,19 @@ export function BirthdaysPanel() {
     void load();
   }, [load]);
 
+  const [birthdayMsg, setBirthdayMsg] = useState("");
   const save = async (id: number) => {
     const v = draft[id];
     if (v === undefined) return;
-    const res = await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ birthday: v }) });
+    setBirthdayMsg("");
+    const res = await api<{ error?: { message?: string } }>(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ birthday: v }) });
     if (res.ok) {
       setSaved(id);
       window.setTimeout(() => setSaved(null), 2500);
       void load();
+    } else {
+      // A set birthday is locked — amendments happen in /admin (v1.4.22 policy).
+      setBirthdayMsg(res.data?.error?.message ?? "Save failed — check access");
     }
   };
 
@@ -823,7 +828,9 @@ export function BirthdaysPanel() {
       <p className="text-sm font-semibold">Staff birthdays</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Set each person&apos;s birthday (YYYY-MM-DD). Sorted by month and day.
+        Once saved, a birthday locks — corrections are made by an admin.
       </p>
+      {birthdayMsg && <p className="text-destructive mt-2 text-xs font-medium">{birthdayMsg}</p>}
       <ul className="mt-3 space-y-2">
         {sorted.map((u) => (
           <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">

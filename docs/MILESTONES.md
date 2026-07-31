@@ -279,3 +279,13 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.21 — 31 Jul 2026 — Update-instead on existing email
 - Add-staff form resolves email conflicts by offering to update the existing record's employee fields (never role/password)
+
+## v1.4.22 — 31 Jul 2026 — Badge preview + amendment lock
+- Live on-screen badge preview at true card size; badge redesigned (logo, full name, phone; no blood type)
+- Saved fields lock for HR — amendments admin-only, enforced server-side; migration 0012 (full_name)
+
+## v1.4.23 — 31 Jul 2026 — Portrait badge + photo + location
+- Badge portrait (54×85.6mm) with staff photo (private R2 storage, HR uploads / admin replaces) and company location in footer; migration 0013
+
+## v1.4.24 — 31 Jul 2026 — Date format + create form completeness
+- DD-MM-YYYY everywhere staff-facing (ISO in DB); blood type restored as record-only data; create captures birth date/ID issued/blood type; eye toggle on temp password

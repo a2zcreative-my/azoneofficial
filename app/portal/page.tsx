@@ -907,7 +907,7 @@ export default function PortalPage() {
         {tab === "Announcements" && <Announcements user={user} />}
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
         {tab === "HR" && <HrPanel />}
-        {tab === "Staff Details" && <StaffDirectory />}
+        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin"].includes(user.role)} />}
         {tab === "Inventory" && <InventoryPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
