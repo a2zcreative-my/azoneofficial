@@ -289,7 +289,7 @@ export async function handleStaff(
       `SELECT id, name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, blood_type, birthday
        FROM users ORDER BY name`,
     ).all();
-    return json({ users: results });
+    return json({ users: results, staff: results });
   }
   const staffUser = path.match(/^\/users\/(\d+)$/);
   if (staffUser && method === "PATCH") {
