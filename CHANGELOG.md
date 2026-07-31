@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.35] — 2026-07-31 — Self-registration is always customer
+
+### Fixed (security)
+- **Every self-registration now creates a customer account — no exceptions.** Google sign-in previously auto-assigned the *marketing* staff role to any company-domain Google email, active immediately with no approval: an unattended path into the staff side. Removed. Email registration was already customer-only by design
+- **Role assignment is now exclusively explicit**: /admin → Users (admin tier) or HR staff creation. Existing staff who sign in with Google on an email an admin already elevated keep their assigned role — that path is unchanged
+- Note: no self-registration path ever assigned super_admin; if any account holds an unexpected role today, correct it in /admin → Users (role changes are audit-logged)
+
+### Deploy
+- `npx wrangler deploy` only. No migration, no site rebuild required
+
+
 ## [1.4.34] — 2026-07-31 — Bell backfill, NEW announcement animation, rank rework
 
 ### Fixed

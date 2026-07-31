@@ -594,17 +594,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .first<{ id: number; is_active: number }>();
 
     if (!account) {
-      // Google-verified email: company domain -> staff-side (marketing) account;
-      // everyone else -> active customer account.
-      const isCompany = email.endsWith(`@${env.COMPANY_DOMAIN}`);
+      // Every self-registration is a CUSTOMER — no exceptions (v1.4.35).
+      // Google sign-up previously auto-assigned the "marketing" staff role to
+      // company-domain emails; that was an unattended path into the staff
+      // side. Staff and admin roles are now granted ONLY by explicit
+      // assignment: /admin Users (admin tier) or HR staff creation. A staff
+      // member who signs in with Google on an email an admin already
+      // elevated keeps their assigned role — that path is unchanged.
       const res = await env.DB.prepare(
         `INSERT INTO users (email, password_hash, name, role, is_active)
-         VALUES (?1, 'oauth$google', ?2, ?3, 1) RETURNING id, is_active`,
+         VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active`,
       )
-        .bind(email, profile.name ?? email, isCompany ? "marketing" : "customer")
+        .bind(email, profile.name ?? email)
         .first<{ id: number; is_active: number }>();
       account = res!;
-      await audit(env, null, isCompany ? "auth.google_signup_company" : "auth.google_signup_customer", "users", String(account.id));
+      await audit(env, null, "auth.google_signup_customer", "users", String(account.id));
     }
 
     if (!account.is_active) {

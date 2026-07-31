@@ -220,3 +220,14 @@ pre-approval roles unchanged. All writes remain audit-logged.
 | Version | Change |
 |---|---|
 | v1.4.34 | hr_manage = super_admin/admin/hr_admin/ceo; COO & CCO read-only on staff data. |
+
+
+## v1.4.35 — self-registration hardening
+All self-registration paths (email form, Google sign-in) create role=customer,
+is_active=1, always. The former company-domain Google auto-"marketing"
+assignment is removed. Staff/admin roles exist only through explicit
+assignment in /admin Users or HR staff creation — both audit-logged.
+
+| Version | Change |
+|---|---|
+| v1.4.35 | Google sign-up no longer auto-assigns staff roles; self-registration = customer, always. |

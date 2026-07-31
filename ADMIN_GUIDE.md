@@ -425,3 +425,8 @@ announcement was published relative to a deploy.
 | Version | Change |
 |---|---|
 | v1.4.34 | Bell backfill; NEW announcement animation; CEO edits Staff/HR/Staff Details, COO & CCO read-only. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.35 | Self-registration (email or Google) always creates a customer; staff roles granted only via /admin Users or HR staff creation. |

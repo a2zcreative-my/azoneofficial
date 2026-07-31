@@ -322,3 +322,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.4.34 — 31 Jul 2026 — Backfilled bell + rank rework
 - Announcement notifications backfill on read (deploy-order independent); NEW pulse on unacked announcements
 - CEO edits Staff/HR/Staff Details (+ HR tools in portal, also for hr_admin); COO & CCO read-only; leave chain unchanged
+
+## v1.4.35 — 31 Jul 2026 — Registration hardening
+- All self-registration = customer, always; Google company-domain auto-staff assignment removed
