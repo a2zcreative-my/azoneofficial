@@ -305,3 +305,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.29 — 31 Jul 2026 — Punch integrity + confirmation
 - One punch per type per day (server-enforced 409); animated ring-and-check confirmation card with result + MYT time
+
+## v1.4.30 — 31 Jul 2026 — Company-start accrual
+- 2026 leave entitlement divides over Jul–Dec (start 20 Jul 2026); Jan–Dec from 2027 automatically

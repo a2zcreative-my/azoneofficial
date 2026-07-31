@@ -503,12 +503,17 @@ export async function handleStaff(
 
   if (path === "/leave/balance" && method === "GET") {
     const year = new Date().getFullYear();
-    // Monthly release (v1.4.27): entitlement accrues pro-rata through the
-    // year instead of being available as a lump sum on 1 Jan. By the end of
-    // month M, floor(entitled × M / 12 × 2)/2 days (half-day steps) are
-    // eligible; the annual total is still shown. E.g. 14 AL/year → ~2 days
-    // eligible by end of Feb.
+    // Monthly release (v1.4.30): entitlement accrues pro-rata over the
+    // months the company actually operates in the year. AZ ONE started
+    // 20 Jul 2026, so 2026 divides the annual entitlement across Jul–Dec
+    // (6 months): 14 AL/year → ~2.0 eligible by end of July, 4.5 by end of
+    // August … full 14 by December. From 2027 the window is the normal
+    // Jan–Dec twelve months. Half-day steps.
+    const COMPANY_START = { year: 2026, month: 7 };
     const monthMYT = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
+    const windowStart = year === COMPANY_START.year ? COMPANY_START.month : 1;
+    const monthsTotal = 12 - windowStart + 1;
+    const monthsElapsed = Math.min(Math.max(monthMYT - windowStart + 1, 0), monthsTotal);
     const balances: Record<string, { entitled: number; used: number; accrued: number }> = {};
     for (const t of LEAVE_TYPES) {
       const ent = await env.DB.prepare(
@@ -520,7 +525,7 @@ export async function handleStaff(
          AND start_date LIKE ?3 || '%'`,
       ).bind(user.id, t, String(year)).first<{ used: number }>();
       const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
-      const accrued = Math.floor(((entitled * monthMYT) / 12) * 2) / 2;
+      const accrued = Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
       balances[t] = { entitled, used: used?.used ?? 0, accrued };
     }
     return json({ year, month: monthMYT, balances });

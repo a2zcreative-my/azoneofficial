@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.30] — 2026-07-31 — Accrual anchored to the company start (20 Jul 2026)
+
+### Changed
+- **Leave accrual now divides over the months the company actually operates.** AZ ONE started 20 July 2026, so the 2026 annual entitlement releases across **July–December (6 months)** instead of a January-anchored twelve: 14 annual days → **2.0 eligible by end of July**, 4.5 by August, 7.0 by September, 9.0 by October, 11.5 by November, the full 14 by December (half-day steps; 3 emergency days → 0.5 in July). From **2027** the window is the normal January–December twelve months automatically — no code change needed at year-end
+- The company start lives as one constant (COMPANY_START) in the balance endpoint
+
+### Deploy
+- `npx wrangler deploy` → hard refresh (computation only; no migration, no rebuild strictly required but harmless)
+
+
 ## [1.4.29] — 2026-07-31 — One punch per day + animated punch confirmation
 
 ### Changed

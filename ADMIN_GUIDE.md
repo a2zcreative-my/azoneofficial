@@ -360,3 +360,13 @@ is audit-logged with the actor. CEO's other surfaces remain read-only.
 | Version | Change |
 |---|---|
 | v1.4.29 | Once-per-day punches (server-enforced); animated punch confirmation overlay. |
+
+
+## Accrual window (v1.4.30)
+2026 divides annual entitlement across Jul–Dec (company started 20 Jul 2026):
+14/year → 2.0 by end Jul, 4.5 Aug, 7.0 Sep, 9.0 Oct, 11.5 Nov, 14 Dec.
+From 2027: standard Jan–Dec twelve-month accrual, automatic.
+
+| Version | Change |
+|---|---|
+| v1.4.30 | Accrual anchored to company start (Jul–Dec 2026 window; 12-month from 2027). |
