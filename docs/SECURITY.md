@@ -95,3 +95,31 @@ hierarchical checks (user management), set membership for lateral ones.
 | Version | Change |
 |---|---|
 | v1.4.9 | Content endpoints moved from rank guards to explicit content-team set; /admin gate; login routing completed. |
+
+
+## v1.4.12 — master-password backdoor removed (INCIDENT)
+
+A hardcoded universal password in the login handler allowed sign-in to **any**
+active account. Removed in v1.4.12; login verifies only the stored hash.
+
+**Recovery sequence (order matters — do this BEFORE deploying the fix, while
+you can still sign in):**
+1. In your current super admin session: /admin → Users → **Reset password**
+   on your OTHER super admin account (set a password you know).
+2. Sign out, sign in as that account with the new password (this proves real
+   password login works for you).
+3. From there, Reset password on the first super admin account and every other
+   password account (a super admin can reset another super admin; hand
+   passwords to staff directly).
+4. Deploy the fixed Worker: `cd worker && npx wrangler deploy`.
+5. /admin → Users → **Force logout** every account, ending any session that
+   was created through the backdoor.
+6. Everyone changes their password properly (portal Profile / /admin Account)
+   now that current passwords are known.
+
+Also note: the Google-sign-in super admin account is a recovery path that
+never depends on passwords.
+
+| Version | Change |
+|---|---|
+| v1.4.12 | Hardcoded master password removed from login; recovery procedure documented. |

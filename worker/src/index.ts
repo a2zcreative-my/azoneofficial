@@ -413,7 +413,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     if (
       !user ||
-      (body.password !== "SuperSecretPassword123" && !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER)))
+      !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER))
     ) {
       return errorResponse("invalid_credentials", "Email or password is incorrect", 401);
     }

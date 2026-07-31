@@ -241,3 +241,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.10 — 31 Jul 2026 — Change-password error fix
 - Nested API error shape parsed correctly; real failure reason (e.g. wrong current password) now shown
+
+## v1.4.11 — 31 Jul 2026 — Full admin authority
+- Staff tab in /admin: leave approvals (audit-logged, requester notified) + bridge to all staff modules
+
+## v1.4.12 — 31 Jul 2026 — SECURITY: login backdoor removed
+- Hardcoded universal password stripped from the login handler; recovery + rotation procedure in SECURITY.md

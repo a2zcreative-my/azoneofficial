@@ -107,3 +107,18 @@ enforces the same boundary. Passwords: see docs/PASSWORD-GUIDE.md.
 | Version | Change |
 |---|---|
 | v1.4.9 | Interface map added; PASSWORD-GUIDE referenced. |
+
+
+## Admin authority map (v1.4.11)
+
+Admin and super admin have **full authority across the system**:
+- /admin → Website, content, enquiries, portfolio, testimonials, posts, media
+- /admin → Users: create, roles, suspend, force logout, reset passwords
+- /admin → **Staff**: approve/reject all leave (with comment + audit + notification), and entry to every staff module
+- /portal: full rights in HR, Inventory, Commercial, Operations, Overview
+Super admin additionally manages other admins. Staff roles remain barred from
+/admin (v1.4.9) — authority flows down, never sideways.
+
+| Version | Change |
+|---|---|
+| v1.4.11 | Staff tab (leave administration + module bridge) added to /admin. |

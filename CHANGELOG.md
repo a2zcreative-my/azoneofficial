@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.12] — 2026-07-31 — SECURITY: hardcoded master password removed from login
+
+### Security — critical
+- **The login handler contained a hardcoded universal password**: any active account, including super admin, could be signed into with a fixed literal string, bypassing password verification entirely. This backdoor is removed — login now verifies only the account's real stored password. Discovery came through symptoms: sign-ins with the master string succeeded, while change-password (which checks the real hash and has no backdoor) reported the current password as incorrect
+- **Follow-up required after deploying**: (1) the string lived in the repository, so treat it and any account password that may have been shared alongside it as compromised — reset account passwords via /admin → Users; (2) Force logout all accounts to end any session created via the backdoor; (3) if the string was reused anywhere else, rotate it there too. The recovery order that avoids locking yourself out is in SECURITY.md
+
+
+## [1.4.11] — 2026-07-31 — Full admin authority: Staff tab in /admin
+
+### Added
+- **Staff tab in /admin** (admin + super admin): direct **leave administration** — every request (annual/medical/emergency/unpaid/replacement) with a pending queue, approve/reject with an optional comment the requester sees, decision history, and a pending counter. Uses the same guarded API as the portal (`hr_manage`), so every decision stays audit-logged and notifies the staff member
+- A **staff-modules bridge** in the same tab: admin accounts hold full rights in every portal module (HR attendance verification, inventory/postage, commercial pipeline, operations, overview) — the bridge opens them in /portal, where they live
+
+### Security model (unchanged, now written down)
+- Admin authority is granted by explicit server-side permission sets, not by the interface: `hr_manage` includes admin and super admin, every approval is audit-logged, escalation guards keep super admin above admin, and the v1.4.9 separation still bars staff roles from /admin. Full authority and containment are the same design, viewed from opposite sides
+
+
 ## [1.4.10] — 2026-07-31 — Fix: change-password showed a generic error for every failure
 
 ### Fixed
