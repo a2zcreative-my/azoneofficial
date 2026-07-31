@@ -2,6 +2,31 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.13] — 2026-07-31 — Complete interface separation (audited)
+
+### Fixed — interface boundaries
+- **/portal now redirects content-only roles (editor, marketing) to /admin.** Previously it only bounced customers, so a content role opening /portal saw a staff surface it had no modules for. admin/super_admin are intentionally allowed through, since they open portal modules from the admin Staff bridge
+- **/account now bounces any non-customer to their own interface** (staff → /portal, content team → /admin). Previously any signed-in role could view the customer area
+
+### Verified — the security boundary (already correct, now documented)
+This release is mostly an audit. Every role was checked against every interface. The data protection was already enforced server-side and did not depend on the redirects:
+- `/api/v1/staff/*` rejects customers at the entrance, then each module endpoint checks its own permission (`hr_manage`, `inventory`, `bd_manage`, `ops_manage`, `exec_view`, `task_reports`) — a staff role cannot read or write another function's data even by calling the API directly
+- content/dashboard/media/CRUD endpoints require `isContentTeam` (super_admin, admin, editor, marketing) — no staff role can reach content management
+- `/account/*` endpoints check per-user ownership; password accounts see only enquiries created after their own registration, so no one can register a stranger's email to read their history
+- Interface redirects are user-experience and defence-in-depth; the API checks are the actual boundary. Both now agree for every role
+
+### Role → interface map
+- **/admin**: super_admin, admin, editor, marketing
+- **/portal**: ceo, coo, cco, managing_director, hr_admin, sales_marketing, business_dev, finance_admin, live_manager, live_host (admin/super_admin may deep-link in via the Staff bridge)
+- **/account**: customer
+
+
+## [1.4.12a] — 2026-07-31 — Docs: session integrity after the backdoor fix
+
+### Documentation
+- SECURITY.md now answers directly whether sessions must be cleared after the v1.4.12 fix: yes for backdoor-era sessions (handled by the recovery sequence's password resets + Force logout), no for stored data — the flaw was authentication, not data. Confirmed by audit that the session lifecycle is otherwise correct: hashed tokens, expiry + active-user re-checks per request, automatic purging, and session revocation on every password change / reset / suspend
+
+
 ## [1.4.12] — 2026-07-31 — SECURITY: hardcoded master password removed from login
 
 ### Security — critical

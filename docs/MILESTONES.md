@@ -247,3 +247,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.12 — 31 Jul 2026 — SECURITY: login backdoor removed
 - Hardcoded universal password stripped from the login handler; recovery + rotation procedure in SECURITY.md
+
+## v1.4.13 — 31 Jul 2026 — Complete interface separation
+- /portal bounces content roles to /admin; /account bounces non-customers; full role×interface audit — API boundary confirmed the real protection

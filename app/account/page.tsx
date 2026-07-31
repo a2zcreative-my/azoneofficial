@@ -35,6 +35,16 @@ export default function AccountPage() {
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data?.user) {
+        // /account is the customer area only. A staff or admin account that
+        // lands here is sent to its own interface — no role sees another
+        // role's surface.
+        if (r.data.user.role !== "customer") {
+          const dest = ["editor", "marketing", "admin", "super_admin"].includes(r.data.user.role)
+            ? "/admin"
+            : "/portal";
+          window.location.replace(dest);
+          return;
+        }
         setUser(r.data.user);
         void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
           setEnquiries(e.data?.enquiries ?? []),

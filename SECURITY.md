@@ -120,6 +120,47 @@ you can still sign in):**
 Also note: the Google-sign-in super admin account is a recovery path that
 never depends on passwords.
 
+
+### Do sessions need clearing after the backdoor fix?
+
+Yes — the sessions created while the backdoor was live, because they may have
+been issued to someone who typed the master string rather than the real
+password. The stored data (attendance, leave, roles, password hashes) was
+never affected — the flaw was authentication, not data integrity — so a full
+data reset is neither needed nor wanted. Clearing the relevant sessions is
+enough, and the recovery sequence already does it:
+
+- Resetting a password revokes that account's sessions automatically (since
+  v1.4.3), so resetting every account during recovery clears their sessions.
+- Step 5's **Force logout every account** is the explicit sweep that catches
+  any account not reset.
+
+After that, every live session is one that passed real password verification
+against the deployed fix. Session design itself is unchanged and correct:
+tokens are stored only as SHA-256 hashes (a leaked table cannot be replayed),
+each request re-checks expiry and that the account is still active, expired
+rows are purged automatically, and password change / reset / suspend all
+delete sessions.
+
 | Version | Change |
 |---|---|
-| v1.4.12 | Hardcoded master password removed from login; recovery procedure documented. |
+| v1.4.12 | Hardcoded master password removed from login; recovery procedure documented; session-integrity note added. |
+
+
+## v1.4.13 — interface separation, audited end to end
+
+Every role was checked against every interface. Two layers:
+1. **Interface redirects** (UX + defence-in-depth): /admin, /portal, and
+   /account each send any role that does not belong to its own home.
+2. **API permission checks** (the real boundary): staff endpoints reject
+   customers then check per-module permission; content endpoints require the
+   content team; account endpoints check per-user ownership. A role cannot
+   reach another role's data by calling the API directly, regardless of which
+   page it loaded.
+The redirects can be bypassed (they run in the browser); the API checks cannot
+(they run in the Worker). Data protection rests on layer 2; layer 1 keeps the
+experience clean and adds depth.
+
+| Version | Change |
+|---|---|
+| v1.4.13 | /portal and /account boundary redirects completed; full separation audit documented. |
