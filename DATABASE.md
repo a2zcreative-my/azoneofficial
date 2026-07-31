@@ -202,3 +202,13 @@ back-entry or corrected a punch, and when. NULLs mean an original device punch.
 | Version | Change |
 |---|---|
 | v1.4.28 | 0014 — attendance manual/amendment provenance columns. |
+
+
+## v1.4.31 — migration 0015_postage_stock_link.sql
+postage_records gains inventory_item_id, qty, restocked — the link that lets a
+shipment deduct stock on create and restock once on return. audit_log.detail
+now actually receives the JSON detail (quantities, roles) that calls pass.
+
+| Version | Change |
+|---|---|
+| v1.4.31 | 0015 — postage↔inventory movement columns; audit detail stored. |

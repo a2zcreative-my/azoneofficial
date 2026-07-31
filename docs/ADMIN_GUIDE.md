@@ -370,3 +370,15 @@ From 2027: standard Jan–Dec twelve-month accrual, automatic.
 | Version | Change |
 |---|---|
 | v1.4.30 | Accrual anchored to company start (Jul–Dec 2026 window; 12-month from 2027). |
+
+
+## Stock movement & bell alerts (v1.4.31)
+- Postage with an item + qty deducts stock on create; *returned* restocks once;
+  insufficient stock refuses the record. In/Out buttons handle manual
+  corrections. All movements audit-logged with quantities.
+- The bell polls every 60 s (and on tab focus) and shows a pulsing amber unread
+  count — announcements alert staff without a reload.
+
+| Version | Change |
+|---|---|
+| v1.4.31 | Postage-driven stock movement + manual In/Out; live bell polling with pulsing unread badge. |

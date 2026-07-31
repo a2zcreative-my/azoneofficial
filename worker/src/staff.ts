@@ -110,10 +110,13 @@ async function notify(
 
 async function audit(
   env: Env, userId: number, action: string, entity?: string, entityId?: string,
+  detail?: Record<string, unknown>,
 ): Promise<void> {
+  // detail lands in audit_log.detail as JSON — quantities, roles, reasons.
   await env.DB.prepare(
-    `INSERT INTO audit_log (user_id, action, entity, entity_id) VALUES (?1, ?2, ?3, ?4)`,
-  ).bind(userId, action, entity ?? null, entityId ?? null).run();
+    `INSERT INTO audit_log (user_id, action, entity, entity_id, detail) VALUES (?1, ?2, ?3, ?4, ?5)`,
+  ).bind(userId, action, entity ?? null, entityId ?? null,
+         detail ? JSON.stringify(detail) : null).run();
 }
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
@@ -1143,22 +1146,44 @@ export async function handleStaff(
       return err("forbidden", "Access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT * FROM postage_records ORDER BY updated_at DESC LIMIT 200`,
+      `SELECT p.*, i.name AS item_name, i.sku AS item_sku
+       FROM postage_records p LEFT JOIN inventory_items i ON i.id = p.inventory_item_id
+       ORDER BY p.updated_at DESC LIMIT 200`,
     ).all();
     return json({ records: results });
   }
   if (path === "/postage" && method === "POST") {
     if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !str(body.order_ref, 100)) return err("invalid_input", "order_ref is required", 400);
+    // Stock movement (v1.4.31): naming an inventory item + qty deducts stock
+    // automatically — the logical link between shipping and inventory.
+    const itemId = typeof body.inventory_item_id === "number" ? body.inventory_item_id : null;
+    const qty = typeof body.qty === "number" && body.qty >= 1 ? Math.floor(body.qty) : null;
+    if (itemId && !qty) return err("invalid_input", "qty (>= 1) is required when an item is selected", 400);
+    if (itemId && qty) {
+      const item = await env.DB.prepare(
+        `SELECT stock, name FROM inventory_items WHERE id = ?1`,
+      ).bind(itemId).first<{ stock: number; name: string }>();
+      if (!item) return err("not_found", "Inventory item not found", 404);
+      if (item.stock < qty) {
+        return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot ship ${qty}`, 409);
+      }
+      const newStock = item.stock - qty;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(newStock, stockStatus(newStock), user.id, itemId).run();
+      await audit(env, user.id, "inventory.out", "inventory_items", String(itemId), { qty });
+    }
     await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, inventory_item_id, qty, updated_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     ).bind(
       body.order_ref,
       str(body.courier, 80) ? body.courier : null,
       str(body.tracking_no, 120) ? body.tracking_no : null,
       POSTAGE_STATUSES.includes(body.status as string) ? (body.status as string) : "preparing",
       str(body.note, 500) ? body.note : null,
+      itemId, qty,
       user.id,
     ).run();
     await audit(env, user.id, "postage.create");
@@ -1170,6 +1195,26 @@ export async function handleStaff(
     if (!body || !POSTAGE_STATUSES.includes(body.status as string)) {
       return err("invalid_input", `status must be one of: ${POSTAGE_STATUSES.join(", ")}`, 400);
     }
+    // A shipment marked 'returned' puts its quantity back into stock — once
+    // (the restocked flag prevents double-counting on repeated saves).
+    if (body.status === "returned") {
+      const rec = await env.DB.prepare(
+        `SELECT inventory_item_id, qty, restocked FROM postage_records WHERE id = ?1`,
+      ).bind(postMatch[1]).first<{ inventory_item_id: number | null; qty: number | null; restocked: number }>();
+      if (rec?.inventory_item_id && rec.qty && !rec.restocked) {
+        const item = await env.DB.prepare(
+          `SELECT stock FROM inventory_items WHERE id = ?1`,
+        ).bind(rec.inventory_item_id).first<{ stock: number }>();
+        if (item) {
+          const newStock = item.stock + rec.qty;
+          await env.DB.prepare(
+            `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+          ).bind(newStock, stockStatus(newStock), user.id, rec.inventory_item_id).run();
+          await env.DB.prepare(`UPDATE postage_records SET restocked = 1 WHERE id = ?1`).bind(postMatch[1]).run();
+          await audit(env, user.id, "inventory.in", "inventory_items", String(rec.inventory_item_id), { qty: rec.qty, reason: "returned" });
+        }
+      }
+    }
     await env.DB.prepare(
       `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(?2, tracking_no),
          note = COALESCE(?3, note), updated_by = ?4, updated_at = datetime('now') WHERE id = ?5`,
@@ -1177,6 +1222,27 @@ export async function handleStaff(
            str(body.note, 500) ? body.note : null, user.id, postMatch[1]).run();
     await audit(env, user.id, "postage.update", "postage_records", postMatch[1]);
     return json({ ok: true });
+  }
+
+  /* ---- Manual stock in/out (v1.4.31) ---- */
+  const invAdjust = path.match(/^\/inventory\/(\d+)\/adjust$/);
+  if (invAdjust && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const delta = typeof body?.delta === "number" ? Math.trunc(body.delta) : 0;
+    if (!delta) return err("invalid_input", "delta (non-zero integer) is required", 400);
+    const item = await env.DB.prepare(
+      `SELECT stock, name FROM inventory_items WHERE id = ?1`,
+    ).bind(invAdjust[1]).first<{ stock: number; name: string }>();
+    if (!item) return err("not_found", "Item not found", 404);
+    const newStock = item.stock + delta;
+    if (newStock < 0) {
+      return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot remove ${-delta}`, 409);
+    }
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+    ).bind(newStock, stockStatus(newStock), user.id, invAdjust[1]).run();
+    await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1], { qty: Math.abs(delta) });
+    return json({ ok: true, stock: newStock, status: stockStatus(newStock) });
   }
 
   /* ---- Marketing materials ---- */

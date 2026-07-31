@@ -308,3 +308,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.30 — 31 Jul 2026 — Company-start accrual
 - 2026 leave entitlement divides over Jul–Dec (start 20 Jul 2026); Jan–Dec from 2027 automatically
+
+## v1.4.31 — 31 Jul 2026 — Stock logic + live bell
+- Postage deducts stock (insufficient refused), returns restock once, manual In/Out with audit; migration 0015
+- Bell polls 60s + focus, pulsing amber unread badge — announcements alert staff live

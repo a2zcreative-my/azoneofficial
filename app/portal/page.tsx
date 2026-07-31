@@ -876,9 +876,19 @@ export default function PortalPage() {
 
   useEffect(() => {
     if (!user) return;
-    void api<{ notifications: Notification[] }>("/staff/notifications").then((r) =>
-      setNotifs(r.data?.notifications ?? []),
-    );
+    const fetchNotifs = () =>
+      void api<{ notifications: Notification[] }>("/staff/notifications").then((r) =>
+        setNotifs(r.data?.notifications ?? []),
+      );
+    fetchNotifs();
+    // Live alerting (v1.4.31): announcements and assignments reach the bell
+    // without a reload — poll every 60s and whenever the tab regains focus.
+    const timer = window.setInterval(fetchNotifs, 60_000);
+    window.addEventListener("focus", fetchNotifs);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", fetchNotifs);
+    };
   }, [user, tab]);
 
   if (!checked) return null;
@@ -925,14 +935,19 @@ export default function PortalPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={btnGhost}
-            aria-label="Notifications"
+            className={`${btnGhost} relative`}
+            aria-label={unread > 0 ? `Notifications — ${unread} unread` : "Notifications"}
             onClick={() => {
               setShowNotifs((v) => !v);
               if (unread) void api("/staff/notifications/read", { method: "POST", body: JSON.stringify({}) });
             }}
           >
-            🔔 {unread > 0 ? unread : ""}
+            🔔
+            {unread > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-bold text-white shadow">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
           </button>
           <button type="button" className={btnGhost} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
             {dark ? "☀️" : "🌙"}

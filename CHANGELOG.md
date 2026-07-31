@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.31] — 2026-07-31 — Stock moves with postage; the bell actually alerts
+
+### Added — inventory ↔ postage logic
+- **Shipping deducts stock automatically.** The postage form can name the inventory item and quantity shipped; creating the record subtracts the stock and recomputes the status (0 = out of stock, ≤5 = low). If there isn't enough stock, the record is refused with "Only N in stock for ITEM — cannot ship M" — no silent negative stock
+- **Returns restock automatically.** Marking a shipment *returned* puts its quantity back — exactly once (a restocked flag prevents double-counting on repeated saves)
+- **Manual Stock in / Stock out** per inventory row with a quantity box (restock deliveries, corrections). Every movement — automatic or manual — is audit-logged as inventory.in / inventory.out with the quantity
+- Postage rows show what they shipped ("2× Signature Shawl Taupe"); migration **0015** links postage_records to inventory
+- Fixed a latent flaw: audit detail objects (quantities, roles) were silently dropped — audit() now stores them as JSON in audit_log.detail
+
+### Changed — notifications
+- **The bell now alerts without a reload**: notifications refresh every 60 seconds and whenever the tab regains focus, and unread items show a **pulsing amber count badge** on the bell itself. Staff see an announcement land while they work, not only after a refresh
+- Honest scope reminder: announcement fan-out shipped in v1.4.26 and is **not retroactive** — only announcements published after that worker deploy create bell notifications. Off-platform delivery still awaits the NOTIFY_WEBHOOK variable
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014 if pending + **0015**) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.30] — 2026-07-31 — Accrual anchored to the company start (20 Jul 2026)
 
 ### Changed

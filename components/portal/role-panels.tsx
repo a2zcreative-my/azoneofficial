@@ -272,8 +272,21 @@ export function InventoryPanel() {
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0 });
-  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "" });
+  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "", inventory_item_id: 0, qty: 1 });
+  const [postMsg, setPostMsg] = useState("");
   const [matDraft, setMatDraft] = useState("");
+  const [adjQty, setAdjQty] = useState<Record<number, number>>({});
+  const [invMsg, setInvMsg] = useState("");
+
+  const adjust = async (id: number, delta: number) => {
+    setInvMsg("");
+    const res = await api<{ error?: { message?: string } }>(`/inventory/${id}/adjust`, {
+      method: "POST",
+      body: JSON.stringify({ delta }),
+    });
+    if (!res.ok) setInvMsg(res.data?.error?.message ?? "Adjustment failed");
+    void load();
+  };
 
   const load = useCallback(async () => {
     const [i, p, m] = await Promise.all([
@@ -293,6 +306,12 @@ export function InventoryPanel() {
     <div className="space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Stock moves automatically: a postage record with an item deducts it;
+          a returned shipment adds it back. Use In/Out for manual corrections.
+          Status recomputes on every movement (0 = out of stock · ≤5 = low).
+        </p>
+        {invMsg && <p className="text-destructive mt-1 text-xs font-medium">{invMsg}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           <input className={`${inputClass} max-w-32`} placeholder="SKU" value={invDraft.sku}
             onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
@@ -326,16 +345,15 @@ export function InventoryPanel() {
                   <td className={td}><Badge value={it.status} /></td>
                   <td className={td}>
                     <span className="flex items-center gap-1">
-                      <button type="button" className="rounded border border-border px-2 text-xs"
-                        onClick={async () => {
-                          await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: Math.max(0, it.stock - 1) }) });
-                          void load();
-                        }}>−</button>
-                      <button type="button" className="rounded border border-border px-2 text-xs"
-                        onClick={async () => {
-                          await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock + 1 }) });
-                          void load();
-                        }}>+</button>
+                      <input type="number" min={1} className="border-input bg-background w-14 rounded border px-1.5 py-0.5 text-xs"
+                        value={adjQty[it.id] ?? 1}
+                        onChange={(e) => setAdjQty((q) => ({ ...q, [it.id]: Math.max(1, Number(e.target.value)) }))} />
+                      <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
+                        title="Stock in (restock)"
+                        onClick={() => void adjust(it.id, adjQty[it.id] ?? 1)}>In +</button>
+                      <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
+                        title="Stock out (manual deduction)"
+                        onClick={() => void adjust(it.id, -(adjQty[it.id] ?? 1))}>Out −</button>
                     </span>
                   </td>
                 </tr>
@@ -357,11 +375,34 @@ export function InventoryPanel() {
               <input className={inputClass} placeholder="Tracking no." value={postDraft.tracking_no}
                 onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} />
             </div>
+            <div className="flex gap-2">
+              <select className={inputClass} value={postDraft.inventory_item_id}
+                onChange={(e) => setPostDraft((d) => ({ ...d, inventory_item_id: Number(e.target.value) }))}>
+                <option value={0}>No stock deduction (item optional)</option>
+                {items.map((it) => (
+                  <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
+                ))}
+              </select>
+              <input type="number" min={1} className={`${inputClass} max-w-20`} value={postDraft.qty}
+                title="Quantity shipped"
+                onChange={(e) => setPostDraft((d) => ({ ...d, qty: Math.max(1, Number(e.target.value)) }))} />
+            </div>
+            {postMsg && <p className="text-destructive text-xs font-medium">{postMsg}</p>}
             <button type="button" className={btnClass}
               onClick={async () => {
                 if (!postDraft.order_ref.trim()) return;
-                await api(`/postage`, { method: "POST", body: JSON.stringify(postDraft) });
-                setPostDraft({ order_ref: "", courier: "", tracking_no: "" });
+                setPostMsg("");
+                const payload = {
+                  ...postDraft,
+                  inventory_item_id: postDraft.inventory_item_id || undefined,
+                  qty: postDraft.inventory_item_id ? postDraft.qty : undefined,
+                };
+                const res = await api<{ error?: { message?: string } }>(`/postage`, { method: "POST", body: JSON.stringify(payload) });
+                if (!res.ok) {
+                  setPostMsg(res.data?.error?.message ?? "Could not add record");
+                } else {
+                  setPostDraft({ order_ref: "", courier: "", tracking_no: "", inventory_item_id: 0, qty: 1 });
+                }
                 void load();
               }}>
               Add record
@@ -374,6 +415,9 @@ export function InventoryPanel() {
                   <span className="font-medium">{r.order_ref}</span>{" "}
                   <span className="text-muted-foreground text-xs">
                     {r.courier ?? "—"} · {r.tracking_no ?? "no tracking yet"}
+                    {(r as PostRec & { item_name?: string; qty?: number }).item_name
+                      ? ` · ${(r as PostRec & { qty?: number }).qty}× ${(r as PostRec & { item_name?: string }).item_name}`
+                      : ""}
                   </span>
                 </span>
                 <select
