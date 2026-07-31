@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 interface SectionProps {
   id: string;
   eyebrow?: string;
-  title?: string;
-  intro?: string;
+  title?: ReactNode;
+  intro?: ReactNode;
   dark?: boolean;
   children: ReactNode;
   className?: string;
