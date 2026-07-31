@@ -193,3 +193,12 @@ Adds users.photo_key (R2 key under private/staff-photos/, staff-auth to serve).
 | Version | Change |
 |---|---|
 | v1.4.23 | 0013 — users.photo_key for the badge photo. |
+
+
+## v1.4.28 — migration 0014_attendance_manual.sql
+attendance_records gains manual_by, amended_by, amended_at — who created a
+back-entry or corrected a punch, and when. NULLs mean an original device punch.
+
+| Version | Change |
+|---|---|
+| v1.4.28 | 0014 — attendance manual/amendment provenance columns. |

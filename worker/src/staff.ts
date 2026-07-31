@@ -314,7 +314,11 @@ export async function handleStaff(
   }
 
   if (path === "/users" && method === "GET") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    // hr_manage writes; exec_view (CEO) reads — the Birthdays tab and the
+    // Overview need the staff list even for read-only executives.
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "HR access required", 403);
+    }
     const { results } = await env.DB.prepare(
       `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key
        FROM users ORDER BY name`,
@@ -417,11 +421,14 @@ export async function handleStaff(
   }
 
   if (path === "/attendance/report" && method === "GET") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    // HR verifies; the CEO also reads this table to amend/add records.
+    if (!can(user, "hr_manage") && user.role !== "ceo") {
+      return err("forbidden", "HR access required", 403);
+    }
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT u.name, u.email, a.user_id, a.type, a.created_at
+      `SELECT a.id, u.name, u.email, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
@@ -482,7 +489,13 @@ export async function handleStaff(
 
   if (path === "/leave/balance" && method === "GET") {
     const year = new Date().getFullYear();
-    const balances: Record<string, { entitled: number; used: number }> = {};
+    // Monthly release (v1.4.27): entitlement accrues pro-rata through the
+    // year instead of being available as a lump sum on 1 Jan. By the end of
+    // month M, floor(entitled × M / 12 × 2)/2 days (half-day steps) are
+    // eligible; the annual total is still shown. E.g. 14 AL/year → ~2 days
+    // eligible by end of Feb.
+    const monthMYT = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
+    const balances: Record<string, { entitled: number; used: number; accrued: number }> = {};
     for (const t of LEAVE_TYPES) {
       const ent = await env.DB.prepare(
         `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
@@ -492,9 +505,11 @@ export async function handleStaff(
          WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
          AND start_date LIKE ?3 || '%'`,
       ).bind(user.id, t, String(year)).first<{ used: number }>();
-      balances[t] = { entitled: ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0, used: used?.used ?? 0 };
+      const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+      const accrued = Math.floor(((entitled * monthMYT) / 12) * 2) / 2;
+      balances[t] = { entitled, used: used?.used ?? 0, accrued };
     }
-    return json({ year, balances });
+    return json({ year, month: monthMYT, balances });
   }
 
   const leaveMatch = path.match(/^\/leave\/(\d+)$/);
@@ -928,6 +943,55 @@ export async function handleStaff(
   }
 
   /* ---- HR / payroll: attendance CSV export ---- */
+
+  /* ---- attendance corrections (CEO + admin tier, v1.4.28) ----
+     Manual entries cover days worked before the system existed; amendments
+     fix wrong punches. Every action names its actor and is audit-logged. */
+
+  const ATT_ADMIN = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
+
+  if (path === "/attendance/manual" && method === "POST") {
+    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    const types = ["clock_in", "clock_out"];
+    const myt = str(body?.myt, 16) ? (body!.myt as string) : ""; // "YYYY-MM-DD HH:MM" Malaysia time
+    if (!body || typeof body.user_id !== "number" || typeof body.type !== "string" ||
+        !types.includes(body.type) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(myt)) {
+      return err("invalid_input", "user_id, type (clock_in|clock_out) and myt (YYYY-MM-DD HH:MM) are required", 400);
+    }
+    // Store UTC like every real punch: MYT − 8h.
+    const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
+    const createdAt = utc.toISOString().slice(0, 19).replace("T", " ");
+    await env.DB.prepare(
+      `INSERT INTO attendance_records (user_id, type, created_at, manual_by)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(body.user_id, body.type, createdAt, user.id).run();
+    await audit(env, user.id, "attendance.manual", "users", String(body.user_id));
+    return json({ ok: true }, 201);
+  }
+
+  const attMatch = path.match(/^\/attendance\/(\d+)$/);
+  if (attMatch && method === "PATCH") {
+    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    const myt = str(body?.myt, 16) ? (body!.myt as string) : "";
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(myt)) {
+      return err("invalid_input", "myt (YYYY-MM-DD HH:MM, Malaysia time) is required", 400);
+    }
+    const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
+    const createdAt = utc.toISOString().slice(0, 19).replace("T", " ");
+    const res = await env.DB.prepare(
+      `UPDATE attendance_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`,
+    ).bind(createdAt, user.id, attMatch[1]).run();
+    if (!res.meta.changes) return err("not_found", "Record not found", 404);
+    await audit(env, user.id, "attendance.amend", "attendance_records", attMatch[1]);
+    return json({ ok: true });
+  }
+  if (attMatch && method === "DELETE") {
+    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
+    if (!res.meta.changes) return err("not_found", "Record not found", 404);
+    await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1]);
+    return json({ ok: true });
+  }
 
   if (path === "/attendance/export" && method === "GET") {
     if (!can(user, "payroll_export")) return err("forbidden", "Payroll export access required", 403);

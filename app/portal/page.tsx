@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import {
+  AttendanceAdminPanel,
   BirthdaysPanel,
   HrPanel,
   InventoryPanel,
@@ -151,7 +152,14 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className={card}>
-          <p className="text-sm font-semibold">Pending leave</p>
+          <p className="text-sm font-semibold">
+            Pending leave
+            {leave.length > 0 && (
+              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                {leave.length}
+              </span>
+            )}
+          </p>
           {leave.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">None pending.</p>
           ) : (
@@ -163,7 +171,14 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         <div className={card}>
-          <p className="text-sm font-semibold">My open tasks</p>
+          <p className="text-sm font-semibold">
+            My open tasks
+            {tasks.length > 0 && (
+              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                {tasks.length}
+              </span>
+            )}
+          </p>
           {tasks.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">Nothing assigned.</p>
           ) : (
@@ -175,7 +190,12 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         <div className={card}>
-          <p className="text-sm font-semibold">Announcements</p>
+          <p className="text-sm font-semibold">
+            Announcements
+            {anns.length > 0 && (
+              <span className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
+            )}
+          </p>
           {anns.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">No announcements.</p>
           ) : (
@@ -255,7 +275,7 @@ function canActOnStage(role: string, stage: string, applicantRole: string): bool
 }
 
 function Leave({ user }: { user: User }) {
-  const [balances, setBalances] = useState<Record<string, { entitled: number; used: number }>>({});
+  const [balances, setBalances] = useState<Record<string, { entitled: number; used: number; accrued?: number }>>({});
   const [mine, setMine] = useState<LeaveReq[]>([]);
   const [all, setAll] = useState<LeaveReq[]>([]);
   const [draft, setDraft] = useState({ type: "annual", start_date: "", end_date: "", days: 1, reason: "" });
@@ -290,16 +310,24 @@ function Leave({ user }: { user: User }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-5">
-        {LEAVE_TYPES.map((t) => (
-          <div key={t} className={card}>
-            <p className="text-xs font-medium uppercase tracking-wide">{t}</p>
-            <p className="mt-1 text-lg font-semibold">
-              {(balances[t]?.entitled ?? 0) - (balances[t]?.used ?? 0)}
-              <span className="text-muted-foreground text-xs font-normal"> / {balances[t]?.entitled ?? 0} left</span>
-            </p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {LEAVE_TYPES.map((t) => {
+          const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
+          // Eligible now = what has accrued this year minus what's been used.
+          const availableNow = Math.max(0, (b.accrued ?? b.entitled) - b.used);
+          return (
+            <div key={t} className={card}>
+              <p className="text-xs font-medium uppercase tracking-wide">{t}</p>
+              <p className="mt-1 text-lg font-semibold">
+                {availableNow}
+                <span className="text-muted-foreground text-xs font-normal"> eligible now</span>
+              </p>
+              <p className="text-muted-foreground text-[11px]">
+                {b.entitled}/year · {b.used} used
+              </p>
+            </div>
+          );
+        })}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -918,7 +946,12 @@ export default function PortalPage() {
 
       <main className="mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
-        {tab === "Attendance" && <Attendance user={user} />}
+        {tab === "Attendance" && (
+          <>
+            <Attendance user={user} />
+            {["ceo", "super_admin", "admin"].includes(user.role) && <AttendanceAdminPanel />}
+          </>
+        )}
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}

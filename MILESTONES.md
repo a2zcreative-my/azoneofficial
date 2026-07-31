@@ -295,3 +295,10 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.26 — 31 Jul 2026 — Bell rings for announcements
 - Publishing an announcement notifies all active staff (bell + optional off-platform relay); notification clicks through to the tab
+
+## v1.4.27 — 31 Jul 2026 — Accrual, CEO birthdays, clarity, pulses
+- Leave eligibility accrues monthly (shown as "N eligible now" + annual total); CEO can read the staff list (Birthdays/Overview fixed)
+- Overview document counts explained in plain words; dashboard pulse badges; mobile polish
+
+## v1.4.28 — 31 Jul 2026 — CEO attendance corrections
+- CEO/admin can amend punches and back-enter clock in/out for pre-system days; provenance columns + audit; migration 0014

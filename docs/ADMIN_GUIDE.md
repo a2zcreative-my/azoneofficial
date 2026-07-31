@@ -320,3 +320,33 @@ when configured); clicking the notification opens the Announcements tab.
 | Version | Change |
 |---|---|
 | v1.4.26 | Announcement publish fans out to every staff bell; clickable to the tab. |
+
+
+## Leave accrual (v1.4.27)
+Entitlement releases monthly (pro-rata, half-day steps): eligible-to-date =
+annual entitlement × months elapsed / 12. Staff see "N eligible now" plus the
+annual total and days used. Approvers see the same balances.
+
+Also in v1.4.27: Birthdays readable by the CEO (write rules unchanged);
+Overview's document counts renamed and explained (Quotations / Delivery
+orders / Invoices created in Sales); dashboard shows pulsing badges on pending
+leave, open tasks and announcements.
+
+| Version | Change |
+|---|---|
+| v1.4.27 | Monthly leave accrual display; CEO Birthdays fix; overview documents clarified; dashboard pulse cues; mobile stat tiles 2-up. |
+
+
+## Attendance corrections (v1.4.28)
+/portal → Attendance → "Staff attendance — corrections & back-entry"
+(CEO + admin tier only):
+- **Add**: pick staff, clock in/out, date and time (MYT) — for days worked
+  before the system existed.
+- **Amend**: change a record's time inline and Save.
+- **Remove**: delete a wrong record.
+Every record shows its provenance (punch / manual / amended) and every action
+is audit-logged with the actor. CEO's other surfaces remain read-only.
+
+| Version | Change |
+|---|---|
+| v1.4.28 | CEO attendance amend/back-entry panel; provenance-marked, audit-logged. |

@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.28] — 2026-07-31 — CEO attendance corrections & back-entry
+
+### Added
+- **Attendance corrections panel** in the Attendance tab (CEO + admin tier): view every staff punch for a month, **amend a wrong clock in/out time**, **remove** a bad record, or **add clock in/out for past days** — covering days staff worked before this system existed. Times entered in Malaysia time; stored UTC like real punches
+- **Honest trail**: migration 0014 adds manual_by / amended_by / amended_at. Every row shows its mark — *punch* (a real device punch), *manual* (back-entered, by whom), or *amended* (corrected, by whom, when) — and every add/amend/remove is audit-logged. A correction never masquerades as an original punch
+- This is the CEO's second deliberate write exception (after birthdays); all other CEO surfaces remain read-only. HR keeps its verification table read-only as before
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014) → `npx wrangler deploy` → rebuild site
+
+
+## [1.4.27] — 2026-07-31 — Monthly leave accrual, CEO birthdays fix, clearer overview, dashboard pulses
+
+### Changed
+- **Leave releases monthly, not as a lump sum.** Entitlement accrues pro-rata through the year (half-day steps): by end of month M, entitled × M/12 is eligible — e.g. 14 annual days/year ≈ 2 days eligible by end of February. The cards now show **"N eligible now"** big, with the annual total and used count beneath ("14/year · 1 used"), so staff see both the year's total and this month's eligibility. Storage and approvals unchanged; this is how the balance is computed and presented
+- **Overview "Documents issued" explained**: renamed to **"Sales documents issued to clients"** with a one-line description, and QT/DO/INV spelled out as Quotations / Delivery orders / Invoices — it counts what the team has created in the Sales module
+- **Overview stat tiles sit two-up on phones** (were stacking one per row)
+
+### Fixed
+- **Birthdays tab was empty for the CEO** — the staff list endpoint only allowed HR-tier roles, so the CEO's Birthdays (and Overview per-staff data) fetched nothing. The list is now readable by exec_view roles as well; writes still require HR/admin (and the amendment lock still applies)
+
+### Added
+- **Dashboard attention cues**: Pending leave and My open tasks show a pulsing amber count badge when something is waiting; Announcements shows a pulsing dot when any exist — the eye lands where action is needed
+
+### Deploy
+- `npx wrangler deploy` (balance + users endpoints) → rebuild site. No migration
+
+
 ## [1.4.26] — 2026-07-31 — Bell rings for announcements
 
 ### Changed

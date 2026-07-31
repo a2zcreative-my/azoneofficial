@@ -200,3 +200,13 @@ gaining the ability to mint privileged accounts — the admin-only
 | Version | Change |
 |---|---|
 | v1.4.20 | HR staff-create endpoint scoped to non-privileged roles. |
+
+
+## v1.4.28 — attendance edit provenance
+Attendance edits (CEO + admin tier) never overwrite silently: manual entries
+and amendments carry manual_by/amended_by/amended_at and an audit_log entry,
+so payroll can always distinguish a device punch from a correction.
+
+| Version | Change |
+|---|---|
+| v1.4.28 | Attendance corrections are provenance-marked and audited. |

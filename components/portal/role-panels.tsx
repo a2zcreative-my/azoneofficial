@@ -658,7 +658,7 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stat("Clocked in today", data.clocked_in_today)}
         {stat("Pending leave requests", data.pending_leave)}
         {stat("Low / out-of-stock items", data.low_stock_items)}
@@ -671,14 +671,18 @@ export function OverviewPanel() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Documents issued</p>
+          <p className="text-sm font-semibold">Sales documents issued to clients</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            How many quotations, delivery orders and invoices the team has
+            created in the Sales module — a quick read on client activity.
+          </p>
           <ul className="mt-3 space-y-1.5">
             {data.documents.length === 0 && (
-              <li className="text-muted-foreground text-sm">None yet.</li>
+              <li className="text-muted-foreground text-sm">None yet — created documents will count here.</li>
             )}
             {data.documents.map((doc) => (
               <li key={doc.doc_type} className="flex justify-between text-sm">
-                <span>{doc.doc_type}</span>
+                <span>{({ QT: "Quotations", DO: "Delivery orders", INV: "Invoices" } as Record<string, string>)[doc.doc_type] ?? doc.doc_type}</span>
                 <span className="font-medium">{doc.n}</span>
               </li>
             ))}
@@ -856,6 +860,154 @@ export function BirthdaysPanel() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/* ================= Attendance corrections (CEO + admin) ================= */
+
+interface AttRecord {
+  id: number;
+  name: string;
+  user_id: number;
+  type: string;
+  created_at: string;
+  myt_time?: string;
+  flag?: string;
+  manual_by?: number | null;
+  amended_by?: number | null;
+}
+
+/** UTC "YYYY-MM-DD HH:MM:SS" → MYT "YYYY-MM-DDTHH:MM" for datetime-local. */
+function utcToMytLocal(utc: string): string {
+  const d = new Date(new Date(utc.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
+  return d.toISOString().slice(0, 16);
+}
+
+/**
+ * The CEO's attendance exception: view every punch, correct a wrong one, or
+ * add clock in/out for days worked before this system existed. Every change
+ * is marked (manual/amended) and audit-logged with the actor.
+ */
+export function AttendanceAdminPanel() {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [rows, setRows] = useState<AttRecord[]>([]);
+  const [staff, setStaff] = useState<{ id: number; name: string }[]>([]);
+  const [edit, setEdit] = useState<Record<number, string>>({});
+  const [msg, setMsg] = useState("");
+  const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
+
+  const load = useCallback(async () => {
+    const [r, u] = await Promise.all([
+      api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
+      api<{ users?: { id: number; name: string; role: string }[]; staff?: { id: number; name: string; role: string }[] }>(`/users`),
+    ]);
+    if (r.data) setRows(r.data.records ?? []);
+    const list = u.data?.users ?? u.data?.staff ?? [];
+    setStaff(list.filter((x) => x.role !== "customer"));
+  }, [month]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const act = async (path: string, init: RequestInit, okMsg: string) => {
+    setMsg("");
+    const res = await api<{ error?: { message?: string } }>(path, init);
+    if (res.ok) {
+      setMsg(okMsg);
+      window.setTimeout(() => setMsg(""), 3000);
+      void load();
+    } else {
+      setMsg(res.data?.error?.message ?? "Action failed — check access");
+    }
+  };
+
+  return (
+    <div className={`${card} mt-6`}>
+      <p className="text-sm font-semibold">Staff attendance — corrections &amp; back-entry</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Amend a wrong punch or add clock in/out for days worked before this
+        system existed. Times are Malaysia time. Manual and amended records are
+        marked and audit-logged.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <select className={inputClass} style={{ maxWidth: "14rem" }} value={add.user_id}
+          onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+          <option value={0}>Add record: select staff…</option>
+          {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <select className={inputClass} style={{ maxWidth: "8rem" }} value={add.type}
+          onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
+          <option value="clock_in">Clock in</option>
+          <option value="clock_out">Clock out</option>
+        </select>
+        <input type="date" className={inputClass} style={{ maxWidth: "10rem" }} value={add.date}
+          onChange={(e) => setAdd((d) => ({ ...d, date: e.target.value }))} />
+        <input type="time" className={inputClass} style={{ maxWidth: "7rem" }} value={add.time}
+          onChange={(e) => setAdd((d) => ({ ...d, time: e.target.value }))} />
+        <button type="button"
+          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50"
+          disabled={!add.user_id || !add.date || !add.time}
+          onClick={() => void act(`/attendance/manual`, {
+            method: "POST",
+            body: JSON.stringify({ user_id: add.user_id, type: add.type, myt: `${add.date} ${add.time}` }),
+          }, "Record added.")}>
+          Add
+        </button>
+        <input type="month" className={inputClass} style={{ maxWidth: "10rem", marginLeft: "auto" }} value={month}
+          onChange={(e) => setMonth(e.target.value)} />
+      </div>
+      {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
+        <table className="w-full min-w-[560px] border-collapse text-sm">
+          <thead>
+            <tr className="border-border border-b">
+              <th className={th}>Staff</th>
+              <th className={th}>Type</th>
+              <th className={th}>Time (MYT)</th>
+              <th className={th}>Mark</th>
+              <th className={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records this month.</td></tr>
+            )}
+            {rows.map((r) => (
+              <tr key={r.id} className="border-border border-b last:border-0">
+                <td className={td}>{r.name}</td>
+                <td className={td}>{r.type === "clock_in" ? "In" : "Out"}</td>
+                <td className={td}>
+                  <input
+                    type="datetime-local"
+                    className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                    value={edit[r.id] ?? utcToMytLocal(r.created_at)}
+                    onChange={(e) => setEdit((s) => ({ ...s, [r.id]: e.target.value }))}
+                  />
+                </td>
+                <td className={`${td} text-muted-foreground text-xs`}>
+                  {r.manual_by ? "manual" : r.amended_by ? "amended" : "punch"}
+                </td>
+                <td className={`${td} whitespace-nowrap`}>
+                  <button type="button" className="text-xs underline"
+                    onClick={() => void act(`/attendance/${r.id}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({ myt: (edit[r.id] ?? utcToMytLocal(r.created_at)).replace("T", " ") }),
+                    }, "Record updated.")}>
+                    Save
+                  </button>
+                  <button type="button" className="text-destructive ml-2 text-xs underline"
+                    onClick={() => void act(`/attendance/${r.id}`, { method: "DELETE" }, "Record removed.")}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
