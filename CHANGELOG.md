@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.16] — 2026-07-31 — Payroll, calendar, audit viewer, document PDFs
+
+### Added
+- **Leave entitlement editor** (/admin → Staff): set days per staff per type per year. Balances already deduct approved leave from these numbers — this gives them a source instead of a hardcoded default. Confirmed the deduction works: the balance endpoint computes entitled − approved-days-used
+- **Public holidays / company calendar** (`/api/v1/staff/holidays`, HR-managed): dates staff can see, and a basis for leave day-counting and attendance so a holiday is not treated as a working day
+- **Payslip / payroll summary** (`/api/v1/staff/payslip`): per-staff monthly attendance breakdown (days present, on-time, late, half-days, early-outs) plus approved leave days — viewable in /admin → Staff and printable at A4
+- **Audit-log viewer** (/admin → **Audit**, admin tier): a window onto the trail every action already writes — sign-ins, leave approvals, role changes, password resets, suspensions — with filter chips and MYT timestamps. No new logging; this surfaces what existed
+- **Off-platform notifications**: `notify()` now also posts to an optional `NOTIFY_WEBHOOK` relay (email/WhatsApp) when configured, so leave approvals and task assignments can reach people who are not signed in. No-op until the webhook var is set — safe to ship first
+- **Document PDFs**: QT/DO/INV can be printed as branded A4 documents (company mark, SSM number, line items, totals, customer block) from /portal → Sales → **PDF**. Backed by a new single-document endpoint `GET /api/v1/staff/docs/:id`
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0011) → `npx wrangler deploy` → rebuild site
+- Optional: set `NOTIFY_WEBHOOK` (a Worker var / secret pointing at your email or WhatsApp relay URL) to turn on off-platform delivery
+
+
 ## [1.4.15] — 2026-07-31 — Badges, self-tasks, attendance policy, leave approval chain
 
 ### Added

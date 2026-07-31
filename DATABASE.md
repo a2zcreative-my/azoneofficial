@@ -167,3 +167,12 @@ ID badge. Additive; existing rows preserved.
 | Version | Change |
 |---|---|
 | v1.4.15 | 0010 — leave approval chain columns + badge fields. |
+
+
+## v1.4.16 — migration 0011_holidays.sql
+Adds the `holidays` table (date, name, kind, created_by). Leave entitlement uses
+the existing leave_balances table (0003); no schema change needed there.
+
+| Version | Change |
+|---|---|
+| v1.4.16 | 0011 — holidays / company calendar table. |

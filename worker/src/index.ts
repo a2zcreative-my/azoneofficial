@@ -710,6 +710,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true });
   }
 
+  if (path === "/api/v1/audit" && method === "GET") {
+    // Audit trail viewer — admin tier only. Reads the log every consequential
+    // action already writes to (logins, approvals, role changes, resets).
+    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin required", 403);
+    const url = new URL(request.url);
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 300);
+    const action = url.searchParams.get("action");
+    const rows = action
+      ? await env.DB.prepare(
+          `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, u.name AS user_name
+           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+           WHERE a.action LIKE ?1 || '%' ORDER BY a.id DESC LIMIT ?2`,
+        ).bind(action, limit).all()
+      : await env.DB.prepare(
+          `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, u.name AS user_name
+           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+           ORDER BY a.id DESC LIMIT ?1`,
+        ).bind(limit).all();
+    return json({ entries: rows.results });
+  }
+
   if (path === "/api/v1/dashboard/summary" && method === "GET") {
     if (!isContentTeam(user)) {
       return errorResponse("forbidden", "Sign in required", 403);

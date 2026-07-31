@@ -513,6 +513,60 @@ interface Customer { id: number; company: string; contact_person: string | null;
 interface SalesDoc { id: number; doc_type: string; doc_number: string; company: string; total_cents: number; payment_status: string | null; delivery_status: string | null; created_at: string }
 interface DocItem { name: string; qty: number; unit_price_cents: number }
 
+
+/** Fetch a full document and open a branded, print-ready PDF window. */
+async function printDoc(id: number) {
+  const res = await fetch(`/api/v1/staff/docs/${id}`, { credentials: "include" });
+  if (!res.ok) return;
+  const { doc } = (await res.json()) as { doc: DocFull };
+  const items: { name: string; qty: number; unit_price_cents: number }[] = (() => {
+    try { return JSON.parse(doc.items); } catch { return []; }
+  })();
+  const rm = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+  const title = { QT: "QUOTATION", DO: "DELIVERY ORDER", INV: "INVOICE" }[doc.doc_type] ?? doc.doc_type;
+  const rows = items.map((it) =>
+    `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${it.name}</td>
+     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${it.qty}</td>
+     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rm(it.unit_price_cents)}</td>
+     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rm(it.qty * it.unit_price_cents)}</td></tr>`).join("");
+  const w = window.open("", "_blank", "width=800,height=1000");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${doc.doc_number}</title>
+  <style>@page{size:A4;margin:16mm}body{font-family:Arial,Helvetica,sans-serif;color:#1a2946;font-size:12px}
+  .hd{display:flex;justify-content:space-between;border-bottom:2px solid #1a2946;padding-bottom:10px}
+  .brand{font-size:15px;font-weight:800}.brand small{display:block;font-size:8px;letter-spacing:.3em;color:#b8912f}
+  .doc{text-align:right}.doc h2{margin:0;font-size:18px;letter-spacing:.05em}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{background:#1a2946;color:#fff;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase}
+  .tot{margin-top:10px;width:100%;text-align:right}.tot td{padding:3px 8px}
+  .party{margin-top:16px;color:#5b6472}.foot{margin-top:28px;font-size:9px;color:#8a93a6;border-top:1px solid #eee;padding-top:8px}</style>
+  </head><body onload="window.print()">
+  <div class="hd">
+    <div class="brand">AZ ONE OFFICIAL<small>LIVE COMMERCE AGENCY</small></div>
+    <div class="doc"><h2>${title}</h2><div>${doc.doc_number}</div>
+      <div style="color:#5b6472">${(doc.created_at || "").slice(0, 10)}</div></div>
+  </div>
+  <div class="party"><strong>To:</strong> ${doc.company}${doc.contact_person ? " · " + doc.contact_person : ""}<br/>
+    ${doc.address ?? ""}${doc.customer_phone ? "<br/>" + doc.customer_phone : ""}</div>
+  <table><thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Amount</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="4" style="padding:8px;color:#999">No line items</td></tr>'}</tbody></table>
+  <table class="tot">
+    ${doc.discount_cents ? `<tr><td>Discount</td><td>- ${rm(doc.discount_cents)}</td></tr>` : ""}
+    ${doc.tax_percent ? `<tr><td>Tax</td><td>${doc.tax_percent}%</td></tr>` : ""}
+    <tr><td style="font-weight:800;font-size:14px">TOTAL</td><td style="font-weight:800;font-size:14px">${rm(doc.total_cents)}</td></tr>
+  </table>
+  ${doc.notes ? `<p class="party">${doc.notes}</p>` : ""}
+  <div class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · azoneofficial.com · WhatsApp +60 12-383 4821${doc.doc_type === "INV" && doc.due_date ? " · Due: " + doc.due_date : ""}</div>
+  </body></html>`);
+  w.document.close();
+}
+
+interface DocFull {
+  doc_type: string; doc_number: string; company: string; contact_person?: string;
+  address?: string; customer_phone?: string; items: string; discount_cents: number;
+  tax_percent: number; total_cents: number; notes?: string; due_date?: string; created_at: string;
+}
+
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
@@ -626,6 +680,8 @@ function Sales({ user }: { user: User }) {
               </select>
             )}
             {d.doc_type === "QT" && <span className="text-muted-foreground text-xs">Quotation</span>}
+            <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
+              onClick={() => void printDoc(d.id)}>PDF</button>
           </div>
         ))}
       </div>
@@ -638,8 +694,6 @@ function Sales({ user }: { user: User }) {
 function Profile() {
   const [profile, setProfile] = useState<Record<string, string | null>>({});
   const [phone, setPhone] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   useEffect(() => {
     void api<{ profile: Record<string, string | null> }>(`/staff/profile`).then((r) => {
       if (r.data?.profile) {
@@ -649,15 +703,7 @@ function Profile() {
     });
   }, []);
   const save = async () => {
-    setSaving(true);
-    const res = await api(`/staff/profile`, { method: "PATCH", body: JSON.stringify({ phone }) });
-    setSaving(false);
-    if (res.ok) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } else {
-      alert("Failed to save phone number");
-    }
+    await api(`/staff/profile`, { method: "PATCH", body: JSON.stringify({ phone }) });
   };
   return (
     <div className={`${card} max-w-lg`}>
@@ -674,9 +720,7 @@ function Profile() {
         <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
         <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
       </label>
-      <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
-        {saving ? "Saving..." : saved ? "Saved!" : "Save"}
-      </button>
+      <button type="button" className={`${btnClass} mt-3`} onClick={() => void save()}>Save</button>
 
       <div className="mt-6 border-t border-border pt-5">
         <p className="text-sm font-semibold">Change password</p>

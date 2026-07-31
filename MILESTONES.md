@@ -259,3 +259,7 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Government-size ID badge print + admin employee-field editing
 - Staff self-create tasks (open/pending/closed + deadline); customer enquiries from /account
 - Attendance policy (no break; MYT clock-in/out rules); multi-stage leave approval (HR→COO/CCO→CEO); migration 0010; tighter UI spacing
+
+## v1.4.16 — 31 Jul 2026 — Payroll, calendar, audit, PDFs
+- Leave entitlement editor + confirmed balance deduction; public holidays calendar
+- Payslip/payroll summary (printable); audit-log viewer in /admin; off-platform notify webhook; branded QT/DO/INV PDFs

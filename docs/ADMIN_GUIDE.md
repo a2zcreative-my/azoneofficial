@@ -189,3 +189,17 @@ card size).
 | Version | Change |
 |---|---|
 | v1.4.15 | Leave chain + ID badge documented. |
+
+
+## Payroll, calendar & audit (v1.4.16)
+
+- **Leave entitlement**: /admin → Staff → set days per person per type. Balances deduct approved leave automatically.
+- **Holidays**: /admin → Staff → add public/company holidays; staff see the calendar and leave-counting can skip them.
+- **Payslip**: /admin → Staff → pick a person and month → Generate → Print (A4 attendance + leave summary for payroll).
+- **Audit**: /admin → Audit → full activity trail with filters (sign-ins, users, leave, holidays, tasks).
+- **Document PDFs**: /portal → Sales → PDF on any QT/DO/INV for a branded, printable document.
+- **Off-platform alerts**: set the `NOTIFY_WEBHOOK` Worker variable to relay approvals/assignments to email or WhatsApp.
+
+| Version | Change |
+|---|---|
+| v1.4.16 | Entitlement editor, holidays, payslip, audit viewer, document PDFs, notify webhook. |

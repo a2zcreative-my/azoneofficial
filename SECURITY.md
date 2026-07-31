@@ -177,3 +177,15 @@ holds no write permission. Every capability enforced server-side; the /admin,
 | Version | Change |
 |---|---|
 | v1.4.14 | Capability sets remapped to the 11-role model; CEO read-only; content editing restricted to admin tier. |
+
+
+## v1.4.16 — audit visibility
+The audit trail (written since v1) is now viewable in /admin → Audit (admin
+tier only). After the v1.4.12 backdoor incident, being able to review sign-ins,
+role changes, resets and approvals directly is a material security improvement:
+detection, not just recording. The off-platform notify webhook, when set, also
+means privileged actions can alert a human out-of-band.
+
+| Version | Change |
+|---|---|
+| v1.4.16 | Audit-log viewer (admin tier); optional off-platform notification relay. |

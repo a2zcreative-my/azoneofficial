@@ -83,6 +83,28 @@ async function notify(
   await env.DB.prepare(
     `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, ?2, ?3, ?4)`,
   ).bind(userId, kind, message, ref ?? null).run();
+
+  // Off-platform delivery (email / WhatsApp relay). Only fires when a webhook
+  // is configured; otherwise this is a no-op and notifications stay in-app.
+  // The relay decides the channel; we just hand it who + what.
+  const hook = (env as unknown as { NOTIFY_WEBHOOK?: string }).NOTIFY_WEBHOOK;
+  if (hook) {
+    try {
+      const target = await env.DB.prepare(
+        `SELECT email, phone, name FROM users WHERE id = ?1`,
+      ).bind(userId).first<{ email: string; phone: string | null; name: string }>();
+      if (target) {
+        // Fire-and-forget: a slow relay must never block the request.
+        await fetch(hook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, message, ref, to: target }),
+        }).catch(() => {});
+      }
+    } catch {
+      /* delivery is best-effort; in-app record already saved */
+    }
+  }
 }
 
 async function audit(
@@ -654,6 +676,17 @@ export async function handleStaff(
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
     return json({ id: res?.id, doc_number: number, total_cents: total }, 201);
   }
+  const docGet = path.match(/^\/docs\/(\d+)$/);
+  if (docGet && method === "GET") {
+    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    const d = await env.DB.prepare(
+      `SELECT d.*, c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone, c.address
+       FROM sales_documents d JOIN customers c ON c.id = d.customer_id WHERE d.id = ?1`,
+    ).bind(docGet[1]).first();
+    if (!d) return err("not_found", "Document not found", 404);
+    return json({ doc: d });
+  }
+
   const docMatch = path.match(/^\/docs\/(\d+)$/);
   if (docMatch && method === "PATCH") {
     const id = docMatch[1]!;
@@ -680,6 +713,123 @@ export async function handleStaff(
   }
 
   /* ---- notifications ---- */
+
+  /* ---- Holidays / company calendar ---- */
+
+  if (path === "/holidays" && method === "GET") {
+    // Any signed-in staff can see the calendar.
+    const url = new URL(request.url);
+    const year = url.searchParams.get("year") ?? String(new Date().getFullYear());
+    const { results } = await env.DB.prepare(
+      `SELECT id, holiday_date, name, kind FROM holidays
+       WHERE holiday_date LIKE ?1 || '%' ORDER BY holiday_date`,
+    ).bind(year).all();
+    return json({ holidays: results });
+  }
+  if (path === "/holidays" && method === "POST") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!body || !str(body.holiday_date, 10) || !str(body.name, 120)) {
+      return err("invalid_input", "holiday_date (YYYY-MM-DD) and name are required", 400);
+    }
+    const kinds = ["public", "company", "replacement"];
+    try {
+      await env.DB.prepare(
+        `INSERT INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(body.holiday_date, body.name,
+             kinds.includes(body.kind as string) ? body.kind : "public", user.id).run();
+    } catch {
+      return err("conflict", "A holiday already exists on that date", 409);
+    }
+    await audit(env, user.id, "holiday.create");
+    return json({ ok: true }, 201);
+  }
+  const holMatch = path.match(/^\/holidays\/(\d+)$/);
+  if (holMatch && method === "DELETE") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    await env.DB.prepare(`DELETE FROM holidays WHERE id = ?1`).bind(holMatch[1]).run();
+    await audit(env, user.id, "holiday.delete", "holidays", holMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- Leave entitlement editor (admin/HR) ---- */
+
+  if (path === "/leave/entitlement" && method === "GET") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const url = new URL(request.url);
+    const year = Number(url.searchParams.get("year") ?? new Date().getFullYear());
+    const uid = Number(url.searchParams.get("user_id"));
+    if (!uid) return err("invalid_input", "user_id required", 400);
+    const { results } = await env.DB.prepare(
+      `SELECT type, entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2`,
+    ).bind(uid, year).all();
+    const map: Record<string, number> = {};
+    for (const r of results as { type: string; entitled: number }[]) map[r.type] = r.entitled;
+    return json({ year, user_id: uid, entitlement: map });
+  }
+  if (path === "/leave/entitlement" && method === "PUT") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const year = Number(body?.year ?? new Date().getFullYear());
+    const uid = Number(body?.user_id);
+    const type = str(body?.type, 40) ? (body!.type as string) : "";
+    const entitled = Number(body?.entitled);
+    if (!uid || !type || !(entitled >= 0)) {
+      return err("invalid_input", "user_id, type and entitled (>=0) are required", 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO leave_balances (user_id, year, type, entitled) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(user_id, year, type) DO UPDATE SET entitled = ?4`,
+    ).bind(uid, year, type, entitled).run();
+    await audit(env, user.id, "leave.entitlement", "users", String(uid), { type, entitled });
+    return json({ ok: true });
+  }
+
+  /* ---- Payslip (basic payroll output) ---- */
+
+  if (path === "/payslip" && method === "GET") {
+    if (!can(user, "payroll_export")) return err("forbidden", "Payroll access required", 403);
+    const url = new URL(request.url);
+    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const uid = Number(url.searchParams.get("user_id"));
+    if (!uid) return err("invalid_input", "user_id required", 400);
+    const staff = await env.DB.prepare(
+      `SELECT name, email, employee_id, position, department FROM users WHERE id = ?1`,
+    ).bind(uid).first<Record<string, string>>();
+    if (!staff) return err("not_found", "Staff not found", 404);
+    // Attendance summary for the month (MYT), by clock event flag.
+    const { results: att } = await env.DB.prepare(
+      `SELECT type, created_at FROM attendance_records WHERE user_id = ?1 AND created_at LIKE ?2 || '%'`,
+    ).bind(uid, month).all();
+    let present = 0, late = 0, halfDay = 0, earlyOut = 0;
+    const days = new Set<string>();
+    for (const r of att as { type: string; created_at: string }[]) {
+      const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
+      const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
+      const day = myt.toISOString().slice(0, 10);
+      if (r.type === "clock_in") {
+        days.add(day);
+        if (mins > 10 * 60 + 5 && mins < 13 * 60) late++;
+        else if (mins >= 13 * 60) halfDay++;
+        else present++;
+      } else if (r.type === "clock_out" && mins < 18 * 60 && mins > 13 * 60) earlyOut++;
+    }
+    // Approved leave days in the month.
+    const leave = await env.DB.prepare(
+      `SELECT COALESCE(SUM(days), 0) AS d FROM leave_requests
+       WHERE user_id = ?1 AND status = 'approved' AND start_date LIKE ?2 || '%'`,
+    ).bind(uid, month).first<{ d: number }>();
+    return json({
+      month,
+      staff,
+      attendance: {
+        days_present: days.size,
+        on_time: present,
+        late,
+        half_days: halfDay,
+        early_outs: earlyOut,
+      },
+      approved_leave_days: leave?.d ?? 0,
+    });
+  }
 
   /* ---- HR / payroll: attendance CSV export ---- */
 

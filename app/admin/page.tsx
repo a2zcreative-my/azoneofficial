@@ -7,6 +7,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { AuditPanel } from "@/components/admin/audit-panel";
+import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { StaffDirectory } from "@/components/admin/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -770,6 +772,7 @@ const TABS = [
   "Media",
   "Users",
   "Staff",
+  "Audit",
   "Account",
   "Advanced",
 ] as const;
@@ -788,6 +791,7 @@ const TAB_HELP: Record<Tab, string> = {
   Media: "Uploaded images and files.",
   Users: "Staff and customer accounts — roles, suspension, force logout.",
   Staff: "Leave approvals and entry to every staff module — full admin authority.",
+  Audit: "Full activity trail — sign-ins, approvals, role changes, resets.",
   Account: "Your own sign-in security.",
   Advanced: "Raw content keys — for anything the Website tab does not cover.",
 };
@@ -848,7 +852,7 @@ export default function AdminPage() {
       </header>
 
       <nav className="mt-8 flex flex-wrap gap-2" aria-label="Admin sections">
-        {TABS.filter((t) => !["Users", "Staff"].includes(t) || ["super_admin", "admin"].includes(user.role)).map((t) => (
+        {TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role)).map((t) => (
           <button
             key={t}
             type="button"
@@ -898,7 +902,8 @@ export default function AdminPage() {
         {tab === "Website" && <SiteEditor />}
         {tab === "Advanced" && <ContentPanel />}
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
-        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory /><div className="mt-6"><StaffPanel /></div></>}
+        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
+        {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && <AuditPanel />}
         {tab === "Account" && <AccountPanel />}
         {tab === "Testimonials" && (
           <CrudPanel
