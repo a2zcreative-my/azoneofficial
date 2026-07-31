@@ -212,3 +212,13 @@ now actually receives the JSON detail (quantities, roles) that calls pass.
 | Version | Change |
 |---|---|
 | v1.4.31 | 0015 — postage↔inventory movement columns; audit detail stored. |
+
+
+## v1.4.32 — migration 0016_postage_multi_items.sql
+postage_items: one row per (order, item, qty) line. Orders deduct all lines on
+create (validated first, guarded per-line, rolled back on race) and restock all
+lines on return, once. Legacy single-item columns (0015) remain readable.
+
+| Version | Change |
+|---|---|
+| v1.4.32 | 0016 — multi-item postage lines. |

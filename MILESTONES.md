@@ -312,3 +312,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 ## v1.4.31 — 31 Jul 2026 — Stock logic + live bell
 - Postage deducts stock (insufficient refused), returns restock once, manual In/Out with audit; migration 0015
 - Bell polls 60s + focus, pulsing amber unread badge — announcements alert staff live
+
+## v1.4.32 — 31 Jul 2026 — Multi-item orders
+- Orders ship multiple items/quantities; merge → validate-all → guarded deduct → rollback on race; returns restock all lines; migration 0016
+
+## v1.4.33 — 31 Jul 2026 — Statutory medical + CEO visibility + account tabs
+- Medical leave full from day one; CEO read-only HR/Sales/Staff Details; clickable dashboard cards; 7-day scrollable bell; super_admin out of staff lists; /account tabs

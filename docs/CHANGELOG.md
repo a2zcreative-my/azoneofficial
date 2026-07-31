@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.33] — 2026-07-31 — Statutory medical leave, CEO visibility, clickable dashboard, account tabs
+
+### Changed
+- **Medical leave is fully eligible from day one** — sick leave under Malaysia's Employment Act is a statutory entitlement, not an accrued benefit, so it no longer pro-rates: 14/14 available immediately. Annual/emergency/others keep the monthly release
+- **CEO now sees HR, Sales and Staff Details tabs** — all read-only: the Sales tab hides the create-document form for the CEO (documents list, statuses and PDFs visible); Staff Details renders fully read-only for the CEO (records and badge preview/print visible, no edits, no add form); HR's verification tables were already readable. Backing API reads (sales docs, customers) opened to exec_view; writes unchanged
+- **Dashboard cards are clickable** — Pending leave → Leave, My open tasks → Tasks, Announcements → Announcements (keyboard accessible too)
+- **Notifications**: show the announcement message, keep only the **last 7 days** (older ones disappear automatically), and the dropdown shows about **5 rows with scrolling** for more
+- **super_admin no longer appears in staff lists** (Staff Details, Birthdays, attendance-correction picker) — it belongs to the Admin side, not the staff directory
+- **/account now has tabs**: **Account** (details, password, ELFIA) and **My Enquiries** (the Ask AZ ONE form + enquiry thread) — the enquiry area customers were promised has its own tab
+
+### Deploy
+- `npx wrangler deploy` → rebuild site. No migration
+
+
+## [1.4.32] — 2026-07-31 — Multi-item orders with guaranteed-accurate deduction
+
+### Changed
+- **A postage order now carries multiple item lines**, each with its own quantity (**+ Add item line** in the form, up to 20 lines). Rows show the full contents: "AZ-1023 · J&T · 2× Signature Shawl Taupe, 1× Corporate Series Grey"
+
+### How accuracy is guaranteed (the four rules)
+1. **Duplicate lines merge before checking** — 2× A + 3× A is treated as 5× A, so the check can't be fooled by splitting
+2. **All-or-nothing validation** — every line is checked against current stock first; if ANY line is short, the whole order is refused with the exact shortages listed ("Signature Shawl: only 3 in stock, order needs 5"). No partial deduction ever happens
+3. **Race-proof deduction** — each deduction is a guarded UPDATE (`AND stock >= qty`); if two people ship the same item at the same instant, the slower order is rolled back and refused rather than pushing stock negative
+4. **Every movement is audit-logged** with the item, quantity and order reference — verifiable any time in /admin → Audit under the inventory filter
+
+- Returns restock **every line** of the order, once (legacy single-item records from v1.4.31 restock too)
+- Migration **0016** (postage_items line table)
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014/0015 if pending + **0016**) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.31] — 2026-07-31 — Stock moves with postage; the bell actually alerts
 
 ### Added — inventory ↔ postage logic

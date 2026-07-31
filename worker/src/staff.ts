@@ -528,7 +528,11 @@ export async function handleStaff(
          AND start_date LIKE ?3 || '%'`,
       ).bind(user.id, t, String(year)).first<{ used: number }>();
       const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
-      const accrued = Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
+      // Medical (sick) leave is a statutory entitlement under Malaysia's
+      // Employment Act — fully available from day one, never pro-rated.
+      const accrued = t === "medical"
+        ? entitled
+        : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
       balances[t] = { entitled, used: used?.used ?? 0, accrued };
     }
     return json({ year, month: monthMYT, balances });
@@ -718,7 +722,9 @@ export async function handleStaff(
   /* ---- CRM customers ---- */
 
   if (path === "/customers" && (method === "GET" || method === "POST")) {
-    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (method === "GET" ? !can(user, "sales") && !can(user, "exec_view") : !can(user, "sales")) {
+      return err("forbidden", "Sales access required", 403);
+    }
     if (method === "GET") {
       const { results } = await env.DB.prepare(
         `SELECT * FROM customers ORDER BY company LIMIT 300`,
@@ -759,7 +765,7 @@ export async function handleStaff(
   /* ---- sales documents (QT / DO / INV) ---- */
 
   if (path === "/docs" && method === "GET") {
-    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (!can(user, "sales") && !can(user, "exec_view")) return err("forbidden", "Sales access required", 403);
     const url = new URL(request.url);
     const t = url.searchParams.get("type");
     const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
@@ -1146,7 +1152,10 @@ export async function handleStaff(
       return err("forbidden", "Access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT p.*, i.name AS item_name, i.sku AS item_sku
+      `SELECT p.*, i.name AS item_name,
+         (SELECT group_concat(pi.qty || '× ' || ii.name, ', ')
+          FROM postage_items pi JOIN inventory_items ii ON ii.id = pi.inventory_item_id
+          WHERE pi.postage_id = p.id) AS items_label
        FROM postage_records p LEFT JOIN inventory_items i ON i.id = p.inventory_item_id
        ORDER BY p.updated_at DESC LIMIT 200`,
     ).all();
@@ -1155,39 +1164,85 @@ export async function handleStaff(
   if (path === "/postage" && method === "POST") {
     if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !str(body.order_ref, 100)) return err("invalid_input", "order_ref is required", 400);
-    // Stock movement (v1.4.31): naming an inventory item + qty deducts stock
-    // automatically — the logical link between shipping and inventory.
-    const itemId = typeof body.inventory_item_id === "number" ? body.inventory_item_id : null;
-    const qty = typeof body.qty === "number" && body.qty >= 1 ? Math.floor(body.qty) : null;
-    if (itemId && !qty) return err("invalid_input", "qty (>= 1) is required when an item is selected", 400);
-    if (itemId && qty) {
+    // Multi-item stock movement (v1.4.32). An order may ship several items in
+    // different quantities. Accuracy guarantees, in order:
+    //   1. Lines for the same item are MERGED before checking — 2× A + 3× A = 5× A.
+    //   2. Every line is validated against current stock FIRST — if ANY line
+    //      is short, the WHOLE order is refused; nothing deducts partially.
+    //   3. Each deduction uses a guarded UPDATE — "AND stock >= qty" — so even
+    //      two people shipping the same item at the same instant cannot push
+    //      stock negative; the slower one is refused.
+    //   4. Every deduction is audit-logged with item + qty — visible in /admin → Audit.
+    type Line = { inventory_item_id: number; qty: number };
+    const rawLines: Line[] = Array.isArray(body.items)
+      ? (body.items as Line[])
+      : typeof body.inventory_item_id === "number"
+        ? [{ inventory_item_id: body.inventory_item_id, qty: Number(body.qty) }]
+        : [];
+    const merged = new Map<number, number>();
+    for (const l of rawLines) {
+      if (typeof l?.inventory_item_id !== "number" || !(Number(l.qty) >= 1)) {
+        return err("invalid_input", "Each line needs inventory_item_id and qty >= 1", 400);
+      }
+      merged.set(l.inventory_item_id, (merged.get(l.inventory_item_id) ?? 0) + Math.floor(Number(l.qty)));
+    }
+    if (merged.size > 20) return err("invalid_input", "Maximum 20 item lines per order", 400);
+    const lines = [...merged.entries()].map(([id, qty]) => ({ id, qty }));
+
+    // Validate every line before touching anything.
+    const shortages: string[] = [];
+    for (const l of lines) {
       const item = await env.DB.prepare(
         `SELECT stock, name FROM inventory_items WHERE id = ?1`,
-      ).bind(itemId).first<{ stock: number; name: string }>();
-      if (!item) return err("not_found", "Inventory item not found", 404);
-      if (item.stock < qty) {
-        return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot ship ${qty}`, 409);
-      }
-      const newStock = item.stock - qty;
-      await env.DB.prepare(
-        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-      ).bind(newStock, stockStatus(newStock), user.id, itemId).run();
-      await audit(env, user.id, "inventory.out", "inventory_items", String(itemId), { qty });
+      ).bind(l.id).first<{ stock: number; name: string }>();
+      if (!item) return err("not_found", `Inventory item #${l.id} not found`, 404);
+      if (item.stock < l.qty) shortages.push(`${item.name}: only ${item.stock} in stock, order needs ${l.qty}`);
     }
-    await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, inventory_item_id, qty, updated_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    if (shortages.length > 0) {
+      return err("insufficient_stock", `Order refused — ${shortages.join("; ")}`, 409);
+    }
+
+    // Create the order, then apply guarded deductions + line rows.
+    const rec = await env.DB.prepare(
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
     ).bind(
       body.order_ref,
       str(body.courier, 80) ? body.courier : null,
       str(body.tracking_no, 120) ? body.tracking_no : null,
       POSTAGE_STATUSES.includes(body.status as string) ? (body.status as string) : "preparing",
       str(body.note, 500) ? body.note : null,
-      itemId, qty,
       user.id,
-    ).run();
-    await audit(env, user.id, "postage.create");
-    return json({ ok: true }, 201);
+    ).first<{ id: number }>();
+    for (const l of lines) {
+      const upd = await env.DB.prepare(
+        `UPDATE inventory_items SET stock = stock - ?1, updated_by = ?2, updated_at = datetime('now')
+         WHERE id = ?3 AND stock >= ?1`,
+      ).bind(l.qty, user.id, l.id).run();
+      if (!upd.meta.changes) {
+        // Race lost between validation and deduction — undo lines already
+        // taken for this order and refuse it honestly.
+        const { results: taken } = await env.DB.prepare(
+          `SELECT inventory_item_id, qty FROM postage_items WHERE postage_id = ?1`,
+        ).bind(rec!.id).all();
+        for (const t of taken as { inventory_item_id: number; qty: number }[]) {
+          await env.DB.prepare(`UPDATE inventory_items SET stock = stock + ?1 WHERE id = ?2`)
+            .bind(t.qty, t.inventory_item_id).run();
+        }
+        await env.DB.prepare(`DELETE FROM postage_items WHERE postage_id = ?1`).bind(rec!.id).run();
+        await env.DB.prepare(`DELETE FROM postage_records WHERE id = ?1`).bind(rec!.id).run();
+        return err("insufficient_stock", "Order refused — stock changed while saving; nothing was deducted", 409);
+      }
+      await env.DB.prepare(
+        `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
+      ).bind(rec!.id, l.id, l.qty).run();
+      await env.DB.prepare(
+        `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+      ).bind(l.id).run();
+      await audit(env, user.id, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: body.order_ref as string });
+    }
+    await audit(env, user.id, "postage.create", "postage_records", String(rec?.id), { lines: lines.length });
+    return json({ ok: true, id: rec?.id }, 201);
   }
   const postMatch = path.match(/^\/postage\/(\d+)$/);
   if (postMatch && method === "PATCH") {
@@ -1201,17 +1256,27 @@ export async function handleStaff(
       const rec = await env.DB.prepare(
         `SELECT inventory_item_id, qty, restocked FROM postage_records WHERE id = ?1`,
       ).bind(postMatch[1]).first<{ inventory_item_id: number | null; qty: number | null; restocked: number }>();
-      if (rec?.inventory_item_id && rec.qty && !rec.restocked) {
-        const item = await env.DB.prepare(
-          `SELECT stock FROM inventory_items WHERE id = ?1`,
-        ).bind(rec.inventory_item_id).first<{ stock: number }>();
-        if (item) {
-          const newStock = item.stock + rec.qty;
+      if (rec && !rec.restocked) {
+        // Restock every line of the order. Multi-item lines live in
+        // postage_items; older single-item records used the legacy columns.
+        const { results } = await env.DB.prepare(
+          `SELECT inventory_item_id, qty FROM postage_items WHERE postage_id = ?1`,
+        ).bind(postMatch[1]).all();
+        const lines = (results as { inventory_item_id: number; qty: number }[]).length > 0
+          ? (results as { inventory_item_id: number; qty: number }[])
+          : rec.inventory_item_id && rec.qty
+            ? [{ inventory_item_id: rec.inventory_item_id, qty: rec.qty }]
+            : [];
+        for (const l of lines) {
           await env.DB.prepare(
-            `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-          ).bind(newStock, stockStatus(newStock), user.id, rec.inventory_item_id).run();
+            `UPDATE inventory_items SET stock = stock + ?1,
+               status = CASE WHEN stock + ?1 = 0 THEN 'out_of_stock' WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
+               updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+          ).bind(l.qty, user.id, l.inventory_item_id).run();
+          await audit(env, user.id, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: "returned" });
+        }
+        if (lines.length > 0) {
           await env.DB.prepare(`UPDATE postage_records SET restocked = 1 WHERE id = ?1`).bind(postMatch[1]).run();
-          await audit(env, user.id, "inventory.in", "inventory_items", String(rec.inventory_item_id), { qty: rec.qty, reason: "returned" });
         }
       }
     }
@@ -1416,7 +1481,8 @@ export async function handleStaff(
   if (path === "/notifications" && method === "GET") {
     const { results } = await env.DB.prepare(
       `SELECT id, kind, message, ref, is_read, created_at FROM notifications
-       WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 50`,
+       WHERE user_id = ?1 AND created_at >= datetime('now', '-7 days')
+       ORDER BY created_at DESC LIMIT 50`,
     ).bind(user.id).all();
     return json({ notifications: results });
   }

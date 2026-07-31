@@ -36,6 +36,7 @@ export default function AccountPage() {
   const [checked, setChecked] = useState(false);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [ask, setAsk] = useState("");
+  const [tab, setTab] = useState<"Account" | "Enquiries">("Account");
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -89,6 +90,24 @@ export default function AccountPage() {
         </button>
       </header>
 
+      <nav className="mt-6 flex gap-2" aria-label="Account sections">
+        {(["Account", "Enquiries"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={
+              tab === t
+                ? "bg-primary text-primary-foreground rounded-lg px-4 py-1.5 text-sm font-medium"
+                : "border-border rounded-lg border px-4 py-1.5 text-sm hover:bg-secondary"
+            }
+          >
+            {t === "Enquiries" ? "My Enquiries" : t}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "Account" && (
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">My details</p>
@@ -120,6 +139,10 @@ export default function AccountPage() {
         </div>
       </div>
 
+      )}
+
+      {tab === "Enquiries" && (
+      <>
       <div className={`${card} mt-6`}>
         <p className="text-sm font-semibold">Ask AZ ONE OFFICIAL</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -175,6 +198,8 @@ export default function AccountPage() {
           ))
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

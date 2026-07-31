@@ -272,7 +272,8 @@ export function InventoryPanel() {
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0 });
-  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "", inventory_item_id: 0, qty: 1 });
+  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "" });
+  const [postLines, setPostLines] = useState<{ inventory_item_id: number; qty: number }[]>([]);
   const [postMsg, setPostMsg] = useState("");
   const [matDraft, setMatDraft] = useState("");
   const [adjQty, setAdjQty] = useState<Record<number, number>>({});
@@ -375,33 +376,45 @@ export function InventoryPanel() {
               <input className={inputClass} placeholder="Tracking no." value={postDraft.tracking_no}
                 onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} />
             </div>
-            <div className="flex gap-2">
-              <select className={inputClass} value={postDraft.inventory_item_id}
-                onChange={(e) => setPostDraft((d) => ({ ...d, inventory_item_id: Number(e.target.value) }))}>
-                <option value={0}>No stock deduction (item optional)</option>
-                {items.map((it) => (
-                  <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
-                ))}
-              </select>
-              <input type="number" min={1} className={`${inputClass} max-w-20`} value={postDraft.qty}
-                title="Quantity shipped"
-                onChange={(e) => setPostDraft((d) => ({ ...d, qty: Math.max(1, Number(e.target.value)) }))} />
-            </div>
+            {postLines.map((line, idx) => (
+              <div key={idx} className="flex gap-2">
+                <select className={inputClass} value={line.inventory_item_id}
+                  onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, inventory_item_id: Number(e.target.value) } : l))}>
+                  <option value={0}>Select item…</option>
+                  {items.map((it) => (
+                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
+                  ))}
+                </select>
+                <input type="number" min={1} className={`${inputClass} max-w-20`} value={line.qty}
+                  title="Quantity shipped"
+                  onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, qty: Math.max(1, Number(e.target.value)) } : l))} />
+                <button type="button" className="text-destructive text-xs underline"
+                  onClick={() => setPostLines((ls) => ls.filter((_, i) => i !== idx))}>Remove</button>
+              </div>
+            ))}
+            <button type="button" className="text-xs underline"
+              onClick={() => setPostLines((ls) => [...ls, { inventory_item_id: 0, qty: 1 }])}>
+              + Add item line {postLines.length === 0 ? "(deducts stock automatically)" : ""}
+            </button>
             {postMsg && <p className="text-destructive text-xs font-medium">{postMsg}</p>}
             <button type="button" className={btnClass}
               onClick={async () => {
                 if (!postDraft.order_ref.trim()) return;
+                const lines = postLines.filter((l) => l.inventory_item_id > 0);
+                if (postLines.length > 0 && lines.length !== postLines.length) {
+                  setPostMsg("Pick an item for every line, or remove empty lines.");
+                  return;
+                }
                 setPostMsg("");
-                const payload = {
-                  ...postDraft,
-                  inventory_item_id: postDraft.inventory_item_id || undefined,
-                  qty: postDraft.inventory_item_id ? postDraft.qty : undefined,
-                };
-                const res = await api<{ error?: { message?: string } }>(`/postage`, { method: "POST", body: JSON.stringify(payload) });
+                const res = await api<{ error?: { message?: string } }>(`/postage`, {
+                  method: "POST",
+                  body: JSON.stringify({ ...postDraft, items: lines.length > 0 ? lines : undefined }),
+                });
                 if (!res.ok) {
                   setPostMsg(res.data?.error?.message ?? "Could not add record");
                 } else {
-                  setPostDraft({ order_ref: "", courier: "", tracking_no: "", inventory_item_id: 0, qty: 1 });
+                  setPostDraft({ order_ref: "", courier: "", tracking_no: "" });
+                  setPostLines([]);
                 }
                 void load();
               }}>
@@ -415,9 +428,11 @@ export function InventoryPanel() {
                   <span className="font-medium">{r.order_ref}</span>{" "}
                   <span className="text-muted-foreground text-xs">
                     {r.courier ?? "—"} · {r.tracking_no ?? "no tracking yet"}
-                    {(r as PostRec & { item_name?: string; qty?: number }).item_name
-                      ? ` · ${(r as PostRec & { qty?: number }).qty}× ${(r as PostRec & { item_name?: string }).item_name}`
-                      : ""}
+                    {(r as PostRec & { items_label?: string }).items_label
+                      ? ` · ${(r as PostRec & { items_label?: string }).items_label}`
+                      : (r as PostRec & { item_name?: string; qty?: number }).item_name
+                        ? ` · ${(r as PostRec & { qty?: number }).qty}× ${(r as PostRec & { item_name?: string }).item_name}`
+                        : ""}
                   </span>
                 </span>
                 <select
@@ -948,7 +963,7 @@ export function AttendanceAdminPanel() {
     ]);
     if (r.data) setRows(r.data.records ?? []);
     const list = u.data?.users ?? u.data?.staff ?? [];
-    setStaff(list.filter((x) => x.role !== "customer"));
+    setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
   }, [month]);
   useEffect(() => {
     void load();

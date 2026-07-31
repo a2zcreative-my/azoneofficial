@@ -382,3 +382,29 @@ From 2027: standard Jan–Dec twelve-month accrual, automatic.
 | Version | Change |
 |---|---|
 | v1.4.31 | Postage-driven stock movement + manual In/Out; live bell polling with pulsing unread badge. |
+
+
+## Multi-item orders (v1.4.32)
+Add as many item lines as the order ships, each with its own quantity. The
+system merges duplicate lines, validates every line before deducting anything,
+refuses the whole order if any line is short (listing the shortages), and
+guards each deduction against simultaneous shipping. Verify any movement in
+/admin → Audit: inventory.in / inventory.out entries carry item, qty and order
+reference.
+
+| Version | Change |
+|---|---|
+| v1.4.32 | Multi-item order lines with all-or-nothing, race-proof deduction. |
+
+
+## v1.4.33 notes
+- Medical leave: statutory — full entitlement from day one (Employment Act);
+  other types keep monthly accrual.
+- CEO visibility: HR, Sales (read-only, no create form), Staff Details
+  (read-only incl. badge preview/print). super_admin hidden from staff lists.
+- Dashboard cards click through to their tabs; bell keeps 7 days, ~5 rows
+  visible with scroll. /account has Account | My Enquiries tabs.
+
+| Version | Change |
+|---|---|
+| v1.4.33 | Medical full eligibility; CEO read-only HR/Sales/Staff Details; clickable dashboard cards; 7-day scrollable notifications; super_admin hidden; account tabs. |

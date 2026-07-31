@@ -184,7 +184,7 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
   ["blood_type", "Blood type (record only, not on badge)"],
 ];
 
-export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
+export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [allStaff, setAllStaff] = useState<Staff[]>([]);
   const [draft, setDraft] = useState<Record<number, Partial<Staff>>>({});
@@ -206,7 +206,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
     if (res.ok && res.data) {
       const list = res.data.users ?? res.data.staff ?? [];
       setAllStaff(list);
-      setStaff(list.filter((u) => u.role !== "customer"));
+      setStaff(list.filter((u) => u.role !== "customer" && u.role !== "super_admin"));
     }
   }, []);
   useEffect(() => {
@@ -241,7 +241,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
   };
   /** A field locks for HR once its SAVED value is non-empty; admin can always edit. */
   const isLocked = (u: Staff, key: keyof Staff) =>
-    !canAmend && Boolean(((u[key] as string) ?? "").trim());
+    readOnly || (!canAmend && Boolean(((u[key] as string) ?? "").trim()));
 
   return (
     <div className="space-y-3">
@@ -254,6 +254,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
         </p>
       </div>
 
+      {!readOnly && (
       <div className={card}>
         <p className="text-sm font-semibold">Add a staff member</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -376,6 +377,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
           </button>
         </div>
       </div>
+      )}
 
       <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
       {staff.map((u) => {
@@ -389,13 +391,15 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
               <span className="flex items-center gap-2">
                 {saved === u.id && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
-                <button
-                  type="button"
-                  className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85`}
-                  onClick={() => void save(u.id)}
-                >
-                  Save
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85`}
+                    onClick={() => void save(u.id)}
+                  >
+                    Save
+                  </button>
+                )}
                 <button
                   type="button"
                   className={`${btn} border-border border hover:bg-secondary`}
@@ -410,6 +414,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
                 >
                   Print badge
                 </button>
+                {!readOnly && (
                 <label className={`${btn} border-border cursor-pointer border hover:bg-secondary`}>
                   {u.photo_key ? (canAmend ? "Replace photo" : "Photo set 🔒") : "Upload photo"}
                   <input
@@ -439,6 +444,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
                     }}
                   />
                 </label>
+                )}
               </span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">

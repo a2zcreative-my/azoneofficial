@@ -195,7 +195,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className={card}>
-          <p className="text-sm font-semibold">
+          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+            onClick={() => go("Leave")} onKeyDown={(e) => e.key === "Enter" && go("Leave")}>
             Pending leave
             {leave.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
@@ -214,7 +215,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         <div className={card}>
-          <p className="text-sm font-semibold">
+          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+            onClick={() => go("Tasks")} onKeyDown={(e) => e.key === "Enter" && go("Tasks")}>
             My open tasks
             {tasks.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
@@ -233,7 +235,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         <div className={card}>
-          <p className="text-sm font-semibold">
+          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+            onClick={() => go("Announcements")} onKeyDown={(e) => e.key === "Enter" && go("Announcements")}>
             Announcements
             {anns.length > 0 && (
               <span className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
@@ -698,6 +701,7 @@ function Sales({ user }: { user: User }) {
           </div>
         </div>
 
+        {user.role !== "ceo" && (
         <div className={card}>
           <p className="text-sm font-semibold">Create document</p>
           <div className="mt-3 space-y-3">
@@ -735,6 +739,7 @@ function Sales({ user }: { user: User }) {
             <button type="button" className={btnClass} onClick={() => void createDoc()}>Create with auto number</button>
           </div>
         </div>
+        )}
       </div>
 
       <div className={card}>
@@ -840,7 +845,7 @@ const CONTENT_ONLY_ROLES: string[] = [];
 
 const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
   // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
-  HR: ["hr_admin", "coo", "cco", "super_admin", "admin"],
+  HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["sales_marketing", "super_admin", "admin"],
@@ -849,7 +854,7 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   // CEO can manage birthdays (their one write exception); HR tier too.
   Birthdays: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
   // Employee records: IDs, position, department, staff list, birth dates.
-  "Staff Details": ["hr_admin", "coo", "cco", "super_admin", "admin"],
+  "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
 };
 type TabName = (typeof ALL_TABS)[number];
 
@@ -918,7 +923,7 @@ export default function PortalPage() {
 
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
-    if (t === "Sales") return SALES_ROLES.includes(user.role);
+    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
     const allowed = TAB_ROLES[t];
     return !allowed || allowed.includes(user.role);
   });
@@ -965,7 +970,9 @@ export default function PortalPage() {
       {showNotifs && (
         <div className={`${card} mt-4`}>
           <p className="text-sm font-semibold">Notifications</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">Last 7 days. Older notifications clear automatically.</p>
           {notifs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing yet.</p>}
+          <div className="mt-1 max-h-44 overflow-y-auto pr-1">
           {notifs.map((n) => (
             <p key={n.id} className="mt-2 text-sm">
               {n.kind === "announcement" ? (
@@ -982,6 +989,7 @@ export default function PortalPage() {
               <span className="text-muted-foreground text-xs">· {n.created_at.slice(0, 16)}</span>
             </p>
           ))}
+          </div>
         </div>
       )}
 
@@ -1015,7 +1023,7 @@ export default function PortalPage() {
         {tab === "Announcements" && <Announcements user={user} />}
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
         {tab === "HR" && <HrPanel />}
-        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin"].includes(user.role)} />}
+        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin"].includes(user.role)} readOnly={user.role === "ceo"} />}
         {tab === "Inventory" && <InventoryPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
