@@ -227,3 +227,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Website tab: labelled, per-field editing of live site copy (hero, about, sections, footer, stats)
 - Products tab removed (no /products routes on the site); raw editor kept as Advanced
 - Dashboard cards + summary endpoint aligned with real site content
+
+## v1.4.6 — 31 Jul 2026 — Admin password reset
+- Per-user Reset password in /admin Users (forgotten-password flow, sessions revoked on set)

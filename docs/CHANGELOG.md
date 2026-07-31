@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.6] — 2026-07-31 — Admin password reset
+
+### Added
+- **Reset password** action per user in /admin → Users, for forgotten passwords. Inline field (10+ characters), uses the existing guarded `PATCH /users/:id` — the server hashes the new password and revokes every session the user had, so the old credential is dead the moment the new one is set. Escalation guards from v1.4.3 apply unchanged: an admin cannot reset a super admin's password
+- Guidance shown in the flow: hand the new password over directly (WhatsApp / in person) and have the user change it themselves in Profile after signing in
+
+
 ## [1.4.5] — 2026-07-31 — Admin matches the website; friendly editing
 
 ### Added

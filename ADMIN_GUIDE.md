@@ -80,3 +80,16 @@ edit.
 | Version | Change |
 |---|---|
 | v1.4.5 | Website tab added; Products tab removed; Advanced replaces raw Content. |
+
+
+## Forgotten passwords (v1.4.6)
+
+/admin → Users → **Reset password** on the user's row. Set a temporary password
+(10+ characters), tell them directly, and ask them to change it in their
+Profile after signing in. Setting a password signs the user out of every
+device. Admins cannot reset a super admin's password; a super admin can.
+Google-sign-in staff never need this — their password is their Google account.
+
+| Version | Change |
+|---|---|
+| v1.4.6 | Admin reset-password flow added to Users. |

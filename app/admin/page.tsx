@@ -577,6 +577,28 @@ function UsersPanel({ me }: { me: User }) {
     void load();
   };
 
+  // Inline password reset (forgotten-password flow). Uses the existing
+  // PATCH /users/:id — the server hashes the new password and revokes every
+  // session the user had, so a forgotten (or compromised) credential is dead
+  // the moment the new one is set.
+  const [resetId, setResetId] = useState<number | null>(null);
+  const [resetPw, setResetPw] = useState("");
+  const [resetDone, setResetDone] = useState<number | null>(null);
+
+  const resetPassword = async (id: number) => {
+    if (resetPw.length < 10) return;
+    const res = await api(`/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ password: resetPw }),
+    });
+    if (res.ok) {
+      setResetDone(id);
+      setResetId(null);
+      setResetPw("");
+      window.setTimeout(() => setResetDone(null), 5000);
+    }
+  };
+
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div className="space-y-3">
@@ -647,6 +669,16 @@ function UsersPanel({ me }: { me: User }) {
                       >
                         Force logout
                       </button>
+                      <button
+                        type="button"
+                        className="text-xs underline"
+                        onClick={() => {
+                          setResetId(resetId === u.id ? null : u.id);
+                          setResetPw("");
+                        }}
+                      >
+                        Reset password
+                      </button>
                       {/* Kill switch: suspend blocks sign-in AND revokes all
                           sessions server-side, instantly. */}
                       <button
@@ -663,6 +695,52 @@ function UsersPanel({ me }: { me: User }) {
                   )}
                 </span>
               </div>
+
+              {resetId === u.id && (
+                <div className="border-border mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    className="border-input bg-background w-56 rounded-lg border px-2 py-1.5 text-xs"
+                    placeholder="New password (10+ characters)"
+                    value={resetPw}
+                    onChange={(e) => setResetPw(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                    disabled={resetPw.length < 10}
+                    onClick={() => void resetPassword(u.id)}
+                  >
+                    Set password
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground text-xs underline"
+                    onClick={() => {
+                      setResetId(null);
+                      setResetPw("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  {resetPw.length > 0 && resetPw.length < 10 && (
+                    <span className="text-destructive text-xs">
+                      {resetPw.length} of 10 characters
+                    </span>
+                  )}
+                  <span className="text-muted-foreground w-full text-[11px]">
+                    Tell them the new password directly (WhatsApp or in person) and ask
+                    them to change it in Profile after signing in. Setting it signs them
+                    out everywhere.
+                  </span>
+                </div>
+              )}
+              {resetDone === u.id && (
+                <p className="mt-2 text-xs font-medium text-green-700">
+                  Password set — all their sessions were signed out.
+                </p>
+              )}
             </div>
           );
         })}
