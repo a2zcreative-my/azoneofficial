@@ -189,3 +189,14 @@ means privileged actions can alert a human out-of-band.
 | Version | Change |
 |---|---|
 | v1.4.16 | Audit-log viewer (admin tier); optional off-platform notification relay. |
+
+
+## v1.4.20 — HR-scoped staff creation
+`POST /api/v1/staff/users` lets the HR tier create staff accounts but rejects
+admin/super_admin/customer roles server-side. HR gains onboarding without
+gaining the ability to mint privileged accounts — the admin-only
+`POST /api/v1/users` remains the sole path for admin-tier accounts.
+
+| Version | Change |
+|---|---|
+| v1.4.20 | HR staff-create endpoint scoped to non-privileged roles. |

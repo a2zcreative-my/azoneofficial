@@ -273,3 +273,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.19 — 31 Jul 2026 — Staff Details tab
 - Dedicated Staff Details tab in /portal for HR tier: staff list + employee ID/position/department/birth date + badge
+
+## v1.4.20 — 31 Jul 2026 — HR staff onboarding
+- Add-staff form in Staff Details (HR tier); scoped endpoint creates staff roles only, never admin/super_admin

@@ -4,6 +4,7 @@
  */
 
 import type { Env } from "./index";
+import { createPasswordHash } from "./index";
 
 type Role =
   | "super_admin" | "admin"
@@ -247,6 +248,40 @@ export async function handleStaff(
   }
 
   /* ---- staff directory (managers) ---- */
+
+  if (path === "/users" && method === "POST") {
+    // HR-scoped staff creation. Deliberately cannot mint admin/super_admin/
+    // customer — those stay in /admin. HR onboards staff-level roles only.
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
+    if (
+      !body || !str(body.email, 200) || !str(body.name, 120) ||
+      !str(body.password, 200) || (body.password as string).length < 10 ||
+      typeof body.role !== "string" || !STAFF_ROLES.includes(body.role)
+    ) {
+      return err("invalid_input", "email, name, a staff role, and a 10+ character password are required", 400);
+    }
+    const email = (body.email as string).toLowerCase().trim();
+    const existing = await env.DB.prepare(`SELECT id FROM users WHERE email = ?1`)
+      .bind(email).first<{ id: number }>();
+    if (existing) return err("email_exists", "A user with this email already exists", 409);
+    const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+    try {
+      const res = await env.DB.prepare(
+        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+      ).bind(
+        email, hash, (body.name as string).trim(), body.role,
+        str(body.employee_id, 60) ? body.employee_id : null,
+        str(body.position, 120) ? body.position : null,
+        str(body.department, 120) ? body.department : null,
+      ).first<{ id: number }>();
+      await audit(env, user.id, "staff.create", "users", String(res?.id), { role: body.role });
+      return json({ id: res?.id }, 201);
+    } catch {
+      return err("db_constraint", "The database rejected this staff account — check the role and try again", 500);
+    }
+  }
 
   if (path === "/users" && method === "GET") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);

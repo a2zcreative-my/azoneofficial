@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.20] — 2026-07-31 — HR can create staff accounts
+
+### Added
+- **Add a staff member** form at the top of the Staff Details tab (hr_admin / coo / cco + admin tier). HR onboards staff directly — email, name, staff role, optional employee ID / position / department, and a temporary password — via a new HR-scoped endpoint `POST /api/v1/staff/users`. The list then populates with the new person
+- The endpoint is deliberately scoped: HR can create **staff roles only** (editor, marketing, live_host, hr_admin, sales_marketing, ceo, coo, cco) — never admin, super_admin, or customer. Those remain in /admin → Users. Same escalation logic as everywhere: onboarding power without privilege-granting power
+
+### Why not auto-populate from the domain
+- azoneofficial.com is not on Google Workspace, so @azoneofficial.com addresses are not Google accounts and there is no company directory to import. Staff must be created (here or in /admin) — the form makes that a one-step HR action. The note in the form explains this to whoever is onboarding
+
+### Deploy
+- `npx wrangler deploy` (new endpoint) → rebuild site. No migration
+
+
 ## [1.4.19] — 2026-07-31 — Staff Details tab for HR
 
 ### Added

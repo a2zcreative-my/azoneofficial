@@ -237,3 +237,15 @@ Staff for super_admin/admin.
 | Version | Change |
 |---|---|
 | v1.4.19 | Staff Details as a dedicated portal tab for HR tier; birth date editable in the record. |
+
+
+## Onboarding staff as HR (v1.4.20)
+/portal → Staff Details → **Add a staff member**. HR creates staff-level
+accounts (not admin/super_admin) with a temporary password; hand it over and
+they change it on first sign-in. There is no auto-import from the domain —
+azoneofficial.com is not on Google Workspace — so accounts are created here or
+in /admin → Users.
+
+| Version | Change |
+|---|---|
+| v1.4.20 | HR-scoped staff creation in Staff Details (staff roles only). |

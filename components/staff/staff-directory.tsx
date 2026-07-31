@@ -91,6 +91,11 @@ export function StaffDirectory() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [draft, setDraft] = useState<Record<number, Partial<Staff>>>({});
   const [saved, setSaved] = useState<number | null>(null);
+  const [newStaff, setNewStaff] = useState({
+    email: "", name: "", role: "sales_marketing",
+    employee_id: "", position: "", department: "", password: "",
+  });
+  const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     const res = await api<{ staff: Staff[] }>(`/users`);
@@ -130,6 +135,55 @@ export function StaffDirectory() {
           government-size ID card (85.6 × 54 mm).
         </p>
       </div>
+
+      <div className={card}>
+        <p className="text-sm font-semibold">Add a staff member</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Company emails (@azoneofficial.com) aren&apos;t Google accounts, so
+          staff can&apos;t self-register — create the account here with a
+          temporary password and hand it over. They change it on first sign-in.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
+            onChange={(e) => setNewStaff((d) => ({ ...d, email: e.target.value }))} />
+          <input className={input} placeholder="Full name" value={newStaff.name}
+            onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
+          <select className={input} value={newStaff.role}
+            onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
+            {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
+              <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+          <input className={input} placeholder="Employee ID (optional)" value={newStaff.employee_id}
+            onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
+          <input className={input} placeholder="Position (optional)" value={newStaff.position}
+            onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
+          <input className={input} placeholder="Department (optional)" value={newStaff.department}
+            onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
+          <input className={input} type="text" placeholder="Temp password (10+ chars)" value={newStaff.password}
+            onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
+        </div>
+        {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ? "text-green-700" : "text-destructive"}`}>{createMsg.text}</p>}
+        <button type="button" className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85 mt-3 disabled:opacity-50`}
+          disabled={!newStaff.email.trim() || !newStaff.name.trim() || newStaff.password.length < 10}
+          onClick={async () => {
+            setCreateMsg(null);
+            const res = await api<{ error?: { message?: string } }>(`/users`, {
+              method: "POST",
+              body: JSON.stringify(newStaff),
+            });
+            if (res.ok) {
+              setCreateMsg({ ok: true, text: `${newStaff.name} added.` });
+              setNewStaff({ email: "", name: "", role: "sales_marketing", employee_id: "", position: "", department: "", password: "" });
+              void load();
+            } else {
+              setCreateMsg({ ok: false, text: res.data?.error?.message ?? "Could not add — check the fields." });
+            }
+          }}>
+          Create staff account
+        </button>
+      </div>
+
       {staff.map((u) => (
         <div key={u.id} className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
