@@ -44,15 +44,19 @@ export function ChangePasswordForm() {
         setState({ kind: "done" });
         return;
       }
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: { code?: string; message?: string };
+      } | null;
+      const code = data?.error?.code;
       setState({
         kind: "error",
         message:
-          data?.error === "google_account"
+          code === "google_account"
             ? "This account signs in with Google — manage your password in your Google account instead."
-            : data?.error === "invalid_credentials"
-              ? "Current password is incorrect."
-              : "Could not change the password. Check the fields and try again.",
+            : code === "invalid_credentials"
+              ? "Current password is incorrect — use the eye icon to check what you typed."
+              : (data?.error?.message ??
+                "Could not change the password. Check the fields and try again."),
       });
     } catch {
       setState({ kind: "error", message: "Network error — try again." });

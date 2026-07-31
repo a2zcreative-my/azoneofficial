@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.10] — 2026-07-31 — Fix: change-password showed a generic error for every failure
+
+### Fixed
+- The change-password form compared the API's nested error object (`{error:{code,message}}`) against plain strings, so no specific case ever matched and **every** rejection displayed "Could not change the password" — hiding the actual reason (most commonly a wrong current password). The form now reads the nested code, names the wrong-current-password case explicitly (with a hint to use the eye icon), and falls back to the server's own message for anything else. Same bug class as the v1.4.7 admin-create fix; a repo-wide search confirms no other form misreads the error shape
+
+
 ## [1.4.9] — 2026-07-31 — Role/interface separation, MYT attendance display, password UX
 
 ### Fixed — data integrity

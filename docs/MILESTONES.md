@@ -238,3 +238,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 - Staff roles fully separated from /admin (login routing + page gate + API content-team guards)
 - Attendance displayed in Asia/Kuala_Lumpur across the portal
 - Eye toggle on all password boxes; customer change-password; PASSWORD-GUIDE.md
+
+## v1.4.10 — 31 Jul 2026 — Change-password error fix
+- Nested API error shape parsed correctly; real failure reason (e.g. wrong current password) now shown
