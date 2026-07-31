@@ -487,7 +487,7 @@ export function CommercialPanel() {
 
       <div className={card}>
         <p className="text-sm font-semibold">Pipeline</p>
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
           <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
@@ -831,7 +831,7 @@ export function BirthdaysPanel() {
         Once saved, a birthday locks — corrections are made by an admin.
       </p>
       {birthdayMsg && <p className="text-destructive mt-2 text-xs font-medium">{birthdayMsg}</p>}
-      <ul className="mt-3 space-y-2">
+      <ul className="mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">
         {sorted.map((u) => (
           <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <span className="text-sm font-medium">

@@ -93,7 +93,7 @@ export function HrAdminPanel() {
               void load();
             }}>Add</button>
         </div>
-        <ul className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-3 grid max-h-64 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
           {holidays.map((h) => (
             <li key={h.id} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm">
               <span>{h.holiday_date} · {h.name}</span>

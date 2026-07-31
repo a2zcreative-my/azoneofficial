@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.25] — 2026-07-31 — Scrollable lists, photo at create, quieter dashboard
+
+### Changed
+- **Long lists now scroll inside a fixed height** instead of stretching the page: staff records in Staff Details, leave history and the approval queue, tasks, announcements, birthdays, the HR attendance table, holidays, and the audit trail. Each area stays compact; the page keeps its shape as data grows
+- **Dashboard Quick actions no longer shows the shift-rule text** (the 10:00/10:05/13:00/18:00 explanation). The punch still confirms its result after each clock in/out — only the standing rules paragraph is gone
+
+### Added
+- **Staff photo at creation**: the add-staff form has a photo picker; the image uploads automatically the moment the account is created (one step instead of create-then-upload). If the photo part fails, the account still exists and the row's Upload photo remains the fallback
+
+### Deploy
+- Rebuild site only — no migration, no Worker change
+
+
 ## [1.4.24] — 2026-07-31 — DD-MM-YYYY dates, richer create form, password eye
 
 ### Changed

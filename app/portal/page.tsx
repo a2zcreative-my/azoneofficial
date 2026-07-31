@@ -142,10 +142,6 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
         {punchResult && <p className="mt-2 text-xs font-medium text-green-700">{punchResult}</p>}
-        <p className="text-muted-foreground mt-1 text-[11px]">
-          Shift 10:00–18:00 MYT. Clock in: by 10:00 on time · after 10:05 late · from 13:00 half day.
-          Clock out: 13:00 half day · before 18:00 early out · 18:00 completed.
-        </p>
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0
             ? "No attendance recorded today."
@@ -326,6 +322,7 @@ function Leave({ user }: { user: User }) {
         <div className={card}>
           <p className="text-sm font-semibold">My leave history</p>
           {mine.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No requests yet.</p>}
+          <div className="max-h-72 overflow-y-auto">
           {mine.map((l) => (
             <div key={l.id} className="border-border flex items-center justify-between border-b py-2 text-sm last:border-0">
               <span>
@@ -338,6 +335,7 @@ function Leave({ user }: { user: User }) {
               )}
             </div>
           ))}
+          </div>
         </div>
       </div>
 
@@ -345,6 +343,7 @@ function Leave({ user }: { user: User }) {
         <div className={card}>
           <p className="text-sm font-semibold">Leave awaiting my action</p>
           {all.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing awaiting you.</p>}
+          <div className="max-h-72 overflow-y-auto">
           {all.map((l) => (
             <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
               <span>
@@ -359,6 +358,7 @@ function Leave({ user }: { user: User }) {
               </span>
             </div>
           ))}
+          </div>
         </div>
       )}
     </div>
@@ -426,6 +426,7 @@ function Tasks({ user }: { user: User }) {
       <div className={card}>
         <p className="text-sm font-semibold">{canManage ? "All tasks" : "My tasks"}</p>
         {tasks.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No tasks.</p>}
+        <div className="max-h-96 overflow-y-auto">
         {tasks.map((t) => (
           <div key={t.id} className="border-border border-b py-2 text-sm last:border-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -447,6 +448,7 @@ function Tasks({ user }: { user: User }) {
             </div>
           </div>
         ))}
+        </div>
       </div>
     </div>
   );
@@ -491,6 +493,7 @@ function Announcements({ user }: { user: User }) {
           </div>
         </div>
       )}
+      <div className="max-h-[28rem] space-y-6 overflow-y-auto pr-1">
       {anns.map((a) => (
         <article key={a.id} className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -504,6 +507,7 @@ function Announcements({ user }: { user: User }) {
           <p className="mt-2 text-sm whitespace-pre-wrap">{a.body}</p>
         </article>
       ))}
+      </div>
       {anns.length === 0 && <p className="text-muted-foreground text-sm">No announcements yet.</p>}
     </div>
   );
@@ -665,6 +669,7 @@ function Sales({ user }: { user: User }) {
       <div className={card}>
         <p className="text-sm font-semibold">Documents</p>
         {docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
+        <div className="max-h-96 overflow-y-auto">
         {docs.map((d) => (
           <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span>
@@ -686,6 +691,7 @@ function Sales({ user }: { user: User }) {
               onClick={() => void printDoc(d.id)}>PDF</button>
           </div>
         ))}
+        </div>
       </div>
     </div>
   );

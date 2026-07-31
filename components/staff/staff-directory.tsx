@@ -197,6 +197,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
     birthday: "", id_issued_on: "", blood_type: "", password: "",
   };
   const [newStaff, setNewStaff] = useState(emptyNewStaff);
+  const [newPhoto, setNewPhoto] = useState<File | null>(null);
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [existing, setExisting] = useState<Staff | null>(null);
 
@@ -285,6 +286,14 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
             onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
           <PasswordInput className={input} placeholder="Temp password (10+ chars)" value={newStaff.password}
             onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
+          <label className={`${input} flex cursor-pointer items-center justify-between`}>
+            <span className={newPhoto ? "" : "text-muted-foreground"}>
+              {newPhoto ? newPhoto.name : "Staff photo (optional)"}
+            </span>
+            <span className="text-muted-foreground text-xs underline">Browse</span>
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
+          </label>
         </div>
         {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ? "text-green-700" : "text-destructive"}`}>{createMsg.text}</p>}
         {existing && (
@@ -319,7 +328,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
             disabled={!newStaff.email.trim() || !newStaff.name.trim() || newStaff.password.length < 10}
             onClick={async () => {
               setCreateMsg(null);
-              const res = await api<ErrShape>(`/users`, {
+              const res = await api<ErrShape & { id?: number }>(`/users`, {
                 method: "POST",
                 body: JSON.stringify({
                   ...newStaff,
@@ -328,8 +337,20 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
                 }),
               });
               if (res.ok) {
-                setCreateMsg({ ok: true, text: `${newStaff.name} added.` });
+                // Photo chosen up front? Attach it to the account just created.
+                let photoNote = "";
+                if (newPhoto && res.data?.id) {
+                  const up = await fetch(`${API}/users/${res.data.id}/photo`, {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": newPhoto.type || "image/jpeg" },
+                    body: newPhoto,
+                  });
+                  photoNote = up.ok ? " Photo uploaded." : " (Photo upload failed — use Upload photo on the row.)";
+                }
+                setCreateMsg({ ok: true, text: `${newStaff.name} added.${photoNote}` });
                 setNewStaff(emptyNewStaff);
+                setNewPhoto(null);
                 setExisting(null);
                 void load();
               } else if (res.status === 409) {
@@ -356,6 +377,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
         </div>
       </div>
 
+      <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
       {staff.map((u) => {
         const merged = { ...u, ...draft[u.id] } as Staff;
         return (
@@ -447,6 +469,7 @@ export function StaffDirectory({ canAmend = false }: { canAmend?: boolean }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

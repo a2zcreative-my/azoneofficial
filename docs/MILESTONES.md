@@ -289,3 +289,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.24 — 31 Jul 2026 — Date format + create form completeness
 - DD-MM-YYYY everywhere staff-facing (ISO in DB); blood type restored as record-only data; create captures birth date/ID issued/blood type; eye toggle on temp password
+
+## v1.4.25 — 31 Jul 2026 — Compact lists + photo at create
+- Fixed-height scroll areas for all long lists; add-staff photo picker with auto-upload; dashboard shift text removed

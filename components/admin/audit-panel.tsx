@@ -83,7 +83,7 @@ export function AuditPanel() {
           </button>
         ))}
       </div>
-      <div className="border-border overflow-x-auto rounded-lg border">
+      <div className="border-border max-h-[30rem] overflow-x-auto overflow-y-auto rounded-lg border">
         <table className="w-full min-w-[520px] border-collapse text-sm">
           <thead>
             <tr className="border-border bg-secondary/40 border-b">

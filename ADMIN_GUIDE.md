@@ -299,3 +299,15 @@ to signed-in staff.
 | Version | Change |
 |---|---|
 | v1.4.24 | DD-MM-YYYY display; blood type back as record-only data; create form captures birth/issued/blood; password eye on temp password. |
+
+
+## v1.4.25 notes
+- Lists (staff, leave, tasks, announcements, birthdays, attendance, holidays,
+  audit) scroll within a fixed height to keep pages compact.
+- The add-staff form takes an optional photo, attached automatically on create.
+- The dashboard no longer displays the shift-rule text; punches still confirm
+  their result.
+
+| Version | Change |
+|---|---|
+| v1.4.25 | Scrollable list areas across tabs; photo picker in add-staff; shift-rule text removed from dashboard. |
