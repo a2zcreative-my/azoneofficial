@@ -96,10 +96,15 @@ export function StaffDirectory() {
     employee_id: "", position: "", department: "", password: "",
   });
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [existing, setExisting] = useState<Staff | null>(null);
 
+  const [allStaff, setAllStaff] = useState<Staff[]>([]);
   const load = useCallback(async () => {
     const res = await api<{ staff: Staff[] }>(`/users`);
-    if (res.ok && res.data) setStaff(res.data.staff.filter((u) => u.role !== "customer"));
+    if (res.ok && res.data) {
+      setAllStaff(res.data.staff);
+      setStaff(res.data.staff.filter((u) => u.role !== "customer"));
+    }
   }, []);
   useEffect(() => {
     void load();
@@ -145,7 +150,7 @@ export function StaffDirectory() {
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
-            onChange={(e) => setNewStaff((d) => ({ ...d, email: e.target.value }))} />
+            onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
           <input className={input} placeholder="Full name" value={newStaff.name}
             onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
           <select className={input} value={newStaff.role}
@@ -164,6 +169,37 @@ export function StaffDirectory() {
             onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
         </div>
         {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ? "text-green-700" : "text-destructive"}`}>{createMsg.text}</p>}
+        {existing && (
+          <button
+            type="button"
+            className="border-border mt-2 inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            onClick={async () => {
+              // Apply the filled-in employee fields to the existing record.
+              // Deliberately NOT applied from this path: role and password —
+              // those stay with their proper flows (/admin for roles, the
+              // user's own change-password or admin reset for passwords).
+              const patch: Record<string, string> = {};
+              if (newStaff.employee_id.trim()) patch.employee_id = newStaff.employee_id.trim();
+              if (newStaff.position.trim()) patch.position = newStaff.position.trim();
+              if (newStaff.department.trim()) patch.department = newStaff.department.trim();
+              if (Object.keys(patch).length === 0) {
+                setCreateMsg({ ok: false, text: "Fill in employee ID, position or department to update the record." });
+                return;
+              }
+              const res = await api(`/users/${existing.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+              if (res.ok) {
+                setCreateMsg({ ok: true, text: `${existing.name}'s record updated.` });
+                setExisting(null);
+                setNewStaff({ email: "", name: "", role: "sales_marketing", employee_id: "", position: "", department: "", password: "" });
+                void load();
+              } else {
+                setCreateMsg({ ok: false, text: "Update failed — check access." });
+              }
+            }}
+          >
+            Update {existing.name}&apos;s record instead
+          </button>
+        )}
         <button type="button" className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85 mt-3 disabled:opacity-50`}
           disabled={!newStaff.email.trim() || !newStaff.name.trim() || newStaff.password.length < 10}
           onClick={async () => {
@@ -175,8 +211,32 @@ export function StaffDirectory() {
             if (res.ok) {
               setCreateMsg({ ok: true, text: `${newStaff.name} added.` });
               setNewStaff({ email: "", name: "", role: "sales_marketing", employee_id: "", position: "", department: "", password: "" });
+              setExisting(null);
               void load();
+            } else if (res.status === 409) {
+              // The email already has an account — offer to update that record
+              // instead of dead-ending on the error.
+              const match = allStaff.find(
+                (u) => u.email.toLowerCase() === newStaff.email.toLowerCase().trim(),
+              );
+              if (match && match.role !== "customer") {
+                setExisting(match);
+                setCreateMsg({
+                  ok: false,
+                  text: `${match.name} already has an account (${match.role.replace(/_/g, " ")}).`,
+                });
+              } else if (match) {
+                setExisting(null);
+                setCreateMsg({
+                  ok: false,
+                  text: "This email belongs to a customer account — an admin can adjust it in /admin → Users.",
+                });
+              } else {
+                setExisting(null);
+                setCreateMsg({ ok: false, text: "A user with this email already exists." });
+              }
             } else {
+              setExisting(null);
               setCreateMsg({ ok: false, text: res.data?.error?.message ?? "Could not add — check the fields." });
             }
           }}>

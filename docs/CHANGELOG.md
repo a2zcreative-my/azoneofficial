@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.21] — 2026-07-31 — Update existing staff from the add form
+
+### Changed
+- **"Email already exists" is no longer a dead end.** When the add-staff form hits an existing account, it now identifies who owns the email and offers **"Update NAME's record instead"** — applying the filled-in employee ID, position and department to that account via the normal staff PATCH. So the same form serves both onboarding a new person and completing an existing person's record (e.g. an account created earlier in /admin → Users without employee details)
+- Deliberately NOT applied through this path: **role and password.** Roles change in /admin, passwords via the person's own change-password or an admin reset — the update-instead button only touches employee record fields
+- If the email belongs to a customer account, the form says so and points to /admin → Users instead of offering the update
+- Changing the email field clears a pending update offer, so the button can never target the wrong person
+
+### Deploy
+- Rebuild site only — no migration, no Worker change
+
+
 ## [1.4.20] — 2026-07-31 — HR can create staff accounts
 
 ### Added

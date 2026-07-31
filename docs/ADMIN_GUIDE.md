@@ -249,3 +249,14 @@ in /admin → Users.
 | Version | Change |
 |---|---|
 | v1.4.20 | HR-scoped staff creation in Staff Details (staff roles only). |
+
+
+## Add-staff form: existing emails (v1.4.21)
+If the email already has an account, the form offers "Update NAME's record
+instead" — it applies employee ID / position / department to the existing
+account. Role and password are never changed from this path (roles in /admin;
+passwords via change-password or admin reset).
+
+| Version | Change |
+|---|---|
+| v1.4.21 | Add-staff form updates an existing account's employee fields on email conflict. |

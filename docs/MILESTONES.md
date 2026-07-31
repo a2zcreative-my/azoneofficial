@@ -276,3 +276,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.20 — 31 Jul 2026 — HR staff onboarding
 - Add-staff form in Staff Details (HR tier); scoped endpoint creates staff roles only, never admin/super_admin
+
+## v1.4.21 — 31 Jul 2026 — Update-instead on existing email
+- Add-staff form resolves email conflicts by offering to update the existing record's employee fields (never role/password)
