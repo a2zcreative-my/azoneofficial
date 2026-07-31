@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.34] — 2026-07-31 — Bell backfill, NEW announcement animation, rank rework
+
+### Fixed
+- **Announcement notifications now populate regardless of publish/deploy order.** The bell no longer depends on the fan-out having run at publish time: reading notifications backfills a row for any announcement from the last 7 days that lacks one (poster excluded, original timestamp kept). The existing "PERUBAHAN WAKTU…" announcement will appear in every staff member's bell after this deploy
+
+### Added
+- **NEW animation on announcements**: unacknowledged announcements carry a pulsing amber **NEW** chip and a soft amber highlight on the card; both clear the moment the staff member clicks Acknowledge — the tab makes unread news unmissable
+
+### Changed — rank rework
+- **The CEO (higher rank) now EDITS Staff, HR and Staff Details**: full record editing including amendments and photo replacement (same authority as admin tier in these areas), the add-staff form, and the HR tools — leave entitlements, public holidays, payslip generation — now rendered in the portal HR tab for hr_admin and the CEO (previously these tools were only reachable in /admin, which hr_admin cannot enter — that gap is closed)
+- **COO & CCO become read-only** on staff data: they keep every view (staff records, badges, HR verification tables, attendance report via exec view, CSV export) but no longer edit records or create staff
+- Deliberately unchanged: the **leave approval chain** — COO/CCO still pre-approve leave (that's a workflow role, not data editing); Sales stays read-only for the CEO (the edit grant covered Staff/HR/Staff Details)
+
+### Deploy
+- `npx wrangler deploy` → rebuild site. No migration
+
+
 ## [1.4.33] — 2026-07-31 — Statutory medical leave, CEO visibility, clickable dashboard, account tabs
 
 ### Changed

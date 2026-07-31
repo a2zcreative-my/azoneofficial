@@ -210,3 +210,13 @@ so payroll can always distinguish a device punch from a correction.
 | Version | Change |
 |---|---|
 | v1.4.28 | Attendance corrections are provenance-marked and audited. |
+
+
+## v1.4.34 — permission change record
+hr_manage: coo/cco removed (reads continue via exec_view), ceo added.
+Amendment-lock admin tier and photo replacement now include ceo. Leave-chain
+pre-approval roles unchanged. All writes remain audit-logged.
+
+| Version | Change |
+|---|---|
+| v1.4.34 | hr_manage = super_admin/admin/hr_admin/ceo; COO & CCO read-only on staff data. |

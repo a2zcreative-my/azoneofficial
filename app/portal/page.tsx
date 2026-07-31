@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import {
   AttendanceAdminPanel,
   BirthdaysPanel,
@@ -569,9 +570,22 @@ function Announcements({ user }: { user: User }) {
       )}
       <div className="max-h-[28rem] space-y-6 overflow-y-auto pr-1">
       {anns.map((a) => (
-        <article key={a.id} className={card}>
+        <article
+          key={a.id}
+          className={
+            a.acked
+              ? card
+              : `${card} border-amber-400/70 bg-amber-50/40 dark:bg-amber-950/10`
+          }
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold">{a.title} <span className="text-muted-foreground font-normal">· {a.category} · {a.created_at.slice(0, 10)}</span></p>
+            <p className="text-sm font-semibold">
+              {!a.acked && (
+                <span className="mr-2 inline-flex animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white uppercase">
+                  New
+                </span>
+              )}
+              {a.title} <span className="text-muted-foreground font-normal">· {a.category} · {a.created_at.slice(0, 10)}</span></p>
             {a.acked ? (
               <span className="text-muted-foreground text-xs">Acknowledged ✓</span>
             ) : (
@@ -1022,8 +1036,13 @@ export default function PortalPage() {
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
-        {tab === "HR" && <HrPanel />}
-        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin"].includes(user.role)} readOnly={user.role === "ceo"} />}
+        {tab === "HR" && (
+          <>
+            <HrPanel />
+            {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
+          </>
+        )}
+        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
         {tab === "Inventory" && <InventoryPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}

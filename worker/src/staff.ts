@@ -24,7 +24,10 @@ export interface StaffUser {
 const PERMS: Record<string, readonly Role[]> = {
   // Approve leave / view attendance / manage staff / birthdays.
   // COO & CCO are HR-level in this model, alongside hr_admin.
-  hr_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // v1.4.34 rank rework: the CEO (higher rank) EDITS staff/HR data; COO and
+  // CCO read. Their read access flows through exec_view; the leave approval
+  // chain (COO/CCO pre-approve) is a workflow role and stays unchanged.
+  hr_manage: ["super_admin", "admin", "hr_admin", "ceo"],
   // Post announcements & create/assign tasks.
   team_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
@@ -39,7 +42,7 @@ const PERMS: Record<string, readonly Role[]> = {
   // Read tasks across all roles (management oversight), excluding CEO exec data.
   task_view: ["super_admin", "admin", "coo", "cco"],
   // Attendance CSV export for payroll processing.
-  payroll_export: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   // Read-only visibility across every module (CEO review & monitoring) — no
   // write. Leave decisions and suspensions stay with the admin tier.
   exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
@@ -299,8 +302,8 @@ export async function handleStaff(
       .bind(id).first<{ photo_key: string | null }>();
     if (!target) return err("not_found", "Staff not found", 404);
     // Same amendment policy as the record fields: HR sets the first photo,
-    // replacing an existing one is admin-only.
-    const adminTier = user.role === "super_admin" || user.role === "admin";
+    // replacing an existing one is admin/CEO-only.
+    const adminTier = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
     if (target.photo_key && !adminTier) {
       return err("locked", "A photo is already set — replacements need an admin (/admin → Staff).", 403);
     }
@@ -340,7 +343,7 @@ export async function handleStaff(
     // Amendment policy (v1.4.22): HR may FILL a field that is still empty;
     // once a value is saved it locks, and changing it needs an admin. This
     // keeps records stable — corrections go through /admin deliberately.
-    const adminTier = user.role === "super_admin" || user.role === "admin";
+    const adminTier = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
     const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
@@ -438,8 +441,8 @@ export async function handleStaff(
   }
 
   if (path === "/attendance/report" && method === "GET") {
-    // HR verifies; the CEO also reads this table to amend/add records.
-    if (!can(user, "hr_manage") && user.role !== "ceo") {
+    // HR + CEO manage; COO/CCO (exec_view) read.
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
     const url = new URL(request.url);
@@ -1479,6 +1482,24 @@ export async function handleStaff(
   }
 
   if (path === "/notifications" && method === "GET") {
+    // Backfill (v1.4.34): any announcement from the last 7 days that has no
+    // notification row for this user gets one now. This makes announcement
+    // alerts independent of publish/deploy ordering — the bell always knows.
+    const { results: missing } = await env.DB.prepare(
+      `SELECT a.id, a.title, a.created_at FROM announcements a
+       WHERE a.created_at >= datetime('now', '-7 days')
+         AND a.created_by != ?1
+         AND NOT EXISTS (
+           SELECT 1 FROM notifications n
+           WHERE n.user_id = ?1 AND n.ref = 'announcement:' || a.id
+         )`,
+    ).bind(user.id).all();
+    for (const a of missing as { id: number; title: string; created_at: string }[]) {
+      await env.DB.prepare(
+        `INSERT INTO notifications (user_id, kind, message, ref, created_at)
+         VALUES (?1, 'announcement', ?2, ?3, ?4)`,
+      ).bind(user.id, `New announcement: ${a.title}`, `announcement:${a.id}`, a.created_at).run();
+    }
     const { results } = await env.DB.prepare(
       `SELECT id, kind, message, ref, is_read, created_at FROM notifications
        WHERE user_id = ?1 AND created_at >= datetime('now', '-7 days')

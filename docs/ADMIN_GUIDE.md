@@ -408,3 +408,20 @@ reference.
 | Version | Change |
 |---|---|
 | v1.4.33 | Medical full eligibility; CEO read-only HR/Sales/Staff Details; clickable dashboard cards; 7-day scrollable notifications; super_admin hidden; account tabs. |
+
+
+## v1.4.34 — roles in the staff/HR area
+| Role | Staff & HR data |
+|---|---|
+| super_admin / admin | Full edit incl. amendments |
+| **ceo** | **Full edit incl. amendments** (rank rework) + HR tools in portal |
+| hr_admin | Fill empty fields (amendments stay admin/CEO) + HR tools in portal |
+| coo / cco | Read-only (all views + CSV export; leave pre-approval unchanged) |
+
+Announcements: unacknowledged items pulse a NEW chip until acknowledged.
+Bell: announcements backfill on read — alerts work regardless of when the
+announcement was published relative to a deploy.
+
+| Version | Change |
+|---|---|
+| v1.4.34 | Bell backfill; NEW announcement animation; CEO edits Staff/HR/Staff Details, COO & CCO read-only. |
