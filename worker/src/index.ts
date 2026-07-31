@@ -621,10 +621,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
       .bind(account.id).first<{ role: Role }>();
     const dest =
-      roleRow?.role === "customer" ? "/account"
-      : ["ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "managing_director"].includes(roleRow?.role ?? "")
-        ? "/portal"
-        : "/admin";
+      (roleRow?.role === "super_admin" || roleRow?.role === "admin") ? "/admin"
+      : (roleRow?.role === "customer" || roleRow?.role === "client") ? "/account"
+      : "/portal";
     const token = await createSession(env, account.id);
     await audit(env, account.id, "auth.login_google");
     const headers = new Headers({ Location: dest });

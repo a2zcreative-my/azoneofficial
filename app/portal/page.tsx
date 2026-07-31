@@ -640,9 +640,7 @@ function Profile() {
 const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Inventory", "Commercial", "Operations", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
-// Roles whose home is /admin, not the portal. admin/super_admin are NOT here:
-// they may open portal modules from the admin Staff bridge.
-const CONTENT_ONLY_ROLES = ["editor", "marketing"];
+
 
 const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
   HR: ["hr_admin", "super_admin", "admin", "managing_director", "ceo"],
@@ -686,13 +684,8 @@ export default function PortalPage() {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
-  // Content-team roles work in /admin; if one lands here, send them home.
-  // (Admins are allowed to use portal modules via the admin Staff bridge, but
-  // their front door is /admin — this keeps each role's default flow clean.)
-  if (user && CONTENT_ONLY_ROLES.includes(user.role)) {
-    if (typeof window !== "undefined") window.location.replace("/admin");
-    return null;
-  }
+  // Since admin/super_admin can view the portal and all other roles (except customer) belong here,
+  // we do not restrict access to /portal. Customers are redirected to /account above.
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
