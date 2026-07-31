@@ -84,6 +84,39 @@ interface Task { id: number; title: string; priority: string; deadline: string |
 interface Announcement { id: number; title: string; body: string; category: string; created_at: string; acked: number }
 interface LeaveReq { id: number; type: string; start_date: string; end_date: string; days: number; status: string; stage?: string; applicant_role?: string; user_id?: number; user_name?: string; review_comment?: string | null }
 
+/**
+ * Punch confirmation overlay (v1.4.29): centered card, animated ring +
+ * check draw, brand navy, auto-dismisses. Pure CSS keyframes — no library.
+ */
+function PunchToast({ title, sub }: { title: string; sub: string }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+      <style>{`
+        @keyframes punch-pop { 0% { opacity: 0; transform: scale(.82) translateY(8px); } 60% { opacity: 1; transform: scale(1.03); } 100% { transform: scale(1); } }
+        @keyframes punch-ring { from { stroke-dashoffset: 151; } to { stroke-dashoffset: 0; } }
+        @keyframes punch-check { from { stroke-dashoffset: 36; } to { stroke-dashoffset: 0; } }
+        @keyframes punch-fade { to { opacity: 0; } }
+      `}</style>
+      <div
+        className="bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl"
+        style={{ animation: "punch-pop .45s cubic-bezier(.2,.9,.3,1.2) both, punch-fade .4s ease .2s forwards", animationDelay: "0s, 2.2s" }}
+        role="status"
+        aria-live="polite"
+      >
+        <svg viewBox="0 0 52 52" className="mx-auto h-14 w-14" aria-hidden="true">
+          <circle cx="26" cy="26" r="24" fill="none" stroke="#1a2946" strokeWidth="2.5"
+            strokeDasharray="151" style={{ animation: "punch-ring .6s ease-out .1s both" }} />
+          <path d="M15 27l7.5 7.5L37 20" fill="none" stroke="#1a2946" strokeWidth="3.5"
+            strokeLinecap="round" strokeLinejoin="round" strokeDasharray="36"
+            style={{ animation: "punch-check .35s ease-out .55s both" }} />
+        </svg>
+        <p className="mt-3 text-base font-semibold">{title}</p>
+        <p className="text-muted-foreground mt-0.5 text-sm">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [leave, setLeave] = useState<LeaveReq[]>([]);
@@ -104,37 +137,46 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const [punchResult, setPunchResult] = useState("");
+  const [punchToast, setPunchToast] = useState<{ title: string; sub: string } | null>(null);
+  const [punchError, setPunchError] = useState("");
   const punch = async (type: string) => {
     setBusy(type);
-    const res = await api<{ flag?: string }>(`/staff/attendance`, {
+    setPunchError("");
+    const res = await api<{ flag?: string; error?: { message?: string } }>(`/staff/attendance`, {
       method: "POST",
       body: JSON.stringify({ type }),
     });
     setBusy("");
-    if (res.data?.flag) {
+    if (res.ok && res.data?.flag) {
       const label: Record<string, string> = {
-        ok: "On time ✓", late: "Marked late", half_day: "Half day",
-        early_out: "Early out", completed: "Completed ✓",
+        ok: "On time", late: "Marked late", half_day: "Half day",
+        early_out: "Early out", completed: "Shift completed",
       };
-      setPunchResult(`${type === "clock_in" ? "Clocked in" : "Clocked out"} — ${label[res.data.flag] ?? res.data.flag}`);
-      window.setTimeout(() => setPunchResult(""), 6000);
+      const now = new Date(Date.now() + 8 * 3600 * 1000);
+      const hhmm = now.toISOString().slice(11, 16);
+      setPunchToast({
+        title: type === "clock_in" ? "Clock-in recorded" : "Clock-out recorded",
+        sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT`,
+      });
+      window.setTimeout(() => setPunchToast(null), 2600);
+    } else {
+      setPunchError(res.data?.error?.message ?? "Punch failed — try again.");
     }
     void load();
   };
 
-  const lastPunch = today[0]?.type;
-  const workingIn = lastPunch === "clock_in";
+  const hasIn = today.some((r) => r.type === "clock_in");
+  const hasOut = today.some((r) => r.type === "clock_out");
 
   return (
     <div className="space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={btnClass} disabled={!!busy || workingIn} onClick={() => void punch("clock_in")}>
+          <button type="button" className={btnClass} disabled={!!busy || hasIn} onClick={() => void punch("clock_in")}>
             Clock in
           </button>
-          <button type="button" className={btnGhost} disabled={!!busy || !workingIn} onClick={() => void punch("clock_out")}>
+          <button type="button" className={btnGhost} disabled={!!busy || hasOut || !hasIn} onClick={() => void punch("clock_out")}>
             Clock out
           </button>
           <button type="button" className={btnGhost} onClick={() => go("Leave")}>Apply leave</button>
@@ -142,7 +184,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
             <button type="button" className={btnGhost} onClick={() => go("Sales")}>Create quotation</button>
           )}
         </div>
-        {punchResult && <p className="mt-2 text-xs font-medium text-green-700">{punchResult}</p>}
+        {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
+        {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} />}
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0
             ? "No attendance recorded today."

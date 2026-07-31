@@ -302,3 +302,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.28 — 31 Jul 2026 — CEO attendance corrections
 - CEO/admin can amend punches and back-enter clock in/out for pre-system days; provenance columns + audit; migration 0014
+
+## v1.4.29 — 31 Jul 2026 — Punch integrity + confirmation
+- One punch per type per day (server-enforced 409); animated ring-and-check confirmation card with result + MYT time

@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.29] — 2026-07-31 — One punch per day + animated punch confirmation
+
+### Changed
+- **Clock in / clock out can each be recorded once per day.** Enforced server-side (a second attempt returns "You already clocked in today"), so a double-click, a stale tab, or a direct API call cannot duplicate a punch. The dashboard buttons also disable after use: Clock in greys once punched; Clock out greys until there's a clock-in and after it's used
+
+### Added
+- **Professional punch confirmation**: clocking in/out opens a centered card with an animated ring-and-check draw in brand navy — "Clock-in recorded · On time · 09:58 MYT" — which auto-dismisses after ~2.5 s. Pure CSS keyframes, no library. Failures (including the once-per-day rule) show a clear inline message instead
+
+### Note
+- The v1.4.28 attendance corrections panel (amend/back-entry for CEO + admin) is included in this zip — if the Attendance tab shows only your own punches, the deployed build predates v1.4.28: apply migration 0014 and redeploy
+
+### Deploy
+- `npx wrangler deploy` (duplicate guard) → rebuild site. Migration 0014 required if not yet applied (from v1.4.28)
+
+
 ## [1.4.28] — 2026-07-31 — CEO attendance corrections & back-entry
 
 ### Added

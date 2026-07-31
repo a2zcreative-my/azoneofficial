@@ -350,3 +350,13 @@ is audit-logged with the actor. CEO's other surfaces remain read-only.
 | Version | Change |
 |---|---|
 | v1.4.28 | CEO attendance amend/back-entry panel; provenance-marked, audit-logged. |
+
+
+## v1.4.29 notes
+- One clock-in and one clock-out per person per day, enforced by the API.
+- Punching shows an animated confirmation card (result + MYT time); errors
+  (e.g. already punched) show inline.
+
+| Version | Change |
+|---|---|
+| v1.4.29 | Once-per-day punches (server-enforced); animated punch confirmation overlay. |

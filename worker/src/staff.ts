@@ -380,6 +380,20 @@ export async function handleStaff(
     if (!body || typeof body.type !== "string" || !types.includes(body.type)) {
       return err("invalid_input", `type must be one of: ${types.join(", ")}`, 400);
     }
+    // One clock-in and one clock-out per day (v1.4.29). Enforced here, not
+    // just in the UI — a double-click or stale tab can't duplicate a punch.
+    const todayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const dup = await env.DB.prepare(
+      `SELECT id FROM attendance_records
+       WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
+    ).bind(user.id, body.type, todayMYT).first<{ id: number }>();
+    if (dup) {
+      return err(
+        "already_punched",
+        body.type === "clock_in" ? "You already clocked in today." : "You already clocked out today.",
+        409,
+      );
+    }
     // Classify against the shift in Malaysia time, so the record already carries
     // the payroll meaning:
     //   clock_in : <=10:00 ok · 10:01–12:59 late · >=13:00 half_day
