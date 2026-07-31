@@ -19,8 +19,9 @@ export interface Env {
 
 type Role =
   | "super_admin" | "admin" | "editor" | "marketing"
-  | "managing_director" | "coo" | "business_dev"
+  | "managing_director" | "ceo" | "coo" | "cco" | "business_dev"
   | "finance_admin" | "live_manager" | "live_host"
+  | "hr_admin" | "sales_marketing"
   | "customer";
 
 interface SessionUser {
@@ -186,11 +187,15 @@ const ROLE_RANK: Record<Role, number> = {
   customer: 0,
   live_host: 0,
   marketing: 1,
+  sales_marketing: 1,
   live_manager: 1,
   business_dev: 1,
   finance_admin: 1,
+  hr_admin: 1,
   coo: 1,
+  cco: 1,
   editor: 2,
+  ceo: 3,
   managing_director: 3,
   admin: 3,
   super_admin: 4,
@@ -604,7 +609,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind(account.id).first<{ role: Role }>();
     const dest =
       roleRow?.role === "customer" ? "/account"
-      : ["coo", "business_dev", "finance_admin", "live_manager", "live_host"].includes(roleRow?.role ?? "")
+      : ["ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "managing_director"].includes(roleRow?.role ?? "")
         ? "/portal"
         : "/admin";
     const token = await createSession(env, account.id);
@@ -618,6 +623,38 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* ---- authenticated ---- */
 
   const user = await getSessionUser(request, env);
+
+  if (path === "/api/v1/auth/change-password" && method === "POST") {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (
+      !body ||
+      !isNonEmptyString(body.current_password, 200) ||
+      !isNonEmptyString(body.new_password, 200) ||
+      (body.new_password as string).length < 10
+    ) {
+      return errorResponse("invalid_input", "Current password and a new password of 10+ characters are required", 400);
+    }
+    const row = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
+      .bind(user.id)
+      .first<{ password_hash: string }>();
+    // Google-only accounts have no password to verify — and letting a hijacked
+    // session ADD one would hand the attacker a permanent way in. They manage
+    // credentials with Google.
+    if (!row || row.password_hash.startsWith("oauth$")) {
+      return errorResponse("google_account", "This account signs in with Google and has no password to change", 400);
+    }
+    const valid = await verifyPassword(body.current_password as string, row.password_hash, env.SESSION_PEPPER);
+    if (!valid) return errorResponse("invalid_credentials", "Current password is incorrect", 401);
+    const hash = await createPasswordHash(body.new_password as string, env.SESSION_PEPPER);
+    await env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(hash, user.id).run();
+    // Revoke every session (including any attacker's), then re-issue one for
+    // this browser so the legitimate user is not logged out by their own change.
+    await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(user.id).run();
+    const fresh = await createSession(env, user.id);
+    await audit(env, user.id, "auth.change_password");
+    return json({ ok: true }, 200, { "Set-Cookie": sessionCookie(fresh) });
+  }
 
   if (path === "/api/v1/auth/me" && method === "GET") {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
@@ -673,15 +710,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
               SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS new_count
        FROM enquiries`,
     ).first();
-    const products = await env.DB.prepare(`SELECT COUNT(*) AS total FROM products`).first();
     const posts = await env.DB.prepare(`SELECT COUNT(*) AS total FROM posts`).first();
+    const portfolio = await env.DB.prepare(`SELECT COUNT(*) AS total FROM portfolio_items`).first();
     const testimonials = await env.DB.prepare(`SELECT COUNT(*) AS total FROM testimonials`).first();
     const { results: activity } = await env.DB.prepare(
       `SELECT a.action, a.entity, a.entity_id, a.created_at, u.name AS user_name
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        ORDER BY a.created_at DESC LIMIT 15`,
     ).all();
-    return json({ enquiries, products, posts, testimonials, activity });
+    return json({ enquiries, posts, portfolio, testimonials, activity });
   }
 
   /* ---- customer account ---- */
@@ -870,7 +907,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* ---- user management (super_admin only) ---- */
 
   if (path === "/api/v1/users" && method === "GET") {
-    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id, email, name, role, is_active, created_at FROM users ORDER BY id`,
     ).all();
@@ -878,9 +915,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/users" && method === "POST") {
-    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host", "customer"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "customer"];
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
@@ -891,6 +928,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       !roles.includes(body.role)
     ) {
       return errorResponse("invalid_input", "email, name, role, and a password of 10+ characters are required", 400);
+    }
+    if (body.role === "super_admin" && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
     }
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
@@ -908,11 +948,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   const userMatch = path.match(/^\/api\/v1\/users\/(\d+)$/);
   if (userMatch && method === "PATCH") {
-    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const id = userMatch[1]!;
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) return errorResponse("invalid_input", "Body required", 400);
-    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "coo", "business_dev", "finance_admin", "live_manager", "live_host", "customer"];
+
+    // Escalation guards: an admin manages everyone below super admin, but can
+    // never modify a super admin, mint one, or change their own role.
+    const target = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+      .bind(id)
+      .first<{ role: string }>();
+    if (!target) return errorResponse("not_found", "User not found", 404);
+    if (target.role === "super_admin" && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can modify a super admin", 403);
+    }
+    if (body.role === "super_admin" && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can grant super admin", 403);
+    }
+    if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
+      return errorResponse("invalid_input", "You cannot change your own role", 400);
+    }
+    const roles = ["super_admin", "admin", "editor", "marketing", "managing_director", "ceo", "coo", "cco", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing", "customer"];
     const changed: string[] = [];
 
     if (typeof body.role === "string" && roles.includes(body.role)) {
@@ -938,6 +994,24 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (changed.length === 0) return errorResponse("invalid_input", "Nothing to update", 400);
     await audit(env, user.id, "user.update", "users", id, { changed });
     return json({ ok: true });
+  }
+
+  const revokeMatch = path.match(/^\/api\/v1\/users\/(\d+)\/revoke-sessions$/);
+  if (revokeMatch && method === "POST") {
+    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
+    const id = revokeMatch[1]!;
+    const target = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+      .bind(id)
+      .first<{ role: string }>();
+    if (!target) return errorResponse("not_found", "User not found", 404);
+    if (target.role === "super_admin" && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can force out a super admin", 403);
+    }
+    const res = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
+    await audit(env, user.id, "user.force_logout", "users", id, {
+      sessions_revoked: res.meta.changes ?? 0,
+    });
+    return json({ ok: true, sessions_revoked: res.meta.changes ?? 0 });
   }
 
   return errorResponse("not_found", "Route not found", 404);
