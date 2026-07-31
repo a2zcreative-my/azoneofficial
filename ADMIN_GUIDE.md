@@ -93,3 +93,17 @@ Google-sign-in staff never need this — their password is their Google account.
 | Version | Change |
 |---|---|
 | v1.4.6 | Admin reset-password flow added to Users. |
+
+
+## Who works where (v1.4.9)
+
+- **/admin** — content team only: super_admin, admin, editor, marketing.
+- **/portal** — every staff role: ceo, coo, cco, managing_director, hr_admin,
+  sales_marketing, business_dev, finance_admin, live_manager, live_host.
+- **/account** — customers.
+A staff role opening /admin is redirected to /portal automatically; the API
+enforces the same boundary. Passwords: see docs/PASSWORD-GUIDE.md.
+
+| Version | Change |
+|---|---|
+| v1.4.9 | Interface map added; PASSWORD-GUIDE referenced. |

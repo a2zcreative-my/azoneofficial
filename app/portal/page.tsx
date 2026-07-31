@@ -43,6 +43,32 @@ const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 const card = "rounded-lg border border-border bg-card p-5";
 
+/**
+ * Attendance timestamps are stored in UTC (datetime('now') in D1) — correct
+ * for storage, wrong to show raw. These format them in Malaysia time
+ * (Asia/Kuala_Lumpur, UTC+8) for display and day-grouping, so a 10:00am
+ * clock-in reads 10:00, not 02:00.
+ */
+function mytTime(iso: string): string {
+  return new Date(iso.replace(" ", "T") + "Z").toLocaleTimeString("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
+function mytDateTime(iso: string): string {
+  return new Date(iso.replace(" ", "T") + "Z").toLocaleString("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
+function mytToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kuala_Lumpur" });
+}
+function mytDateOf(iso: string): string {
+  return new Date(iso.replace(" ", "T") + "Z").toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+  });
+}
+
 const MANAGE_ROLES = ["super_admin", "admin", "managing_director", "coo", "live_manager"];
 const SALES_ROLES = ["super_admin", "admin", "managing_director", "business_dev", "finance_admin", "hr_admin"];
 
@@ -66,9 +92,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   const load = useCallback(async () => {
     const month = new Date().toISOString().slice(0, 7);
-    const todayStr = new Date().toISOString().slice(0, 10);
     const a = await api<{ records: { type: string; created_at: string }[] }>(`/staff/attendance?month=${month}`);
-    setToday((a.data?.records ?? []).filter((r) => r.created_at.startsWith(todayStr)));
+    setToday((a.data?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     const l = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setLeave((l.data?.leave ?? []).filter((x) => x.status === "pending"));
     const t = await api<{ tasks: Task[] }>(`/staff/tasks`);
@@ -113,7 +138,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0
             ? "No attendance recorded today."
-            : `Today: ${today.slice().reverse().map((r) => `${r.type.replace("_", " ")} ${r.created_at.slice(11, 16)}`).join(" · ")}`}
+            : `Today: ${today.slice().reverse().map((r) => `${r.type.replace("_", " ")} ${mytTime(r.created_at)}`).join(" · ")}`}
         </p>
       </div>
 
@@ -188,7 +213,7 @@ function Attendance({ user }: { user: User }) {
         {records.map((r, i) => (
           <p key={i} className="border-border border-b py-1.5 text-sm last:border-0">
             {r.name ? <span className="font-medium">{r.name} · </span> : null}
-            {r.type.replace("_", " ")} — {r.created_at}
+            {r.type.replace("_", " ")} — {mytDateTime(r.created_at)} MYT
           </p>
         ))}
       </div>

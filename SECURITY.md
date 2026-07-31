@@ -79,3 +79,19 @@ suppressed client-side.
 | Version | Change |
 |---|---|
 | v1.4.4 | Capability matrix extended for hr_admin, sales_marketing, cco, ceo; exec_view is read-only. |
+
+
+## v1.4.9 — role/interface separation
+
+Three enforcement layers keep staff roles out of content management:
+1. Login router sends portal roles to /portal (list kept in sync with the role set).
+2. /admin redirects any portal role to /portal before rendering.
+3. The API guards every content endpoint with `isContentTeam` (explicit set:
+   super_admin, admin, editor, marketing) rather than rank — so a staff role
+   cannot reach content data even with direct API calls.
+Layer 3 is the boundary; 1 and 2 are UX. Rank (`atLeast`) remains for
+hierarchical checks (user management), set membership for lateral ones.
+
+| Version | Change |
+|---|---|
+| v1.4.9 | Content endpoints moved from rank guards to explicit content-team set; /admin gate; login routing completed. |

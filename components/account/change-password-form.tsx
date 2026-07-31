@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
@@ -64,8 +65,8 @@ export function ChangePasswordForm() {
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
           Current password
         </span>
-        <input
-          type="password"
+        <PasswordInput
+          
           autoComplete="current-password"
           className={inputClass}
           value={current}
@@ -77,8 +78,8 @@ export function ChangePasswordForm() {
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
           New password
         </span>
-        <input
-          type="password"
+        <PasswordInput
+          
           autoComplete="new-password"
           className={inputClass}
           value={next}
@@ -93,8 +94,8 @@ export function ChangePasswordForm() {
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
           Confirm new password
         </span>
-        <input
-          type="password"
+        <PasswordInput
+          
           autoComplete="new-password"
           className={inputClass}
           value={confirm}

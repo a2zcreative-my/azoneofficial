@@ -201,6 +201,18 @@ const ROLE_RANK: Record<Role, number> = {
   super_admin: 4,
 };
 
+/**
+ * The content team works in /admin. Staff roles (cco, coo, hr_admin, …) have
+ * their own modules in /portal with their own permission sets — rank alone
+ * must not leak them into content management. This is the API-side twin of
+ * the /admin page gate.
+ */
+const CONTENT_ROLES: readonly Role[] = ["super_admin", "admin", "editor", "marketing"];
+
+function isContentTeam(user: SessionUser | null): user is SessionUser {
+  return !!user && CONTENT_ROLES.includes(user.role);
+}
+
 function atLeast(user: SessionUser | null, role: Role): user is SessionUser {
   return !!user && ROLE_RANK[user.role] >= ROLE_RANK[role];
 }
@@ -675,7 +687,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/enquiries" && method === "GET") {
-    if (!atLeast(user, "marketing")) {
+    if (!isContentTeam(user)) {
       return errorResponse("forbidden", "Marketing role or above required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -686,7 +698,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path.match(/^\/api\/v1\/enquiries\/\d+$/) && method === "PATCH") {
-    if (!atLeast(user, "marketing")) {
+    if (!isContentTeam(user)) {
       return errorResponse("forbidden", "Marketing role or above required", 403);
     }
     const id = path.split("/").pop()!;
@@ -703,7 +715,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/dashboard/summary" && method === "GET") {
-    if (!atLeast(user, "marketing")) {
+    if (!isContentTeam(user)) {
       return errorResponse("forbidden", "Sign in required", 403);
     }
     const enquiries = await env.DB.prepare(
@@ -758,7 +770,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return json(row);
     }
     if (method === "PUT") {
-      if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+      if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
       if (!body || typeof body.value === "undefined") {
         return errorResponse("invalid_input", "value is required", 400);
@@ -793,7 +805,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/media" && method === "GET") {
-    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id, r2_key, kind, alt, created_at FROM media ORDER BY created_at DESC LIMIT 200`,
     ).all();
@@ -801,7 +813,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/media" && method === "POST") {
-    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
     const url2 = new URL(request.url);
     const filename = (url2.searchParams.get("filename") ?? "upload.bin").replace(/[^\w.\-]/g, "_");
     const kind = url2.searchParams.get("kind") ?? "image";
@@ -824,7 +836,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   const mediaDelete = path.match(/^\/api\/v1\/media\/(\d+)$/);
   if (mediaDelete && method === "DELETE") {
-    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
     const id = mediaDelete[1]!;
     const row = await env.DB.prepare(`SELECT r2_key FROM media WHERE id = ?1`).bind(id).first<{ r2_key: string }>();
     if (!row) return errorResponse("not_found", "Media not found", 404);
@@ -843,7 +855,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     if (method === "GET" && !id) {
       // Public sees only published/visible rows; editors see everything
-      const isEditor = atLeast(user, "editor");
+      const isEditor = isContentTeam(user);
       const publicFilter =
         cfg.table === "products" ? "WHERE is_visible = 1"
         : cfg.table === "posts" ? "WHERE status = 'published'"
@@ -860,7 +872,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return json(row);
     }
 
-    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 
     if (method === "POST" && !id) {
@@ -900,7 +912,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* ---- content listing (editor+) ---- */
 
   if (path === "/api/v1/content" && method === "GET") {
-    if (!atLeast(user, "editor")) return errorResponse("forbidden", "Editor role or above required", 403);
+    if (!isContentTeam(user)) return errorResponse("forbidden", "Editor role or above required", 403);
     const { results } = await env.DB.prepare(
       `SELECT key, value, updated_at FROM site_content ORDER BY key`,
     ).all();

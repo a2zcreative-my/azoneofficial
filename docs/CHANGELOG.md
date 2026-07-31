@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.9] — 2026-07-31 — Role/interface separation, MYT attendance display, password UX
+
+### Fixed — data integrity
+- **Staff roles could enter /admin.** The login router's staff list predated v1.4.4 (missing cco, ceo, hr_admin, sales_marketing), so those roles fell through to /admin; the /admin page only turned away customers; and content endpoints were guarded by rank, which rank-1 staff roles satisfied. Now enforced at all three layers: the login router's staff list is complete; /admin redirects every portal role to /portal; and content/dashboard/media/CRUD endpoints require the content team explicitly (super_admin, admin, editor, marketing) via `isContentTeam` instead of rank — staff roles keep their own /portal modules and permissions, and cannot read or write content management data even by calling the API directly
+
+### Fixed — attendance timezone
+- **Clock in/out now displays in Malaysia time (Asia/Kuala_Lumpur).** Timestamps are stored in UTC (correct for storage) but were shown raw — a 10:00am MYT clock-in read 02:00. Portal dashboard and Attendance tab now format in MYT (labelled), and the "Today" grouping uses the Malaysian calendar day. HR's verification table already reported MYT + shift flags (v1.4.4); the staff-facing views now match
+
+### Added — password UX
+- **Eye (show/hide) toggle on every password box**: change-password form (all three fields), admin Add user, admin Reset password — one shared `PasswordInput` component, matching the login page
+- **Customers can change their password** in /account (shared form; Google accounts get a clear explanation)
+- **docs/PASSWORD-GUIDE.md** — who changes what where: staff (portal Profile), admin team (/admin Account), customers (/account), and the admin reset procedure with handover guidance
+
+
 ## [1.4.7] — 2026-07-31 — Fix: false "Email already exists" for new roles
 
 ### Fixed

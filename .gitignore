@@ -33,3 +33,5 @@ next-env.d.ts
 -e 
 # Wrangler local secrets
 worker/.dev.vars
+worker/node_modules/
+worker/.wrangler/

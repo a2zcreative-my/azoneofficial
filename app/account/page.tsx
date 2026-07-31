@@ -3,6 +3,7 @@
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
 import { useEffect, useState } from "react";
+import { ChangePasswordForm } from "@/components/account/change-password-form";
 
 const API = "/api/v1";
 
@@ -77,6 +78,14 @@ export default function AccountPage() {
           <p className="text-sm font-semibold">My details</p>
           <p className="text-muted-foreground mt-2 text-sm">{user.name}</p>
           <p className="text-muted-foreground text-sm">{user.email}</p>
+        </div>
+        <div className={`${card} sm:col-span-2`}>
+          <p className="text-sm font-semibold">Change password</p>
+          <p className="text-muted-foreground mt-1 mb-3 text-xs">
+            Changing your password signs you out on every other device. Signed
+            in with Google? Your password lives with Google, not here.
+          </p>
+          <ChangePasswordForm />
         </div>
         <div className={card}>
           <p className="text-sm font-semibold">ELFIA drops</p>

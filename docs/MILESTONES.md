@@ -233,3 +233,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.7 — 31 Jul 2026 — Role CHECK fix
 - Migration 0008 expands users.role CHECK to the v1.4.4 roles; API stops mislabelling constraint failures as email conflicts
+
+## v1.4.9 — 31 Jul 2026 — Separation, MYT display, password UX
+- Staff roles fully separated from /admin (login routing + page gate + API content-team guards)
+- Attendance displayed in Asia/Kuala_Lumpur across the portal
+- Eye toggle on all password boxes; customer change-password; PASSWORD-GUIDE.md

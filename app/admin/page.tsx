@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 
@@ -623,10 +624,9 @@ function UsersPanel({ me }: { me: User }) {
         </select>
         <label className="block">
           <span className="text-muted-foreground mb-1 block text-xs font-medium">Password</span>
-          <input
+          <PasswordInput
             className={inputClass}
             placeholder="10+ characters"
-            type="password"
             value={draft.password}
             onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))}
           />
@@ -706,8 +706,7 @@ function UsersPanel({ me }: { me: User }) {
 
               {resetId === u.id && (
                 <div className="border-border mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
-                  <input
-                    type="password"
+                  <PasswordInput
                     autoComplete="new-password"
                     className="border-input bg-background w-56 rounded-lg border px-2 py-1.5 text-xs"
                     placeholder="New password (10+ characters)"
@@ -773,6 +772,8 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
+const PORTAL_ROLES = ["ceo", "coo", "cco", "managing_director", "business_dev", "finance_admin", "live_manager", "live_host", "hr_admin", "sales_marketing"];
+
 /** Plain-language purpose line shown under the tab bar. */
 const TAB_HELP: Record<Tab, string> = {
   Dashboard: "Company snapshot and recent account activity.",
@@ -802,6 +803,13 @@ export default function AdminPage() {
   if (!checked) return null;
   if (!user) {
     if (typeof window !== "undefined") window.location.replace("/login");
+    return null;
+  }
+  // Data-integrity boundary: /admin is the content-management interface for
+  // admin/editor/marketing only. Staff roles work in /portal — even though
+  // the API also enforces this, they should never see this surface at all.
+  if (PORTAL_ROLES.includes(user.role)) {
+    window.location.replace("/portal");
     return null;
   }
   if (user.role === "customer") {
