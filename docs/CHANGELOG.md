@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.19] — 2026-07-31 — Staff Details tab for HR
+
+### Added
+- **Staff Details tab** in /portal (hr_admin / coo / cco, plus admin tier): the staff directory as its own dedicated tab instead of being appended to the bottom of the HR tab. Shows the full staff list with editable employee ID, position, department, birth date, ID issue date and blood type — and the government-size ID badge print. Birth date is now an editable field in the record (it flows to the Birthdays view and back)
+
+### Changed
+- The staff directory was removed from the foot of the HR tab (it now has its own tab) to keep the HR tab focused on attendance, task reports and leave
+
+### Deploy
+- Rebuild site only — no migration, no Worker change (the /users list + PATCH already carry these fields)
+
+
+## [1.4.18] — 2026-07-31 — Profile layout, CEO birthdays, mobile view, exec summary
+
+### Changed
+- **Profile no longer wastes space.** It was a single narrow column with a tall change-password form beneath, leaving the right side empty. Now a two-column layout (details grid + phone on the left, change password on the right) that stacks on mobile
+- **CEO can manage staff birthdays.** A dedicated **Birthdays** tab (CEO + hr_admin/coo/cco) lets the CEO set and view birthdays directly — their one write exception to read-only, already permitted by the API
+- **Mobile view** across /admin, /portal, /account: tab bars scroll horizontally instead of stacking into a tall block; wide tables (attendance, audit, task progress) scroll sideways; stat grids use two columns on phones; headers tighten. Content already reduced to less padding in v1.4.5/1.4.16
+
+### Added
+- **Executive summary** for CEO / COO / CCO in the Overview tab: company-wide **task progress** (open / pending / closed totals plus per-staff open and done counts) and **inventory status** breakdown for monitoring, on top of the existing attendance / leave / documents / pipeline figures. `/api/v1/staff/overview` now returns task_summary, task_by_staff, and inventory_status
+
+### Deploy
+- `npx wrangler deploy` (overview endpoint) → rebuild site. No migration
+
+
 ## [1.4.17] — 2026-07-31 — Staff directory reaches HR; save feedback
 
 ### Fixed / Changed

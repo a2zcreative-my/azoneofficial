@@ -42,6 +42,7 @@ interface Staff {
   position?: string | null;
   department?: string | null;
   id_issued_on?: string | null;
+  birthday?: string | null;
   blood_type?: string | null;
   is_active: number;
 }
@@ -154,12 +155,13 @@ export function StaffDirectory() {
               </button>
             </span>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {([
               ["employee_id", "Employee ID"],
               ["position", "Position"],
               ["department", "Department"],
-              ["id_issued_on", "Issued (YYYY-MM-DD)"],
+              ["birthday", "Birth date (YYYY-MM-DD)"],
+              ["id_issued_on", "ID issued (YYYY-MM-DD)"],
               ["blood_type", "Blood type"],
             ] as [keyof Staff, string][]).map(([key, label]) => (
               <label key={key} className="block">

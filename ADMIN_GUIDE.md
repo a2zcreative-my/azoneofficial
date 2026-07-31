@@ -215,3 +215,25 @@ blood type, then Print badge (85.6 × 54 mm).
 | Version | Change |
 |---|---|
 | v1.4.17 | Staff directory + badge added to portal HR tab (hr_admin/coo/cco); save-failure feedback. |
+
+
+## v1.4.18 additions
+- **Birthdays tab** in /portal for CEO + HR tier (CEO's write exception).
+- **Overview / executive summary** (CEO/COO/CCO): adds company task progress (totals + per-staff) and inventory status monitoring.
+- **Mobile**: tab bars scroll, tables scroll sideways, grids collapse to two columns on phones.
+- **Profile** is a two-column layout (details + password) that stacks on mobile.
+
+| Version | Change |
+|---|---|
+| v1.4.18 | Profile layout, CEO birthdays tab, mobile responsiveness, exec task/inventory summary. |
+
+
+## Staff Details tab (v1.4.19)
+/portal → **Staff Details** (hr_admin / coo / cco / admin tier): the full staff
+list with editable employee ID, position, department, birth date, ID issue
+date, blood type, and the ID badge print. Same tool that lives in /admin →
+Staff for super_admin/admin.
+
+| Version | Change |
+|---|---|
+| v1.4.19 | Staff Details as a dedicated portal tab for HR tier; birth date editable in the record. |

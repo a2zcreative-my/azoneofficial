@@ -83,8 +83,8 @@ export function AuditPanel() {
           </button>
         ))}
       </div>
-      <div className="border-border overflow-hidden rounded-lg border">
-        <table className="w-full border-collapse text-sm">
+      <div className="border-border overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[520px] border-collapse text-sm">
           <thead>
             <tr className="border-border bg-secondary/40 border-b">
               <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">When (MYT)</th>

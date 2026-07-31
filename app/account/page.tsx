@@ -67,7 +67,7 @@ export default function AccountPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">
             My account

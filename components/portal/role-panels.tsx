@@ -18,7 +18,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { StaffDirectory } from "../staff/staff-directory";
 
 const API = "/api/v1/staff";
 
@@ -240,8 +239,6 @@ export function HrPanel() {
           </p>
         </div>
       </div>
-
-      <StaffDirectory />
     </div>
   );
 }
@@ -636,6 +633,9 @@ interface Overview {
     operational_summary: string;
     sales_summary?: string;
   } | null;
+  task_summary?: { status: string; n: number }[];
+  task_by_staff?: { name: string; role: string; open_tasks: number; done_tasks: number }[];
+  inventory_status?: { status: string; n: number }[];
 }
 
 export function OverviewPanel() {
@@ -711,11 +711,141 @@ export function OverviewPanel() {
           )}
           <p className="text-muted-foreground mt-4 text-xs">
             Read-only view. Attendance detail, leave, documents, inventory, and the
-            full pipeline are in their own tabs — everything here is visible to the
-            CEO without edit rights.
+            full pipeline are in their own tabs — everything here is visible without
+            edit rights.
           </p>
         </div>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className={card}>
+          <p className="text-sm font-semibold">Task progress (company-wide)</p>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            {[["open", "Open"], ["in_progress", "Pending"], ["completed", "Closed"]].map(([k, lbl]) => {
+              const n = data.task_summary?.find((t) => t.status === k)?.n ?? 0;
+              return (
+                <div key={k} className="border-border rounded-lg border py-2">
+                  <p className="text-xl font-semibold">{n}</p>
+                  <p className="text-muted-foreground text-[11px]">{lbl}</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 max-h-64 overflow-x-auto overflow-y-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-border border-b">
+                  <th className={th}>Staff</th>
+                  <th className={th}>Open</th>
+                  <th className={th}>Done</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.task_by_staff ?? []).length === 0 && (
+                  <tr><td className={`${td} text-muted-foreground`} colSpan={3}>No tasks yet.</td></tr>
+                )}
+                {(data.task_by_staff ?? []).map((r) => (
+                  <tr key={r.name} className="border-border border-b last:border-0">
+                    <td className={td}>{r.name} <span className="text-muted-foreground text-xs">· {r.role.replace(/_/g, " ")}</span></td>
+                    <td className={`${td} font-medium`}>{r.open_tasks}</td>
+                    <td className={`${td} text-muted-foreground`}>{r.done_tasks}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className={card}>
+          <p className="text-sm font-semibold">Inventory status (monitoring)</p>
+          <ul className="mt-3 space-y-1.5">
+            {(data.inventory_status ?? []).length === 0 && (
+              <li className="text-muted-foreground text-sm">No inventory items.</li>
+            )}
+            {(data.inventory_status ?? []).map((r) => (
+              <li key={r.status} className="flex items-center justify-between text-sm">
+                <Badge value={r.status} />
+                <span className="font-medium">{r.n}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground mt-4 text-xs">
+            {data.low_stock_items} item{data.low_stock_items === 1 ? "" : "s"} low or out of stock.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Birthdays (CEO + HR tier) ================= */
+
+/**
+ * Dedicated birthday manager. HR tier reaches birthdays via the HR tab, but
+ * the CEO — read-only elsewhere — has an explicit birthday exception, so this
+ * gives the CEO (and HR/COO/CCO) a place to set and see them. Writes go through
+ * PATCH /staff/users/:id with only the birthday field, which the API permits
+ * for the CEO by policy.
+ */
+export function BirthdaysPanel() {
+  const [staff, setStaff] = useState<{ id: number; name: string; role: string; birthday?: string | null }[]>([]);
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    const r = await api<{ staff: { id: number; name: string; role: string; birthday?: string | null }[] }>(`/users`);
+    if (r.data) setStaff((r.data.staff ?? []).filter((u) => u.role !== "customer"));
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async (id: number) => {
+    const v = draft[id];
+    if (v === undefined) return;
+    const res = await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ birthday: v }) });
+    if (res.ok) {
+      setSaved(id);
+      window.setTimeout(() => setSaved(null), 2500);
+      void load();
+    }
+  };
+
+  // Sort by month-day for an "upcoming" feel.
+  const sorted = [...staff].sort((a, b) =>
+    (a.birthday?.slice(5) ?? "99").localeCompare(b.birthday?.slice(5) ?? "99"));
+
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">Staff birthdays</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Set each person&apos;s birthday (YYYY-MM-DD). Sorted by month and day.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {sorted.map((u) => (
+          <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+            <span className="text-sm font-medium">
+              {u.name} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <input
+                type="date"
+                className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                defaultValue={u.birthday ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, [u.id]: e.target.value }))}
+              />
+              <button
+                type="button"
+                className="bg-primary text-primary-foreground rounded-lg px-2.5 py-1 text-xs font-medium"
+                onClick={() => void save(u.id)}
+              >
+                Save
+              </button>
+              {saved === u.id && <span className="text-xs font-medium text-green-700">✓</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

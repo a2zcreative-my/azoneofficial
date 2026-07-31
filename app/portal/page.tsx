@@ -11,10 +11,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import {
+  BirthdaysPanel,
   HrPanel,
   InventoryPanel,
   OverviewPanel,
 } from "@/components/portal/role-panels";
+import { StaffDirectory } from "@/components/staff/staff-directory";
 
 const API = "/api/v1";
 
@@ -716,25 +718,27 @@ function Profile() {
     }
   };
   return (
-    <div className={`${card} max-w-lg`}>
-      <p className="text-sm font-semibold">My profile</p>
-      <dl className="mt-3 space-y-1.5 text-sm">
-        {["name", "email", "role", "employee_id", "position", "department", "employment_status"].map((k) => (
-          <div key={k} className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">{k.replace("_", " ")}</dt>
-            <dd className="font-medium">{profile[k] ?? "—"}</dd>
-          </div>
-        ))}
-      </dl>
-      <label className="mt-4 block">
-        <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
-        <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
-      </label>
-      <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className={card}>
+        <p className="text-sm font-semibold">My profile</p>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          {["name", "email", "role", "employee_id", "position", "department", "employment_status"].map((k) => (
+            <div key={k}>
+              <dt className="text-muted-foreground text-[11px] capitalize">{k.replace("_", " ")}</dt>
+              <dd className="font-medium break-words">{profile[k] ?? "—"}</dd>
+            </div>
+          ))}
+        </dl>
+        <label className="mt-4 block">
+          <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
+          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </label>
+        <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
         {saving ? "Saving..." : saved ? "Saved!" : "Save"}
       </button>
+      </div>
 
-      <div className="mt-6 border-t border-border pt-5">
+      <div className={card}>
         <p className="text-sm font-semibold">Change password</p>
         <p className="text-muted-foreground mt-1 mb-3 text-xs">
           Changing your password signs you out on every other device
@@ -749,7 +753,7 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Inventory", "Overview", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Inventory", "Birthdays", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -765,6 +769,10 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Inventory: ["sales_marketing", "super_admin", "admin"],
   // Read-only company monitor. CEO + COO + CCO + admin tier.
   Overview: ["ceo", "coo", "cco", "super_admin", "admin"],
+  // CEO can manage birthdays (their one write exception); HR tier too.
+  Birthdays: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
+  // Employee records: IDs, position, department, staff list, birth dates.
+  "Staff Details": ["hr_admin", "coo", "cco", "super_admin", "admin"],
 };
 type TabName = (typeof ALL_TABS)[number];
 
@@ -830,7 +838,7 @@ export default function PortalPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">Staff Portal</p>
           <h1 className="text-xl font-semibold tracking-tight">
@@ -874,7 +882,7 @@ export default function PortalPage() {
         </div>
       )}
 
-      <nav className="mt-6 flex flex-wrap gap-2" aria-label="Portal sections">
+      <nav className="mt-6 -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:overflow-visible" aria-label="Portal sections">
         {tabs.map((t) => (
           <button
             key={t}
@@ -882,8 +890,8 @@ export default function PortalPage() {
             onClick={() => setTab(t)}
             className={
               t === tab
-                ? "bg-primary text-primary-foreground rounded-lg px-4 py-1.5 text-sm font-medium"
-                : "rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium"
+                : "shrink-0 rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {t}
@@ -899,7 +907,9 @@ export default function PortalPage() {
         {tab === "Announcements" && <Announcements user={user} />}
         {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
         {tab === "HR" && <HrPanel />}
+        {tab === "Staff Details" && <StaffDirectory />}
         {tab === "Inventory" && <InventoryPanel />}
+        {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
         {tab === "Profile" && <Profile />}
       </main>

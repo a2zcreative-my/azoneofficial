@@ -851,7 +851,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <nav className="mt-8 flex flex-wrap gap-2" aria-label="Admin sections">
+      <nav className="mt-6 -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:overflow-visible" aria-label="Admin sections">
         {TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role)).map((t) => (
           <button
             key={t}
@@ -859,8 +859,8 @@ export default function AdminPage() {
             onClick={() => setTab(t)}
             className={
               t === tab
-                ? "bg-primary text-primary-foreground rounded-lg px-4 py-1.5 text-sm font-medium"
-                : "rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium"
+                : "shrink-0 rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {t}

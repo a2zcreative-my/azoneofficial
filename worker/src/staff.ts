@@ -1122,7 +1122,7 @@ export async function handleStaff(
   if (path === "/overview" && method === "GET") {
     if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const [attendance, pendingLeave, docs, lowStock, bd, latestOps] = await Promise.all([
+    const [attendance, pendingLeave, docs, lowStock, bd, latestOps, taskAgg, taskByStaff, inventory] = await Promise.all([
       env.DB.prepare(
         `SELECT COUNT(DISTINCT user_id) AS n FROM attendance_records
          WHERE type = 'clock_in' AND date(created_at, '+8 hours') = ?1`,
@@ -1139,6 +1139,20 @@ export async function handleStaff(
         `SELECT report_date, operational_summary, sales_summary FROM ops_reports
          ORDER BY report_date DESC LIMIT 1`,
       ).first(),
+      // Task progress across the whole company (open/in_progress/completed).
+      env.DB.prepare(`SELECT status, COUNT(*) AS n FROM tasks GROUP BY status`).all(),
+      // Per-staff task load — who has open work, for monitoring.
+      env.DB.prepare(
+        `SELECT u.name, u.role,
+                SUM(CASE WHEN t.status != 'completed' THEN 1 ELSE 0 END) AS open_tasks,
+                SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS done_tasks
+         FROM users u LEFT JOIN tasks t ON t.assigned_to = u.id
+         WHERE u.role NOT IN ('customer')
+         GROUP BY u.id HAVING open_tasks > 0 OR done_tasks > 0
+         ORDER BY open_tasks DESC LIMIT 30`,
+      ).all(),
+      // Inventory status breakdown for monitoring.
+      env.DB.prepare(`SELECT status, COUNT(*) AS n FROM inventory_items GROUP BY status`).all(),
     ]);
     return json({
       date: today,
@@ -1148,6 +1162,9 @@ export async function handleStaff(
       low_stock_items: (lowStock as { n: number } | null)?.n ?? 0,
       bd_pipeline: bd.results,
       latest_ops_report: latestOps,
+      task_summary: taskAgg.results,
+      task_by_staff: taskByStaff.results,
+      inventory_status: inventory.results,
     });
   }
 

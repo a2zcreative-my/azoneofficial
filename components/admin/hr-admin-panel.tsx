@@ -117,7 +117,7 @@ export function HrAdminPanel() {
           {staff.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}
         </select>
         {entUser > 0 && (
-          <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {LEAVE_TYPES.map((t) => (
               <label key={t} className="block">
                 <span className="text-muted-foreground mb-0.5 block text-[11px] capitalize">{t}</span>
@@ -160,7 +160,7 @@ export function HrAdminPanel() {
           )}
         </div>
         {payslip && (
-          <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6 text-sm">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 text-sm">
             {[
               ["Days present", payslip.attendance.days_present],
               ["On time", payslip.attendance.on_time],

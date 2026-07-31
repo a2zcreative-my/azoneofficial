@@ -266,3 +266,10 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.17 — 31 Jul 2026 — Staff directory for HR
 - Employee-field editor + ID badge now in portal HR tab (hr_admin/coo/cco), shared with /admin; save failures surfaced
+
+## v1.4.18 — 31 Jul 2026 — Profile, CEO birthdays, mobile, exec summary
+- Two-column Profile; CEO Birthdays tab; mobile-friendly tab bars/tables/grids across all 3 interfaces
+- Overview gains company task progress (per-staff) + inventory status for CEO/COO/CCO monitoring
+
+## v1.4.19 — 31 Jul 2026 — Staff Details tab
+- Dedicated Staff Details tab in /portal for HR tier: staff list + employee ID/position/department/birth date + badge
