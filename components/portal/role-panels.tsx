@@ -285,10 +285,12 @@ interface Material {
  */
 function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) {
   interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
-  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null }
+  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null; courier?: string | null; tracking_no?: string | null }
   const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
   const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
   const [ttMsg, setTtMsg] = useState("");
+  // v1.4.70 — status filter: TikTok statuses land as preparing (new) / shipped / delivered / returned.
+  const [ttFilter, setTtFilter] = useState<"all" | "preparing" | "shipped" | "delivered">("all");
   const canSync = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(role);
 
   // Integrations endpoints sit outside the /staff base this file's api()
@@ -310,7 +312,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
     const st = await tiktokApi<TtStatus>(`/status`);
     if (st.ok) setTtStatus(st.data);
     const pr = await api<{ records: TtOrder[] }>(`/postage`);
-    setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 20));
+    setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 100));
   }, [tiktokApi]);
 
   useEffect(() => { void loadTikTok(); }, [loadTikTok]);
@@ -356,9 +358,29 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
         )}
       </div>
       {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {([["all", "All"], ["preparing", "New"], ["shipped", "Shipped"], ["delivered", "Delivered"]] as const).map(([v, label]) => {
+          const n = v === "all" ? ttOrders.length : ttOrders.filter((o) => o.status === v).length;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setTtFilter(v)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                ttFilter === v ? "border-transparent bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+              }`}
+            >
+              {label} ({n})
+            </button>
+          );
+        })}
+      </div>
       <div className="mt-3 max-h-72 overflow-y-auto">
         {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>}
-        {ttOrders.map((o) => (
+        {ttOrders.length > 0 && ttOrders.every((o) => ttFilter !== "all" && o.status !== ttFilter) && (
+          <p className="text-muted-foreground text-sm">No orders with this status.</p>
+        )}
+        {ttOrders.filter((o) => ttFilter === "all" || o.status === ttFilter).map((o) => (
           <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span className="min-w-0">
               <span className="font-medium">{o.order_ref}</span>
@@ -367,6 +389,14 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
                 <span className="block text-xs font-medium">{o.items_label}</span>
               ) : (
                 <span className="text-muted-foreground block text-xs">No stock movement recorded</span>
+              )}
+              {o.tracking_no ? (
+                <span className="block text-xs">
+                  Tracking: <span className="font-semibold tracking-wide">{o.tracking_no}</span>
+                  {o.courier ? <span className="text-muted-foreground"> · {o.courier}</span> : null}
+                </span>
+              ) : (
+                <span className="text-muted-foreground block text-xs">No tracking number yet</span>
               )}
               {o.note && <span className="text-muted-foreground block text-xs">{o.note}</span>}
             </span>

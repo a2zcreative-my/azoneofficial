@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.70] — 2026-08-01 — TikTok Orders: tracking numbers shown + status filter (New / Shipped / Delivered)
+
+### Added
+- **Tracking number on every TikTok order row.** The sync has captured TikTok tracking numbers since v1.4.67 — the card now displays them: `Tracking: <number> · TikTok`. Orders TikTok hasn't assigned tracking to yet show "No tracking number yet" (it backfills automatically on the next 30-minute sync once the parcel is handed to the courier)
+- **Status filter chips** above the order list: **All · New · Shipped · Delivered**, each with a live count. "New" = orders still preparing/awaiting shipment. Returned orders remain visible under All
+- Order list capacity raised 20 → 100 (scroll area unchanged) so filters have the full recent history to work with
+
+### About the "(signature FAILED — check app secret)" note on the status line
+- That warning means TikTok's **webhook** signature didn't verify against the stored `TIKTOK_APP_SECRET` — unverified pushes are logged then rejected (by design, v1.4.44). The 30-minute pull sync is unaffected, which is why orders still appear
+- Fix: Partner Center → your app → copy the **App Secret** exactly → `npx wrangler secret put TIKTOK_APP_SECRET` → paste → `npx wrangler deploy`. The next webhook shows verified. (If the secret was ever regenerated in Partner Center, the stored copy is stale — this is the usual cause)
+
+### Buyer notifications (no code needed)
+- TikTok notifies buyers **automatically**: when the order ships (tracking uploaded) and when it's delivered, TikTok Shop pushes in-app/push notifications to the buyer. The statuses this system reads are the same events TikTok has already announced to the buyer — nothing to send from our side
+- Manual buyer chat happens in **TikTok Seller Center → Chat** (or the TikTok Shop Seller app). Sending messages via API would require the Customer Service (IM) scope — a sensitive-data scope this system deliberately does not request
+
+### Deploy
+- Frontend rebuild only: `pnpm build` → publish → hard refresh. (Plus the one-time `wrangler secret put` above if the signature warning is showing)
+
+
 ## [1.4.69] — 2026-08-01 — Google login: FK failure isolated; audit writes can never break actions
 
 ### Fixed
