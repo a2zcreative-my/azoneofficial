@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.57] — 2026-08-01 — Fix: TikTok "Missing identifier / shop_cipher" on Sync
+
+### Fixed
+- **The authorization callback stored the access token but never the shop identifier.** TikTok's token response doesn't include shop_cipher — it must be fetched separately via **Get Authorized Shops** — so every order API call failed with "Missing identifier. The 'shop_cipher' query parameter is required". (Your "Connected" status was genuine: authorization succeeded; only the shop identifier was missing)
+- The callback now resolves and stores **shop_id + shop_cipher** immediately after the token, and **Sync self-heals**: if the stored token lacks a cipher (your current state), it fetches and stores one before calling the orders API — **no re-authorization needed**
+- If the cipher can't be resolved, Sync now says exactly that ("ensure the Seller authorization completed and the order/shop scopes are active") instead of a downstream API error
+
+### Deploy
+- `npx wrangler deploy` → press **Sync from TikTok** once more. No migration, no rebuild required
+
+
 ## [1.4.56] — 2026-08-01 — Badge restored to the clean brand design (v1.4.53 layout reverted)
 
 ### Fixed

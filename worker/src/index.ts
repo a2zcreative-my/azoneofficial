@@ -86,6 +86,8 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+
+
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
   crypto.getRandomValues(arr);
@@ -330,6 +332,22 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string }[]): { sk
     if (sku) merged.set(sku, (merged.get(sku) ?? 0) + 1);
   }
   return [...merged.entries()].map(([sku, qty]) => ({ sku, qty }));
+}
+
+/** The token response does NOT include the shop identifier. Order APIs
+    require shop_cipher, which comes from Get Authorized Shops — fetched once
+    after authorization and stored beside the token (v1.4.57). */
+async function refreshTikTokShopCipher(env: Env): Promise<boolean> {
+  const data = (await tiktokSignedFetch(env, "/authorization/202309/shops", {})) as {
+    data?: { shops?: { id?: string; cipher?: string }[] };
+  } | null;
+  const shop = data?.data?.shops?.[0];
+  if (!shop?.cipher) return false;
+  await env.DB.prepare(
+    `UPDATE integration_tokens SET shop_id = ?1, shop_cipher = ?2, updated_at = datetime('now')
+     WHERE provider = 'tiktok'`,
+  ).bind(shop.id ?? null, shop.cipher).run();
+  return true;
 }
 
 /** Order webhooks carry only an id + status, so the line items are fetched.
@@ -621,8 +639,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
       return errorResponse("not_configured", "Set TIKTOK_APP_KEY and TIKTOK_APP_SECRET first", 503);
     }
-    if (!(await tiktokToken(env))) {
+    const tokNow = await tiktokToken(env);
+    if (!tokNow) {
       return errorResponse("not_authorized", "Authorize the app first: publish it in Partner Center and complete shop authorization via the redirect URL", 409);
+    }
+    // Older authorizations stored the token without the shop identifier —
+    // resolve it now so a re-authorization is never needed for this.
+    if (!tokNow.shop_cipher) {
+      const ok = await refreshTikTokShopCipher(env);
+      if (!ok) {
+        return errorResponse("no_shop_cipher", "Could not resolve the authorized shop — ensure the Seller authorization completed and the order/shop scopes are active, then try again", 502);
+      }
     }
     // Last 30 days of orders, newest first, one page of 50.
     const listBody = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 30 * 86400 });
@@ -833,22 +860,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const tok = data?.data;
     if (!tok?.access_token) return errorResponse("auth_failed", "TikTok did not return an access token", 400);
     await env.DB.prepare(
-      `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at, shop_cipher)
-       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'), NULL)
+      `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at)
+       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'))
        ON CONFLICT (provider) DO UPDATE SET
-         access_token = ?1, refresh_token = ?2, shop_cipher = NULL,
+         access_token = ?1, refresh_token = ?2,
          expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')`,
     ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
-
-    const shopsData = (await tiktokSignedFetch(env, "/authorization/202309/shops", {})) as {
-      data?: { shops?: { cipher?: string }[] }
-    } | null;
-    const cipher = shopsData?.data?.shops?.[0]?.cipher;
-    if (cipher) {
-      await env.DB.prepare(`UPDATE integration_tokens SET shop_cipher = ?1 WHERE provider = 'tiktok'`).bind(cipher).run();
-    }
-
-    await audit(env, null, "tiktok.authorized");
+    // Order APIs need the shop_cipher — resolve and store it immediately.
+    const cipherOk = await refreshTikTokShopCipher(env);
+    await audit(env, null, "tiktok.authorized", undefined, undefined, { shop_cipher_stored: cipherOk });
     return new Response(
       `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">
        <h2>TikTok Shop connected</h2>

@@ -600,3 +600,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.56 | Badge reverted to clean brand design (white/navy/gold accents); NRIC + Joined kept; preview isolated in iframe (no style bleed, preview = print). |
+
+
+| Version | Change |
+|---|---|
+| v1.4.57 | TikTok shop_cipher resolved via Get Authorized Shops (callback + Sync self-heal); "Missing identifier" fixed without re-authorization. |

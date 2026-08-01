@@ -392,3 +392,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.56 — 01 Aug 2026 — Badge design restored
 - v1.4.53 decor reverted; clean brand card + NRIC/Joined; iframe-isolated preview
+
+## v1.4.57 — 01 Aug 2026 — shop_cipher fix
+- Get Authorized Shops wired at callback + sync self-heal; Missing identifier resolved
