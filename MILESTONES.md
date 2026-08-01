@@ -421,3 +421,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.66 — 01 Aug 2026 — Automatic TikTok sync
 - Cron every 30 min shares the manual sync core; orders show items + quantities; qty in unmatched-SKU notes
+
+## v1.4.67 — 01 Aug 2026 — Automatic postage
+- TikTok tracking numbers captured; status/tracking refresh on every sync; manual form scoped to other channels

@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.67] — 2026-08-01 — Postage from TikTok is automatic; manual form is for other channels
+
+### Clarified + improved
+- **Correct: TikTok postage should not be typed in — and it isn't.** TikTok orders arrive automatically (webhook + the 30-minute sync) as TT- records with their items and stock movement. The manual "Postage tracking" form now says what it's actually for: **non-TikTok channels** — Shopee, WhatsApp/direct sales, replacements
+- **TikTok tracking numbers are now captured automatically** wherever TikTok includes them in the order data — no more typing those either
+- **Every sync pass refreshes existing TikTok orders**: shipping status progresses (preparing → shipped → delivered) and a missing tracking number backfills, with stock untouched (it moved on first import; returns stay final)
+
+### Deploy
+- `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.66] — 2026-08-01 — Automatic TikTok inventory sync + per-order quantities
 
 ### Added — automatic sync

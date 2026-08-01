@@ -650,3 +650,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.66 | TikTok auto-sync every 30 min (cron); per-order items + quantities shown in Inventory; unmatched SKU notes carry quantities. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.67 | TikTok postage fully automatic (incl. tracking numbers + status refresh each sync); manual form labelled for non-TikTok channels only. |

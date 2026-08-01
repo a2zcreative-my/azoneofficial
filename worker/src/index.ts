@@ -565,7 +565,11 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     env, "/order/202309/orders/search", { page_size: "50" }, listBody, "POST",
   )) as {
     code?: number; message?: string;
-    data?: { orders?: { id?: string; status?: string; line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+    data?: { orders?: {
+      id?: string; status?: string; tracking_number?: string;
+      packages?: { tracking_number?: string }[];
+      line_items?: { seller_sku?: string; sku_id?: string; tracking_number?: string }[];
+    }[] };
   } | null;
   if (!data || (typeof data.code === "number" && data.code !== 0)) {
     return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
@@ -578,9 +582,25 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     if (!orderId) continue;
     const orderRef = `TT-${orderId.slice(0, 64)}`;
     const exists = await env.DB.prepare(
-      `SELECT id FROM postage_records WHERE order_ref = ?1`,
-    ).bind(orderRef).first<{ id: number }>();
-    if (exists) { skipped += 1; continue; }
+      `SELECT id, tracking_no FROM postage_records WHERE order_ref = ?1`,
+    ).bind(orderRef).first<{ id: number; tracking_no: string | null }>();
+    const stNow = String(o.status ?? "").toLowerCase();
+    const uiNow = stNow.includes("deliver") ? "delivered" : stNow.includes("ship") || stNow.includes("transit") ? "shipped" : "preparing";
+    const trackNow =
+      o.tracking_number ??
+      o.packages?.find((pk) => pk.tracking_number)?.tracking_number ??
+      o.line_items?.find((li) => li.tracking_number)?.tracking_number ??
+      null;
+    if (exists) {
+      // Already imported: keep its shipping status and tracking current —
+      // stock stays untouched (it moved on first import).
+      await env.DB.prepare(
+        `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(tracking_no, ?2),
+           updated_at = datetime('now') WHERE id = ?3 AND status != 'returned'`,
+      ).bind(uiNow, trackNow, exists.id).run();
+      skipped += 1;
+      continue;
+    }
     const lines = groupLineItems(o.line_items ?? []);
     const resolved: { id: number; qty: number }[] = [];
     const unknown: string[] = [];
@@ -597,12 +617,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const notes = ["TikTok order (synced)"];
     if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
     if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
-    const st = String(o.status ?? "").toLowerCase();
-    const uiStatus = st.includes("deliver") ? "delivered" : st.includes("ship") || st.includes("transit") ? "shipped" : "preparing";
     const rec = await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
-       VALUES (?1, 'TikTok', ?2, ?3, NULL) RETURNING id`,
-    ).bind(orderRef, uiStatus, notes.join(" · ")).first<{ id: number }>();
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
+       VALUES (?1, 'TikTok', ?2, ?3, ?4, NULL) RETURNING id`,
+    ).bind(orderRef, trackNow, uiNow, notes.join(" · ")).first<{ id: number }>();
     if (canDeduct) {
       for (const l of resolved) {
         const upd = await env.DB.prepare(

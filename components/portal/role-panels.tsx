@@ -478,7 +478,12 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Postage tracking</p>
+          <p className="text-sm font-semibold">Postage tracking — non-TikTok orders</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            TikTok orders arrive automatically (webhook + 30-minute sync) with
+            their items and tracking. Use this form only for other channels —
+            Shopee, WhatsApp/direct sales, replacements.
+          </p>
           <div className="mt-3 space-y-2">
             <input className={inputClass} placeholder="Order reference" value={postDraft.order_ref}
               onChange={(e) => setPostDraft((d) => ({ ...d, order_ref: e.target.value }))} />
