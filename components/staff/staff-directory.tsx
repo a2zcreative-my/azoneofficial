@@ -36,6 +36,9 @@ const input =
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
+  bank_name?: string | null;
+  bank_account?: string | null;
+  joined_on?: string | null;
   id: number;
   name: string;
   full_name?: string | null;
@@ -66,7 +69,19 @@ function dmyToISO(v: string): string {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(v.trim());
   return m ? `${m[3]}-${m[2]}-${m[1]}` : v;
 }
-const DATE_KEYS = ["birthday", "id_issued_on"] as const;
+const DATE_KEYS = ["birthday", "id_issued_on", "joined_on"] as const;
+
+/** Malaysian banks — Maybank first (company primary bank). */
+const MY_BANKS = [
+  "Maybank", "CIMB Bank", "Public Bank", "RHB Bank", "Hong Leong Bank",
+  "AmBank", "Bank Islam", "Bank Rakyat", "BSN", "Affin Bank",
+  "Alliance Bank", "OCBC Bank", "HSBC Bank", "Standard Chartered", "UOB Malaysia",
+];
+const EMPLOYMENT_STATUSES = ["permanent", "contract", "part_time"];
+const SELECT_FIELDS: Partial<Record<string, string[]>> = {
+  bank_name: MY_BANKS,
+  employment_status: EMPLOYMENT_STATUSES,
+};
 
 /** Company location shown on every badge — edit here if the office moves. */
 const COMPANY_LOCATION = "Setia Tropika, Johor Bahru, Malaysia";
@@ -128,18 +143,7 @@ function BadgePreview({ s }: { s: Staff }) {
 }
 
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
-function printBadge(s: Staff) {
-  const d = badgeData(s);
-  const w = window.open("", "_blank", "width=300,height=520");
-  if (!w) return;
-  const origin = window.location.origin;
-  const logo = `${origin}/logo.png`;
-  const photo = d.photo ? `${origin}${d.photo}` : "";
-  const field = (label: string, value: string) =>
-    `<div><span style="font-size:5.5px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6">${label}</span><br/><span style="font-size:8px;font-weight:600;color:#1a2946">${value || "—"}</span></div>`;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badge — ${d.name}</title>
-  <style>
-    @page { size: 54mm 85.6mm; margin: 0; }
+const BADGE_CSS = `
     html,body{margin:0;padding:0}
     .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4mm;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;text-align:center;
@@ -154,8 +158,15 @@ function printBadge(s: Staff) {
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:1mm 2mm;margin-top:1.5mm;text-align:left}
     .foot{position:absolute;bottom:2.5mm;left:4mm;right:4mm;font-size:5px;line-height:1.4;
       color:#8a93a6;border-top:0.2mm solid #dfe3ec;padding-top:1mm}
-  </style></head><body onload="setTimeout(function(){window.print()},250)">
-  <div class="card">
+`;
+
+function badgeCardHtml(s: Staff, origin: string): string {
+  const d = badgeData(s);
+  const logo = `${origin}/logo.png`;
+  const photo = d.photo ? `${origin}${d.photo}` : "";
+  const field = (label: string, value: string) =>
+    `<div><span style="font-size:5.5px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6">${label}</span><br/><span style="font-size:8px;font-weight:600;color:#1a2946">${value || "—"}</span></div>`;
+  return `<div class="card">
     <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto"/>
     <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
     <div class="name">${d.name}</div>
@@ -167,6 +178,37 @@ function printBadge(s: Staff) {
       ${field("Phone", d.phone)}
     </div>
     <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H) · Issued ${d.issued || "—"}</div>
+  </div>`;
+}
+
+function printBadge(s: Staff) {
+  const w = window.open("", "_blank", "width=300,height=520");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badge — ${s.full_name || s.name}</title>
+  <style>@page { size: 54mm 85.6mm; margin: 0; }${BADGE_CSS}</style></head>
+  <body onload="setTimeout(function(){window.print()},250)">
+  ${badgeCardHtml(s, window.location.origin)}
+  </body></html>`);
+  w.document.close();
+}
+
+/** Multi-badge sheet (v1.4.43): several badges per A4 page — 3 × 3 = up to
+    nine 54×85.6 mm cards per sheet, saving paper over one page per badge. */
+function printBadges(list: Staff[]) {
+  if (list.length === 0) return;
+  const w = window.open("", "_blank", "width=900,height=1000");
+  if (!w) return;
+  const origin = window.location.origin;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badges — ${list.length} staff</title>
+  <style>
+    @page { size: A4; margin: 8mm; }
+    ${BADGE_CSS}
+    .sheet{display:flex;flex-wrap:wrap;gap:5mm}
+    .sheet .card{page-break-inside:avoid}
+  </style></head>
+  <body onload="setTimeout(function(){window.print()},400)">
+  <div class="sheet">
+    ${list.map((s) => badgeCardHtml(s, origin)).join("")}
   </div></body></html>`);
   w.document.close();
 }
@@ -182,6 +224,10 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
   ["birthday", "Birth date (DD-MM-YYYY)"],
   ["id_issued_on", "ID issued (DD-MM-YYYY)"],
   ["blood_type", "Blood type (record only, not on badge)"],
+  ["employment_status", "Employment status"],
+  ["joined_on", "Joined on (DD-MM-YYYY)"],
+  ["bank_name", "Bank (Malaysia)"],
+  ["bank_account", "Bank account no."],
 ];
 
 export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
@@ -191,6 +237,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [saved, setSaved] = useState<number | null>(null);
   const [rowMsg, setRowMsg] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   const emptyNewStaff = {
     email: "", name: "", role: "sales_marketing",
     employee_id: "", position: "", department: "",
@@ -390,12 +444,38 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       )}
 
       <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50"
+          disabled={selected.size === 0}
+          onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
+        >
+          Print selected badges ({selected.size}) — up to 9 per A4
+        </button>
+        <button
+          type="button"
+          className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs hover:bg-secondary"
+          onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
+        >
+          {selected.size === staff.length && staff.length > 0 ? "Clear selection" : "Select all"}
+        </button>
+        <span className="text-muted-foreground text-xs">Individual printing stays on each record.</span>
+      </div>
+
       {staff.map((u) => {
         const merged = { ...u, ...draft[u.id] } as Staff;
         return (
           <div key={u.id} className={card}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[#1a2946]"
+                  checked={selected.has(u.id)}
+                  onChange={() => toggleSelect(u.id)}
+                  title="Select for multi-badge printing"
+                />
                 {u.name} <span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
               </span>
               <span className="flex items-center gap-2">
@@ -464,13 +544,28 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     {label}
                     {isLocked(u, key) && <span className="ml-1">🔒</span>}
                   </span>
-                  <input
-                    className={input}
-                    value={val(u, key)}
-                    disabled={isLocked(u, key)}
-                    title={isLocked(u, key) ? "Locked — amendments are made by an admin" : undefined}
-                    onChange={(e) => set(u.id, key, e.target.value)}
-                  />
+                  {SELECT_FIELDS[key as string] ? (
+                    <select
+                      className={input}
+                      value={val(u, key)}
+                      disabled={isLocked(u, key)}
+                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : undefined}
+                      onChange={(e) => set(u.id, key, e.target.value)}
+                    >
+                      <option value="">— select —</option>
+                      {SELECT_FIELDS[key as string]!.map((o) => (
+                        <option key={o} value={o}>{o.replace("_", " ")}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className={input}
+                      value={val(u, key)}
+                      disabled={isLocked(u, key)}
+                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : undefined}
+                      onChange={(e) => set(u.id, key, e.target.value)}
+                    />
+                  )}
                 </label>
               ))}
             </div>

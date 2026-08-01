@@ -2,6 +2,78 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.45] — 2026-08-01 — TikTok app key committed to config
+
+### Changed
+- **worker/wrangler.toml now carries `TIKTOK_APP_KEY = "6kraboau1veif"`** (Partner Center service ID 7668934538403645205). The app key is a public identifier — it travels in the query string of every TikTok API call — so it belongs in versioned config alongside GOOGLE_CLIENT_ID. Only `TIKTOK_APP_SECRET` is a secret and it is never committed
+- Deploy notes corrected accordingly: one secret to set, not two
+
+### Still required in Partner Center before orders flow
+- **API scopes: 25 inactive, 0 active.** The app cannot call any endpoint until the order and product scopes are applied for and approved — order read (Get Order List / Get Order Detail) drives the SKU lookup, product/inventory read supports reconciliation. Customer Service scope is flagged as sensitive personal data and is **not** needed for stock movement — leave it off
+- Publish the app, then authorize the shop through the redirect URL
+
+### Deploy
+- `npx wrangler deploy` (picks up the new var). No migration
+
+
+## [1.4.44] — 2026-08-01 — TikTok integration made compatible with TikTok's actual protocol
+
+### Fixed — the v1.4.40 webhook could not have worked with TikTok directly
+- **TikTok signs its own webhooks; there is no custom header to configure.** The previous endpoint required `x-webhook-secret`, which TikTok never sends — every real TikTok call would have been rejected. The endpoint now verifies TikTok's **tiktok-signature** header (HMAC-SHA256 with the app secret), checking both signing conventions in use across TikTok's platforms, with a 5-minute timestamp window against replay. The relay path (`x-webhook-secret`, for Make/Zapier) still works
+- **Order webhooks carry only order_id + status — not the line items.** Stock could never have been deducted from the webhook alone. The worker now calls **Get Order Detail** with the stored seller token to resolve SKUs and quantities, then moves stock exactly as before (all-or-nothing, race-guarded, audited)
+
+### Added (migration 0020)
+- **Seller authorization callback** at `/api/v1/integrations/tiktok/callback` — set this as the app's Redirect URL; it exchanges TikTok's auth code for the access token and stores it (integration_tokens)
+- **webhook_events log**: every receipt is recorded with its verified flag and raw body — including rejected ones — so a signature mismatch is diagnosable instead of silent
+- Shipping/delivery status events now update the postage record's status without touching stock
+
+### Configuration
+- App key lives in worker/wrangler.toml; `npx wrangler secret put TIKTOK_APP_SECRET` (from Partner Center)
+- Partner Center → Redirect URL: `https://azoneofficial.com/api/v1/integrations/tiktok/callback`
+- Partner Center → Manage Webhook → subscribe **Order status change**, URL `https://azoneofficial.com/api/v1/integrations/tiktok/webhook`
+- Publish the app, then authorize the shop; scopes must include order read and (for reconciliation) product/inventory read
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0020**) → secrets → `npx wrangler deploy`
+
+
+## [1.4.43] — 2026-08-01 — Multi-badge printing, bank details, proration, payslip month integrity
+
+### Staff Details (migration 0019)
+- **Multi-badge printing**: checkboxes on each record + "Print selected badges — up to 9 per A4" (3×3 sheet of 54×85.6 mm cards, page-break safe). Individual Print badge stays on every record
+- **Bank details**: Bank (Malaysian bank dropdown, **Maybank first** as the company's primary bank) + account number — feed payroll and print on the payslip's BANK line. Amendment-lock applies like every record field
+- **Employment status is now a proper choice**: permanent / contract / part time — and prints as the payslip STATUS
+- **Joined on (DD-MM-YYYY)** records when each person started at AZ ONE OFFICIAL
+
+### Payslip
+- Prints the **full name (as per IC)**, falling back to display name only if empty
+- **BANK : MAYBANK · account** line in the header block
+- **Leave balances are computed for the payroll month**, not the print date — leave taken after that month no longer wrongly reduces an earlier month's slip (correct flow: the August slip shows August's eligibility even if printed in October)
+
+### Payroll
+- **Working-day proration**: enter the month's working days once (default 26 — e.g. July 2026 in Malaysia), enter a person's days worked on their row, press **Prorate** → basic becomes basic × worked/total. Example: RM2,100 basic, joined 20 July, 10 of 26 working days → **RM807.69**
+- **Save all** button stores every row's entry for the month in one click (upserts — refreshing a month never duplicates)
+- **Months before joining are greyed** in My payslip, with the joining date shown — no payslip is offered for months before employment began
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0019**) → `npx wrangler deploy` → rebuild site
+
+
+## [1.4.42] — 2026-08-01 — Domain policy: staff roles require a company email
+
+### Changed (security)
+- **Staff and admin roles can only be held by @azoneofficial.com emails.** Personal emails (gmail etc.) are customer accounts — they belong in /account, never /portal or /admin. Enforced in all three assignment paths: the /admin Users role dropdown, the /admin create-user form, and HR's staff creation. Demoting any account **to customer is always allowed**, so cleaning up existing personal-email staff assignments works with the same dropdown
+- Self-registration already always creates customer (v1.4.35); this closes the remaining path — an admin assigning a staff role to a personal email by mistake
+
+### How to correct the two flagged accounts (in /admin → Users)
+1. **First confirm you can sign in as a company super admin** (admin@azoneofficial.com or alif.farhan@azoneofficial.com) — the gmail super_admin is your Google-login access, and demoting it removes that
+2. Set **alyffarhan1997@gmail.com** → customer
+3. Set **aliffarhan1997@gmail.com** → customer (this account can then still sign in with Google, landing in /account as a customer)
+
+### Deploy
+- `npx wrangler deploy` → no rebuild strictly needed (server-side policy). Migrations 0014–0018 if pending
+
+
 ## [1.4.41] — 2026-08-01 — Payslip redesigned to the Malaysian boxed format
 
 ### Changed

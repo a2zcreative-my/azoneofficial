@@ -347,3 +347,15 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.41 — 01 Aug 2026 — Malaysian payslip format
 - Boxed EARNINGS | DEDUCTIONS | OTHERS layout with NETT PAY; late-only deductions; no statutory rows; real attendance/leave data
+
+## v1.4.42 — 01 Aug 2026 — Company-email domain policy
+- Staff/admin roles only on @azoneofficial.com; personal emails are customers; enforced on all assignment paths
+
+## v1.4.43 — 01 Aug 2026 — Badges, bank, proration
+- Multi-badge printing (9/A4); bank details (Maybank primary) + employment status + joined-on; payslip full name + BANK line + month-scoped balances; working-day proration + Save all; pre-joining months greyed
+
+## v1.4.44 — 01 Aug 2026 — TikTok protocol compatibility
+- tiktok-signature verification (both schemes) + replay window; Get Order Detail for line items; seller authorization callback; webhook_events log; migration 0020
+
+## v1.4.45 — 01 Aug 2026 — TikTok app key in config
+- TIKTOK_APP_KEY committed to worker/wrangler.toml; secret stays a wrangler secret; scope activation still pending in Partner Center

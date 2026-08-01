@@ -495,3 +495,42 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.41 | Payslip in Malaysian boxed format; LATE DEDUCTION only when late; no employer contributions (registration pending); OTHERS + balances computed from attendance/holidays/leave. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.42 | Staff/admin roles require @azoneofficial.com email; personal emails = customer (/account). Fix existing: /admin → Users → set to customer. |
+
+
+## v1.4.43 quick reference
+- Staff Details: tick staff → "Print selected badges" (9 per A4); set Bank
+  (Maybank first), account no., employment status, joined-on date.
+- Payroll: set working days for the month (e.g. 26), enter days worked, press
+  Prorate for started-mid-month staff; Save all stores the month in one click.
+- Payslip: full IC name, BANK line, month-correct leave balances; staff cannot
+  open payslips for months before their joining date.
+
+| Version | Change |
+|---|---|
+| v1.4.43 | Multi-badge A4 printing; bank + status + joined-on; proration + Save all; payslip month integrity. |
+
+
+## TikTok Shop setup (v1.4.44)
+1. Partner Center → app → set Redirect URL to
+   https://azoneofficial.com/api/v1/integrations/tiktok/callback
+2. Manage Webhook → subscribe "Order status change" →
+   https://azoneofficial.com/api/v1/integrations/tiktok/webhook
+3. App key is committed in worker/wrangler.toml (TIKTOK_APP_KEY = 6kraboau1veif);
+   set the secret: `npx wrangler secret put TIKTOK_APP_SECRET`.
+4. Publish the app, then authorize your shop — the callback stores the token.
+5. Inventory SKUs must match TikTok seller SKUs exactly; unmatched SKUs are
+   noted on the order rather than failing it.
+
+| Version | Change |
+|---|---|
+| v1.4.44 | TikTok webhook uses TikTok's own signature; order details fetched for SKU-level stock movement; authorization callback. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.45 | TikTok app key in wrangler.toml (public identifier); only TIKTOK_APP_SECRET is a secret. Scopes must be applied for before API calls work. |

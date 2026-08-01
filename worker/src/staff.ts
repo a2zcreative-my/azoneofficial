@@ -272,6 +272,11 @@ export async function handleStaff(
       return err("invalid_input", "email, name, a staff role, and a 10+ character password are required", 400);
     }
     const email = (body.email as string).toLowerCase().trim();
+    // Domain policy (v1.4.42): staff roles require a company email —
+    // personal emails (gmail etc.) belong to customer accounts.
+    if (!email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
+      return err("domain_policy", `Staff roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer accounts`, 400);
+    }
     const existing = await env.DB.prepare(`SELECT id FROM users WHERE email = ?1`)
       .bind(email).first<{ id: number }>();
     if (existing) return err("email_exists", "A user with this email already exists", 409);
@@ -328,7 +333,7 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key
+      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results, staff: results });
@@ -346,7 +351,7 @@ export async function handleStaff(
     // once a value is saved it locks, and changing it needs an admin. This
     // keeps records stable — corrections go through /admin deliberately.
     const adminTier = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type"] as const;
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
        FROM users WHERE id = ?1`,
@@ -1075,10 +1080,13 @@ export async function handleStaff(
       const ent = await env.DB.prepare(
         `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
       ).bind(uid, year, t).first<{ entitled: number }>();
+      // Usage counted only up to the END of the payroll month — the slip
+      // reflects that month's eligibility, not the day it was printed.
       const used = await env.DB.prepare(
         `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
-         WHERE user_id = ?1 AND type = ?2 AND status = 'approved' AND start_date LIKE ?3 || '%'`,
-      ).bind(uid, t, String(year)).first<{ used: number }>();
+         WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
+         AND start_date LIKE ?3 || '%' AND start_date <= ?4`,
+      ).bind(uid, t, String(year), `${month}-31`).first<{ used: number }>();
       const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
       const accrued = full ? entitled : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
       return Math.max(0, accrued - (used?.used ?? 0));
@@ -1098,11 +1106,19 @@ export async function handleStaff(
     const url0 = new URL(request.url);
     const m0 = url0.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const entry = await env.DB.prepare(
-      `SELECT p.*, u.name, u.employee_id, u.position, u.department, u.employment_status
+      `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
+              u.employment_status, u.bank_name, u.bank_account, u.joined_on
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.user_id = ?1 AND p.month = ?2`,
     ).bind(user.id, m0).first();
-    return json({ month: m0, entry: entry ?? null, extras: entry ? await payslipExtras(user.id, m0) : null });
+    const joined = await env.DB.prepare(`SELECT joined_on FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ joined_on: string | null }>();
+    return json({
+      month: m0,
+      entry: entry ?? null,
+      extras: entry ? await payslipExtras(user.id, m0) : null,
+      joined_on: joined?.joined_on ?? null,
+    });
   }
 
   if (path === "/payroll" && method === "GET") {
@@ -1114,7 +1130,8 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT p.*, u.name, u.employee_id, u.position, u.department
+      `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
+              u.employment_status, u.bank_name, u.bank_account
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 ORDER BY u.name`,
     ).bind(month).all();

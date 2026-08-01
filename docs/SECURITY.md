@@ -272,3 +272,26 @@ account password. Eligible roles: super_admin, admin, ceo.
 | Version | Change |
 |---|---|
 | v1.4.40 | 2FA all staff; payroll processor-only + self payslip; TikTok webhook secret-gated. |
+
+
+## v1.4.42 — domain policy
+Staff/admin roles require an @COMPANY_DOMAIN email; personal emails are
+customers. Enforced on admin role changes, admin user creation, and HR staff
+creation. Demotion to customer always allowed. Complements v1.4.35
+(self-registration always customer) — no path now assigns a staff role to a
+personal email.
+
+| Version | Change |
+|---|---|
+| v1.4.42 | Staff roles restricted to company-domain emails on every assignment path. |
+
+
+## v1.4.44 — TikTok webhook authenticity
+Webhooks are accepted only with a valid tiktok-signature (HMAC-SHA256 over the
+raw body with the app secret; timestamp scheme limited to a 5-minute window)
+or a matching relay secret. Unverified receipts are logged and rejected with
+401. Access tokens live in integration_tokens and are never exposed to the UI.
+
+| Version | Change |
+|---|---|
+| v1.4.44 | TikTok-native signature verification; unverified receipts logged, not processed. |

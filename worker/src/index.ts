@@ -15,8 +15,11 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
   SETUP_TOKEN: string;
-  /** Shared secret for the TikTok order webhook (v1.4.40). Unset = endpoint off. */
+  /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
+  /** TikTok Shop Partner Center app credentials (v1.4.44). */
+  TIKTOK_APP_KEY?: string;
+  TIKTOK_APP_SECRET?: string;
 }
 
 type Role =
@@ -238,6 +241,83 @@ function makeBackupCodes(): string[] {
     accounts hold and populate company data, so integrity demands it for all.
     Only customer accounts are excluded. */
 const TWOFA_ELIGIBLE = (role: string) => role !== "customer";
+
+/* ================= TikTok Shop integration (v1.4.44) =================
+   TikTok signs webhooks itself — there is no custom header to set — so the
+   endpoint verifies TikTok's own signature. Two signing conventions are in
+   use across TikTok's platforms, so both are checked:
+     A. header "tiktok-signature": HMAC-SHA256(app_secret, app_key + rawBody)
+     B. header "tiktok-signature": "t=<ts>,s=<sig>" with
+        HMAC-SHA256(app_secret, ts + rawBody)
+   Every receipt is logged to webhook_events with its verified flag, so if
+   TikTok uses a different string, the real headers are on record to adjust. */
+
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifyTikTokSignature(env: Env, header: string, rawBody: string): Promise<boolean> {
+  if (!env.TIKTOK_APP_SECRET || !env.TIKTOK_APP_KEY || !header) return false;
+  const plain = header.trim();
+  // Scheme A — plain hex signature.
+  if (!plain.includes("=")) {
+    const expected = await hmacHex(env.TIKTOK_APP_SECRET, env.TIKTOK_APP_KEY + rawBody);
+    return timingSafeEqual(expected, plain);
+  }
+  // Scheme B — "t=<timestamp>,s=<signature>".
+  const parts = Object.fromEntries(
+    plain.split(",").map((kv) => kv.split("=").map((x) => x.trim()) as [string, string]),
+  );
+  if (!parts.t || !parts.s) return false;
+  // Reject stale timestamps (5 minutes) to blunt replay attacks.
+  const age = Math.abs(Date.now() / 1000 - Number(parts.t));
+  if (!Number.isFinite(age) || age > 300) return false;
+  const expected = await hmacHex(env.TIKTOK_APP_SECRET, `${parts.t}${rawBody}`);
+  return timingSafeEqual(expected, parts.s);
+}
+
+
+/** Stored seller token, refreshed by the authorization callback. */
+async function tiktokToken(env: Env): Promise<{ access_token: string; shop_cipher: string | null } | null> {
+  const row = await env.DB.prepare(
+    `SELECT access_token, shop_cipher FROM integration_tokens WHERE provider = 'tiktok'`,
+  ).first<{ access_token: string; shop_cipher: string | null }>();
+  return row ?? null;
+}
+
+/** Order webhooks carry only an id + status, so the line items are fetched.
+    Returns [] when no token is stored yet (order still gets recorded). */
+async function tiktokOrderItems(env: Env, orderId: string): Promise<{ sku: string; qty: number }[]> {
+  const tok = await tiktokToken(env);
+  if (!tok || !env.TIKTOK_APP_KEY) return [];
+  const url = new URL("https://open-api.tiktokglobalshop.com/order/202309/orders");
+  url.searchParams.set("app_key", env.TIKTOK_APP_KEY);
+  url.searchParams.set("ids", orderId);
+  if (tok.shop_cipher) url.searchParams.set("shop_cipher", tok.shop_cipher);
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "x-tts-access-token": tok.access_token, "Content-Type": "application/json" },
+    });
+    const data = (await res.json().catch(() => null)) as {
+      data?: { orders?: { line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+    } | null;
+    const items = data?.data?.orders?.[0]?.line_items ?? [];
+    // TikTok returns one line_item per unit; group by SKU to get quantities.
+    const merged = new Map<string, number>();
+    for (const li of items) {
+      const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
+      if (sku) merged.set(sku, (merged.get(sku) ?? 0) + 1);
+    }
+    return [...merged.entries()].map(([sku, qty]) => ({ sku, qty }));
+  } catch {
+    return [];
+  }
+}
 
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
@@ -493,56 +573,78 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        still created with a note so the order is tracked, but nothing deducts)
      - cancelled/returned: restocks that order's lines, once. */
   if (path === "/api/v1/integrations/tiktok/webhook" && method === "POST") {
-    if (!env.TIKTOK_WEBHOOK_SECRET) {
-      return errorResponse("not_configured", "TikTok integration is not configured (set TIKTOK_WEBHOOK_SECRET)", 503);
-    }
-    const provided = request.headers.get("x-webhook-secret") ?? "";
-    if (provided !== env.TIKTOK_WEBHOOK_SECRET) {
-      return errorResponse("unauthorized", "Invalid webhook secret", 401);
-    }
-    const body = (await request.json().catch(() => null)) as {
-      order_id?: string; status?: string; items?: { sku?: string; qty?: number }[];
-    } | null;
-    if (!body?.order_id || !body.status) {
-      return errorResponse("invalid_input", "order_id and status are required", 400);
-    }
-    const orderRef = `TT-${String(body.order_id).slice(0, 64)}`;
-    const status = String(body.status).toLowerCase();
+    // TikTok signs its own requests (tiktok-signature); a relay such as
+    // Make/Zapier can instead send x-webhook-secret. Either proves origin.
+    const rawBody = await request.text();
+    const sigHeader = request.headers.get("tiktok-signature") ?? request.headers.get("Tiktok-Signature") ?? "";
+    const relaySecret = request.headers.get("x-webhook-secret") ?? "";
+    const viaTikTok = sigHeader ? await verifyTikTokSignature(env, sigHeader, rawBody) : false;
+    const viaRelay = Boolean(env.TIKTOK_WEBHOOK_SECRET) && relaySecret === env.TIKTOK_WEBHOOK_SECRET;
+    const verified = viaTikTok || viaRelay;
 
+    const body = (() => {
+      try { return JSON.parse(rawBody) as Record<string, unknown>; } catch { return null; }
+    })();
+    // TikTok wraps the payload: { type, shop_id, timestamp, data: {...} }.
+    const data = (body?.data ?? body ?? {}) as Record<string, unknown>;
+    const orderId = String(data.order_id ?? data.orderId ?? "").trim();
+    const rawStatus = String(data.order_status ?? data.status ?? "").toLowerCase();
+
+    // Always record the receipt — including unverified ones — so a signature
+    // mismatch is visible and diagnosable instead of silently dropped.
+    await env.DB.prepare(
+      `INSERT INTO webhook_events (provider, event_type, order_ref, verified, headers, body)
+       VALUES ('tiktok', ?1, ?2, ?3, ?4, ?5)`,
+    ).bind(
+      String(body?.type ?? "unknown"),
+      orderId ? `TT-${orderId}` : null,
+      verified ? 1 : 0,
+      JSON.stringify({ signature: sigHeader ? "present" : "absent", relay: relaySecret ? "present" : "absent" }),
+      rawBody.slice(0, 4000),
+    ).run();
+
+    if (!verified) {
+      return errorResponse("unauthorized", "Signature verification failed", 401);
+    }
+    if (!orderId) return json({ ok: true, ignored: "no order_id" });
+
+    const orderRef = `TT-${orderId.slice(0, 64)}`;
     const existing = await env.DB.prepare(
       `SELECT id, restocked FROM postage_records WHERE order_ref = ?1`,
     ).bind(orderRef).first<{ id: number; restocked: number }>();
 
-    if (["awaiting_shipment", "paid", "new"].includes(status)) {
+    // TikTok status codes: 100/AWAITING_SHIPMENT etc. Treat "new order" states
+    // as stock-out, cancellation/return states as stock-in.
+    const outbound = ["awaiting_shipment", "awaiting_collection", "paid", "unpaid", "new", "100", "111"];
+    const reversal = ["cancelled", "canceled", "returned", "refunded", "140", "capture_failed"];
+
+    if (outbound.some((k) => rawStatus.includes(k))) {
       if (existing) return json({ ok: true, duplicate: true });
-      // Merge duplicate SKUs, resolve to inventory items.
-      const merged = new Map<string, number>();
-      for (const it of body.items ?? []) {
-        const sku = String(it?.sku ?? "").trim();
-        const qty = Math.floor(Number(it?.qty ?? 0));
-        if (sku && qty >= 1) merged.set(sku, (merged.get(sku) ?? 0) + qty);
-      }
-      const lines: { id: number; qty: number; sku: string }[] = [];
+      // Line items are not in the webhook — fetch them from the Order API.
+      const lines = await tiktokOrderItems(env, orderId);
+      const resolved: { id: number; qty: number }[] = [];
       const unknown: string[] = [];
       const shortages: string[] = [];
-      for (const [sku, qty] of merged) {
+      for (const l of lines) {
         const item = await env.DB.prepare(
           `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
-        ).bind(sku).first<{ id: number; stock: number; name: string }>();
-        if (!item) { unknown.push(sku); continue; }
-        if (item.stock < qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${qty}`);
-        lines.push({ id: item.id, qty, sku });
+        ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
+        if (!item) { unknown.push(l.sku); continue; }
+        if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
+        resolved.push({ id: item.id, qty: l.qty });
       }
-      const canDeduct = shortages.length === 0 && lines.length > 0;
-      const noteParts: string[] = ["TikTok order (auto)"];
-      if (unknown.length) noteParts.push(`unknown SKUs not tracked: ${unknown.join(", ")}`);
-      if (!canDeduct && lines.length) noteParts.push(`NOT deducted — ${shortages.join("; ")}`);
+      const canDeduct = shortages.length === 0 && resolved.length > 0;
+      const notes = ["TikTok order (auto)"];
+      if (lines.length === 0) notes.push("items not retrieved — authorize the app to enable stock movement");
+      if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
+      if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
+
       const rec = await env.DB.prepare(
         `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
          VALUES (?1, 'TikTok', 'preparing', ?2, NULL) RETURNING id`,
-      ).bind(orderRef, noteParts.join(" · ")).first<{ id: number }>();
+      ).bind(orderRef, notes.join(" · ")).first<{ id: number }>();
       if (canDeduct) {
-        for (const l of lines) {
+        for (const l of resolved) {
           const upd = await env.DB.prepare(
             `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
           ).bind(l.qty, l.id).run();
@@ -557,11 +659,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
           }
         }
       }
-      await audit(env, null, "tiktok.order", "postage_records", String(rec?.id), { status, deducted: canDeduct });
+      await audit(env, null, "tiktok.order", "postage_records", String(rec?.id), { status: rawStatus, deducted: canDeduct });
       return json({ ok: true, order_ref: orderRef, deducted: canDeduct, unknown_skus: unknown, shortages }, 201);
     }
 
-    if (["cancelled", "returned"].includes(status)) {
+    if (reversal.some((k) => rawStatus.includes(k))) {
       if (!existing) return json({ ok: true, ignored: "unknown order" });
       if (!existing.restocked) {
         const { results } = await env.DB.prepare(
@@ -573,16 +675,59 @@ async function route(request: Request, env: Env, path: string): Promise<Response
                status = CASE WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
                updated_at = datetime('now') WHERE id = ?2`,
           ).bind(l.qty, l.inventory_item_id).run();
-          await audit(env, null, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: status, source: "tiktok" });
+          await audit(env, null, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: rawStatus, source: "tiktok" });
         }
         await env.DB.prepare(
           `UPDATE postage_records SET status = 'returned', restocked = 1, updated_at = datetime('now') WHERE id = ?1`,
         ).bind(existing.id).run();
       }
-      await audit(env, null, "tiktok.order_reversal", "postage_records", String(existing.id), { status });
+      await audit(env, null, "tiktok.order_reversal", "postage_records", String(existing.id), { status: rawStatus });
       return json({ ok: true, restocked: true });
     }
-    return json({ ok: true, ignored: status });
+    // Shipping/other status updates: keep the tracker current without moving stock.
+    if (existing && rawStatus) {
+      await env.DB.prepare(
+        `UPDATE postage_records SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
+      ).bind(rawStatus.includes("delivered") ? "delivered" : rawStatus.includes("ship") ? "shipped" : "preparing", existing.id).run();
+    }
+    return json({ ok: true, status: rawStatus });
+  }
+
+  /* ---- TikTok seller authorization callback (v1.4.44) ----
+     Point the app's Redirect URL here. TikTok returns ?code=…; this exchanges
+     it for the access token that lets order webhooks resolve line items. */
+  if (path === "/api/v1/integrations/tiktok/callback" && method === "GET") {
+    if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
+      return errorResponse("not_configured", "TikTok app credentials are not set", 503);
+    }
+    const code = new URL(request.url).searchParams.get("code");
+    if (!code) return errorResponse("invalid_input", "Missing authorization code", 400);
+    const tokenUrl = new URL("https://auth.tiktok-shops.com/api/v2/token/get");
+    tokenUrl.searchParams.set("app_key", env.TIKTOK_APP_KEY);
+    tokenUrl.searchParams.set("app_secret", env.TIKTOK_APP_SECRET);
+    tokenUrl.searchParams.set("auth_code", code);
+    tokenUrl.searchParams.set("grant_type", "authorized_code");
+    const res = await fetch(tokenUrl.toString());
+    const data = (await res.json().catch(() => null)) as {
+      data?: { access_token?: string; refresh_token?: string; access_token_expire_in?: number };
+    } | null;
+    const tok = data?.data;
+    if (!tok?.access_token) return errorResponse("auth_failed", "TikTok did not return an access token", 400);
+    await env.DB.prepare(
+      `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at)
+       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'))
+       ON CONFLICT (provider) DO UPDATE SET
+         access_token = ?1, refresh_token = ?2,
+         expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')`,
+    ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
+    await audit(env, null, "tiktok.authorized");
+    return new Response(
+      `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">
+       <h2>TikTok Shop connected</h2>
+       <p>AZ ONE OFFICIAL can now read order details and move inventory automatically.</p>
+       <p><a href="/portal">Back to the staff portal</a></p></body>`,
+      { headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
   }
 
   if (path === "/api/v1/auth/login" && method === "POST") {
@@ -1326,6 +1471,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
     }
     const email = (body.email as string).toLowerCase().trim();
+    // Domain policy (v1.4.42): staff/admin roles require a company email.
+    if (body.role !== "customer" && !email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
+      return errorResponse(
+        "domain_policy",
+        `Staff and admin roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer`,
+        400,
+      );
+    }
     // Check the email conflict explicitly, so a constraint failure elsewhere
     // (e.g. a role the database does not yet allow) is never mislabelled as
     // "email already exists".
@@ -1381,6 +1534,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const changed: string[] = [];
 
     if (typeof body.role === "string" && roles.includes(body.role)) {
+      // Domain policy (v1.4.42): staff and admin roles belong to company
+      // emails only. Personal emails (gmail etc.) are customers — /account,
+      // never /portal or /admin. Demoting anyone TO customer is always fine.
+      if (body.role !== "customer") {
+        const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
+          .bind(id).first<{ email: string }>();
+        if (acct && !acct.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
+          return errorResponse(
+            "domain_policy",
+            `Staff and admin roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer`,
+            400,
+          );
+        }
+      }
       await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(body.role, id).run();
       changed.push("role");
     }

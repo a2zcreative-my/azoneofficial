@@ -240,3 +240,23 @@ twofa_challenges (sha256 token, attempts, 5-minute expiry).
 | Version | Change |
 |---|---|
 | v1.4.37 | 0018 — two-factor authentication tables and columns. |
+
+
+## v1.4.43 — migration 0019_bank_join.sql
+users gains bank_name, bank_account (payroll + payslip BANK line) and
+joined_on (payslip month gating). employment_status now records
+permanent/contract/part_time.
+
+| Version | Change |
+|---|---|
+| v1.4.43 | 0019 — bank details + joining date. |
+
+
+## v1.4.44 — migration 0020_tiktok_tokens.sql
+integration_tokens (provider PK, shop_id, shop_cipher, access/refresh token,
+expiry) and webhook_events (provider, event_type, order_ref, verified flag,
+headers summary, raw body) for diagnosable webhook receipts.
+
+| Version | Change |
+|---|---|
+| v1.4.44 | 0020 — TikTok seller tokens + webhook event log. |

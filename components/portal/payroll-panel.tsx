@@ -40,10 +40,15 @@ const _COMPANY = {
 interface StaffRow {
   id: number;
   name: string;
+  full_name?: string | null;
   role: string;
   employee_id?: string | null;
   position?: string | null;
   department?: string | null;
+  employment_status?: string | null;
+  bank_name?: string | null;
+  bank_account?: string | null;
+  joined_on?: string | null;
 }
 
 interface Entry {
@@ -124,12 +129,16 @@ export function printPayslip(
   <div class="sheet">
     <table class="info">
       <tr>
-        <td class="l">EMP'EE #/NAME</td><td>: ${u.employee_id ?? "—"} / ${u.name.toUpperCase()}</td>
+        <td class="l">EMP'EE #/NAME</td><td>: ${u.employee_id ?? "—"} / ${(u.full_name || u.name).toUpperCase()}</td>
         <td class="l">DEPT./SECTION</td><td>: ${(u.department ?? "—").toUpperCase()} / ${(u.position ?? "—").toUpperCase()}</td>
       </tr>
       <tr>
-        <td class="l">STATUS</td><td>: ${(u.employment_status ?? "ACTIVE").toUpperCase()}</td>
+        <td class="l">STATUS</td><td>: ${(u.employment_status ?? "—").replace("_", " ").toUpperCase()}</td>
         <td class="l">PERIOD</td><td>: ${period.from} &nbsp;TO&nbsp; ${period.to}</td>
+      </tr>
+      <tr>
+        <td class="l">BANK</td><td>: ${(u.bank_name ?? "—").toUpperCase()}${u.bank_account ? " · " + u.bank_account : ""}</td>
+        <td></td><td></td>
       </tr>
     </table>
     <table class="cols">
@@ -172,6 +181,35 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [entries, setEntries] = useState<Record<number, Entry>>({});
   const [msg, setMsg] = useState("");
+  // Working-day proration (v1.4.43): Malaysia counts working days per month
+  // (e.g. July 2026 = 26). Enter the month's working days once, a person's
+  // days worked on their row, and Prorate computes basic × worked/total —
+  // e.g. RM2100 basic, joined 20 July (10 of 26 days) → RM807.69.
+  const [monthDays, setMonthDays] = useState(26);
+  const [workedDays, setWorkedDays] = useState<Record<number, number>>({});
+
+  const prorate = (id: number) => {
+    const d = workedDays[id];
+    if (!d || !monthDays) return;
+    const e = entry(id);
+    if (!e.basic_cents) return;
+    const prorated = Math.round((e.basic_cents * Math.min(d, monthDays)) / monthDays);
+    setEntries((m) => ({ ...m, [id]: { ...e, basic_cents: prorated } }));
+  };
+
+  const saveAll = async () => {
+    setMsg("");
+    let n = 0;
+    for (const u of staff) {
+      const e = entries[u.id];
+      if (!e) continue;
+      const res = await api(`/payroll`, { method: "POST", body: JSON.stringify({ ...e, month }) });
+      if (res.ok) n += 1;
+    }
+    setMsg(`Saved ${n} ${n === 1 ? "entry" : "entries"} for ${month}.`);
+    window.setTimeout(() => setMsg(""), 3000);
+    void load();
+  };
 
   const load = useCallback(async () => {
     const [u, p] = await Promise.all([
@@ -229,12 +267,30 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             person per month; Payslip prints the branded A4 slip.
           </p>
         </div>
-        <input
-          type="month"
-          className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-muted-foreground text-xs">
+            Working days this month{" "}
+            <input
+              type="number" min={1} max={31}
+              className="border-input bg-background w-16 rounded-lg border px-2 py-1 text-sm"
+              value={monthDays}
+              onChange={(e) => setMonthDays(Math.max(1, Number(e.target.value)))}
+            />
+          </label>
+          <input
+            type="month"
+            className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+          />
+          <button
+            type="button"
+            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={() => void saveAll()}
+          >
+            Save all
+          </button>
+        </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
@@ -276,9 +332,23 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   <td className="px-2 py-1.5 font-medium whitespace-nowrap">{rm(Math.max(0, net))}</td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {!readOnly && (
-                      <button type="button" className="text-xs underline" onClick={() => void save(u.id)}>
-                        Save
-                      </button>
+                      <>
+                        <input
+                          type="number" min={0} max={31}
+                          className="border-input bg-background w-12 rounded border px-1 py-0.5 text-xs"
+                          placeholder="d"
+                          title={`Days worked (of ${monthDays})`}
+                          value={workedDays[u.id] ?? ""}
+                          onChange={(ev) => setWorkedDays((m) => ({ ...m, [u.id]: Number(ev.target.value) }))}
+                        />
+                        <button type="button" className="ml-1 text-xs underline" title="Basic × days / working days"
+                          onClick={() => prorate(u.id)}>
+                          Prorate
+                        </button>
+                        <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id)}>
+                          Save
+                        </button>
+                      </>
                     )}
                     <button type="button" className="ml-2 text-xs underline" onClick={() => void printSlip(u)}>
                       Payslip
@@ -303,15 +373,21 @@ export function MyPayslip() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
+  const [joinedOn, setJoinedOn] = useState<string | null>(null);
 
   useEffect(() => {
-    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3] }>(
+    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null }>(
       `/payroll/self?month=${month}`,
     ).then((r) => {
       setEntry(r.data?.entry ?? null);
       setExtras(r.data?.extras ?? null);
+      setJoinedOn(r.data?.joined_on ?? null);
     });
   }, [month]);
+
+  // Months before the person joined AZ ONE OFFICIAL have no payslip — the
+  // button greys out instead of pretending one could exist.
+  const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
 
   const net = entry
     ? entry.basic_cents + entry.commission_cents + entry.allowance_cents - entry.deduction_cents
@@ -334,7 +410,20 @@ export function MyPayslip() {
           onChange={(e) => setMonth(e.target.value)}
         />
       </div>
-      {entry ? (
+      {beforeJoining ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground text-sm">
+            You joined AZ ONE OFFICIAL on {joinedOn!.split("-").reverse().join("-")} — no payslip exists for this month.
+          </p>
+          <button
+            type="button"
+            disabled
+            className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
+          >
+            Print payslip
+          </button>
+        </div>
+      ) : entry ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
             Basic {rm(entry.basic_cents)} · Commission {rm(entry.commission_cents)} ·

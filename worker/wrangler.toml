@@ -31,8 +31,14 @@ bucket_name = "azoneofficial"
 ALLOWED_ORIGIN     = "https://azoneofficial.com"
 COMPANY_DOMAIN     = "azoneofficial.com"
 GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com"
+# TikTok Shop Partner Center app (service ID 7668934538403645205). The app key
+# is an public identifier — it travels in query strings on every API call — so
+# it lives here; the app SECRET never does.
+TIKTOK_APP_KEY     = "6kraboau1veif"
 #
 # Secrets (set via `wrangler secret put <NAME>`, never commit):
 #   SESSION_PEPPER          — random 32+ chars mixed into password hashing
 #   GOOGLE_CLIENT_SECRET    — from the same Google Cloud OAuth client
 #   SETUP_TOKEN             — random 32+ chars; one-time super admin bootstrap
+#   TIKTOK_APP_SECRET       — from Partner Center → your app (NEVER commit)
+#   TIKTOK_WEBHOOK_SECRET   — optional; only for a relay (Make/Zapier) path
