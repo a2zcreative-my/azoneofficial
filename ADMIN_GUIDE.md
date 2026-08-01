@@ -544,3 +544,29 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.47 | Payslip header: distinct EMP'EE #/NAME/DEPT./SECTION/STATUS/PERIOD/BANK NAME/BANK ACCOUNT rows; SULIT confidentiality mark + Employment Act/PDPA footer. |
+
+
+## v1.4.48 quick reference
+- Demote a personal-email account: /admin → Users → role dropdown → customer.
+- Sales → TikTok Orders: status line explains exactly what's pending;
+  "Sync from TikTok" backfills the last 30 days once scopes are active, the
+  app is published, and the shop is authorized.
+
+| Version | Change |
+|---|---|
+| v1.4.48 | Customer demotion in UI; TikTok status + 30-day sync; signed API calls. |
+
+
+## v1.4.49 — install the portal as an app
+Tell staff: open azoneofficial.com/portal on the phone → browser menu →
+"Add to Home Screen" → launch from the icon. Opens fullscreen with a bottom
+tab bar (first four tabs + More). Desktop unchanged.
+
+| Version | Change |
+|---|---|
+| v1.4.49 | Installable PWA (manifest, icons, service worker) + mobile bottom navigation with More sheet. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.50 | Mobile app-view: sticky screen-title bar, screen transitions, native touch feel (with v1.4.49's bottom nav). Desktop unchanged. |

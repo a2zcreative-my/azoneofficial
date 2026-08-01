@@ -547,7 +547,9 @@ interface AdminUser {
   is_active: number;
 }
 
-const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"] as const;
+// customer included deliberately: demoting a personal-email account back to
+// customer is the cleanup path the domain policy (v1.4.42) depends on.
+const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
 
 function UsersPanel({ me }: { me: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);

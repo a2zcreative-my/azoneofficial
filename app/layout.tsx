@@ -17,6 +17,12 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_CONFIG.url),
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "AZ ONE",
+    statusBarStyle: "black-translucent",
+  },
   title: {
     default: `${SITE_CONFIG.name} — ${SITE_CONFIG.tagline}`,
     template: `%s — ${SITE_CONFIG.name}`,
@@ -81,6 +87,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable}>
       <body>
+        <PwaRegister />
         {/*
           Scroll behaviour:
            - Refresh / direct load  -> start at the top of the page

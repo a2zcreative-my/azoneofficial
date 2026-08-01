@@ -365,3 +365,12 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.47 — 01 Aug 2026 — Payslip fields + SULIT
 - Distinct labelled header rows incl. bank name/account; SULIT / PRIVATE & CONFIDENTIAL marking with Employment Act 1955 + PDPA 2010 footer
+
+## v1.4.48 — 01 Aug 2026 — Demotion + TikTok sync
+- customer restored to role dropdown; TikTok request signing; status readout + 30-day order sync with SKU stock movement
+
+## v1.4.49 — 01 Aug 2026 — Mobile-app experience
+- Installable PWA (manifest + icons + SW, standalone launch into /portal); app-style bottom nav + More sheet on phones
+
+## v1.4.50 — 01 Aug 2026 — App-view mobile UI
+- Sticky app title bar + screen transitions + native touch polish on phones; nothing to install

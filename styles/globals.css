@@ -133,3 +133,24 @@
     }
   }
 }
+
+/* ===== Mobile app-view polish (v1.4.50) ===== */
+@media (max-width: 767px) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+  body {
+    -webkit-touch-callout: none;
+  }
+}
+@keyframes screen-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.screen-enter {
+  animation: screen-enter 0.18s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter { animation: none; }
+}

@@ -157,7 +157,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
     setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed").slice(0, 5));
     const n = await api<{ announcements: Announcement[] }>(`/staff/announcements`);
     setAnns((n.data?.announcements ?? []).slice(0, 3));
-  }, []);
+  }, [loadTikTok]);
   useEffect(() => { void load(); }, [load]);
 
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
@@ -695,25 +695,53 @@ interface DocFull {
   tax_percent: number; total_cents: number; notes?: string; due_date?: string; created_at: string;
 }
 
-interface TikTokOrder { id: number; order_ref: string; status: string; created_at: string }
-
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
-  const [tiktokOrders, setTiktokOrders] = useState<TikTokOrder[]>([]);
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
   const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number }>({
     doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0,
   });
   const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
+  interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
+  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string }
+  const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
+  const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
+  const [ttMsg, setTtMsg] = useState("");
+  const canSync = ["super_admin", "admin", "ceo", "coo", "sales_marketing"].includes(user.role);
+  const canSeePostage = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"].includes(user.role);
+
+  const loadTikTok = useCallback(async () => {
+    const st = await api<TtStatus>(`/integrations/tiktok/status`);
+    if (st.ok) setTtStatus(st.data);
+    if (canSeePostage) {
+      const pr = await api<{ records: TtOrder[] }>(`/staff/postage`);
+      setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 20));
+    }
+  }, [canSeePostage]);
+
+  const syncTikTok = async () => {
+    setTtMsg("Syncing from TikTok…");
+    const res = await api<{ imported: number; skipped: number; problems: string[] }>(
+      `/integrations/tiktok/sync`, { method: "POST", body: JSON.stringify({}) },
+    );
+    if (res.ok && res.data) {
+      const probs = res.data.problems?.length ? ` · ${res.data.problems.join(" · ")}` : "";
+      setTtMsg(`Imported ${res.data.imported} (${res.data.skipped} already in) ${probs}`);
+      void loadTikTok();
+    } else {
+      const err = (res.data as { error?: { message?: string } } | null)?.error?.message;
+      setTtMsg(err ?? "Sync failed — check the TikTok setup");
+    }
+  };
+
   const load = useCallback(async () => {
+    void loadTikTok();
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
-    const t = await api<{ records: TikTokOrder[] }>(`/staff/postage`);
-    setTiktokOrders((t.data?.records ?? []).filter(r => r.order_ref.startsWith("TT-")));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -834,21 +862,45 @@ function Sales({ user }: { user: User }) {
         </div>
       </div>
 
-      <div className={card}>
-        <p className="text-sm font-semibold">TikTok Orders</p>
-        {tiktokOrders.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No TikTok orders yet.</p>}
-        <div className="max-h-96 overflow-y-auto">
-        {tiktokOrders.map((t) => (
-          <div key={t.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-            <span>
-              <span className="font-medium text-pink-600">{t.order_ref}</span>
-              <span className="text-muted-foreground ml-3 capitalize">{t.status.replace(/_/g, " ")}</span>
-            </span>
-            <span className="text-muted-foreground ml-auto">{dmy(t.created_at)}</span>
+      {canSeePostage && (
+        <div className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">TikTok Orders</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {!ttStatus?.configured
+                  ? "Not configured — set the app secret and deploy the worker."
+                  : !ttStatus?.authorized
+                    ? "Not authorized yet — activate the order scopes, publish the app in Partner Center, then authorize the shop. Webhooks only push orders created after that; use Sync to pull existing orders."
+                    : ttStatus.last_event_at
+                      ? `Connected · last webhook ${dmy(ttStatus.last_event_at)}${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
+                      : "Connected · no webhooks received yet — Sync pulls the last 30 days."}
+              </p>
+            </div>
+            {canSync && (
+              <button type="button" className={btnGhost} onClick={() => void syncTikTok()}>
+                Sync from TikTok
+              </button>
+            )}
           </div>
-        ))}
+          {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
+          <div className="mt-3 max-h-72 overflow-y-auto">
+            {ttOrders.length === 0 && (
+              <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>
+            )}
+            {ttOrders.map((o) => (
+              <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+                <span>
+                  <span className="font-medium">{o.order_ref}</span>
+                  <span className="text-muted-foreground"> · {dmy(o.created_at)}</span>
+                  {o.note && <span className="text-muted-foreground text-xs"> · {o.note}</span>}
+                </span>
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{o.status}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1002,6 +1054,7 @@ export default function PortalPage() {
     );
   }
 
+  const [moreOpen, setMoreOpen] = useState(false);
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
@@ -1010,13 +1063,15 @@ export default function PortalPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto w-full max-w-6xl px-5 py-6 pb-24 md:pb-6">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
-          <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">Staff Portal</p>
-          <h1 className="text-xl font-semibold tracking-tight">
+          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
+          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             Welcome, {user.name.split(" ")[0]}
           </h1>
+          {/* On phones the header reads like an app screen title. */}
+          <h1 className="text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1074,7 +1129,7 @@ export default function PortalPage() {
         </div>
       )}
 
-      <nav className="mt-6 -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:overflow-visible" aria-label="Portal sections">
+      <nav className="mt-6 hidden gap-2 md:flex md:flex-wrap" aria-label="Portal sections">
         {tabs.map((t) => (
           <button
             key={t}
@@ -1091,7 +1146,67 @@ export default function PortalPage() {
         ))}
       </nav>
 
-      <main className="mt-6">
+      {/* App-style bottom navigation (v1.4.49) — phones only. The first four
+          of this person's tabs are one thumb-tap away; the rest are in More. */}
+      <nav
+        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Portal sections (mobile)"
+      >
+        {tabs.slice(0, 4).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+              tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
+            {t === "Staff Details" ? "Staff" : t === "Announcements" ? "News" : t}
+          </button>
+        ))}
+        {tabs.length > 4 && (
+          <button
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+              moreOpen || tabs.indexOf(tab) >= 4 ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${moreOpen || tabs.indexOf(tab) >= 4 ? "bg-gold-deep" : "bg-transparent"}`} />
+            More
+          </button>
+        )}
+      </nav>
+
+      {moreOpen && (
+        <div className="fixed inset-0 z-30 md:hidden" onClick={() => setMoreOpen(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-border mx-auto mb-3 h-1 w-10 rounded-full" />
+            <div className="grid grid-cols-3 gap-2">
+              {tabs.slice(4).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                  className={`rounded-lg border px-2 py-3 text-xs font-medium ${
+                    tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main key={tab} className="screen-enter mt-4 md:mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
         {tab === "Attendance" && (
           <>

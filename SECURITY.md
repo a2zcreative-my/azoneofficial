@@ -295,3 +295,14 @@ or a matching relay secret. Unverified receipts are logged and rejected with
 | Version | Change |
 |---|---|
 | v1.4.44 | TikTok-native signature verification; unverified receipts logged, not processed. |
+
+
+## v1.4.48 — demotion path restored
+The admin role dropdown lacked "customer", making UI demotion of
+personal-email staff accounts impossible. Restored; the v1.4.42 domain policy
+still blocks any personal email from being assigned a staff role. TikTok sync
+is restricted to super_admin/admin/ceo/coo/sales_marketing and audited.
+
+| Version | Change |
+|---|---|
+| v1.4.48 | Customer option in role dropdown; TikTok API request signing; sync endpoint role-gated + audited. |

@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.50] — 2026-08-01 — Mobile view now reads as an app, nothing to install
+
+### Changed (phones only; desktop untouched)
+- **App-style top bar**: on phones the header is a compact sticky bar showing the current screen's title (Dashboard, Attendance, …) with the bell and sign-out beside it — like a native app's title bar, with background blur as content scrolls under it. The desktop "Welcome" header is unchanged
+- **Screen transitions**: switching tabs plays a quick slide-up fade (0.18s), the way app screens change — honours reduced-motion settings
+- **Native touch feel**: no grey tap-highlight flash, no rubber-band overscroll, no long-press callout — small things that make a web page feel like a web page, now gone
+- Together with v1.4.49's **bottom tab bar + More sheet**, the mobile portal now looks and behaves like an app view in the browser itself — no installation involved
+
+### Deploy
+- Rebuild the site only. No worker change, no migration
+
+
+## [1.4.49] — 2026-08-01 — Mobile-app experience: installable PWA + bottom navigation
+
+### Added — install it like an app
+- **The site is now an installable PWA**: manifest (AZ ONE, navy theme, portrait, opens straight into /portal), 192/512 app icons generated from the logo on the navy brand background, Apple web-app meta (black-translucent status bar), and a minimal network-first service worker. On a phone: **Chrome/Android → menu → Add to Home Screen**; **iPhone Safari → Share → Add to Home Screen**. It then launches fullscreen from its own icon — no browser bar — which is the native-app feel
+- The service worker is deliberately network-first: live data (attendance, payroll, stock) is never served stale; it exists to enable installation and keep the shell reachable
+
+### Added — app-style bottom navigation (phones only)
+- **A fixed bottom tab bar** replaces the pill row on small screens: this person's first four tabs one thumb-tap away, a gold indicator on the active tab, safe-area padding for gesture-bar phones
+- **"More" opens a bottom sheet** with the rest of their tabs in a grid — so every role still reaches everything, just organised the way mobile apps do it
+- Desktop (md and up) keeps the pill tabs exactly as before; content gets bottom clearance on mobile so nothing hides behind the bar
+
+### Deploy
+- Rebuild the site only (`pnpm build` → push → hard refresh). No worker change, no migration. After deploying, staff must visit the site once and use Add to Home Screen to get the app icon
+
+
+## [1.4.48] — 2026-08-01 — Customer demotion restored; TikTok sync + status; API signing fixed
+
+### Fixed (security-relevant)
+- **The /admin Users role dropdown had no "customer" option** — so a personal-email account holding a staff role could not be demoted through the UI at all, exactly the gap that alarmed you. "customer" is now in the dropdown; combined with the v1.4.42 domain policy this closes the loop: personal emails can be pushed down to customer, and can never be pushed back up. (Reassurance on the other half: self-registration has only ever created customer accounts — nobody registers into a staff role)
+- **TikTok API calls are now signed.** TikTok requires every API request to carry a timestamp and an HMAC-SHA256 `sign` parameter; v1.4.44's order-detail call omitted this and would have been rejected. All calls now go through a signing helper
+
+### Added — why "No TikTok orders yet" and the fix for it
+- Webhooks only push orders **created after** the subscription is live — and the app is still Draft with 0 active scopes, so nothing has ever been able to flow. Two additions close the gap:
+- **Integration status line** on the Sales → TikTok Orders card: shows not-configured / not-authorized (with what to do) / connected + last webhook (and flags a failed signature explicitly)
+- **"Sync from TikTok" button** (super_admin/admin/ceo/coo/sales_marketing): pulls the **last 30 days of orders** via Get Order List once the app is live — creates TT- records, deducts stock by SKU (all-or-nothing, race-guarded, audited as tiktok_sync), skips orders already imported, and reports "Imported N (M already in)" plus any unmatched SKUs
+
+### Deploy
+- `npx wrangler deploy` → rebuild site. Migrations 0020+0021 from earlier releases still required if pending
+
+
 ## [1.4.47] — 2026-08-01 — Payslip header proper fields + confidentiality marking
 
 ### Changed

@@ -291,33 +291,54 @@ async function tiktokToken(env: Env): Promise<{ access_token: string; shop_ciphe
   return row ?? null;
 }
 
+/** TikTok Shop API request signing: every call carries app_key, timestamp and
+    sign = HMAC-SHA256(app_secret, app_secret + path + sorted(k+v) + body + app_secret).
+    access_token and sign itself are excluded from the signed parameter set. */
+async function tiktokSignedFetch(
+  env: Env, path: string, params: Record<string, string>, body?: string, method = "GET",
+): Promise<unknown> {
+  const tok = await tiktokToken(env);
+  if (!tok || !env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) return null;
+  const all: Record<string, string> = {
+    ...params,
+    app_key: env.TIKTOK_APP_KEY,
+    timestamp: String(Math.floor(Date.now() / 1000)),
+  };
+  if (tok.shop_cipher) all.shop_cipher = tok.shop_cipher;
+  const sortedConcat = Object.keys(all).sort().map((k) => k + all[k]).join("");
+  const base = env.TIKTOK_APP_SECRET + path + sortedConcat + (body ?? "") + env.TIKTOK_APP_SECRET;
+  all.sign = await hmacHex(env.TIKTOK_APP_SECRET, base);
+  const url = new URL(`https://open-api.tiktokglobalshop.com${path}`);
+  for (const [k, v] of Object.entries(all)) url.searchParams.set(k, v);
+  try {
+    const res = await fetch(url.toString(), {
+      method,
+      headers: { "x-tts-access-token": tok.access_token, "Content-Type": "application/json" },
+      body: method === "GET" ? undefined : body,
+    });
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
+/** Group TikTok line items (one row per unit) into SKU + quantity. */
+function groupLineItems(items: { seller_sku?: string; sku_id?: string }[]): { sku: string; qty: number }[] {
+  const merged = new Map<string, number>();
+  for (const li of items) {
+    const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
+    if (sku) merged.set(sku, (merged.get(sku) ?? 0) + 1);
+  }
+  return [...merged.entries()].map(([sku, qty]) => ({ sku, qty }));
+}
+
 /** Order webhooks carry only an id + status, so the line items are fetched.
     Returns [] when no token is stored yet (order still gets recorded). */
 async function tiktokOrderItems(env: Env, orderId: string): Promise<{ sku: string; qty: number }[]> {
-  const tok = await tiktokToken(env);
-  if (!tok || !env.TIKTOK_APP_KEY) return [];
-  const url = new URL("https://open-api.tiktokglobalshop.com/order/202309/orders");
-  url.searchParams.set("app_key", env.TIKTOK_APP_KEY);
-  url.searchParams.set("ids", orderId);
-  if (tok.shop_cipher) url.searchParams.set("shop_cipher", tok.shop_cipher);
-  try {
-    const res = await fetch(url.toString(), {
-      headers: { "x-tts-access-token": tok.access_token, "Content-Type": "application/json" },
-    });
-    const data = (await res.json().catch(() => null)) as {
-      data?: { orders?: { line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
-    } | null;
-    const items = data?.data?.orders?.[0]?.line_items ?? [];
-    // TikTok returns one line_item per unit; group by SKU to get quantities.
-    const merged = new Map<string, number>();
-    for (const li of items) {
-      const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
-      if (sku) merged.set(sku, (merged.get(sku) ?? 0) + 1);
-    }
-    return [...merged.entries()].map(([sku, qty]) => ({ sku, qty }));
-  } catch {
-    return [];
-  }
+  const data = (await tiktokSignedFetch(env, "/order/202309/orders", { ids: orderId })) as {
+    data?: { orders?: { line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+  } | null;
+  return groupLineItems(data?.data?.orders?.[0]?.line_items ?? []);
 }
 
 async function createSession(env: Env, userId: number): Promise<string> {
@@ -573,6 +594,103 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        and deducts stock per SKU (all-or-nothing; on shortage the record is
        still created with a note so the order is tracked, but nothing deducts)
      - cancelled/returned: restocks that order's lines, once. */
+  /* ---- TikTok status + manual sync (v1.4.48) ----
+     Webhooks only push orders created AFTER the subscription goes live, so
+     "Sync from TikTok" backfills the last 30 days via Get Order List. */
+  if (path === "/api/v1/integrations/tiktok/status" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || me.role === "customer") return errorResponse("unauthorized", "Sign in required", 401);
+    const tok = await tiktokToken(env);
+    const last = await env.DB.prepare(
+      `SELECT created_at, verified FROM webhook_events WHERE provider = 'tiktok' ORDER BY id DESC LIMIT 1`,
+    ).first<{ created_at: string; verified: number }>();
+    return json({
+      configured: Boolean(env.TIKTOK_APP_KEY && env.TIKTOK_APP_SECRET),
+      authorized: Boolean(tok),
+      last_event_at: last?.created_at ?? null,
+      last_event_verified: last ? Boolean(last.verified) : null,
+    });
+  }
+
+  if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    const SYNC_ROLES = ["super_admin", "admin", "ceo", "coo", "sales_marketing"];
+    if (!me || !SYNC_ROLES.includes(me.role)) {
+      return errorResponse("forbidden", "Sales or executive access required", 403);
+    }
+    if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
+      return errorResponse("not_configured", "Set TIKTOK_APP_KEY and TIKTOK_APP_SECRET first", 503);
+    }
+    if (!(await tiktokToken(env))) {
+      return errorResponse("not_authorized", "Authorize the app first: publish it in Partner Center and complete shop authorization via the redirect URL", 409);
+    }
+    // Last 30 days of orders, newest first, one page of 50.
+    const listBody = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 30 * 86400 });
+    const data = (await tiktokSignedFetch(
+      env, "/order/202309/orders/search", { page_size: "50" }, listBody, "POST",
+    )) as {
+      code?: number; message?: string;
+      data?: { orders?: { id?: string; status?: string; line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+    } | null;
+    if (!data || (typeof data.code === "number" && data.code !== 0)) {
+      return errorResponse("tiktok_error", `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, 502);
+    }
+    const orders = data.data?.orders ?? [];
+    let imported = 0, skipped = 0;
+    const problems: string[] = [];
+    for (const o of orders) {
+      const orderId = String(o.id ?? "").trim();
+      if (!orderId) continue;
+      const orderRef = `TT-${orderId.slice(0, 64)}`;
+      const exists = await env.DB.prepare(
+        `SELECT id FROM postage_records WHERE order_ref = ?1`,
+      ).bind(orderRef).first<{ id: number }>();
+      if (exists) { skipped += 1; continue; }
+      const lines = groupLineItems(o.line_items ?? []);
+      const resolved: { id: number; qty: number }[] = [];
+      const unknown: string[] = [];
+      const shortages: string[] = [];
+      for (const l of lines) {
+        const item = await env.DB.prepare(
+          `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
+        ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
+        if (!item) { unknown.push(l.sku); continue; }
+        if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
+        resolved.push({ id: item.id, qty: l.qty });
+      }
+      const canDeduct = shortages.length === 0 && resolved.length > 0;
+      const notes = ["TikTok order (synced)"];
+      if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
+      if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
+      const st = String(o.status ?? "").toLowerCase();
+      const uiStatus = st.includes("deliver") ? "delivered" : st.includes("ship") || st.includes("transit") ? "shipped" : "preparing";
+      const rec = await env.DB.prepare(
+        `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
+         VALUES (?1, 'TikTok', ?2, ?3, NULL) RETURNING id`,
+      ).bind(orderRef, uiStatus, notes.join(" · ")).first<{ id: number }>();
+      if (canDeduct) {
+        for (const l of resolved) {
+          const upd = await env.DB.prepare(
+            `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
+          ).bind(l.qty, l.id).run();
+          if (upd.meta.changes) {
+            await env.DB.prepare(
+              `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
+            ).bind(rec!.id, l.id, l.qty).run();
+            await env.DB.prepare(
+              `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+            ).bind(l.id).run();
+            await audit(env, me.id, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: "tiktok_sync" });
+          }
+        }
+      }
+      if (unknown.length) problems.push(`${orderRef}: unmatched ${unknown.join(", ")}`);
+      imported += 1;
+    }
+    await audit(env, me.id, "tiktok.sync", undefined, undefined, { imported, skipped });
+    return json({ ok: true, imported, skipped, total_from_tiktok: orders.length, problems });
+  }
+
   if (path === "/api/v1/integrations/tiktok/webhook" && method === "POST") {
     // TikTok signs its own requests (tiktok-signature); a relay such as
     // Make/Zapier can instead send x-webhook-secret. Either proves origin.
