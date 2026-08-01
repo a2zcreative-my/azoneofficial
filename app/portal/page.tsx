@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
-import { PayrollPanel } from "@/components/portal/payroll-panel";
+import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
   AttendanceAdminPanel,
@@ -74,7 +74,7 @@ function mytDateOf(iso: string): string {
 }
 
 const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco"];
-const SALES_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco"];
+const SALES_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"];
 
 function fmtRM(cents: number) {
   return `RM ${(cents / 100).toFixed(2)}`;
@@ -615,7 +615,7 @@ function Announcements({ user }: { user: User }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">
               {!a.acked && (
-                <span className="mr-2 inline-flex animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white uppercase">
+                <span className="mr-2 inline-flex -translate-y-px animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 align-middle text-[10px] font-bold tracking-wide text-white uppercase">
                   New
                 </span>
               )}
@@ -702,7 +702,7 @@ function Sales({ user }: { user: User }) {
   const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number }>({
     doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0,
   });
-  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco"].includes(user.role);
+  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
@@ -737,8 +737,7 @@ function Sales({ user }: { user: User }) {
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">{user.role === "ceo" ? "Customers" : "Add customer"}</p>
-          {user.role !== "ceo" && (
+          <p className="text-sm font-semibold">Add customer</p>
           <div className="mt-3 space-y-3">
             <input className={inputClass} placeholder="Company *" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
             <div className="grid grid-cols-2 gap-3">
@@ -748,7 +747,6 @@ function Sales({ user }: { user: User }) {
             <input className={inputClass} placeholder="Email" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
             <button type="button" className={btnClass} onClick={() => void addCustomer()}>Save customer</button>
           </div>
-          )}
           <div className="mt-3 max-h-56 overflow-y-auto">
             {customers.length === 0 && (
               <p className="text-muted-foreground text-sm">No customers yet.</p>
@@ -764,7 +762,6 @@ function Sales({ user }: { user: User }) {
           </div>
         </div>
 
-        {user.role !== "ceo" && (
         <div className={card}>
           <p className="text-sm font-semibold">Create document</p>
           <div className="mt-3 space-y-3">
@@ -802,7 +799,6 @@ function Sales({ user }: { user: User }) {
             <button type="button" className={btnClass} onClick={() => void createDoc()}>Create with auto number</button>
           </div>
         </div>
-        )}
       </div>
 
       <div className={card}>
@@ -909,7 +905,7 @@ const CONTENT_ONLY_ROLES: string[] = [];
 const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> = {
   // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
   HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
-  Payroll: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
+  Payroll: ["ceo", "coo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["sales_marketing", "super_admin", "admin"],
@@ -1085,18 +1081,14 @@ export default function PortalPage() {
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && (SALES_ROLES.includes(user.role) || user.role === "ceo") && (
-          <Sales user={user} />
-        )}
+        {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
         {tab === "HR" && (
           <>
             <HrPanel />
             {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
           </>
         )}
-        {tab === "Payroll" && (
-          <PayrollPanel readOnly={["coo", "cco"].includes(user.role)} />
-        )}
+        {tab === "Payroll" && <PayrollPanel />}
         {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
         {tab === "Inventory" && <InventoryPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
@@ -1104,6 +1096,7 @@ export default function PortalPage() {
         {tab === "Profile" && (
           <div className="space-y-6">
             <Profile />
+            <MyPayslip />
             <TwoFactorPanel />
           </div>
         )}

@@ -475,3 +475,23 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.39 | Fixed blank Sales tab for CEO (content gate excluded ceo); CEO Sales = read-only documents + customer list. |
+
+
+## v1.4.40 quick reference
+- 2FA: every staff member — Profile tab → Two-factor authentication.
+- Payroll: CEO + COO process (admin tier backstop); everyone else prints their
+  own slip via Profile → My payslip (view-only).
+- Sales edit roles: ceo, coo, cco, hr_admin, sales_marketing (+ admin tier).
+- TikTok: set TIKTOK_WEBHOOK_SECRET, point the order webhook at
+  /api/v1/integrations/tiktok/webhook with header x-webhook-secret. Orders
+  create TT-… postage records and move stock by SKU; ensure inventory SKUs
+  match TikTok listing SKUs exactly.
+
+| Version | Change |
+|---|---|
+| v1.4.40 | 2FA all staff; payroll rework (processors + My payslip); Sales five-role edit; TikTok order webhook. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.41 | Payslip in Malaysian boxed format; LATE DEDUCTION only when late; no employer contributions (registration pending); OTHERS + balances computed from attendance/holidays/leave. |

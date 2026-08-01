@@ -31,7 +31,7 @@ const PERMS: Record<string, readonly Role[]> = {
   // Post announcements & create/assign tasks.
   team_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
-  sales: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // Invoice finance status changes.
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // HR task reports (daily / weekly / monthly).
@@ -1046,8 +1046,69 @@ export async function handleStaff(
      hr_manage (CEO now, hr_admin from next month, admin tier) writes;
      exec_view reads. Amounts stored in sen. */
 
+  const PAYROLL_PROC = ["super_admin", "admin", "ceo", "coo"];
+
+  /** Payslip side-data (v1.4.41): the month's working days, public holidays,
+      approved leave, and remaining annual/medical balances — the OTHERS and
+      BALANCE sections of the Malaysian payslip layout. */
+  const payslipExtras = async (uid: number, month: string) => {
+    const wd = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT date(created_at, '+8 hours')) AS n FROM attendance_records
+       WHERE user_id = ?1 AND type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?2`,
+    ).bind(uid, month).first<{ n: number }>();
+    const ph = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+    ).bind(month).first<{ n: number }>();
+    const leaveDays = async (t: string) =>
+      (await env.DB.prepare(
+        `SELECT COALESCE(SUM(days), 0) AS n FROM leave_requests
+         WHERE user_id = ?1 AND type = ?2 AND status = 'approved' AND start_date LIKE ?3 || '%'`,
+      ).bind(uid, t, month).first<{ n: number }>())?.n ?? 0;
+    // Balances: same accrual rules as /leave/balance (annual accrues monthly
+    // from the company-start window; medical is statutory-full).
+    const year = Number(month.slice(0, 4));
+    const monthNum = Number(month.slice(5, 7));
+    const windowStart = year === 2026 ? 7 : 1;
+    const monthsTotal = 12 - windowStart + 1;
+    const monthsElapsed = Math.min(Math.max(monthNum - windowStart + 1, 0), monthsTotal);
+    const bal = async (t: string, full: boolean) => {
+      const ent = await env.DB.prepare(
+        `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
+      ).bind(uid, year, t).first<{ entitled: number }>();
+      const used = await env.DB.prepare(
+        `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
+         WHERE user_id = ?1 AND type = ?2 AND status = 'approved' AND start_date LIKE ?3 || '%'`,
+      ).bind(uid, t, String(year)).first<{ used: number }>();
+      const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+      const accrued = full ? entitled : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
+      return Math.max(0, accrued - (used?.used ?? 0));
+    };
+    return {
+      working_day: wd?.n ?? 0,
+      public_holiday: ph?.n ?? 0,
+      annual_leave: await leaveDays("annual"),
+      medical_leave: await leaveDays("medical"),
+      annual_bal: await bal("annual", false),
+      sick_bal: await bal("medical", true),
+    };
+  };
+
+  // Every staff member can view (and print) their OWN payslip — never edit.
+  if (path === "/payroll/self" && method === "GET") {
+    const url0 = new URL(request.url);
+    const m0 = url0.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const entry = await env.DB.prepare(
+      `SELECT p.*, u.name, u.employee_id, u.position, u.department, u.employment_status
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = ?1 AND p.month = ?2`,
+    ).bind(user.id, m0).first();
+    return json({ month: m0, entry: entry ?? null, extras: entry ? await payslipExtras(user.id, m0) : null });
+  }
+
   if (path === "/payroll" && method === "GET") {
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+    // Full payroll is for the processors only (v1.4.40): CEO and COO run it,
+    // admin tier as backstop. hr_admin and CCO no longer see other people's pay.
+    if (!PAYROLL_PROC.includes(user.role)) {
       return err("forbidden", "Payroll access required", 403);
     }
     const url = new URL(request.url);
@@ -1059,8 +1120,17 @@ export async function handleStaff(
     ).bind(month).all();
     return json({ month, entries: results });
   }
+  if (path === "/payroll/detail" && method === "GET") {
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const urlD = new URL(request.url);
+    const uid = Number(urlD.searchParams.get("user_id"));
+    const mD = urlD.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    if (!uid) return err("invalid_input", "user_id is required", 400);
+    return json({ extras: await payslipExtras(uid, mD) });
+  }
+
   if (path === "/payroll" && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "Payroll access required", 403);
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const month = str(body?.month, 7) && /^\d{4}-\d{2}$/.test(body!.month as string) ? (body!.month as string) : null;
     if (!body || typeof body.user_id !== "number" || !month) {
       return err("invalid_input", "user_id and month (YYYY-MM) are required", 400);

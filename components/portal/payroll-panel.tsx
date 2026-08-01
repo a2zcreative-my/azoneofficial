@@ -65,6 +65,108 @@ function monthDMY(m: string): string {
   return p.length === 2 ? `${p[1]}-${p[0]}` : m;
 }
 
+/** Branded A4 payslip print — shared by the processing panel and every
+    staff member's read-only "My payslip" card. */
+export function printPayslip(
+  u: StaffRow & { employment_status?: string | null },
+  e: Entry,
+  month: string,
+  x?: { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; annual_bal: number; sick_bal: number } | null,
+) {
+  const gross = e.basic_cents + e.commission_cents + e.allowance_cents;
+  const net = Math.max(0, gross - e.deduction_cents);
+  const [yy, mm] = month.split("-");
+  const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
+  const period = { from: `01-${mm}-${yy}`, to: `${String(lastDay).padStart(2, "0")}-${mm}-${yy}` };
+  const amt = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const n2 = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Earnings: basic always; commission/allowance only when present.
+  const earn: [string, number][] = [["BASIC PAY", e.basic_cents]];
+  if (e.commission_cents > 0) earn.push(["COMMISSION", e.commission_cents]);
+  if (e.allowance_cents > 0) earn.push(["ALLOWANCE", e.allowance_cents]);
+  // Deductions appear ONLY when late — the deduction field records lateness.
+  const dedRows = e.deduction_cents > 0
+    ? `<tr><td>LATE DEDUCTION</td><td class="amt">${amt(e.deduction_cents)}</td></tr>`
+    : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
+  const othersRows = x
+    ? `<tr><td>WORKING DAY</td><td class="amt">${n2(x.working_day)}</td></tr>
+       <tr><td>PUBLIC HOLIDAY</td><td class="amt">${n2(x.public_holiday)}</td></tr>
+       <tr><td>ANNUAL LEAVE</td><td class="amt">${n2(x.annual_leave)}</td></tr>
+       <tr><td>MEDICAL LEAVE</td><td class="amt">${n2(x.medical_leave)}</td></tr>`
+    : "";
+
+  const w = window.open("", "_blank", "width=900,height=950");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><title>Payslip ${u.name} ${monthDMY(month)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; font-size: 12px; }
+  .sheet { border: 1.5px solid #000; }
+  .info { width: 100%; border-collapse: collapse; }
+  .info td { padding: 3px 8px; vertical-align: top; }
+  .info .l { font-weight: bold; white-space: nowrap; }
+  .cols { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .cols th { border: 1px solid #000; padding: 4px; text-align: center; }
+  .cols > tbody > tr.main > td { border: 1px solid #000; padding: 0; vertical-align: top; height: 230px; }
+  .cols > tbody > tr.totals > td { border: 1px solid #000; padding: 0; }
+  .inner { width: 100%; border-collapse: collapse; }
+  .inner td { padding: 3px 8px; }
+  .inner .amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: #444; }
+  .total td { font-weight: bold; }
+  .bottom { width: 100%; border-collapse: collapse; }
+  .bottom td { border: 1px solid #000; padding: 5px 8px; }
+  .nett { font-weight: bold; font-size: 13px; }
+  .company { margin-top: 8px; font-weight: bold; font-size: 13px; }
+  .company span { font-weight: normal; font-size: 11px; }
+</style></head><body>
+  <div class="sheet">
+    <table class="info">
+      <tr>
+        <td class="l">EMP'EE #/NAME</td><td>: ${u.employee_id ?? "—"} / ${u.name.toUpperCase()}</td>
+        <td class="l">DEPT./SECTION</td><td>: ${(u.department ?? "—").toUpperCase()} / ${(u.position ?? "—").toUpperCase()}</td>
+      </tr>
+      <tr>
+        <td class="l">STATUS</td><td>: ${(u.employment_status ?? "ACTIVE").toUpperCase()}</td>
+        <td class="l">PERIOD</td><td>: ${period.from} &nbsp;TO&nbsp; ${period.to}</td>
+      </tr>
+    </table>
+    <table class="cols">
+      <thead>
+        <tr><th style="width:38%">EARNINGS / INCOME</th><th style="width:31%">DEDUCTIONS</th><th style="width:31%">OTHERS</th></tr>
+      </thead>
+      <tbody>
+        <tr class="main">
+          <td><table class="inner">
+            ${earn.map(([label, c]) => `<tr><td>${label}</td><td class="amt">${amt(c)}</td></tr>`).join("")}
+          </table></td>
+          <td><table class="inner">${dedRows}</table></td>
+          <td><table class="inner">${othersRows}</table></td>
+        </tr>
+        <tr class="totals">
+          <td><table class="inner"><tr class="total"><td>TOTAL :</td><td class="amt">${amt(gross)}</td></tr></table></td>
+          <td><table class="inner"><tr class="total"><td>TOTAL :</td><td class="amt">${amt(e.deduction_cents)}</td></tr></table></td>
+          <td><table class="inner">
+            <tr><td>ANNL. BAL. :</td><td class="amt">${x ? n2(x.annual_bal) : "—"}</td></tr>
+            <tr><td>SICK BAL. :</td><td class="amt">${x ? n2(x.sick_bal) : "—"}</td></tr>
+          </table></td>
+        </tr>
+      </tbody>
+    </table>
+    <table class="bottom">
+      <tr>
+        <td style="width:69%">${e.note ? "NOTE : " + e.note : ""}</td>
+        <td class="nett" style="width:31%">NETT PAY : <span style="float:right">${amt(net)}</span></td>
+      </tr>
+    </table>
+  </div>
+  <p class="company">AZ ONE OFFICIAL <span>(SSM 202603168673 / JM1046169-H) · Setia Tropika, Johor Bahru, Malaysia · Computer-generated payslip — no signature required.</span></p>
+  <script>window.onload = function () { window.print(); };</script>
+</body></html>`);
+  w.document.close();
+}
+
 export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [staff, setStaff] = useState<StaffRow[]>([]);
@@ -112,71 +214,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     void load();
   };
 
-  const printSlip = (u: StaffRow) => {
-    const e = entry(u.id);
-    const net = e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents;
-    const w = window.open("", "_blank", "width=800,height=900");
-    if (!w) return;
-    w.document.write(`<!doctype html><html><head><title>Payslip ${u.name} ${monthDMY(month)}</title>
-<style>
-  @page { size: A4; margin: 18mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #16202e; margin: 0; }
-  .head { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1a2946; padding-bottom: 12px; }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand img { height: 46px; }
-  .brand .n { font-size: 18px; font-weight: 700; color: #1a2946; letter-spacing: .5px; }
-  .brand .s { font-size: 10px; color: #5b6472; }
-  h1 { font-size: 16px; color: #1a2946; margin: 0; text-align: right; }
-  .muted { color: #5b6472; font-size: 11px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
-  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #e3e6ea; }
-  th { background: #f2f4f7; color: #1a2946; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
-  td.amt, th.amt { text-align: right; font-variant-numeric: tabular-nums; }
-  .net { background: #1a2946; color: #fff; font-weight: 700; font-size: 13px; }
-  .net td { border: none; padding: 10px; }
-  .foot { margin-top: 26px; font-size: 10px; color: #5b6472; border-top: 1px solid #e3e6ea; padding-top: 8px; }
-</style></head><body>
-  <div class="head">
-    <div class="brand">
-      <img src="${window.location.origin}/logo.png" alt="" onerror="this.style.display='none'">
-      <div>
-        <div class="n">${COMPANY.name}</div>
-        <div class="s">${COMPANY.ssm}<br>${COMPANY.location}</div>
-      </div>
-    </div>
-    <div>
-      <h1>PAYSLIP</h1>
-      <div class="muted" style="text-align:right">Month: ${monthDMY(month)}</div>
-    </div>
-  </div>
-
-  <table>
-    <tr><th style="width:30%">Employee</th><td>${u.name}</td></tr>
-    <tr><th>Employee ID</th><td>${u.employee_id ?? "—"}</td></tr>
-    <tr><th>Position</th><td>${u.position ?? "—"}${u.department ? " · " + u.department : ""}</td></tr>
-  </table>
-
-  <table>
-    <tr><th>Earnings</th><th class="amt">Amount</th></tr>
-    <tr><td>Basic salary</td><td class="amt">${rm(e.basic_cents)}</td></tr>
-    <tr><td>Commission</td><td class="amt">${rm(e.commission_cents)}</td></tr>
-    <tr><td>Allowance</td><td class="amt">${rm(e.allowance_cents)}</td></tr>
-    <tr><th>Deductions</th><th class="amt"></th></tr>
-    <tr><td>Deductions</td><td class="amt">− ${rm(e.deduction_cents)}</td></tr>
-  </table>
-
-  <table class="net"><tr><td>NET PAY</td><td class="amt" style="text-align:right">${rm(Math.max(0, net))}</td></tr></table>
-  ${e.note ? `<p class="muted">Note: ${e.note}</p>` : ""}
-
-  <div class="foot">
-    Computer-generated payslip issued by ${COMPANY.name}. No statutory
-    deductions (EPF / SOCSO / EIS) are applied at present — the basic salary is
-    paid in full. This will be revised if the company's statutory obligations change.
-    Generated ${new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10).split("-").reverse().join("-")} (MYT).
-  </div>
-  <script>window.onload = function () { window.print(); };</script>
-</body></html>`);
-    w.document.close();
+  const printSlip = async (u: StaffRow) => {
+    const d = await api<{ extras: Parameters<typeof printPayslip>[3] }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
+    printPayslip(u, entry(u.id), month, d.data?.extras ?? null);
   };
 
   return (
@@ -240,7 +280,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         Save
                       </button>
                     )}
-                    <button type="button" className="ml-2 text-xs underline" onClick={() => printSlip(u)}>
+                    <button type="button" className="ml-2 text-xs underline" onClick={() => void printSlip(u)}>
                       Payslip
                     </button>
                   </td>
@@ -250,6 +290,70 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * "My payslip" (v1.4.40): every staff member can view and PRINT their own
+ * payslip for a chosen month — amounts are display-only, editing lives with
+ * the payroll processors (CEO/COO). No entry yet → clearly says so.
+ */
+export function MyPayslip() {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
+  const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
+
+  useEffect(() => {
+    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3] }>(
+      `/payroll/self?month=${month}`,
+    ).then((r) => {
+      setEntry(r.data?.entry ?? null);
+      setExtras(r.data?.extras ?? null);
+    });
+  }, [month]);
+
+  const net = entry
+    ? entry.basic_cents + entry.commission_cents + entry.allowance_cents - entry.deduction_cents
+    : 0;
+
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">My payslip</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            View and print your payslip. Amounts are set by payroll processing
+            and cannot be edited here.
+          </p>
+        </div>
+        <input
+          type="month"
+          className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+        />
+      </div>
+      {entry ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span>
+            Basic {rm(entry.basic_cents)} · Commission {rm(entry.commission_cents)} ·
+            Allowance {rm(entry.allowance_cents)} · Deduction {rm(entry.deduction_cents)} ·{" "}
+            <span className="font-semibold">Net {rm(Math.max(0, net))}</span>
+          </span>
+          <button
+            type="button"
+            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={() => printPayslip(entry, entry, month, extras)}
+          >
+            Print payslip
+          </button>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mt-3 text-sm">
+          No payslip for this month yet — it appears once payroll is processed.
+        </p>
+      )}
     </div>
   );
 }

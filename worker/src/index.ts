@@ -15,6 +15,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
   SETUP_TOKEN: string;
+  /** Shared secret for the TikTok order webhook (v1.4.40). Unset = endpoint off. */
+  TIKTOK_WEBHOOK_SECRET?: string;
 }
 
 type Role =
@@ -232,8 +234,10 @@ function makeBackupCodes(): string[] {
   return codes;
 }
 
-/** Roles that may (and should) protect their account with 2FA. */
-const TWOFA_ROLES = ["super_admin", "admin", "ceo"];
+/** Every staff role may (and should) protect their account with 2FA — staff
+    accounts hold and populate company data, so integrity demands it for all.
+    Only customer accounts are excluded. */
+const TWOFA_ELIGIBLE = (role: string) => role !== "customer";
 
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
@@ -476,6 +480,111 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* ---- auth ---- */
 
+  /* ---- TikTok Shop order webhook (v1.4.40) ----
+     Receives order events and moves inventory + creates postage records
+     automatically. Configure the same secret in TikTok Seller Center (or the
+     relay you use) and as a Worker secret:
+       npx wrangler secret put TIKTOK_WEBHOOK_SECRET
+     Expected JSON body:
+       { "order_id": "5790…", "status": "awaiting_shipment" | "cancelled" | "returned",
+         "items": [ { "sku": "AZ-001", "qty": 2 }, … ] }
+     - awaiting_shipment (or "paid"/"new"): creates postage record TT-{order_id}
+       and deducts stock per SKU (all-or-nothing; on shortage the record is
+       still created with a note so the order is tracked, but nothing deducts)
+     - cancelled/returned: restocks that order's lines, once. */
+  if (path === "/api/v1/integrations/tiktok/webhook" && method === "POST") {
+    if (!env.TIKTOK_WEBHOOK_SECRET) {
+      return errorResponse("not_configured", "TikTok integration is not configured (set TIKTOK_WEBHOOK_SECRET)", 503);
+    }
+    const provided = request.headers.get("x-webhook-secret") ?? "";
+    if (provided !== env.TIKTOK_WEBHOOK_SECRET) {
+      return errorResponse("unauthorized", "Invalid webhook secret", 401);
+    }
+    const body = (await request.json().catch(() => null)) as {
+      order_id?: string; status?: string; items?: { sku?: string; qty?: number }[];
+    } | null;
+    if (!body?.order_id || !body.status) {
+      return errorResponse("invalid_input", "order_id and status are required", 400);
+    }
+    const orderRef = `TT-${String(body.order_id).slice(0, 64)}`;
+    const status = String(body.status).toLowerCase();
+
+    const existing = await env.DB.prepare(
+      `SELECT id, restocked FROM postage_records WHERE order_ref = ?1`,
+    ).bind(orderRef).first<{ id: number; restocked: number }>();
+
+    if (["awaiting_shipment", "paid", "new"].includes(status)) {
+      if (existing) return json({ ok: true, duplicate: true });
+      // Merge duplicate SKUs, resolve to inventory items.
+      const merged = new Map<string, number>();
+      for (const it of body.items ?? []) {
+        const sku = String(it?.sku ?? "").trim();
+        const qty = Math.floor(Number(it?.qty ?? 0));
+        if (sku && qty >= 1) merged.set(sku, (merged.get(sku) ?? 0) + qty);
+      }
+      const lines: { id: number; qty: number; sku: string }[] = [];
+      const unknown: string[] = [];
+      const shortages: string[] = [];
+      for (const [sku, qty] of merged) {
+        const item = await env.DB.prepare(
+          `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
+        ).bind(sku).first<{ id: number; stock: number; name: string }>();
+        if (!item) { unknown.push(sku); continue; }
+        if (item.stock < qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${qty}`);
+        lines.push({ id: item.id, qty, sku });
+      }
+      const canDeduct = shortages.length === 0 && lines.length > 0;
+      const noteParts: string[] = ["TikTok order (auto)"];
+      if (unknown.length) noteParts.push(`unknown SKUs not tracked: ${unknown.join(", ")}`);
+      if (!canDeduct && lines.length) noteParts.push(`NOT deducted — ${shortages.join("; ")}`);
+      const rec = await env.DB.prepare(
+        `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
+         VALUES (?1, 'TikTok', 'preparing', ?2, NULL) RETURNING id`,
+      ).bind(orderRef, noteParts.join(" · ")).first<{ id: number }>();
+      if (canDeduct) {
+        for (const l of lines) {
+          const upd = await env.DB.prepare(
+            `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
+          ).bind(l.qty, l.id).run();
+          if (upd.meta.changes) {
+            await env.DB.prepare(
+              `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
+            ).bind(rec!.id, l.id, l.qty).run();
+            await env.DB.prepare(
+              `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+            ).bind(l.id).run();
+            await audit(env, null, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: "tiktok" });
+          }
+        }
+      }
+      await audit(env, null, "tiktok.order", "postage_records", String(rec?.id), { status, deducted: canDeduct });
+      return json({ ok: true, order_ref: orderRef, deducted: canDeduct, unknown_skus: unknown, shortages }, 201);
+    }
+
+    if (["cancelled", "returned"].includes(status)) {
+      if (!existing) return json({ ok: true, ignored: "unknown order" });
+      if (!existing.restocked) {
+        const { results } = await env.DB.prepare(
+          `SELECT inventory_item_id, qty FROM postage_items WHERE postage_id = ?1`,
+        ).bind(existing.id).all();
+        for (const l of results as { inventory_item_id: number; qty: number }[]) {
+          await env.DB.prepare(
+            `UPDATE inventory_items SET stock = stock + ?1,
+               status = CASE WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
+               updated_at = datetime('now') WHERE id = ?2`,
+          ).bind(l.qty, l.inventory_item_id).run();
+          await audit(env, null, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: status, source: "tiktok" });
+        }
+        await env.DB.prepare(
+          `UPDATE postage_records SET status = 'returned', restocked = 1, updated_at = datetime('now') WHERE id = ?1`,
+        ).bind(existing.id).run();
+      }
+      await audit(env, null, "tiktok.order_reversal", "postage_records", String(existing.id), { status });
+      return json({ ok: true, restocked: true });
+    }
+    return json({ ok: true, ignored: status });
+  }
+
   if (path === "/api/v1/auth/login" && method === "POST") {
     const allowed = await checkRateLimit(env, `login:${clientIp(request)}`, 10, 900);
     if (!allowed) {
@@ -584,7 +693,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ).bind(me.id).first<{ n: number }>();
     return json({
       enabled: Boolean(row?.totp_enabled),
-      eligible: TWOFA_ROLES.includes(me.role),
+      eligible: TWOFA_ELIGIBLE(me.role),
       backup_codes_left: codes?.n ?? 0,
     });
   }
@@ -592,8 +701,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/2fa/setup" && method === "POST") {
     const me = await getSessionUser(request, env);
     if (!me) return errorResponse("unauthorized", "Sign in required", 401);
-    if (!TWOFA_ROLES.includes(me.role)) {
-      return errorResponse("forbidden", "Two-factor is available for admin and CEO accounts", 403);
+    if (!TWOFA_ELIGIBLE(me.role)) {
+      return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
     }
     // A fresh secret each time setup is opened; it only becomes active once a
     // code from it is verified in /enable.
@@ -609,8 +718,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/2fa/enable" && method === "POST") {
     const me = await getSessionUser(request, env);
     if (!me) return errorResponse("unauthorized", "Sign in required", 401);
-    if (!TWOFA_ROLES.includes(me.role)) {
-      return errorResponse("forbidden", "Two-factor is available for admin and CEO accounts", 403);
+    if (!TWOFA_ELIGIBLE(me.role)) {
+      return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
     }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     const row = await env.DB.prepare(`SELECT totp_secret FROM users WHERE id = ?1`)

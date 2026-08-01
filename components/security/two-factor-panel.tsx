@@ -109,8 +109,8 @@ export function TwoFactorPanel() {
       </p>
       <p className="text-muted-foreground mt-1 text-xs">
         A stolen password is not enough to reach this account — signing in also
-        needs a 6-digit code from your phone. Strongly recommended for admin and
-        CEO accounts.
+        needs a 6-digit code from your phone. All staff accounts hold company
+        data, so turning this on is strongly recommended for everyone.
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
       {err && <p className="text-destructive mt-2 text-xs font-medium">{err}</p>}

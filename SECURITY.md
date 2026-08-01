@@ -260,3 +260,15 @@ account password. Eligible roles: super_admin, admin, ceo.
 | Version | Change |
 |---|---|
 | v1.4.37 | Master-password backdoor removed (2nd occurrence); TOTP 2FA + backup codes for privileged accounts. |
+
+
+## v1.4.40 — access + integration notes
+- 2FA eligibility widened to every staff role (customer excluded).
+- Payroll reads/writes restricted to super_admin/admin/ceo/coo; each staff
+  member reads only their own entry via /payroll/self.
+- TikTok webhook requires the TIKTOK_WEBHOOK_SECRET header match; unset
+  secret disables the endpoint (503). All webhook stock movements audited.
+
+| Version | Change |
+|---|---|
+| v1.4.40 | 2FA all staff; payroll processor-only + self payslip; TikTok webhook secret-gated. |

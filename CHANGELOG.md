@@ -2,6 +2,39 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.41] — 2026-08-01 — Payslip redesigned to the Malaysian boxed format
+
+### Changed
+- **Payslip now follows the standard Malaysian boxed layout** (per the provided sample): header block (EMP'EE #/NAME · DEPT./SECTION · STATUS · PERIOD from/to), three ruled columns **EARNINGS / INCOME | DEDUCTIONS | OTHERS**, per-column TOTAL row, ANNL. BAL. / SICK BAL., a boxed **NETT PAY**, and the company line (AZ ONE OFFICIAL · SSM) at the bottom
+- **Deductions appear only when late** — the deduction amount is labelled LATE DEDUCTION and the column reads NO DEDUCTION otherwise
+- **No employer-contribution section** — KWSP/SOCSO/EIS registration is in progress, so the slip carries none of those rows; fields from the sample that don't apply (I/C, EPF#, SOCSO#, Tax#, bank code, PCB, sex/race) are deliberately omitted
+- **The OTHERS column is computed from real data**: working days (distinct clock-in days that month), public holidays on the calendar, approved annual/medical leave days — and the balances use the same accrual rules as the Leave tab, so payslip and portal never disagree
+
+### Deploy
+- `npx wrangler deploy` (payroll/self + payroll/detail extras) → rebuild site. No migration
+
+
+## [1.4.40] — 2026-07-31 — 2FA for all staff, payroll access rework, Sales edit roles, TikTok integration
+
+### Changed — two-factor for everyone
+- **2FA is now available to every staff role** (only customer accounts excluded) — staff accounts populate company data, so integrity demands the protection for all. Enrolment sits in each person's Profile tab; admins also have it under /admin → Account. (Also: the NEW announcement pill now aligns with the title text)
+
+### Changed — payroll access rework
+- **The Payroll tab appears only for its processors: CEO and COO** (admin tier as backstop). hr_admin and CCO no longer see the tab — and the API no longer lets them read other people's pay
+- **Every staff member gets "My payslip" in their Profile**: pick a month, see the amounts, **print the branded payslip** — strictly view-only, because editable pay figures invite cheating. Editing exists solely inside payroll processing
+- COO now **edits** payroll (was read-only) — CEO and COO are the processors
+
+### Changed — Sales
+- **CEO, COO, CCO, hr_admin and sales_marketing all read AND edit Sales**: customers, quotations, delivery orders and invoices. The CEO read-only carve-outs from v1.4.33/39 are removed, and sales_marketing (previously inventory-only) now has the Sales tab
+
+### Added — TikTok order integration
+- **Webhook endpoint** `/api/v1/integrations/tiktok/webhook` (secured by a shared secret): an order event creates postage record **TT-{order_id}** and **deducts inventory by SKU** (duplicate SKUs merged; all-or-nothing — on shortage the order is still recorded with a note so tracking never loses it, but nothing deducts); **cancelled/returned restocks** the order's lines once; unknown SKUs are noted, every movement audit-logged as source: tiktok
+- Setup: `npx wrangler secret put TIKTOK_WEBHOOK_SECRET`, then point TikTok Seller Center's order webhook (or your relay) at the endpoint with header `x-webhook-secret`. Full API pull (polling TikTok for orders) needs TikTok Shop Partner app credentials — the webhook is the foundation either way
+
+### Deploy
+- Migrations 0014–**0018** if pending → `npx wrangler secret put TIKTOK_WEBHOOK_SECRET` (optional, enables TikTok) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.39] — 2026-07-31 — Fix: CEO's Sales tab rendered nothing
 
 ### Fixed

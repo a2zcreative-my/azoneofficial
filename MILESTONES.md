@@ -340,3 +340,10 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.39 — 31 Jul 2026 — CEO Sales tab fix
 - Sales content gate now matches the tab gate; CEO sees documents + customers read-only
+
+## v1.4.40 — 31 Jul 2026 — 2FA everywhere, payroll rework, TikTok
+- 2FA all staff roles; Payroll = CEO+COO processors, My payslip (view/print) for everyone
+- Sales edit: ceo/coo/cco/hr_admin/sales_marketing; TikTok order webhook moves stock by SKU
+
+## v1.4.41 — 01 Aug 2026 — Malaysian payslip format
+- Boxed EARNINGS | DEDUCTIONS | OTHERS layout with NETT PAY; late-only deductions; no statutory rows; real attendance/leave data
