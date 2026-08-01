@@ -157,7 +157,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
     setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed").slice(0, 5));
     const n = await api<{ announcements: Announcement[] }>(`/staff/announcements`);
     setAnns((n.data?.announcements ?? []).slice(0, 3));
-  }, [loadTikTok]);
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
@@ -742,7 +742,7 @@ function Sales({ user }: { user: User }) {
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
-  }, []);
+  }, [loadTikTok]);
   useEffect(() => { void load(); }, [load]);
 
   const addCustomer = async () => {
@@ -998,6 +998,7 @@ export default function PortalPage() {
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -1054,7 +1055,6 @@ export default function PortalPage() {
     );
   }
 
-  const [moreOpen, setMoreOpen] = useState(false);
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
