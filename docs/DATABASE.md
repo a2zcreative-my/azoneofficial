@@ -260,3 +260,14 @@ headers summary, raw body) for diagnosable webhook receipts.
 | Version | Change |
 |---|---|
 | v1.4.44 | 0020 — TikTok seller tokens + webhook event log. |
+
+
+## v1.4.46 — migration 0021_employment_status_values.sql
+users rebuilt (SQLite cannot alter a CHECK): employment_status now accepts
+permanent/contract/part_time alongside the legacy set; default 'permanent';
+legacy 'active' rows mapped to 'permanent'. All columns through 0019 carried
+over with explicit column lists.
+
+| Version | Change |
+|---|---|
+| v1.4.46 | 0021 — employment_status CHECK expanded; users table rebuilt. |

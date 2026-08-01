@@ -283,8 +283,8 @@ export async function handleStaff(
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department, birthday, id_issued_on, blood_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department, birthday, id_issued_on, blood_type, bank_name, bank_account)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) RETURNING id`,
       ).bind(
         email, hash, (body.name as string).trim(), body.role,
         str(body.employee_id, 60) ? body.employee_id : null,
@@ -293,6 +293,8 @@ export async function handleStaff(
         str(body.birthday, 10) ? body.birthday : null,
         str(body.id_issued_on, 10) ? body.id_issued_on : null,
         str(body.blood_type, 5) ? body.blood_type : null,
+        str(body.bank_name, 60) ? body.bank_name : null,
+        str(body.bank_account, 40) ? body.bank_account : null,
       ).first<{ id: number }>();
       await audit(env, user.id, "staff.create", "users", String(res?.id), { role: body.role });
       return json({ id: res?.id }, 201);
@@ -351,6 +353,12 @@ export async function handleStaff(
     // once a value is saved it locks, and changing it needs an admin. This
     // keeps records stable — corrections go through /admin deliberately.
     const adminTier = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
+    // Validate up front so a bad value is a clear 400, never a DB 500.
+    const STATUSES = ["permanent", "contract", "part_time", "probation", "resigned", "terminated"];
+    if (typeof body?.employment_status === "string" && body.employment_status !== "" &&
+        !STATUSES.includes(body.employment_status)) {
+      return err("invalid_input", `employment_status must be one of: ${STATUSES.join(", ")}`, 400);
+    }
     const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type

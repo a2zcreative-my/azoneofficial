@@ -534,3 +534,8 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.45 | TikTok app key in wrangler.toml (public identifier); only TIKTOK_APP_SECRET is a secret. Scopes must be applied for before API calls work. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.46 | "Something went wrong" on staff Save fixed (status CHECK rebuilt, migration 0021); add-staff form captures bank + account. |

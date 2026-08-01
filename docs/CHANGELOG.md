@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.46] — 2026-08-01 — Fix: staff record saves failed on employment status; bank fields on creation
+
+### Fixed (the "Something went wrong" on Save)
+- **Root cause**: v1.4.43 introduced permanent / contract / part_time in the UI, but the users table still enforced the original database CHECK ('active','probation','resigned','terminated'). Every save carrying a new status value was rejected by the database itself, surfacing as a generic 500. Migration **0021** rebuilds the constraint to accept both sets, defaults new staff to 'permanent', and maps existing legacy 'active' rows to 'permanent' (probation/resigned/terminated untouched)
+- The staff PATCH now **validates employment_status up front** and returns a clear 400 naming the allowed values — a bad value can never again surface as "Something went wrong"
+
+### Added
+- **Add-staff form gains Bank (Malaysian bank dropdown, Maybank first) and Bank account no.** — captured at creation instead of requiring a second edit; the create endpoint stores both
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0021** — required, this is the fix) → `npx wrangler deploy` → rebuild site
+
+
 ## [1.4.45] — 2026-08-01 — TikTok app key committed to config
 
 ### Changed

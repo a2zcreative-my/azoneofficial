@@ -359,3 +359,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.45 — 01 Aug 2026 — TikTok app key in config
 - TIKTOK_APP_KEY committed to worker/wrangler.toml; secret stays a wrangler secret; scope activation still pending in Partner Center
+
+## v1.4.46 — 01 Aug 2026 — Status constraint fix + bank on creation
+- users CHECK rebuilt for permanent/contract/part_time (migration 0021); friendly validation; add-staff captures bank details

@@ -250,6 +250,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     email: "", name: "", role: "sales_marketing",
     employee_id: "", position: "", department: "",
     birthday: "", id_issued_on: "", blood_type: "", password: "",
+    bank_name: "", bank_account: "",
   };
   const [newStaff, setNewStaff] = useState(emptyNewStaff);
   const [newPhoto, setNewPhoto] = useState<File | null>(null);
@@ -350,6 +351,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
           <input className={input} placeholder="Blood type (optional)" value={newStaff.blood_type}
             onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
+          <select className={input} value={newStaff.bank_name}
+            onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
+            <option value="">Bank (optional — Maybank is company primary)</option>
+            {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <input className={input} placeholder="Bank account no. (optional)" value={newStaff.bank_account}
+            onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
           <PasswordInput className={input} placeholder="Temp password (10+ chars)" value={newStaff.password}
             onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
           <label className={`${input} flex cursor-pointer items-center justify-between`}>
