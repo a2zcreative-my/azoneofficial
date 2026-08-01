@@ -539,3 +539,8 @@ time already recorded. Same thresholds power the HR verification table.
 | Version | Change |
 |---|---|
 | v1.4.46 | "Something went wrong" on staff Save fixed (status CHECK rebuilt, migration 0021); add-staff form captures bank + account. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.47 | Payslip header: distinct EMP'EE #/NAME/DEPT./SECTION/STATUS/PERIOD/BANK NAME/BANK ACCOUNT rows; SULIT confidentiality mark + Employment Act/PDPA footer. |

@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.47] — 2026-08-01 — Payslip header proper fields + confidentiality marking
+
+### Changed
+- **Payslip header restructured into distinct labelled rows**: EMP'EE # · EMP'EE NAME · DEPT. · SECTION · STATUS · PERIOD · **BANK NAME** · **BANK ACCOUNT** — each its own field instead of the combined "#/NAME" and "DEPT./SECTION" pairs. Department maps to DEPT., position to SECTION
+- **Confidentiality per Malaysian practice**: a red **SULIT / PRIVATE & CONFIDENTIAL** mark at the top of the slip, and a footer statement citing issuance under the Employment Act 1955 and personal-data protection under the PDPA 2010, prohibiting disclosure without written consent
+
+### Notes on the sample printed
+- STATUS showed ACTIVE because migration **0021** wasn't applied yet — after it, the value reads PERMANENT (or contract/part time as set)
+- BANK showed "—" because the record's bank fields were empty — fill Bank + account in Staff Details and they print
+
+### Deploy
+- Rebuild the site only (print template change). Migrations 0020/0021 still required from the previous releases if pending
+
+
 ## [1.4.46] — 2026-08-01 — Fix: staff record saves failed on employment status; bank fields on creation
 
 ### Fixed (the "Something went wrong" on Save)

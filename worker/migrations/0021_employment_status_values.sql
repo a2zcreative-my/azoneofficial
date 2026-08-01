@@ -9,9 +9,6 @@
 -- full_name (0012), photo_key (0013), totp_secret/enabled (0018),
 -- bank_name/bank_account/joined_on (0019).
 
-PRAGMA defer_foreign_keys = TRUE;
-PRAGMA foreign_keys = OFF;
-
 CREATE TABLE users_new5 (
   id INTEGER PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,

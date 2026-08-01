@@ -125,20 +125,31 @@ export function printPayslip(
   .nett { font-weight: bold; font-size: 13px; }
   .company { margin-top: 8px; font-weight: bold; font-size: 13px; }
   .company span { font-weight: normal; font-size: 11px; }
+  .conf-row { text-align: right; margin-bottom: 4px; }
+  .conf { display: inline-block; border: 1.5px solid #b00020; color: #b00020;
+    font-weight: bold; font-size: 10px; letter-spacing: .8px; padding: 2px 8px; }
+  .privacy { margin-top: 4px; font-size: 9.5px; color: #444; }
 </style></head><body>
+  <div class="conf-row">
+    <span class="conf">SULIT / PRIVATE &amp; CONFIDENTIAL</span>
+  </div>
   <div class="sheet">
     <table class="info">
       <tr>
-        <td class="l">EMP'EE #/NAME</td><td>: ${u.employee_id ?? "—"} / ${(u.full_name || u.name).toUpperCase()}</td>
-        <td class="l">DEPT./SECTION</td><td>: ${(u.department ?? "—").toUpperCase()} / ${(u.position ?? "—").toUpperCase()}</td>
+        <td class="l">EMP'EE #</td><td>: ${u.employee_id ?? "—"}</td>
+        <td class="l">DEPT.</td><td>: ${(u.department ?? "—").toUpperCase()}</td>
+      </tr>
+      <tr>
+        <td class="l">EMP'EE NAME</td><td>: ${(u.full_name || u.name).toUpperCase()}</td>
+        <td class="l">SECTION</td><td>: ${(u.position ?? "—").toUpperCase()}</td>
       </tr>
       <tr>
         <td class="l">STATUS</td><td>: ${(u.employment_status ?? "—").replace("_", " ").toUpperCase()}</td>
         <td class="l">PERIOD</td><td>: ${period.from} &nbsp;TO&nbsp; ${period.to}</td>
       </tr>
       <tr>
-        <td class="l">BANK</td><td>: ${(u.bank_name ?? "—").toUpperCase()}${u.bank_account ? " · " + u.bank_account : ""}</td>
-        <td></td><td></td>
+        <td class="l">BANK NAME</td><td>: ${(u.bank_name ?? "—").toUpperCase()}</td>
+        <td class="l">BANK ACCOUNT</td><td>: ${u.bank_account ?? "—"}</td>
       </tr>
     </table>
     <table class="cols">
@@ -171,6 +182,7 @@ export function printPayslip(
     </table>
   </div>
   <p class="company">AZ ONE OFFICIAL <span>(SSM 202603168673 / JM1046169-H) · Setia Tropika, Johor Bahru, Malaysia · Computer-generated payslip — no signature required.</span></p>
+  <p class="privacy">SULIT / PRIVATE &amp; CONFIDENTIAL — This payslip is issued to the named employee pursuant to the Employment Act 1955 and contains personal data protected under the Personal Data Protection Act 2010 (PDPA). It must not be disclosed, copied, or shared with any other party without the employee's or the company's written consent. Retain for your records.</p>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`);
   w.document.close();

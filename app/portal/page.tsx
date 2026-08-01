@@ -695,9 +695,12 @@ interface DocFull {
   tax_percent: number; total_cents: number; notes?: string; due_date?: string; created_at: string;
 }
 
+interface TikTokOrder { id: number; order_ref: string; status: string; created_at: string }
+
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
+  const [tiktokOrders, setTiktokOrders] = useState<TikTokOrder[]>([]);
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
   const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number }>({
     doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0,
@@ -709,6 +712,8 @@ function Sales({ user }: { user: User }) {
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
+    const t = await api<{ records: TikTokOrder[] }>(`/staff/postage`);
+    setTiktokOrders((t.data?.records ?? []).filter(r => r.order_ref.startsWith("TT-")));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -824,6 +829,22 @@ function Sales({ user }: { user: User }) {
             {d.doc_type === "QT" && <span className="text-muted-foreground text-xs">Quotation</span>}
             <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
               onClick={() => void printDoc(d.id)}>PDF</button>
+          </div>
+        ))}
+        </div>
+      </div>
+
+      <div className={card}>
+        <p className="text-sm font-semibold">TikTok Orders</p>
+        {tiktokOrders.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No TikTok orders yet.</p>}
+        <div className="max-h-96 overflow-y-auto">
+        {tiktokOrders.map((t) => (
+          <div key={t.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+            <span>
+              <span className="font-medium text-pink-600">{t.order_ref}</span>
+              <span className="text-muted-foreground ml-3 capitalize">{t.status.replace(/_/g, " ")}</span>
+            </span>
+            <span className="text-muted-foreground ml-auto">{dmy(t.created_at)}</span>
           </div>
         ))}
         </div>

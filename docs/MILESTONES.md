@@ -362,3 +362,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.46 — 01 Aug 2026 — Status constraint fix + bank on creation
 - users CHECK rebuilt for permanent/contract/part_time (migration 0021); friendly validation; add-staff captures bank details
+
+## v1.4.47 — 01 Aug 2026 — Payslip fields + SULIT
+- Distinct labelled header rows incl. bank name/account; SULIT / PRIVATE & CONFIDENTIAL marking with Employment Act 1955 + PDPA 2010 footer

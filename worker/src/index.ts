@@ -282,6 +282,7 @@ async function verifyTikTokSignature(env: Env, header: string, rawBody: string):
 }
 
 
+
 /** Stored seller token, refreshed by the authorization callback. */
 async function tiktokToken(env: Env): Promise<{ access_token: string; shop_cipher: string | null } | null> {
   const row = await env.DB.prepare(
