@@ -660,3 +660,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.68 | 500 responses include the underlying error message for diagnosis (incl. Google sign-in failure). |
+
+
+| Version | Change |
+|---|---|
+| v1.4.69 | Audit writes non-fatal in both worker modules; session/signup inserts name themselves on failure; FK check guidance. |

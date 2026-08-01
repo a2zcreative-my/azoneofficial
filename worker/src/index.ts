@@ -381,14 +381,22 @@ async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
   // Store only the hash: a leaked sessions table cannot be replayed.
   const tokenHash = await sha256Hex(token);
-  await env.DB.prepare(
-    `INSERT INTO sessions (id, user_id, expires_at)
-     VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
-  )
-    .bind(tokenHash, userId)
-    .run();
-  // Opportunistic housekeeping: purge expired sessions.
-  await env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, expires_at)
+       VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
+    )
+      .bind(tokenHash, userId)
+      .run();
+  } catch (e) {
+    throw new Error(`session insert for user ${userId}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // Opportunistic housekeeping: purge expired sessions. Never fatal.
+  try {
+    await env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
+  } catch (e) {
+    console.error("session housekeeping failed:", e);
+  }
   return token;
 }
 
@@ -448,12 +456,19 @@ async function audit(
   entityId?: string,
   detail?: unknown,
 ): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO audit_log (user_id, action, entity, entity_id, detail)
-     VALUES (?1, ?2, ?3, ?4, ?5)`,
-  )
-    .bind(userId, action, entity ?? null, entityId ?? null, detail ? JSON.stringify(detail) : null)
-    .run();
+  // The audit trail records actions; it must never take one down (v1.4.69).
+  // A failed write (e.g. an FK constraint after a table rebuild) is logged
+  // for the operator and swallowed.
+  try {
+    await env.DB.prepare(
+      `INSERT INTO audit_log (user_id, action, entity, entity_id, detail)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+      .bind(userId, action, entity ?? null, entityId ?? null, detail ? JSON.stringify(detail) : null)
+      .run();
+  } catch (e) {
+    console.error("audit write failed:", action, e);
+  }
 }
 
 /* ---------------- rate limiting (fixed window, D1-backed) ----------------- */
@@ -1286,12 +1301,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // assignment: /admin Users (admin tier) or HR staff creation. A staff
       // member who signs in with Google on an email an admin already
       // elevated keeps their assigned role — that path is unchanged.
-      const res = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, name, role, is_active)
-         VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active`,
-      )
-        .bind(email, profile.name ?? email)
-        .first<{ id: number; is_active: number }>();
+      let res: { id: number; is_active: number } | null = null;
+      try {
+        res = await env.DB.prepare(
+          `INSERT INTO users (email, password_hash, name, role, is_active)
+           VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active`,
+        )
+          .bind(email, profile.name ?? email)
+          .first<{ id: number; is_active: number }>();
+      } catch (e) {
+        throw new Error(`customer signup insert: ${e instanceof Error ? e.message : String(e)}`);
+      }
       account = res!;
       await audit(env, null, "auth.google_signup_customer", "users", String(account.id));
     }

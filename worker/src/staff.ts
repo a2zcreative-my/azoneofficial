@@ -118,10 +118,15 @@ async function audit(
   detail?: Record<string, unknown>,
 ): Promise<void> {
   // detail lands in audit_log.detail as JSON — quantities, roles, reasons.
-  await env.DB.prepare(
-    `INSERT INTO audit_log (user_id, action, entity, entity_id, detail) VALUES (?1, ?2, ?3, ?4, ?5)`,
-  ).bind(userId, action, entity ?? null, entityId ?? null,
-         detail ? JSON.stringify(detail) : null).run();
+  // Never fatal (v1.4.69): the trail records actions, it must not break them.
+  try {
+    await env.DB.prepare(
+      `INSERT INTO audit_log (user_id, action, entity, entity_id, detail) VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).bind(userId, action, entity ?? null, entityId ?? null,
+           detail ? JSON.stringify(detail) : null).run();
+  } catch (e) {
+    console.error("audit write failed:", action, e);
+  }
 }
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;

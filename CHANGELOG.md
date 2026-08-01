@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.69] — 2026-08-01 — Google login: FK failure isolated; audit writes can never break actions
+
+### Fixed
+- **The Google-login 500 identified itself as a FOREIGN KEY constraint failure.** Three inserts happen in that flow (audit trail, session, or first-time signup). The most likely culprit after the recent users-table rebuild is the **audit-log insert** — and an audit write should never take down the action it records. Audit writes are now non-fatal everywhere (both worker modules): a failed write logs for the operator and the action proceeds
+- If the failure is elsewhere, it now **names its step**: "session insert for user N: …" or "customer signup insert: …" — no more anonymous 500s in this flow
+- Session housekeeping (expired-session purge) also made non-fatal
+
+### Diagnose the data side (run once)
+- `npx wrangler d1 execute azoneofficial --remote --command "PRAGMA foreign_key_check;"` lists any orphaned rows left by table rebuilds or manual deletions — likely the underlying cause
+- `npx wrangler d1 migrations list azoneofficial --remote` confirms 0020–0022 are applied
+
+### Deploy
+- `npx wrangler deploy` → retry Google sign-in. Expected: login succeeds; if not, the error names the exact step
+
+
 ## [1.4.68] — 2026-08-01 — Diagnosable 500s (Google sign-in "Something went wrong")
 
 ### Changed
