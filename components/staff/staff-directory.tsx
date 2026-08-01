@@ -36,6 +36,7 @@ const input =
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
+  ic_number?: string | null;
   bank_name?: string | null;
   bank_account?: string | null;
   joined_on?: string | null;
@@ -96,6 +97,7 @@ function badgeData(s: Staff) {
     position: s.position ?? "",
     department: s.department ?? "",
     phone: s.phone ?? "",
+    ic: s.ic_number ?? "",
     issued: s.id_issued_on ? isoToDMY(s.id_issued_on) : "",
     photo: s.photo_key ? `/api/v1/media/file/${encodeURIComponent(s.photo_key)}` : "",
   };
@@ -177,8 +179,10 @@ function badgeCardHtml(s: Staff, origin: string): string {
       ${field("Position", d.position)}
       ${field("Department", d.department)}
       ${field("Phone", d.phone)}
+      ${field("IC No.", d.ic)}
+      ${field("Issued", d.issued)}
     </div>
-    <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H) · Issued ${d.issued || "—"}</div>
+    <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H)</div>
   </div>`;
 }
 
@@ -218,6 +222,7 @@ function printBadges(list: Staff[]) {
 
 const RECORD_FIELDS: [keyof Staff, string][] = [
   ["full_name", "Full name (as per IC)"],
+  ["ic_number", "IC number (NRIC)"],
   ["phone", "Phone number"],
   ["employee_id", "Employee ID"],
   ["position", "Position"],
@@ -250,7 +255,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     email: "", name: "", role: "sales_marketing",
     employee_id: "", position: "", department: "",
     birthday: "", id_issued_on: "", blood_type: "", password: "",
-    bank_name: "", bank_account: "",
+    bank_name: "", bank_account: "", ic_number: "",
   };
   const [newStaff, setNewStaff] = useState(emptyNewStaff);
   const [newPhoto, setNewPhoto] = useState<File | null>(null);
@@ -351,6 +356,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
           <input className={input} placeholder="Blood type (optional)" value={newStaff.blood_type}
             onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
+          <input className={input} placeholder="IC number / NRIC (optional)" value={newStaff.ic_number}
+            onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
           <select className={input} value={newStaff.bank_name}
             onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
             <option value="">Bank (optional — Maybank is company primary)</option>

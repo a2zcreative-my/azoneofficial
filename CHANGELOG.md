@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.51] — 2026-08-01 — IC number (NRIC) across staff record, payslip, and badge
+
+### Added (migration 0022)
+- **Staff record**: IC number (NRIC) field, right beside the full name, in both the record grid and the add-staff form. Amendment-lock applies like every identity field
+- **Payslip**: an **I/C #** row in the header block (below the employee name), matching the standard Malaysian payslip layout
+- **Badge**: IC No. joins the badge grid (with the issue date moving up beside it), on both individual and multi-badge A4 printing
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0022**) → `npx wrangler deploy` → rebuild. Then fill each staff member's IC in Staff Details
+
+
 ## [1.4.50] — 2026-08-01 — Mobile view now reads as an app, nothing to install
 
 ### Changed (phones only; desktop untouched)

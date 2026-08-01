@@ -41,6 +41,7 @@ interface StaffRow {
   id: number;
   name: string;
   full_name?: string | null;
+  ic_number?: string | null;
   role: string;
   employee_id?: string | null;
   position?: string | null;
@@ -142,6 +143,10 @@ export function printPayslip(
       <tr>
         <td class="l">EMP'EE NAME</td><td>: ${(u.full_name || u.name).toUpperCase()}</td>
         <td class="l">SECTION</td><td>: ${(u.position ?? "—").toUpperCase()}</td>
+      </tr>
+      <tr>
+        <td class="l">I/C #</td><td>: ${u.ic_number ?? "—"}</td>
+        <td></td><td></td>
       </tr>
       <tr>
         <td class="l">STATUS</td><td>: ${(u.employment_status ?? "—").replace("_", " ").toUpperCase()}</td>

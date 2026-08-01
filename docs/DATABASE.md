@@ -271,3 +271,12 @@ over with explicit column lists.
 | Version | Change |
 |---|---|
 | v1.4.46 | 0021 — employment_status CHECK expanded; users table rebuilt. |
+
+
+## v1.4.51 — migration 0022_ic_number.sql
+users gains ic_number (Malaysian NRIC) — staff record, payslip I/C # row,
+badge grid.
+
+| Version | Change |
+|---|---|
+| v1.4.51 | 0022 — ic_number. |

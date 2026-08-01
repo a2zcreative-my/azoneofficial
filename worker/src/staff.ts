@@ -283,8 +283,8 @@ export async function handleStaff(
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department, birthday, id_issued_on, blood_type, bank_name, bank_account)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) RETURNING id`,
+        `INSERT INTO users (email, password_hash, name, role, employee_id, position, department, birthday, id_issued_on, blood_type, bank_name, bank_account, ic_number)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
       ).bind(
         email, hash, (body.name as string).trim(), body.role,
         str(body.employee_id, 60) ? body.employee_id : null,
@@ -295,6 +295,7 @@ export async function handleStaff(
         str(body.blood_type, 5) ? body.blood_type : null,
         str(body.bank_name, 60) ? body.bank_name : null,
         str(body.bank_account, 40) ? body.bank_account : null,
+        str(body.ic_number, 20) ? body.ic_number : null,
       ).first<{ id: number }>();
       await audit(env, user.id, "staff.create", "users", String(res?.id), { role: body.role });
       return json({ id: res?.id }, 201);
@@ -335,7 +336,7 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on
+      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results, staff: results });
@@ -359,7 +360,7 @@ export async function handleStaff(
         !STATUSES.includes(body.employment_status)) {
       return err("invalid_input", `employment_status must be one of: ${STATUSES.join(", ")}`, 400);
     }
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on"] as const;
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
        FROM users WHERE id = ?1`,
@@ -1115,7 +1116,7 @@ export async function handleStaff(
     const m0 = url0.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const entry = await env.DB.prepare(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
-              u.employment_status, u.bank_name, u.bank_account, u.joined_on
+              u.employment_status, u.bank_name, u.bank_account, u.joined_on, u.ic_number
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.user_id = ?1 AND p.month = ?2`,
     ).bind(user.id, m0).first();
@@ -1139,7 +1140,7 @@ export async function handleStaff(
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
-              u.employment_status, u.bank_name, u.bank_account
+              u.employment_status, u.bank_name, u.bank_account, u.ic_number
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 ORDER BY u.name`,
     ).bind(month).all();

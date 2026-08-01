@@ -374,3 +374,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.50 — 01 Aug 2026 — App-view mobile UI
 - Sticky app title bar + screen transitions + native touch polish on phones; nothing to install
+
+## v1.4.51 — 01 Aug 2026 — IC number everywhere it belongs
+- NRIC on staff record, add-staff form, payslip I/C # row, badge (migration 0022)

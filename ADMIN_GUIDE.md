@@ -570,3 +570,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.50 | Mobile app-view: sticky screen-title bar, screen transitions, native touch feel (with v1.4.49's bottom nav). Desktop unchanged. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.51 | IC number (NRIC) on staff record + add-staff form, payslip I/C # row, badge grid (migration 0022). |
