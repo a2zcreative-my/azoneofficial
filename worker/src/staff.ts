@@ -30,6 +30,9 @@ const PERMS: Record<string, readonly Role[]> = {
   hr_manage: ["super_admin", "admin", "hr_admin", "ceo"],
   // Post announcements & create/assign tasks.
   team_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Company events (training / classes / meetings) — v1.4.73. CEO included:
+  // the boss schedules trainings. Everyone can VIEW; these roles manage.
+  events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // Invoice finance status changes.
@@ -683,6 +686,75 @@ export async function handleStaff(
       `INSERT INTO announcement_acks (announcement_id, user_id) VALUES (?1, ?2)
        ON CONFLICT(announcement_id, user_id) DO NOTHING`,
     ).bind(ackMatch[1], user.id).run();
+    return json({ ok: true });
+  }
+
+  /* ---- company events (v1.4.73) ---- */
+
+  if (path === "/events" && method === "GET") {
+    // Every staff member sees upcoming events — that is the point of the
+    // feature. Past events drop off automatically (MYT date).
+    const { results } = await env.DB.prepare(
+      `SELECT e.*, u.name AS created_by_name FROM events e
+       LEFT JOIN users u ON u.id = e.created_by
+       WHERE e.event_date >= date('now', '+8 hours')
+       ORDER BY e.event_date ASC, e.start_time ASC LIMIT 50`,
+    ).all();
+    return json({ events: results });
+  }
+  if (path === "/events" && method === "POST") {
+    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    if (!body || !str(body.title, 200) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.event_date ?? ""))) {
+      return err("invalid_input", "title and event_date (YYYY-MM-DD) are required", 400);
+    }
+    const cats = ["training", "class", "meeting", "event"];
+    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "event";
+    const hhmm = (v: unknown) => (typeof v === "string" && /^\d{2}:\d{2}$/.test(v) ? v : null);
+    const res = await env.DB.prepare(
+      `INSERT INTO events (title, category, event_date, start_time, end_time, location, details, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+    ).bind(
+      body.title, category, body.event_date,
+      hhmm(body.start_time), hhmm(body.end_time),
+      typeof body.location === "string" ? body.location.slice(0, 200) : null,
+      typeof body.details === "string" ? body.details.slice(0, 2000) : null,
+      user.id,
+    ).first<{ id: number }>();
+    // Ring the bell for every active staff member (same pattern as
+    // announcements) — awareness is the whole point of this feature.
+    const d = String(body.event_date);
+    const dmy = `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
+    const { results: recipients } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1 AND id != ?1`,
+    ).bind(user.id).all();
+    for (const r of recipients as { id: number }[]) {
+      await notify(env, r.id, "event", `Upcoming ${category}: ${body.title as string} on ${dmy}`, `event:${res?.id}`);
+    }
+    await audit(env, user.id, "event.create", "events", String(res?.id), { category, event_date: d });
+    return json({ id: res?.id }, 201);
+  }
+  const evMatch = path.match(/^\/events\/(\d+)$/);
+  if (evMatch && method === "PATCH") {
+    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    if (!body) return err("invalid_input", "No fields", 400);
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (str(body.title, 200)) { sets.push(`title = ?${vals.length + 1}`); vals.push(body.title); }
+    if (typeof body.event_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.event_date)) { sets.push(`event_date = ?${vals.length + 1}`); vals.push(body.event_date); }
+    if (typeof body.category === "string" && ["training", "class", "meeting", "event"].includes(body.category)) { sets.push(`category = ?${vals.length + 1}`); vals.push(body.category); }
+    for (const f of ["start_time", "end_time", "location", "details"] as const) {
+      if (typeof body[f] === "string") { sets.push(`${f} = ?${vals.length + 1}`); vals.push((body[f] as string).slice(0, 2000) || null); }
+    }
+    if (sets.length === 0) return err("invalid_input", "No valid fields", 400);
+    await env.DB.prepare(`UPDATE events SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
+      .bind(...vals, evMatch[1]).run();
+    await audit(env, user.id, "event.update", "events", evMatch[1]);
+    return json({ ok: true });
+  }
+  if (evMatch && method === "DELETE") {
+    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    await env.DB.prepare(`DELETE FROM events WHERE id = ?1`).bind(evMatch[1]).run();
+    await audit(env, user.id, "event.delete", "events", evMatch[1]);
     return json({ ok: true });
   }
 
@@ -1600,7 +1672,7 @@ export async function handleStaff(
   if (path === "/overview" && method === "GET") {
     if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const [attendance, pendingLeave, docs, lowStock, bd, latestOps, taskAgg, taskByStaff, inventory] = await Promise.all([
+    const [attendance, pendingLeave, docs, lowStock, bd, upcomingEvents, eventCount, latestOps, taskAgg, taskByStaff, inventory] = await Promise.all([
       env.DB.prepare(
         `SELECT COUNT(DISTINCT user_id) AS n FROM attendance_records
          WHERE type = 'clock_in' AND date(created_at, '+8 hours') = ?1`,
@@ -1613,6 +1685,19 @@ export async function handleStaff(
         `SELECT COUNT(*) AS n FROM inventory_items WHERE status IN ('low', 'out_of_stock')`,
       ).first(),
       env.DB.prepare(`SELECT status, COUNT(*) AS n FROM bd_pipeline GROUP BY status`).all(),
+      // Upcoming company events (v1.4.73) — next 60 days for the list, and a
+      // 30-day count for the headline stat.
+      env.DB.prepare(
+        `SELECT id, title, category, event_date, start_time, location FROM events
+         WHERE event_date >= date('now', '+8 hours')
+           AND event_date <= date('now', '+8 hours', '+60 days')
+         ORDER BY event_date ASC, start_time ASC LIMIT 6`,
+      ).all(),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM events
+         WHERE event_date >= date('now', '+8 hours')
+           AND event_date <= date('now', '+8 hours', '+30 days')`,
+      ).first(),
       env.DB.prepare(
         `SELECT report_date, operational_summary, sales_summary FROM ops_reports
          ORDER BY report_date DESC LIMIT 1`,
@@ -1639,6 +1724,8 @@ export async function handleStaff(
       documents: docs.results,
       low_stock_items: (lowStock as { n: number } | null)?.n ?? 0,
       bd_pipeline: bd.results,
+      upcoming_events: upcomingEvents.results,
+      upcoming_events_30d: (eventCount as { n: number } | null)?.n ?? 0,
       latest_ops_report: latestOps,
       task_summary: taskAgg.results,
       task_by_staff: taskByStaff.results,

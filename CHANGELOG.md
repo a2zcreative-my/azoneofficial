@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.74] — 2026-08-01 — Minimalist Staff Details (collapsed records) · A–Z sorting
+
+### Changed
+- **Staff Details is now minimalist: every record collapsed to one line by default** — checkbox, name · role, and a small Employee ID · Position summary. A **"Details ▾"** button expands the full field grid with the Save / Preview badge / Print badge / photo actions; **"Hide details ▴"** collapses it again. Multi-badge printing via the checkboxes still works entirely from the collapsed view
+- **Sorting added where names are listed:**
+  - **Staff Details**: Sort: Rank (default) · Name A–Z · Name Z–A
+  - **Attendance → corrections & back-entry table**: Sort: Time (default) · Name A–Z · Name Z–A (name sort keeps each person's punches in time order)
+  - **Attendance → Team report**: same three options (appears only in report mode — your own punch list stays chronological)
+- Reviewed the other tabs: Birthdays is already date-ordered (its purpose), leave queues are already stage-ordered, HR staff lists stay rank-sorted per v1.4.36 — adding name sort there would fight orderings that exist for a reason; say the word if any specific list should get it too
+
+### Deploy
+- Frontend rebuild only: `pnpm build` → publish → hard refresh
+
+
+## [1.4.73] — 2026-08-01 — Company events: trainings, classes and important dates every staff member sees
+
+### Added
+- **Events module** (migration **0025**, `events` — no foreign keys by policy): title, category (training / class / meeting / event), date, optional start–end time, location, details
+- **Upcoming events card on every staff Dashboard** — the first screen after login, so nothing gets missed: date shown DD-MM-YYYY with a **TODAY / Tomorrow / in N days** countdown (TODAY in amber), time, location, who added it. Past events drop off automatically
+- **Everyone is bell-notified when an event is created** ("Upcoming training: … on DD-MM-YYYY") — same notification machinery as announcements, including the off-platform relay once NOTIFY_WEBHOOK is configured
+- **Inline management** for super_admin / admin / hr_admin / **ceo** / coo / cco: "+ Add event" form and Remove on the Dashboard card; API `GET/POST /api/v1/staff/events`, `PATCH/DELETE /api/v1/staff/events/:id`; all changes audited (`event.create/update/delete`)
+
+### Changed
+- **Overview (CEO monitor): the BD-pipeline block is replaced by Upcoming events** (next 60 days) and the "Open BD deals" stat becomes **"Events next 30 days"**. The BD deal pipeline itself is untouched — the CCO's Commercial tab still manages it in full; only the Overview summary changed
+
+### What "BD pipeline" was
+- Business-Development deal tracker: prospective client deals by status — open, pending, **kiv** ("keep in view" — parked for later), closed won/lost. The numbers in the screenshot were deal counts entered by the CCO in the Commercial tab
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0025**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.72] — 2026-08-01 — Nightly backups · error log + System health card · security recovery checklist
 
 ### Added

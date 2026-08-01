@@ -289,6 +289,143 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
       </div>
+
+      <UpcomingEventsCard role={user.role} />
+    </div>
+  );
+}
+
+/* ================= Company events (v1.4.73) ================= */
+
+interface CompanyEvent {
+  id: number;
+  title: string;
+  category: string;
+  event_date: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  location?: string | null;
+  details?: string | null;
+  created_by_name?: string | null;
+}
+
+const EVENTS_MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"];
+const EVENT_CATEGORIES = [
+  ["training", "Training"],
+  ["class", "Class"],
+  ["meeting", "Meeting"],
+  ["event", "Event"],
+] as const;
+
+/** Upcoming events — visible to EVERY staff member on the Dashboard so
+    trainings, classes and important dates are never missed. Managers
+    (events_manage roles) add and remove events inline; everyone is
+    bell-notified when one is created. */
+function UpcomingEventsCard({ role }: { role: string }) {
+  const [events, setEvents] = useState<CompanyEvent[]>([]);
+  const [msg, setMsg] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({ title: "", category: "training", event_date: "", start_time: "", end_time: "", location: "", details: "" });
+  const canManage = EVENTS_MANAGE_ROLES.includes(role);
+
+  const loadEvents = useCallback(async () => {
+    const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
+    if (res.ok && res.data) setEvents(res.data.events);
+  }, []);
+  useEffect(() => { void loadEvents(); }, [loadEvents]);
+
+  const daysAway = (iso: string) => {
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const n = Math.round((new Date(iso).getTime() - new Date(today).getTime()) / 86400000);
+    return n === 0 ? "TODAY" : n === 1 ? "Tomorrow" : `in ${n} days`;
+  };
+
+  const createEvent = async () => {
+    if (!draft.title.trim() || !draft.event_date) { setMsg("Title and date are required."); return; }
+    setMsg("");
+    const res = await api<{ error?: { message?: string } }>(`/staff/events`, {
+      method: "POST",
+      body: JSON.stringify({ ...draft, start_time: draft.start_time || undefined, end_time: draft.end_time || undefined, location: draft.location || undefined, details: draft.details || undefined }),
+    });
+    if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not create the event"); return; }
+    setDraft({ title: "", category: "training", event_date: "", start_time: "", end_time: "", location: "", details: "" });
+    setShowForm(false);
+    void loadEvents();
+  };
+
+  const removeEvent = async (id: number) => {
+    await api(`/staff/events/${id}`, { method: "DELETE" });
+    void loadEvents();
+  };
+
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">
+            Upcoming events
+            {events.length > 0 && (
+              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                {events.length}
+              </span>
+            )}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">Trainings, classes and important company dates — everyone is notified when one is added.</p>
+        </div>
+        {canManage && (
+          <button type="button" className={btnGhost} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Close" : "+ Add event"}
+          </button>
+        )}
+      </div>
+      {canManage && showForm && (
+        <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
+          <input className={inputClass} placeholder="Event title (e.g. TikTok Live hosting training)" value={draft.title}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+          <div className="flex flex-wrap gap-2">
+            <select className={`${inputClass} max-w-40`} value={draft.category}
+              onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
+              {EVENT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <input type="date" className={`${inputClass} max-w-44`} value={draft.event_date}
+              onChange={(e) => setDraft((d) => ({ ...d, event_date: e.target.value }))} />
+            <input type="time" className={`${inputClass} max-w-32`} value={draft.start_time} title="Start time (optional)"
+              onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} />
+            <input type="time" className={`${inputClass} max-w-32`} value={draft.end_time} title="End time (optional)"
+              onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
+          </div>
+          <input className={inputClass} placeholder="Location (optional)" value={draft.location}
+            onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} />
+          <textarea className={`${inputClass} min-h-16`} placeholder="Details (optional)" value={draft.details}
+            onChange={(e) => setDraft((d) => ({ ...d, details: e.target.value }))} />
+          {msg && <p className="text-destructive text-xs font-medium">{msg}</p>}
+          <button type="button" className={btnClass} onClick={() => void createEvent()}>Save event — notifies all staff</button>
+        </div>
+      )}
+      <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
+        {events.length === 0 && <p className="text-muted-foreground text-sm">No upcoming events scheduled.</p>}
+        {events.map((ev) => (
+          <div key={ev.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm">
+                <span className="font-medium">{ev.title}</span>{" "}
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{ev.category}</span>
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {dmy(ev.event_date)}
+                <span className={`ml-1.5 font-semibold ${daysAway(ev.event_date) === "TODAY" ? "text-amber-700" : ""}`}>· {daysAway(ev.event_date)}</span>
+                {ev.start_time ? ` · ${ev.start_time}${ev.end_time ? `–${ev.end_time}` : ""}` : ""}
+                {ev.location ? ` · ${ev.location}` : ""}
+              </p>
+              {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
+              {ev.created_by_name && <p className="text-muted-foreground mt-0.5 text-[11px]">Added by {ev.created_by_name}</p>}
+            </div>
+            {canManage && (
+              <button type="button" className="text-destructive text-xs underline" onClick={() => void removeEvent(ev.id)}>Remove</button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -299,6 +436,8 @@ function Attendance({ user }: { user: User }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [records, setRecords] = useState<{ type: string; created_at: string; name?: string }[]>([]);
   const [reportMode, setReportMode] = useState(false);
+  // v1.4.74: A–Z / Z–A sorting for the team report view.
+  const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
   const canReport = MANAGE_ROLES.includes(user.role);
 
   useEffect(() => {
@@ -317,8 +456,24 @@ function Attendance({ user }: { user: User }) {
         )}
       </div>
       <div className={card}>
+        {reportMode && canReport && records.length > 0 && (
+          <div className="mb-2 flex justify-end">
+            <select className={`${inputClass} max-w-44`} value={sortBy} title="Sort records"
+              onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
+              <option value="time">Sort: Time (default)</option>
+              <option value="az">Sort: Name A–Z</option>
+              <option value="za">Sort: Name Z–A</option>
+            </select>
+          </div>
+        )}
         {records.length === 0 && <p className="text-muted-foreground text-sm">No records for this month.</p>}
-        {records.map((r, i) => (
+        {(sortBy === "time" || !reportMode
+          ? records
+          : [...records].sort((a, b) => {
+              const cmp = (a.name ?? "").localeCompare(b.name ?? "");
+              return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
+            })
+        ).map((r, i) => (
           <p key={i} className="border-border border-b py-1.5 text-sm last:border-0">
             {r.name ? <span className="font-medium">{r.name} · </span> : null}
             {r.type.replace("_", " ")} — {mytDateTime(r.created_at)} MYT

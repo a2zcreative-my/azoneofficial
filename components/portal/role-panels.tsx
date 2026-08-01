@@ -838,6 +838,8 @@ interface Overview {
   documents: { doc_type: string; n: number }[];
   low_stock_items: number;
   bd_pipeline: { status: string; n: number }[];
+  upcoming_events?: { id: number; title: string; category: string; event_date: string; start_time?: string | null; location?: string | null }[];
+  upcoming_events_30d?: number;
   latest_ops_report: {
     report_date: string;
     operational_summary: string;
@@ -872,11 +874,7 @@ export function OverviewPanel() {
         {stat("Clocked in today", data.clocked_in_today)}
         {stat("Pending leave requests", data.pending_leave)}
         {stat("Low / out-of-stock items", data.low_stock_items)}
-        {stat(
-          "Open BD deals",
-          data.bd_pipeline.filter((b) => ["open", "pending", "kiv"].includes(b.status))
-            .reduce((sum, b) => sum + b.n, 0),
-        )}
+        {stat("Events next 30 days", data.upcoming_events_30d ?? 0)}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -897,12 +895,25 @@ export function OverviewPanel() {
               </li>
             ))}
           </ul>
-          <p className="text-sm font-semibold mt-5">BD pipeline</p>
+          <p className="text-sm font-semibold mt-5">Upcoming events</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Trainings, classes and company dates — add them from the Dashboard;
+            every staff member is notified. (The BD deal pipeline still lives in
+            the CCO&apos;s Commercial tab.)
+          </p>
           <ul className="mt-2 space-y-1.5">
-            {data.bd_pipeline.map((entry) => (
-              <li key={entry.status} className="flex justify-between text-sm">
-                <span><Badge value={entry.status} /></span>
-                <span className="font-medium">{entry.n}</span>
+            {(data.upcoming_events ?? []).length === 0 && (
+              <li className="text-muted-foreground text-sm">Nothing scheduled in the next 60 days.</li>
+            )}
+            {(data.upcoming_events ?? []).map((ev) => (
+              <li key={ev.id} className="flex justify-between gap-2 text-sm">
+                <span className="min-w-0">
+                  <span className="font-medium">{ev.title}</span>{" "}
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{ev.category}</span>
+                </span>
+                <span className="text-muted-foreground text-xs whitespace-nowrap">
+                  {dmy(ev.event_date)}{ev.start_time ? ` ${ev.start_time}` : ""}
+                </span>
               </li>
             ))}
           </ul>
@@ -1106,6 +1117,8 @@ export function AttendanceAdminPanel() {
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
+  // v1.4.74: sort the corrections table — newest first (default) or by name.
+  const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
 
   const load = useCallback(async () => {
     const [r, u] = await Promise.all([
@@ -1165,7 +1178,13 @@ export function AttendanceAdminPanel() {
           }, "Record added.")}>
           Add
         </button>
-        <input type="month" className={inputClass} style={{ maxWidth: "10rem", marginLeft: "auto" }} value={month}
+        <select className={inputClass} style={{ maxWidth: "11rem", marginLeft: "auto" }} value={sortBy}
+          title="Sort records" onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
+          <option value="time">Sort: Time (default)</option>
+          <option value="az">Sort: Name A–Z</option>
+          <option value="za">Sort: Name Z–A</option>
+        </select>
+        <input type="month" className={inputClass} style={{ maxWidth: "10rem" }} value={month}
           onChange={(e) => setMonth(e.target.value)} />
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
@@ -1185,7 +1204,13 @@ export function AttendanceAdminPanel() {
             {rows.length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records this month.</td></tr>
             )}
-            {rows.map((r) => (
+            {(sortBy === "time"
+              ? rows
+              : [...rows].sort((a, b) => {
+                  const cmp = (a.name ?? "").localeCompare(b.name ?? "");
+                  return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
+                })
+            ).map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{r.name}</td>
                 <td className={td}>{r.type === "clock_in" ? "In" : "Out"}</td>

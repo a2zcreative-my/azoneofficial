@@ -232,6 +232,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [rowMsg, setRowMsg] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // v1.4.74 minimalist view: records are COLLAPSED by default — one line each.
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
 
   const toggleSelect = (id: number) =>
     setSelected((prev) => {
@@ -465,9 +468,22 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           {selected.size === staff.length && staff.length > 0 ? "Clear selection" : "Select all"}
         </button>
         <span className="text-muted-foreground text-xs">Individual printing stays on each record.</span>
+        <select
+          className="border-input bg-background ml-auto h-8 rounded-lg border px-2 text-xs"
+          value={sortBy}
+          title="Sort staff records"
+          onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
+        >
+          <option value="rank">Sort: Rank (default)</option>
+          <option value="az">Sort: Name A–Z</option>
+          <option value="za">Sort: Name Z–A</option>
+        </select>
       </div>
 
-      {staff.map((u) => {
+      {(sortBy === "rank"
+        ? staff
+        : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
+      ).map((u) => {
         const merged = { ...u, ...draft[u.id] } as Staff;
         return (
           <div key={u.id} className={card}>
@@ -481,11 +497,27 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   title="Select for multi-badge printing"
                 />
                 {u.name} <span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
+                {!open.has(u.id) && (u.employee_id || u.position) && (
+                  <span className="text-muted-foreground hidden text-xs sm:inline">
+                    · {[u.employee_id, u.position].filter(Boolean).join(" · ")}
+                  </span>
+                )}
               </span>
               <span className="flex items-center gap-2">
                 {saved === u.id && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
-                {!readOnly && (
+                <button
+                  type="button"
+                  className={`${btn} border-border border hover:bg-secondary`}
+                  onClick={() => setOpen((o) => {
+                    const next = new Set(o);
+                    if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
+                    return next;
+                  })}
+                >
+                  {open.has(u.id) ? "Hide details ▴" : "Details ▾"}
+                </button>
+                {open.has(u.id) && !readOnly && (
                   <button
                     type="button"
                     className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85`}
@@ -494,6 +526,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     Save
                   </button>
                 )}
+                {open.has(u.id) && (
                 <button
                   type="button"
                   className={`${btn} border-border border hover:bg-secondary`}
@@ -501,6 +534,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 >
                   {preview === u.id ? "Hide badge" : "Preview badge"}
                 </button>
+                )}
+                {open.has(u.id) && (
                 <button
                   type="button"
                   className={`${btn} border-border border hover:bg-secondary`}
@@ -508,7 +543,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 >
                   Print badge
                 </button>
-                {!readOnly && (
+                )}
+                {open.has(u.id) && !readOnly && (
                 <label className={`${btn} border-border cursor-pointer border hover:bg-secondary`}>
                   {u.photo_key ? (canAmend ? "Replace photo" : "Photo set 🔒") : "Upload photo"}
                   <input
@@ -541,6 +577,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 )}
               </span>
             </div>
+            {open.has(u.id) && (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {RECORD_FIELDS.map(([key, label]) => (
                 <label key={key} className="block">
@@ -573,7 +610,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 </label>
               ))}
             </div>
-            {preview === u.id && (
+            )}
+            {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">
                 <p className="text-muted-foreground mb-2 text-xs">
                   Live preview — updates as you type. Print uses exactly this layout.
