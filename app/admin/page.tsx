@@ -810,6 +810,7 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [tab, setTab] = useState<Tab>("Dashboard");
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
