@@ -47,6 +47,7 @@ interface Staff {
   employee_id?: string | null;
   position?: string | null;
   department?: string | null;
+  employment_status?: string | null;
   phone?: string | null;
   id_issued_on?: string | null;
   birthday?: string | null;
