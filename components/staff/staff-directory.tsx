@@ -121,44 +121,45 @@ function BadgePreview({ s }: { s: Staff }) {
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
     html,body{margin:0;padding:0;background:transparent}
-    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm;
-      font-family:Arial,Helvetica,sans-serif;color:#1a2946;text-align:center;
-      background:linear-gradient(180deg,#fff 55%,#f4f6fb);overflow:hidden;
-      border:0.3mm solid #1a2946;
+    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm 3mm;
+      font-family:Arial,Helvetica,sans-serif;color:#1a2946;
+      background:#fff;overflow:hidden;border:0.3mm solid #1a2946;
       display:flex;flex-direction:column;align-items:stretch}
-    .photo{width:22mm;height:26mm;margin:2mm auto 0;border:0.2mm solid #dfe3ec;
+    .photo{width:20mm;height:24mm;margin:2mm auto 0;border:0.2mm solid #dfe3ec;
       background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .name{margin-top:1.6mm;font-size:9.5px;font-weight:800;line-height:1.15}
-    .role{align-self:center;margin-top:0.8mm;font-size:6px;font-weight:700;
-      text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 6px;border-radius:2px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1mm 2.5mm;margin-top:1.8mm;text-align:left}
-    .grid .v{font-size:7.5px;font-weight:600;color:#1a2946;line-height:1.2}
-    .grid .k{font-size:5.2px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6}
-    .foot{margin-top:auto;padding-top:1mm;font-size:5px;line-height:1.4;
-      color:#8a93a6;border-top:0.2mm solid #dfe3ec}
+    .rows{margin-top:2.2mm;text-align:left}
+    .row{display:flex;align-items:baseline;gap:1mm;padding:0.55mm 0}
+    .row .k{flex:none;width:15mm;font-size:6.2px;font-weight:800;letter-spacing:.04em}
+    .row .v{flex:1;font-size:7.2px;font-weight:600;line-height:1.2}
+    .foot{margin-top:auto;padding-top:1mm;border-top:0.2mm solid #dfe3ec;
+      display:flex;justify-content:space-between;align-items:flex-end;gap:2mm;
+      font-size:4.8px;line-height:1.35;color:#8a93a6}
+    .foot .left{text-align:left}
+    .foot .right{text-align:right}
 `;
 
 function badgeCardHtml(s: Staff, origin: string): string {
   const d = badgeData(s);
   const logo = `${origin}/logo.png`;
   const photo = d.photo ? `${origin}${d.photo}` : "";
-  const field = (label: string, value: string) =>
-    `<div><span class="k">${label}</span><br/><span class="v">${value || "—"}</span></div>`;
+  const row = (label: string, value: string) =>
+    `<div class="row"><span class="k">${label}</span><span class="v">: ${value || "—"}</span></div>`;
   return `<div class="card">
-    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto;align-self:center;flex:none"/>
+    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:7mm;width:auto;align-self:center;flex:none"/>
     <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
-    <div class="name">${d.name}</div>
-    <div class="role">${d.role}</div>
-    <div class="grid">
-      ${field("Employee ID", d.employee_id)}
-      ${field("Position", d.position)}
-      ${field("Department", d.department)}
-      ${field("Phone", d.phone)}
-      ${field("NRIC", d.ic)}
-      ${field("Joined on", d.joined)}
+    <div class="rows">
+      ${row("NAME", d.name.toUpperCase())}
+      ${row("EMP. NO", d.employee_id)}
+      ${row("NRIC", d.ic)}
+      ${row("DATE JOIN", d.joined)}
+      ${row("DATE ISSUED", d.issued)}
+      ${row("POSITION", (d.position || "").toUpperCase())}
     </div>
-    <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H) · Issued ${d.issued || "—"}</div>
+    <div class="foot">
+      <span class="left">${COMPANY_LOCATION}</span>
+      <span class="right">SSM 202603168673<br/>(JM1046169-H)</span>
+    </div>
   </div>`;
 }
 

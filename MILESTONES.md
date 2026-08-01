@@ -401,3 +401,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.59 — 01 Aug 2026 — TikTok diagnostics
 - Shop resolution reports TikTok's actual answer; shops[] + shop_list[] shapes both accepted
+
+## v1.4.60 — 01 Aug 2026 — Classic ID badge
+- Label-row layout per sample; footer split location/SSM; overlap-proof structure retained
+
+## v1.4.61 — 01 Aug 2026 — Dual-endpoint shop lookup
+- authorization + seller shops endpoints both attempted; per-attempt error detail

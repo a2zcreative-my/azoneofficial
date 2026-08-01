@@ -615,3 +615,13 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.59 | TikTok shop-cipher lookup surfaces TikTok's real code/message; both response shapes handled. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.60 | Badge = classic ID label rows (NAME/EMP.NO/NRIC/DATE JOIN/DATE ISSUED/POSITION); footer = location left, SSM right. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.61 | Shop-cipher lookup tries authorization + seller endpoint families; per-attempt diagnostics. |

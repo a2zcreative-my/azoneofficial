@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.61] — 2026-08-01 — TikTok shop lookup tries both endpoint families
+
+### Changed
+- **The shop-cipher lookup now tries both of TikTok's shops endpoints** (`/authorization/202309/shops`, then `/seller/202309/shops`) — they live under different scope families, so whichever scope the app has active can supply the identifier. Each attempt's result is reported, so a failure names both causes precisely
+- Note on Partner Center's Manage API search: filtering by package name for "authorization" shows 0 because no scope is *named* that — clear the search to see all 25 scopes and look for the shop/seller-info one by browsing (or search "shop" / "seller")
+
+### Deploy
+- `npx wrangler deploy` → press **Sync from TikTok** again
+
+
+## [1.4.60] — 2026-08-01 — Badge in the classic ID layout (label rows); footer split per spec
+
+### Changed
+- **Badge follows the classic Malaysian staff-ID layout** (per the provided sample): logo header, centred photo, then bold left-aligned label rows — **NAME : / EMP. NO : / NRIC : / DATE JOIN : / DATE ISSUED : / POSITION :**
+- **Footer split exactly as specified**: office location (Setia Tropika, Johor Bahru, Malaysia) bottom-left, **company registration (SSM 202603168673 / JM1046169-H) bottom-right**
+- Overlap-proof structure retained from v1.4.58 (flex column, footer in flow) — long names wrap within their row and push the footer down, never under it
+- Preview remains the sandboxed iframe of the exact print document
+
+### Deploy
+- Rebuild the site only
+
+
 ## [1.4.59] — 2026-08-01 — TikTok shop resolution: real diagnostics + both response shapes
 
 ### Fixed

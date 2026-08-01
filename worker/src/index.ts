@@ -336,30 +336,36 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string }[]): { sk
     require shop_cipher, which comes from Get Authorized Shops — fetched once
     after authorization and stored beside the token (v1.4.57). */
 async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail: string }> {
-  const data = (await tiktokSignedFetch(env, "/authorization/202309/shops", {})) as {
-    code?: number; message?: string;
-    data?: {
-      shops?: { id?: string; cipher?: string }[];
-      shop_list?: { shop_id?: string; shop_cipher?: string; cipher?: string }[];
-    };
-  } | null;
-  if (!data) return { ok: false, detail: "no response from TikTok" };
-  // Both response shapes seen across TikTok Shop API versions are accepted.
-  const a = data.data?.shops?.[0];
-  const b = data.data?.shop_list?.[0];
-  const cipher = a?.cipher ?? b?.shop_cipher ?? b?.cipher ?? null;
-  const shopId = a?.id ?? b?.shop_id ?? null;
-  if (!cipher) {
-    const why = typeof data.code === "number" && data.code !== 0
-      ? `TikTok code ${data.code}: ${data.message ?? "no message"}`
-      : "authorized shop list came back empty — the seller authorization may not have completed for this shop";
-    return { ok: false, detail: why };
+  // The two shops endpoints sit under DIFFERENT scope families; try both so
+  // whichever scope is active on the app can supply the cipher (v1.4.61).
+  const attempts: string[] = [];
+  for (const path of ["/authorization/202309/shops", "/seller/202309/shops"]) {
+    const data = (await tiktokSignedFetch(env, path, {})) as {
+      code?: number; message?: string;
+      data?: {
+        shops?: { id?: string; cipher?: string }[];
+        shop_list?: { shop_id?: string; shop_cipher?: string; cipher?: string }[];
+      };
+    } | null;
+    if (!data) { attempts.push(`${path}: no response`); continue; }
+    const a = data.data?.shops?.[0];
+    const b = data.data?.shop_list?.[0];
+    const cipher = a?.cipher ?? b?.shop_cipher ?? b?.cipher ?? null;
+    const shopId = a?.id ?? b?.shop_id ?? null;
+    if (cipher) {
+      await env.DB.prepare(
+        `UPDATE integration_tokens SET shop_id = ?1, shop_cipher = ?2, updated_at = datetime('now')
+         WHERE provider = 'tiktok'`,
+      ).bind(shopId, cipher).run();
+      return { ok: true, detail: `stored via ${path}` };
+    }
+    attempts.push(
+      typeof data.code === "number" && data.code !== 0
+        ? `${path} → TikTok code ${data.code}: ${data.message ?? "no message"}`
+        : `${path} → empty shop list (seller authorization may not have completed)`,
+    );
   }
-  await env.DB.prepare(
-    `UPDATE integration_tokens SET shop_id = ?1, shop_cipher = ?2, updated_at = datetime('now')
-     WHERE provider = 'tiktok'`,
-  ).bind(shopId, cipher).run();
-  return { ok: true, detail: "stored" };
+  return { ok: false, detail: attempts.join(" · ") };
 }
 
 /** Order webhooks carry only an id + status, so the line items are fetched.
