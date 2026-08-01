@@ -655,3 +655,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.67 | TikTok postage fully automatic (incl. tracking numbers + status refresh each sync); manual form labelled for non-TikTok channels only. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.68 | 500 responses include the underlying error message for diagnosis (incl. Google sign-in failure). |

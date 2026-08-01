@@ -424,3 +424,5 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.67 — 01 Aug 2026 — Automatic postage
 - TikTok tracking numbers captured; status/tracking refresh on every sync; manual form scoped to other channels
+
+## v1.4.68 — 01 Aug 2026 — Diagnosable 500s

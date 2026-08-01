@@ -675,7 +675,11 @@ export default {
       res = await route(request, env, path);
     } catch (err) {
       console.error(err);
-      res = errorResponse("internal", "Something went wrong", 500);
+      // Name the actual failure (v1.4.68): a D1/SQL message like "no such
+      // column" turns a blind 500 into a one-look diagnosis. Message only —
+      // no stack, no query text beyond what the engine includes.
+      const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
+      res = errorResponse("internal", `Something went wrong: ${detail}`, 500);
     }
     // attach CORS to every response
     const headers = new Headers(res.headers);

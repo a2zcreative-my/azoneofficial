@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.68] — 2026-08-01 — Diagnosable 500s (Google sign-in "Something went wrong")
+
+### Changed
+- **Unexpected server errors now name the actual failure** in the response (e.g. a database "no such column …" message) instead of only "Something went wrong". Message text only — no stack traces or internals beyond what the engine reports. The Google sign-in failure will identify itself on the next attempt
+- The worker already logs the full exception; `npx wrangler tail azoneofficial-api` while reproducing shows it live even before redeploying
+
+### Deploy
+- `npx wrangler deploy` → retry Google sign-in → the error message now states the cause
+
+
 ## [1.4.67] — 2026-08-01 — Postage from TikTok is automatic; manual form is for other channels
 
 ### Clarified + improved
