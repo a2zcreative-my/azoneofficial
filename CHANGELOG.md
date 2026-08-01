@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.72] — 2026-08-01 — Nightly backups · error log + System health card · security recovery checklist
+
+### Added
+- **Automated nightly database backups** (03:20 MYT cron): every application table dumped as JSON to R2 under `backups/db-YYYY-MM-DD.json`, newest 30 kept, older pruned. On-demand **"Back up now"** button in /admin. Every backup audited (`system.backup`). D1 Time Travel remains a second, independent recovery path
+- **Error log** (migration **0024**, `error_log` — deliberately NO foreign keys so it stays writable even when referential integrity is the problem): auto-records unexpected API 500s (with path), failed audit writes in both worker modules, TikTok cron failures (pre-setup "not configured/authorized" stays silent), and backup failures. Newest 500 kept
+- **System health card** in /admin → Audit: last 20 errors + last-backup status with an amber warning when the newest backup is older than 2 days. Endpoints `GET /api/v1/system/health` + `POST /api/v1/system/backup` (admin tier + CEO)
+- **Security recovery checklist** written up in SECURITY.md §v1.4.72 — the master-password recovery steps and the `PRAGMA foreign_key_check` orphan cleanup (preserve-history UPDATEs where nullable, targeted DELETEs where not), start to finish
+
+### Changed
+- `scheduled()` now branches on the cron expression: `*/30 * * * *` → TikTok sync (failures now recorded), `20 19 * * *` → backup
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023 + **0024**) → `npx wrangler deploy` (registers the new cron) → `pnpm build` → hard refresh → then run the SECURITY.md §v1.4.72 checklist once
+
+
+## [1.4.71] — 2026-08-01 — Buyer city on TikTok orders · scrollable non-TikTok postage list
+
+### Added
+- **Buyer city on TikTok order rows** (📍 beside the date). Migration **0023** adds `buyer_city`; the sync and the webhook path both capture it from TikTok's `recipient_address` — **city only, never the street address** (staff need the rough destination, not the buyer's home; falls back to state if TikTok returns no city level). Existing TT- records backfill automatically on the next sync pass
+- Empty-state line for the non-TikTok list ("No non-TikTok postage records yet")
+
+### Changed
+- **"Postage tracking — non-TikTok orders" list is now scrollable** (same max-height scroll area as the TikTok card) and shows the full history instead of only the latest 8
+- That list now **excludes TT- records** — TikTok orders already live in their own card directly above, so showing them twice was noise
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.70] — 2026-08-01 — TikTok Orders: tracking numbers shown + status filter (New / Shipped / Delivered)
 
 ### Added

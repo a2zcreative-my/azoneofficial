@@ -9,6 +9,7 @@
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
+import { SystemHealthCard } from "@/components/admin/system-health";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
@@ -1006,7 +1007,12 @@ export default function AdminPage() {
         {tab === "Advanced" && <ContentPanel />}
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
         {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory canAmend /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
-        {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && <AuditPanel />}
+        {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && (
+          <div className="space-y-6">
+            <SystemHealthCard />
+            <AuditPanel />
+          </div>
+        )}
         {tab === "Account" && (
           <div className="space-y-6">
             <AccountPanel />

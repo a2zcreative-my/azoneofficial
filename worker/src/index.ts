@@ -369,12 +369,28 @@ async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail:
 }
 
 /** Order webhooks carry only an id + status, so the line items are fetched.
-    Returns [] when no token is stored yet (order still gets recorded). */
-async function tiktokOrderItems(env: Env, orderId: string): Promise<{ sku: string; qty: number }[]> {
+    Returns [] when no token is stored yet (order still gets recorded).
+    v1.4.71: also surfaces the buyer's CITY (never the street address). */
+async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { sku: string; qty: number }[]; city: string | null }> {
   const data = (await tiktokSignedFetch(env, "/order/202309/orders", { ids: orderId })) as {
-    data?: { orders?: { line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+    data?: { orders?: {
+      line_items?: { seller_sku?: string; sku_id?: string }[];
+      recipient_address?: {
+        city?: string; state?: string;
+        district_info?: { address_level_name?: string; address_name?: string }[];
+      };
+    }[] };
   } | null;
-  return groupLineItems(data?.data?.orders?.[0]?.line_items ?? []);
+  const order = data?.data?.orders?.[0];
+  const ra = order?.recipient_address;
+  const city = (
+    ra?.city ??
+    ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
+    ra?.state ??
+    ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
+    null
+  )?.slice(0, 80) ?? null;
+  return { items: groupLineItems(order?.line_items ?? []), city };
 }
 
 async function createSession(env: Env, userId: number): Promise<string> {
@@ -468,6 +484,67 @@ async function audit(
       .run();
   } catch (e) {
     console.error("audit write failed:", action, e);
+    await logError(env, "audit", `${action}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** v1.4.72: system error log. Records failures the team would otherwise only
+    hear about from staff ("Something went wrong"). NEVER fatal, and the table
+    has no foreign keys, so it stays writable even when the database itself is
+    the problem. Keeps the newest 500 rows. */
+async function logError(env: Env, source: string, message: string, path?: string): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO error_log (source, message, path) VALUES (?1, ?2, ?3)`,
+    ).bind(source.slice(0, 40), message.slice(0, 500), path?.slice(0, 200) ?? null).run();
+    await env.DB.prepare(
+      `DELETE FROM error_log WHERE id NOT IN (SELECT id FROM error_log ORDER BY id DESC LIMIT 500)`,
+    ).run();
+  } catch (e) {
+    // Before migration 0024 the table doesn't exist — console is the fallback.
+    console.error("error_log write failed:", source, message, e);
+  }
+}
+
+/** v1.4.72: nightly database backup to R2. Dumps every application table as
+    JSON to backups/db-YYYY-MM-DD.json (MYT date) and keeps the newest 30 —
+    a bad migration or accidental delete is recoverable from any of them.
+    Row cap per table guards against a runaway payload; audit_log is the only
+    table anywhere near it. */
+async function runBackup(env: Env, actorId: number | null): Promise<
+  | { ok: true; key: string; tables: number; rows: number; bytes: number }
+  | { ok: false; message: string }
+> {
+  try {
+    const { results: tables } = await env.DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table'
+         AND name NOT LIKE 'sqlite\_%' ESCAPE '\'
+         AND name NOT LIKE '\_cf\_%' ESCAPE '\'
+         AND name != 'd1_migrations'
+       ORDER BY name`,
+    ).all<{ name: string }>();
+    const dump: Record<string, unknown[]> = {};
+    let rowCount = 0;
+    for (const t of tables) {
+      if (!/^[A-Za-z0-9_]+$/.test(t.name)) continue; // defence in depth
+      const { results } = await env.DB.prepare(`SELECT * FROM "${t.name}" LIMIT 50000`).all();
+      dump[t.name] = results;
+      rowCount += results.length;
+    }
+    const mytDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const key = `backups/db-${mytDate}.json`;
+    const body = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump });
+    await env.MEDIA.put(key, body, { httpMetadata: { contentType: "application/json" } });
+    // Retention: keep the newest 30 backup objects.
+    const listed = await env.MEDIA.list({ prefix: "backups/" });
+    const sorted = listed.objects.sort((a, b) => b.key.localeCompare(a.key));
+    for (const stale of sorted.slice(30)) await env.MEDIA.delete(stale.key);
+    await audit(env, actorId, "system.backup", "r2", key, { tables: tables.length, rows: rowCount, bytes: body.length, source: actorId ? "manual" : "cron" });
+    return { ok: true, key, tables: tables.length, rows: rowCount, bytes: body.length };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logError(env, "backup", msg);
+    return { ok: false, message: msg };
   }
 }
 
@@ -584,6 +661,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       id?: string; status?: string; tracking_number?: string;
       packages?: { tracking_number?: string }[];
       line_items?: { seller_sku?: string; sku_id?: string; tracking_number?: string }[];
+      recipient_address?: {
+        city?: string; state?: string;
+        district_info?: { address_level_name?: string; address_name?: string }[];
+      };
     }[] };
   } | null;
   if (!data || (typeof data.code === "number" && data.code !== 0)) {
@@ -606,13 +687,25 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       o.packages?.find((pk) => pk.tracking_number)?.tracking_number ??
       o.line_items?.find((li) => li.tracking_number)?.tracking_number ??
       null;
+    // City only — deliberately never the street address (privacy: staff need
+    // rough destination, not the buyer's home). Response shapes vary, so try
+    // the flat field first, then the district_info levels.
+    const ra = o.recipient_address;
+    const cityNow = (
+      ra?.city ??
+      ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
+      ra?.state ??
+      ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
+      null
+    )?.slice(0, 80) ?? null;
     if (exists) {
       // Already imported: keep its shipping status and tracking current —
       // stock stays untouched (it moved on first import).
       await env.DB.prepare(
         `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(tracking_no, ?2),
-           updated_at = datetime('now') WHERE id = ?3 AND status != 'returned'`,
-      ).bind(uiNow, trackNow, exists.id).run();
+           buyer_city = COALESCE(buyer_city, ?3),
+           updated_at = datetime('now') WHERE id = ?4 AND status != 'returned'`,
+      ).bind(uiNow, trackNow, cityNow, exists.id).run();
       skipped += 1;
       continue;
     }
@@ -633,9 +726,9 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
     if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
     const rec = await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
-       VALUES (?1, 'TikTok', ?2, ?3, ?4, NULL) RETURNING id`,
-    ).bind(orderRef, trackNow, uiNow, notes.join(" · ")).first<{ id: number }>();
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, status, note, updated_by)
+       VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, NULL) RETURNING id`,
+    ).bind(orderRef, trackNow, cityNow, uiNow, notes.join(" · ")).first<{ id: number }>();
     if (canDeduct) {
       for (const l of resolved) {
         const upd = await env.DB.prepare(
@@ -662,10 +755,19 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
 }
 
 export default {
-  /** Cron (v1.4.66): keep inventory in step with TikTok automatically. Runs
-      the same sync as the button; silently a no-op until setup completes. */
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
-    await runTikTokSync(env, null);
+  /** Crons: every 30 min = TikTok sync (v1.4.66); daily 19:20 UTC
+      (03:20 MYT) = database backup to R2 (v1.4.72). Real sync failures land
+      in the error log — "not configured / not authorized" are expected until
+      the TikTok setup completes and stay silent. */
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    if (event.cron === "20 19 * * *") {
+      await runBackup(env, null);
+      return;
+    }
+    const res = await runTikTokSync(env, null);
+    if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
+      await logError(env, "tiktok_cron", res.message);
+    }
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -694,6 +796,9 @@ export default {
       // column" turns a blind 500 into a one-look diagnosis. Message only —
       // no stack, no query text beyond what the engine includes.
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
+      // v1.4.72: unexpected 500s land in the error log so /admin sees them
+      // before staff report them.
+      await logError(env, "api", detail, path);
       res = errorResponse("internal", `Something went wrong: ${detail}`, 500);
     }
     // attach CORS to every response
@@ -839,7 +944,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (outbound.some((k) => rawStatus.includes(k))) {
       if (existing) return json({ ok: true, duplicate: true });
       // Line items are not in the webhook — fetch them from the Order API.
-      const lines = await tiktokOrderItems(env, orderId);
+      const detail = await tiktokOrderItems(env, orderId);
+      const lines = detail.items;
       const resolved: { id: number; qty: number }[] = [];
       const unknown: string[] = [];
       const shortages: string[] = [];
@@ -858,9 +964,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
 
       const rec = await env.DB.prepare(
-        `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
-         VALUES (?1, 'TikTok', 'preparing', ?2, NULL) RETURNING id`,
-      ).bind(orderRef, notes.join(" · ")).first<{ id: number }>();
+        `INSERT INTO postage_records (order_ref, courier, buyer_city, status, note, updated_by)
+         VALUES (?1, 'TikTok', ?2, 'preparing', ?3, NULL) RETURNING id`,
+      ).bind(orderRef, detail.city, notes.join(" · ")).first<{ id: number }>();
       if (canDeduct) {
         for (const l of resolved) {
           const upd = await env.DB.prepare(
@@ -1417,6 +1523,33 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .run();
     await audit(env, user.id, "enquiry.update_status", "enquiries", id, { status: body.status });
     return json({ ok: true });
+  }
+
+  /* ---- system health (v1.4.72): error log + backup status ---- */
+
+  if (path === "/api/v1/system/health" && method === "GET") {
+    if (!atLeast(user, "ceo")) return errorResponse("forbidden", "Admin or CEO required", 403);
+    let errors: unknown[] = [];
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT id, created_at, source, message, path FROM error_log ORDER BY id DESC LIMIT 20`,
+      ).all();
+      errors = results;
+    } catch { /* migration 0024 not applied yet — show empty rather than fail */ }
+    let last_backup: { key: string; size: number; uploaded: string } | null = null;
+    try {
+      const listed = await env.MEDIA.list({ prefix: "backups/" });
+      const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
+      if (newest) last_backup = { key: newest.key, size: newest.size, uploaded: newest.uploaded.toISOString() };
+    } catch { /* keep null */ }
+    return json({ errors, last_backup });
+  }
+
+  if (path === "/api/v1/system/backup" && method === "POST") {
+    if (!atLeast(user, "ceo")) return errorResponse("forbidden", "Admin or CEO required", 403);
+    const res = await runBackup(env, user.id);
+    if (!res.ok) return errorResponse("backup_failed", res.message, 502);
+    return json(res);
   }
 
   if (path === "/api/v1/audit" && method === "GET") {

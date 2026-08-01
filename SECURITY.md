@@ -306,3 +306,46 @@ is restricted to super_admin/admin/ceo/coo/sales_marketing and audited.
 | Version | Change |
 |---|---|
 | v1.4.48 | Customer option in role dropdown; TikTok API request signing; sync endpoint role-gated + audited. |
+
+
+## v1.4.72 — reliability hardening + the outstanding security loop, closed in one sitting
+
+Three protections shipped together (user request: "Security & reliability 1, 2 & 3"):
+
+### 1. Security recovery checklist — run these once, in order
+
+**A. Master-password incident recovery** *(required if not already done after v1.4.37; skip any step you've completed)*
+```
+npx wrangler deploy                                   # ensure the clean worker is live
+npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions;"
+```
+Then in /admin: change the password of EVERY privileged account (super_admin, admin, ceo, coo, cco, hr_admin), then all remaining staff; confirm 2FA is enabled on every privileged account (Users → each account, or each user's own Profile panel); finally review the audit trail's Sign-ins filter for anything unfamiliar during the exposure window (v1.4.22–v1.4.36).
+
+**B. Foreign-key integrity check** *(the root of the Google-login FK failure)*
+```
+npx wrangler d1 execute azoneofficial --remote --command "PRAGMA foreign_key_check;"
+```
+- **Empty result → done.** Non-empty: each row names the table holding an orphaned reference.
+- Preferred cleanup — PRESERVE history where the schema allows NULL:
+```
+npx wrangler d1 execute azoneofficial --remote --command "UPDATE audit_log SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users);"
+```
+- Rows that must point at a real user (sessions, twofa challenges) are safe to delete:
+```
+npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users);"
+```
+- Re-run the PRAGMA until it returns empty. Any other table it names: apply the same pattern (NULL it if nullable, delete if the row is meaningless without its parent) — or bring the PRAGMA output back for exact commands.
+- Confirm migrations are current: `npx wrangler d1 migrations list azoneofficial --remote` → 0020–0024 applied.
+
+### 2. Automated nightly database backups (worker cron → R2)
+- Every night at **03:20 MYT** the worker dumps every application table as JSON to the existing R2 bucket under `backups/db-YYYY-MM-DD.json`; the newest **30** are kept, older pruned automatically. Restores: the JSON contains every row of every table — restoration is a targeted re-insert (bring the backup file back here and the restore SQL gets written against it).
+- "Back up now" button in /admin → Audit → System health for an on-demand snapshot before risky changes (e.g. right before applying a migration).
+- Every backup (cron or manual) is audited as `system.backup` with table/row/byte counts.
+- Defence in depth, not a replacement: Cloudflare D1 **Time Travel** independently allows point-in-time restore of the last 30 days (`wrangler d1 time-travel info azoneofficial`). Two unrelated recovery paths now exist.
+- Still recommended quarterly: `npx wrangler d1 export azoneofficial --remote --output backup-QN.sql` kept OFF Cloudflare (local disk / Google Drive) so even a full account compromise cannot destroy every copy.
+
+### 3. Error log — failures now surface before staff report them
+- New `error_log` table (migration **0024**) — deliberately **no foreign keys**, so it stays writable even when referential integrity itself is broken (the exact class of failure behind the v1.4.69 login incident).
+- Recorded automatically: every unexpected API 500 (with its path), every failed audit write (both worker modules), TikTok cron sync failures (the expected "not configured / not authorized" pre-setup states stay silent), and backup failures. Newest 500 rows kept.
+- Visible in **/admin → Audit → System health**: last 20 errors + last-backup status (amber warning when the newest backup is older than 2 days — the signal the nightly cron has stopped).
+- Endpoints: `GET /api/v1/system/health`, `POST /api/v1/system/backup` — admin tier + CEO.

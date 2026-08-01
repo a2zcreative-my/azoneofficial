@@ -126,6 +126,12 @@ async function audit(
            detail ? JSON.stringify(detail) : null).run();
   } catch (e) {
     console.error("audit write failed:", action, e);
+    // v1.4.72: surface it in the error log too (table has no FKs; guarded).
+    try {
+      await env.DB.prepare(
+        `INSERT INTO error_log (source, message) VALUES ('audit', ?1)`,
+      ).bind(`${action}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500)).run();
+    } catch { /* pre-0024 or DB down — console above is the fallback */ }
   }
 }
 

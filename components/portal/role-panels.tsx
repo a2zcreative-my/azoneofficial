@@ -285,7 +285,7 @@ interface Material {
  */
 function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) {
   interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
-  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null; courier?: string | null; tracking_no?: string | null }
+  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null; courier?: string | null; tracking_no?: string | null; buyer_city?: string | null }
   const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
   const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
   const [ttMsg, setTtMsg] = useState("");
@@ -385,6 +385,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
             <span className="min-w-0">
               <span className="font-medium">{o.order_ref}</span>
               <span className="text-muted-foreground"> · {dmy(o.created_at)}</span>
+              {o.buyer_city && <span className="text-muted-foreground"> · 📍 {o.buyer_city}</span>}
               {o.items_label ? (
                 <span className="block text-xs font-medium">{o.items_label}</span>
               ) : (
@@ -568,8 +569,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               Add record
             </button>
           </div>
-          <ul className="mt-4 space-y-2">
-            {postage.slice(0, 8).map((r) => (
+          <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
+            {postage.filter((r) => !r.order_ref?.startsWith("TT-")).length === 0 && (
+              <li className="text-muted-foreground text-sm">No non-TikTok postage records yet.</li>
+            )}
+            {postage.filter((r) => !r.order_ref?.startsWith("TT-")).map((r) => (
               <li key={r.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span>
                   <span className="font-medium">{r.order_ref}</span>{" "}
