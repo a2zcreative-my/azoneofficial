@@ -926,6 +926,14 @@ export default function PortalPage() {
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // While the More sheet is open, the page behind must not scroll — the
+  // sheet then behaves like a native menu instead of a floating layer.
+  useEffect(() => {
+    document.body.style.overflow = moreOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [moreOpen]);
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -982,14 +990,6 @@ export default function PortalPage() {
     );
   }
 
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  // While the More sheet is open, the page behind must not scroll — the
-  // sheet then behaves like a native menu instead of a floating layer.
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [moreOpen]);
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
