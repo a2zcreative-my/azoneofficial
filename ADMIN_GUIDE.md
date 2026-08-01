@@ -595,3 +595,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.55 | App view extended to /admin + /account (sticky title bar, bottom tabs, transitions); packages table scrolls; FAB/back-to-top collisions resolved. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.56 | Badge reverted to clean brand design (white/navy/gold accents); NRIC + Joined kept; preview isolated in iframe (no style bleed, preview = print). |

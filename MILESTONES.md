@@ -389,3 +389,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.55 — 01 Aug 2026 — App view everywhere
 - /admin + /account join /portal (app bar, bottom nav, transitions); mobile fit sweep (tables, FAB, corner buttons)
+
+## v1.4.56 — 01 Aug 2026 — Badge design restored
+- v1.4.53 decor reverted; clean brand card + NRIC/Joined; iframe-isolated preview

@@ -106,78 +106,69 @@ function badgeData(s: Staff) {
 
 /** On-screen live preview at true PORTRAIT card size (54 × 85.6 mm, ID-1 rotated). */
 function BadgePreview({ s }: { s: Staff }) {
-  // Renders the EXACT print markup + CSS, so preview and print never drift.
+  // An iframe renders the EXACT print document in isolation — the badge CSS
+  // cannot leak into the page, and page styles cannot distort the badge.
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
-    <div style={{ width: "54mm", height: "85.6mm" }}>
-      <style dangerouslySetInnerHTML={{ __html: BADGE_CSS }} />
-      <div dangerouslySetInnerHTML={{ __html: badgeCardHtml(s, origin) }} />
-    </div>
+    <iframe
+      title="Badge preview"
+      srcDoc={badgeDocHtml(s, origin)}
+      style={{ width: "54mm", height: "85.6mm", border: "none", pointerEvents: "none", display: "block" }}
+    />
   );
 }
 
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
-    html,body{margin:0;padding:0}
-    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm 0;
+    html,body{margin:0;padding:0;background:transparent}
+    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4mm;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;text-align:center;
-      background:#faf6ec;position:relative;overflow:hidden;
+      background:linear-gradient(180deg,#fff 55%,#f4f6fb);position:relative;overflow:hidden;
       border:0.3mm solid #1a2946}
-    .deco{position:absolute;left:0;right:0;bottom:0;width:100%;height:13mm;display:block}
-    .arc{position:absolute;top:0;right:0;width:16mm;height:16mm;display:block}
-    .content{position:relative;z-index:1}
-    .tagline{margin-top:0.8mm;font-size:4.6px;font-weight:700;letter-spacing:.28em;color:#b98a2e;text-transform:uppercase}
-    .photo{width:20mm;height:26mm;margin:1.6mm auto 0;border:0.2mm solid #e3dcc8;
-      background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .goldline{width:16mm;height:0.5mm;background:#c9a24b;margin:1.2mm auto 0;border-radius:1mm}
+    .tagline{margin-top:0.8mm;font-size:4.6px;font-weight:700;letter-spacing:.26em;color:#b98a2e;text-transform:uppercase}
+    .photo{width:20mm;height:25mm;margin:1.6mm auto 0;border:0.2mm solid #dfe3ec;
+      background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .name{margin-top:1.4mm;font-size:10px;font-weight:800;line-height:1.15}
+    .name{margin-top:1.3mm;font-size:9px;font-weight:800;line-height:1.15}
     .role{display:inline-block;margin-top:0.6mm;font-size:6px;font-weight:700;
       text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 5px;border-radius:2px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:0.9mm 2mm;margin-top:1.6mm;text-align:left}
-    .foot{position:absolute;bottom:14mm;left:4mm;right:4mm;z-index:1;font-size:5px;line-height:1.4;
-      color:#8a93a6;border-top:0.2mm solid #e3dcc8;padding-top:0.8mm}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:0.8mm 2mm;margin-top:1.4mm;text-align:left}
+    .grid .v{font-size:7.5px;font-weight:600;color:#1a2946;line-height:1.15}
+    .grid .k{font-size:5.2px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6}
+    .foot{position:absolute;bottom:2.5mm;left:4mm;right:4mm;font-size:5px;line-height:1.4;
+      color:#8a93a6;border-top:0.2mm solid #dfe3ec;padding-top:0.9mm;background:transparent}
 `;
-
-/** The bottom navy sweep with its gold edge, and a thin gold arc top-right —
-    the brand-card look. Both are decorative layers: the sweep occupies only
-    the bottom 13 mm and the foot text sits at 14 mm, so no text is ever
-    interrupted. */
-const BADGE_DECOR = `
-  <svg class="arc" viewBox="0 0 60 60" preserveAspectRatio="none" aria-hidden="true">
-    <path d="M14,0 Q46,10 60,44 L60,0 Z" fill="#1a2946"/>
-    <path d="M10,0 Q44,9 60,46" fill="none" stroke="#c9a24b" stroke-width="1.6"/>
-  </svg>
-  <svg class="deco" viewBox="0 0 200 48" preserveAspectRatio="none" aria-hidden="true">
-    <path d="M0,46 Q60,14 200,4 L200,48 L0,48 Z" fill="#c9a24b"/>
-    <path d="M0,48 Q64,20 200,10 L200,48 Z" fill="#1a2946"/>
-    <path d="M0,46 Q60,14 200,4" fill="none" stroke="#e7c877" stroke-width="1.4"/>
-  </svg>`;
 
 function badgeCardHtml(s: Staff, origin: string): string {
   const d = badgeData(s);
   const logo = `${origin}/logo.png`;
   const photo = d.photo ? `${origin}${d.photo}` : "";
   const field = (label: string, value: string) =>
-    `<div><span style="font-size:5.5px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6">${label}</span><br/><span style="font-size:8px;font-weight:600;color:#1a2946">${value || "—"}</span></div>`;
+    `<div><span class="k">${label}</span><br/><span class="v">${value || "—"}</span></div>`;
   return `<div class="card">
-    ${BADGE_DECOR}
-    <div class="content">
-      <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto"/>
-      <div class="tagline">Live · Connect · Grow</div>
-      <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
-      <div class="name">${d.name}</div>
-      <div class="role">${d.role}</div>
-      <div class="grid">
-        ${field("Employee ID", d.employee_id)}
-        ${field("Position", d.position)}
-        ${field("Department", d.department)}
-        ${field("Phone", d.phone)}
-        ${field("NRIC", d.ic)}
-        ${field("Joined on", d.joined)}
-      </div>
+    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:5.5mm;width:auto"/>
+    <div class="goldline"></div>
+    <div class="tagline">Live · Connect · Grow</div>
+    <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
+    <div class="name">${d.name}</div>
+    <div class="role">${d.role}</div>
+    <div class="grid">
+      ${field("Employee ID", d.employee_id)}
+      ${field("Position", d.position)}
+      ${field("Department", d.department)}
+      ${field("Phone", d.phone)}
+      ${field("NRIC", d.ic)}
+      ${field("Joined on", d.joined)}
     </div>
     <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H) · Issued ${d.issued || "—"}</div>
   </div>`;
+}
+
+/** Full standalone document for the card — used verbatim by the preview
+    iframe and the print windows, so all three can never differ. */
+function badgeDocHtml(s: Staff, origin: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${BADGE_CSS}</style></head><body>${badgeCardHtml(s, origin)}</body></html>`;
 }
 
 function printBadge(s: Staff) {

@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.56] — 2026-08-01 — Badge restored to the clean brand design (v1.4.53 layout reverted)
+
+### Fixed
+- **v1.4.53's decorative redesign is reverted** — in practice the corner sweep collided with long values (a two-line position pushed Department/Phone into the artwork and under the footer), and the preview's stylesheet leaked into the page. Apologies for that regression; two structural fixes make sure neither can recur:
+- **Back to the clean brand-profile design**: white card, navy border and details, gold divider line + gold LIVE · CONNECT · GROW tagline under the logo — the look that worked — while keeping **NRIC and Joined on** in the details grid (with Employee ID, Position, Department, Phone) and the issue date in the footer
+- **The preview is now a sandboxed iframe** rendering the exact print document: badge CSS can no longer leak into the admin page, page styles can no longer distort the badge, and preview vs print are one document by construction
+- Field text sizes tuned so even long positions/names wrap within their cell without invading the footer
+
+### Deploy
+- Rebuild the site only
+
+
 ## [1.4.55] — 2026-08-01 — App view on all three surfaces; mobile fit sweep
 
 ### Added — /admin and /account now match /portal's app view (phones only)
