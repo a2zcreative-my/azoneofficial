@@ -540,7 +540,101 @@ function isNonEmptyString(v: unknown, max = 500): v is string {
 
 /* ---------------- router ---------------- */
 
+/** One sync pass: pull the last 30 days of TikTok orders and reconcile them
+    into postage + inventory. Shared by the manual Sync button and the cron
+    schedule (v1.4.66) — actorId is null for scheduled runs. */
+async function runTikTokSync(env: Env, actorId: number | null): Promise<
+  | { ok: true; imported: number; skipped: number; total_from_tiktok: number; problems: string[] }
+  | { ok: false; code: string; message: string; status: number }
+> {
+  if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
+    return { ok: false, code: "not_configured", message: "Set TIKTOK_APP_KEY and TIKTOK_APP_SECRET first", status: 503 };
+  }
+  const tokNow = await tiktokToken(env);
+  if (!tokNow) {
+    return { ok: false, code: "not_authorized", message: "Authorize the app first: publish it in Partner Center and complete shop authorization via the redirect URL", status: 409 };
+  }
+  if (!tokNow.shop_cipher) {
+    const cipherRes = await refreshTikTokShopCipher(env);
+    if (!cipherRes.ok) {
+      return { ok: false, code: "no_shop_cipher", message: `Could not resolve the authorized shop — ${cipherRes.detail}`, status: 502 };
+    }
+  }
+  const listBody = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 30 * 86400 });
+  const data = (await tiktokSignedFetch(
+    env, "/order/202309/orders/search", { page_size: "50" }, listBody, "POST",
+  )) as {
+    code?: number; message?: string;
+    data?: { orders?: { id?: string; status?: string; line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
+  } | null;
+  if (!data || (typeof data.code === "number" && data.code !== 0)) {
+    return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
+  }
+  const orders = data.data?.orders ?? [];
+  let imported = 0, skipped = 0;
+  const problems: string[] = [];
+  for (const o of orders) {
+    const orderId = String(o.id ?? "").trim();
+    if (!orderId) continue;
+    const orderRef = `TT-${orderId.slice(0, 64)}`;
+    const exists = await env.DB.prepare(
+      `SELECT id FROM postage_records WHERE order_ref = ?1`,
+    ).bind(orderRef).first<{ id: number }>();
+    if (exists) { skipped += 1; continue; }
+    const lines = groupLineItems(o.line_items ?? []);
+    const resolved: { id: number; qty: number }[] = [];
+    const unknown: string[] = [];
+    const shortages: string[] = [];
+    for (const l of lines) {
+      const item = await env.DB.prepare(
+        `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
+      ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
+      if (!item) { unknown.push(`${l.qty}× ${l.sku}`); continue; }
+      if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
+      resolved.push({ id: item.id, qty: l.qty });
+    }
+    const canDeduct = shortages.length === 0 && resolved.length > 0;
+    const notes = ["TikTok order (synced)"];
+    if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
+    if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
+    const st = String(o.status ?? "").toLowerCase();
+    const uiStatus = st.includes("deliver") ? "delivered" : st.includes("ship") || st.includes("transit") ? "shipped" : "preparing";
+    const rec = await env.DB.prepare(
+      `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
+       VALUES (?1, 'TikTok', ?2, ?3, NULL) RETURNING id`,
+    ).bind(orderRef, uiStatus, notes.join(" · ")).first<{ id: number }>();
+    if (canDeduct) {
+      for (const l of resolved) {
+        const upd = await env.DB.prepare(
+          `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
+        ).bind(l.qty, l.id).run();
+        if (upd.meta.changes) {
+          await env.DB.prepare(
+            `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
+          ).bind(rec!.id, l.id, l.qty).run();
+          await env.DB.prepare(
+            `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+          ).bind(l.id).run();
+          await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: actorId ? "tiktok_sync" : "tiktok_cron" });
+        }
+      }
+    }
+    if (unknown.length) problems.push(`${orderRef}: unmatched ${unknown.join(", ")}`);
+    imported += 1;
+  }
+  if (imported > 0 || actorId) {
+    await audit(env, actorId, "tiktok.sync", undefined, undefined, { imported, skipped, source: actorId ? "manual" : "cron" });
+  }
+  return { ok: true, imported, skipped, total_from_tiktok: orders.length, problems };
+}
+
 export default {
+  /** Cron (v1.4.66): keep inventory in step with TikTok automatically. Runs
+      the same sync as the button; silently a no-op until setup completes. */
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await runTikTokSync(env, null);
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -650,90 +744,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
     const me = await getSessionUser(request, env);
-    const SYNC_ROLES = ["super_admin", "admin", "ceo", "coo", "sales_marketing"];
+    const SYNC_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
     if (!me || !SYNC_ROLES.includes(me.role)) {
-      return errorResponse("forbidden", "Sales or executive access required", 403);
+      return errorResponse("forbidden", "Inventory access required", 403);
     }
-    if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
-      return errorResponse("not_configured", "Set TIKTOK_APP_KEY and TIKTOK_APP_SECRET first", 503);
-    }
-    const tokNow = await tiktokToken(env);
-    if (!tokNow) {
-      return errorResponse("not_authorized", "Authorize the app first: publish it in Partner Center and complete shop authorization via the redirect URL", 409);
-    }
-    // Older authorizations stored the token without the shop identifier —
-    // resolve it now so a re-authorization is never needed for this.
-    if (!tokNow.shop_cipher) {
-      const cipherRes = await refreshTikTokShopCipher(env);
-      if (!cipherRes.ok) {
-        return errorResponse("no_shop_cipher", `Could not resolve the authorized shop — ${cipherRes.detail}`, 502);
-      }
-    }
-    // Last 30 days of orders, newest first, one page of 50.
-    const listBody = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 30 * 86400 });
-    const data = (await tiktokSignedFetch(
-      env, "/order/202309/orders/search", { page_size: "50" }, listBody, "POST",
-    )) as {
-      code?: number; message?: string;
-      data?: { orders?: { id?: string; status?: string; line_items?: { seller_sku?: string; sku_id?: string }[] }[] };
-    } | null;
-    if (!data || (typeof data.code === "number" && data.code !== 0)) {
-      return errorResponse("tiktok_error", `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, 502);
-    }
-    const orders = data.data?.orders ?? [];
-    let imported = 0, skipped = 0;
-    const problems: string[] = [];
-    for (const o of orders) {
-      const orderId = String(o.id ?? "").trim();
-      if (!orderId) continue;
-      const orderRef = `TT-${orderId.slice(0, 64)}`;
-      const exists = await env.DB.prepare(
-        `SELECT id FROM postage_records WHERE order_ref = ?1`,
-      ).bind(orderRef).first<{ id: number }>();
-      if (exists) { skipped += 1; continue; }
-      const lines = groupLineItems(o.line_items ?? []);
-      const resolved: { id: number; qty: number }[] = [];
-      const unknown: string[] = [];
-      const shortages: string[] = [];
-      for (const l of lines) {
-        const item = await env.DB.prepare(
-          `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
-        ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
-        if (!item) { unknown.push(l.sku); continue; }
-        if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
-        resolved.push({ id: item.id, qty: l.qty });
-      }
-      const canDeduct = shortages.length === 0 && resolved.length > 0;
-      const notes = ["TikTok order (synced)"];
-      if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
-      if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
-      const st = String(o.status ?? "").toLowerCase();
-      const uiStatus = st.includes("deliver") ? "delivered" : st.includes("ship") || st.includes("transit") ? "shipped" : "preparing";
-      const rec = await env.DB.prepare(
-        `INSERT INTO postage_records (order_ref, courier, status, note, updated_by)
-         VALUES (?1, 'TikTok', ?2, ?3, NULL) RETURNING id`,
-      ).bind(orderRef, uiStatus, notes.join(" · ")).first<{ id: number }>();
-      if (canDeduct) {
-        for (const l of resolved) {
-          const upd = await env.DB.prepare(
-            `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
-          ).bind(l.qty, l.id).run();
-          if (upd.meta.changes) {
-            await env.DB.prepare(
-              `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
-            ).bind(rec!.id, l.id, l.qty).run();
-            await env.DB.prepare(
-              `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
-            ).bind(l.id).run();
-            await audit(env, me.id, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: "tiktok_sync" });
-          }
-        }
-      }
-      if (unknown.length) problems.push(`${orderRef}: unmatched ${unknown.join(", ")}`);
-      imported += 1;
-    }
-    await audit(env, me.id, "tiktok.sync", undefined, undefined, { imported, skipped });
-    return json({ ok: true, imported, skipped, total_from_tiktok: orders.length, problems });
+    const r = await runTikTokSync(env, me.id);
+    if (!r.ok) return errorResponse(r.code, r.message, r.status);
+    return json(r);
   }
 
   if (path === "/api/v1/integrations/tiktok/webhook" && method === "POST") {
@@ -793,7 +810,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         const item = await env.DB.prepare(
           `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
         ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
-        if (!item) { unknown.push(l.sku); continue; }
+        if (!item) { unknown.push(`${l.qty}× ${l.sku}`); continue; }
         if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
         resolved.push({ id: item.id, qty: l.qty });
       }

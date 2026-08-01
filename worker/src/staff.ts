@@ -38,7 +38,7 @@ const PERMS: Record<string, readonly Role[]> = {
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // Inventory, postage tracking, marketing materials — sales_marketing only
   // among staff (editor/marketing explicitly do NOT get inventory visibility).
-  inventory: ["super_admin", "admin", "sales_marketing"],
+  inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   // Read tasks across all roles (management oversight), excluding CEO exec data.
   task_view: ["super_admin", "admin", "coo", "cco"],
   // Attendance CSV export for payroll processing.

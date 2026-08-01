@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.66] — 2026-08-01 — Automatic TikTok inventory sync + per-order quantities
+
+### Added — automatic sync
+- **The worker now syncs TikTok orders automatically every 30 minutes** (Cloudflare cron): new orders become TT- postage records and deduct stock by SKU without anyone pressing anything. The manual Sync button remains for on-demand pulls; both run the identical logic, and cron runs audit as source: tiktok_cron. Until the TikTok setup completes, the schedule is a harmless no-op
+
+### Added — see exactly what shipped
+- **Each TikTok order in the Inventory tab now lists its items and quantities** (e.g. "2× ELFIA Satin Square, 1× ELFIA Bawal") — the shipped goods behind every stock deduction, so the available inventory is verifiable per order
+- Orders with **no stock movement** say so explicitly; unmatched SKUs in notes now include the ordered quantity ("2× TT-SKU-123"), so even unmapped items show how many units the order wanted
+
+### Deploy
+- `npx wrangler deploy` (registers the cron trigger too) → rebuild site
+
+
+## [1.4.65] — 2026-08-01 — Inventory opened to six roles; TikTok orders move into Inventory
+
+### Changed
+- **The Inventory tab is now visible and editable by CEO, COO, CCO, sales_marketing, marketing, and hr_admin** (admin tier as backstop) — items, stock adjustments, postage records and materials. The API enforces the same list, so it's real access, not just a visible tab
+- **TikTok Orders moved from Sales into Inventory** — TikTok orders move stock, so the tracker now sits beside the stock it moves: status line, Sync from TikTok, and the TT- order list all live at the top of the Inventory tab. A successful Sync refreshes the stock list beneath it immediately
+- Sync permission aligned with the same six roles
+
+### Deploy
+- `npx wrangler deploy` (permission gates) → rebuild site
+
+
 ## [1.4.64] — 2026-08-01 — More sheet: reliable close + friendlier touch (and an /admin build fix)
 
 ### Fixed

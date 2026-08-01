@@ -42,3 +42,8 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 #   SETUP_TOKEN             — random 32+ chars; one-time super admin bootstrap
 #   TIKTOK_APP_SECRET       — from Partner Center → your app (NEVER commit)
 #   TIKTOK_WEBHOOK_SECRET   — optional; only for a relay (Make/Zapier) path
+
+# TikTok auto-sync (v1.4.66): pull new orders and reconcile inventory every
+# 30 minutes. Harmless no-op until the TikTok setup completes.
+[triggers]
+crons = ["*/30 * * * *"]

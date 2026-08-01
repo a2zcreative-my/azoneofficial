@@ -640,3 +640,13 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.64 | More sheet closes reliably on iOS (button backdrop + ✕ + handle); bigger touch targets; scroll lock; /admin missing-state build fix. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.65 | Inventory tab: edit + view for ceo/coo/cco/sales_marketing/marketing/hr_admin; TikTok Orders card relocated from Sales into Inventory; sync roles aligned. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.66 | TikTok auto-sync every 30 min (cron); per-order items + quantities shown in Inventory; unmatched SKU notes carry quantities. |

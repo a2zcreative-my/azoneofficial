@@ -278,7 +278,107 @@ interface Material {
   requested_by_name?: string;
 }
 
-export function InventoryPanel() {
+/**
+ * TikTok Orders (v1.4.65) — lives in the INVENTORY tab: TikTok orders move
+ * stock, so the tracker belongs beside the stock it moves. Status line
+ * explains any pending setup; Sync backfills the last 30 days.
+ */
+function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) {
+  interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
+  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null }
+  const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
+  const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
+  const [ttMsg, setTtMsg] = useState("");
+  const canSync = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(role);
+
+  // Integrations endpoints sit outside the /staff base this file's api()
+  // helper prefixes, so the card carries its own minimal fetcher.
+  const tiktokApi = useCallback(async <T,>(path: string, init?: RequestInit) => {
+    try {
+      const res = await fetch(`/api/v1/integrations/tiktok${path}`, {
+        credentials: "include",
+        headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+        ...init,
+      });
+      return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };
+    } catch {
+      return { ok: false, data: null as T | null };
+    }
+  }, []);
+
+  const loadTikTok = useCallback(async () => {
+    const st = await tiktokApi<TtStatus>(`/status`);
+    if (st.ok) setTtStatus(st.data);
+    const pr = await api<{ records: TtOrder[] }>(`/postage`);
+    setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 20));
+  }, [tiktokApi]);
+
+  useEffect(() => { void loadTikTok(); }, [loadTikTok]);
+
+  const syncTikTok = async () => {
+    setTtMsg("Syncing from TikTok…");
+    const res = await tiktokApi<{ imported: number; skipped: number; problems: string[]; error?: { message?: string } }>(
+      `/sync`, { method: "POST", body: JSON.stringify({}) },
+    );
+    if (res.ok && res.data) {
+      const probs = res.data.problems?.length ? ` · ${res.data.problems.join(" · ")}` : "";
+      setTtMsg(`Imported ${res.data.imported} (${res.data.skipped} already in)${probs}`);
+      void loadTikTok();
+      onChanged();
+    } else {
+      setTtMsg(res.data?.error?.message ?? "Sync failed — check the TikTok setup");
+    }
+  };
+
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">TikTok Orders</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {!ttStatus?.configured
+              ? "Not configured — set the app secret and deploy the worker."
+              : !ttStatus?.authorized
+                ? "Not authorized yet — activate the shop/order scopes, publish the app in Partner Center, then authorize the shop. Sync pulls existing orders once live."
+                : ttStatus.last_event_at
+                  ? `Connected · last webhook ${dmy(ttStatus.last_event_at)}${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
+                  : "Connected · auto-sync runs every 30 minutes; Sync pulls now."}
+          </p>
+        </div>
+        {canSync && (
+          <button
+            type="button"
+            className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary"
+            onClick={() => void syncTikTok()}
+          >
+            Sync from TikTok
+          </button>
+        )}
+      </div>
+      {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
+      <div className="mt-3 max-h-72 overflow-y-auto">
+        {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>}
+        {ttOrders.map((o) => (
+          <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+            <span className="min-w-0">
+              <span className="font-medium">{o.order_ref}</span>
+              <span className="text-muted-foreground"> · {dmy(o.created_at)}</span>
+              {o.items_label ? (
+                <span className="block text-xs font-medium">{o.items_label}</span>
+              ) : (
+                <span className="text-muted-foreground block text-xs">No stock movement recorded</span>
+              )}
+              {o.note && <span className="text-muted-foreground block text-xs">{o.note}</span>}
+            </span>
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{o.status}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function InventoryPanel({ role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -316,6 +416,7 @@ export function InventoryPanel() {
 
   return (
     <div className="space-y-6">
+      <TikTokOrdersCard role={role} onChanged={() => void load()} />
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
         <p className="text-muted-foreground mt-0.5 text-xs">

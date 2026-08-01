@@ -415,3 +415,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.64 — 01 Aug 2026 — Mobile menu UX
 - iOS-reliable close (button backdrop, ✕, handle); 56px targets; scroll lock; admin moreOpen declaration fix
+
+## v1.4.65 — 01 Aug 2026 — Inventory for six roles + TikTok relocation
+- Inventory perm/tab = ceo/coo/cco/sales_marketing/marketing/hr_admin (+admin tier); TikTok Orders card now in Inventory; stock list refreshes after Sync
+
+## v1.4.66 — 01 Aug 2026 — Automatic TikTok sync
+- Cron every 30 min shares the manual sync core; orders show items + quantities; qty in unmatched-SKU notes

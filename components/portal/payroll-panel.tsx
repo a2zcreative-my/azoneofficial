@@ -31,7 +31,7 @@ const card = "rounded-lg border border-border bg-card p-5";
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
 
-const _COMPANY = {
+const COMPANY = {
   name: "AZ ONE OFFICIAL",
   ssm: "SSM Registration No. 202603168673 (JM1046169-H)",
   location: "Setia Tropika, Johor Bahru, Malaysia",

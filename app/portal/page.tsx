@@ -704,45 +704,12 @@ function Sales({ user }: { user: User }) {
   });
   const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
-  interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
-  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string }
-  const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
-  const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
-  const [ttMsg, setTtMsg] = useState("");
-  const canSync = ["super_admin", "admin", "ceo", "coo", "sales_marketing"].includes(user.role);
-  const canSeePostage = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"].includes(user.role);
-
-  const loadTikTok = useCallback(async () => {
-    const st = await api<TtStatus>(`/integrations/tiktok/status`);
-    if (st.ok) setTtStatus(st.data);
-    if (canSeePostage) {
-      const pr = await api<{ records: TtOrder[] }>(`/staff/postage`);
-      setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 20));
-    }
-  }, [canSeePostage]);
-
-  const syncTikTok = async () => {
-    setTtMsg("Syncing from TikTok…");
-    const res = await api<{ imported: number; skipped: number; problems: string[] }>(
-      `/integrations/tiktok/sync`, { method: "POST", body: JSON.stringify({}) },
-    );
-    if (res.ok && res.data) {
-      const probs = res.data.problems?.length ? ` · ${res.data.problems.join(" · ")}` : "";
-      setTtMsg(`Imported ${res.data.imported} (${res.data.skipped} already in) ${probs}`);
-      void loadTikTok();
-    } else {
-      const err = (res.data as { error?: { message?: string } } | null)?.error?.message;
-      setTtMsg(err ?? "Sync failed — check the TikTok setup");
-    }
-  };
-
   const load = useCallback(async () => {
-    void loadTikTok();
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
-  }, [loadTikTok]);
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const addCustomer = async () => {
@@ -862,45 +829,6 @@ function Sales({ user }: { user: User }) {
         </div>
       </div>
 
-      {canSeePostage && (
-        <div className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold">TikTok Orders</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {!ttStatus?.configured
-                  ? "Not configured — set the app secret and deploy the worker."
-                  : !ttStatus?.authorized
-                    ? "Not authorized yet — activate the order scopes, publish the app in Partner Center, then authorize the shop. Webhooks only push orders created after that; use Sync to pull existing orders."
-                    : ttStatus.last_event_at
-                      ? `Connected · last webhook ${dmy(ttStatus.last_event_at)}${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
-                      : "Connected · no webhooks received yet — Sync pulls the last 30 days."}
-              </p>
-            </div>
-            {canSync && (
-              <button type="button" className={btnGhost} onClick={() => void syncTikTok()}>
-                Sync from TikTok
-              </button>
-            )}
-          </div>
-          {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
-          <div className="mt-3 max-h-72 overflow-y-auto">
-            {ttOrders.length === 0 && (
-              <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>
-            )}
-            {ttOrders.map((o) => (
-              <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-                <span>
-                  <span className="font-medium">{o.order_ref}</span>
-                  <span className="text-muted-foreground"> · {dmy(o.created_at)}</span>
-                  {o.note && <span className="text-muted-foreground text-xs"> · {o.note}</span>}
-                </span>
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{o.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -981,7 +909,7 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Payroll: ["ceo", "coo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
-  Inventory: ["sales_marketing", "super_admin", "admin"],
+  Inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   // Read-only company monitor. CEO + COO + CCO + admin tier.
   Overview: ["ceo", "coo", "cco", "super_admin", "admin"],
   // CEO can manage birthdays (their one write exception); HR tier too.
@@ -998,14 +926,6 @@ export default function PortalPage() {
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  // While the More sheet is open, the page behind must not scroll — the
-  // sheet then behaves like a native menu instead of a floating layer.
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [moreOpen]);
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -1062,6 +982,14 @@ export default function PortalPage() {
     );
   }
 
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // While the More sheet is open, the page behind must not scroll — the
+  // sheet then behaves like a native menu instead of a floating layer.
+  useEffect(() => {
+    document.body.style.overflow = moreOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [moreOpen]);
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
@@ -1251,7 +1179,7 @@ export default function PortalPage() {
         )}
         {tab === "Payroll" && <PayrollPanel />}
         {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {tab === "Inventory" && <InventoryPanel />}
+        {tab === "Inventory" && <InventoryPanel role={user.role} />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
         {tab === "Profile" && (
