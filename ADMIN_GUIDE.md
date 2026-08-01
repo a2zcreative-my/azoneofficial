@@ -575,3 +575,23 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.51 | IC number (NRIC) on staff record + add-staff form, payslip I/C # row, badge grid (migration 0022). |
+
+
+| Version | Change |
+|---|---|
+| v1.4.52 | WhatsApp floating button hidden on /portal + /admin; kept on public site + /account. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.53 | Badge = brand-card design (cream + navy/gold sweep, tagline); NRIC + Joined on in grid; decorative layers never overlap text; preview identical to print. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.54 | Full date audit: all displays DD-MM-YYYY (timestamps in MYT); today/month defaults computed in Malaysia time (UTC bug fixed for 12 AM–8 AM MYT). |
+
+
+| Version | Change |
+|---|---|
+| v1.4.55 | App view extended to /admin + /account (sticky title bar, bottom tabs, transitions); packages table scrolls; FAB/back-to-top collisions resolved. |

@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 import { useEffect, useState } from "react";
 
 /**
@@ -13,6 +15,8 @@ import { useEffect, useState } from "react";
  * Footer detection uses IntersectionObserver against #site-footer.
  */
 export function ScrollToTop() {
+  const pathname = usePathname() ?? "";
+  const appView = pathname.startsWith("/portal") || pathname.startsWith("/admin") || pathname.startsWith("/account");
   const [scrolled, setScrolled] = useState(false);
   const [footerVisible, setFooterVisible] = useState(false);
 
@@ -40,6 +44,8 @@ export function ScrollToTop() {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
   };
+
+  if (appView) return null;
 
   return (
     <button

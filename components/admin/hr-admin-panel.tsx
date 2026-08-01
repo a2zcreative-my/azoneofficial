@@ -54,7 +54,7 @@ export function HrAdminPanel() {
   const [ent, setEnt] = useState<Record<string, number>>({});
 
   const [payUser, setPayUser] = useState(0);
-  const [payMonth, setPayMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [payMonth, setPayMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [payslip, setPayslip] = useState<PayslipData | null>(null);
 
   const load = useCallback(async () => {
@@ -230,7 +230,7 @@ function printPayslip(p: PayslipData) {
   </table>
   <div class="sec">Leave</div>
   <table>${row("Approved leave days", p.approved_leave_days)}</table>
-  <p style="margin-top:24px;font-size:10px;color:#8a93a6">Generated ${new Date().toLocaleDateString("en-MY")} · SSM 202603168673 (JM1046169-H) · This is an attendance summary, not a statement of wages.</p>
+  <p style="margin-top:24px;font-size:10px;color:#8a93a6">Generated ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · SSM 202603168673 (JM1046169-H) · This is an attendance summary, not a statement of wages.</p>
   </body></html>`);
   w.document.close();
 }

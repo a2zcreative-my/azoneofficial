@@ -42,15 +42,10 @@ const FILTERS: [string, string][] = [
 ];
 
 function myt(iso: string): string {
-  return new Date(iso.replace(" ", "T") + "Z").toLocaleString("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  // DD-MM-YYYY HH:mm, Malaysia time.
+  const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
+  const i = d.toISOString();
+  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
 }
 
 export function AuditPanel() {

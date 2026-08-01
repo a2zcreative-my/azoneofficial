@@ -30,11 +30,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     <PageShell
       eyebrow="Blog"
       title={post.title}
-      updated={new Date(post.date).toLocaleDateString("en-MY", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })}
+      updated={post.date.slice(0, 10).split("-").reverse().join("-")}
     >
       <section className="space-y-5">
         {post.body.map((paragraph) => (

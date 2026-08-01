@@ -109,7 +109,7 @@ function Enquiries() {
             </select>
           </div>
           <p className="text-muted-foreground mt-1 text-xs">
-            {e.email ?? "no email"} · {e.phone ?? "no phone"} · {e.created_at}
+            {e.email ?? "no email"} · {e.phone ?? "no phone"} · {dmyMyt(e.created_at)}
           </p>
           <p className="mt-2 text-sm">{e.message}</p>
         </article>
@@ -313,7 +313,7 @@ function Dashboard() {
             <li key={i} className="text-muted-foreground text-sm">
               <span className="text-foreground">{a.user_name ?? "system"}</span>{" "}
               — {a.action}
-              {a.entity_id ? ` #${a.entity_id}` : ""} · {a.created_at}
+              {a.entity_id ? ` #${a.entity_id}` : ""} · {dmyMyt(a.created_at)}
             </li>
           ))}
           {(summary?.activity ?? []).length === 0 && (
@@ -545,6 +545,13 @@ interface AdminUser {
   name: string;
   role: string;
   is_active: number;
+}
+
+/** UTC DB timestamp → DD-MM-YYYY HH:mm in Malaysia time. */
+function dmyMyt(iso: string): string {
+  const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
+  const i = d.toISOString();
+  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
 }
 
 // customer included deliberately: demoting a personal-email account back to
@@ -834,15 +841,16 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+    <div className="mx-auto w-full max-w-6xl px-5 py-6 pb-24 md:pb-6">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-4 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
-          <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">
+          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
             Admin
           </p>
-          <h1 className="text-xl font-semibold tracking-tight">
+          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             AZ ONE OFFICIAL
           </h1>
+          <h1 className="text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground text-sm">
@@ -854,7 +862,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <nav className="mt-6 -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:overflow-visible" aria-label="Admin sections">
+      <nav className="mt-6 hidden gap-2 md:flex md:flex-wrap" aria-label="Admin sections">
         {TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role)).map((t) => (
           <button
             key={t}
@@ -871,7 +879,74 @@ export default function AdminPage() {
         ))}
       </nav>
 
-      <main className="mt-8">
+      {/* App-style bottom navigation (v1.4.55) — phones only. */}
+      {(() => {
+        const visible = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
+        const primary = visible.slice(0, 4);
+        const rest = visible.slice(4);
+        return (
+          <>
+            <nav
+              className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+              style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+              aria-label="Admin sections (mobile)"
+            >
+              {primary.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                  className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                    tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
+                  {t}
+                </button>
+              ))}
+              {rest.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen((v) => !v)}
+                  className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                    moreOpen || rest.includes(tab) ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  <span className={`h-1 w-6 rounded-full ${moreOpen || rest.includes(tab) ? "bg-gold-deep" : "bg-transparent"}`} />
+                  More
+                </button>
+              )}
+            </nav>
+            {moreOpen && (
+              <div className="fixed inset-0 z-30 md:hidden" onClick={() => setMoreOpen(false)}>
+                <div className="absolute inset-0 bg-black/40" />
+                <div
+                  className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="bg-border mx-auto mb-3 h-1 w-10 rounded-full" />
+                  <div className="grid grid-cols-3 gap-2">
+                    {rest.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                        className={`rounded-lg border px-2 py-3 text-xs font-medium ${
+                          tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      <main key={tab} className="screen-enter mt-4 md:mt-8">
         <p className="text-muted-foreground -mt-2 mb-4 text-xs">{TAB_HELP[tab]}</p>
         {tab === "Dashboard" && <Dashboard />}
         {tab === "Enquiries" && <Enquiries />}

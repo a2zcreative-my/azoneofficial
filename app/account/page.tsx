@@ -78,14 +78,17 @@ export default function AccountPage() {
   if (!checked || !user) return null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto w-full max-w-4xl px-5 py-6 pb-24 md:pb-6">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
-          <p className="text-gold-deep text-xs font-medium tracking-[0.3em] uppercase">
+          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
             My account
           </p>
-          <h1 className="text-xl font-semibold tracking-tight">
+          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             Welcome, {user.name.split(" ")[0]}
+          </h1>
+          <h1 className="text-lg font-semibold tracking-tight md:hidden">
+            {tab === "Enquiries" ? "My Enquiries" : "My Account"}
           </h1>
         </div>
         <button
@@ -101,7 +104,7 @@ export default function AccountPage() {
         </button>
       </header>
 
-      <nav className="mt-6 flex gap-2" aria-label="Account sections">
+      <nav className="mt-6 hidden gap-2 md:flex" aria-label="Account sections">
         {(["Account", "Enquiries"] as const).map((t) => (
           <button
             key={t}
@@ -118,8 +121,29 @@ export default function AccountPage() {
         ))}
       </nav>
 
+      {/* App-style bottom navigation (v1.4.55) — phones only. */}
+      <nav
+        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Account sections (mobile)"
+      >
+        {(["Account", "Enquiries"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+              tab === t ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${tab === t ? "bg-gold-deep" : "bg-transparent"}`} />
+            {t === "Enquiries" ? "My Enquiries" : "Account"}
+          </button>
+        ))}
+      </nav>
+
       {tab === "Account" && (
-      <div className="mt-6 grid gap-6 sm:grid-cols-2">
+      <div key="acct" className="screen-enter mt-6 grid gap-6 sm:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">My details</p>
           <p className="text-muted-foreground mt-2 text-sm">{user.name}</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { whatsappUrl } from "@/constants/content";
@@ -12,7 +13,11 @@ import { whatsappUrl } from "@/constants/content";
  * hides over the footer, where the contact links already appear.
  */
 export function WhatsAppFab() {
+  const pathname = usePathname() ?? "";
   const [footerVisible, setFooterVisible] = useState(false);
+  // Internal work surfaces are staff-only — a customer-contact button has no
+  // business there. /account (customers) and the public site keep it.
+  const hidden = pathname.startsWith("/portal") || pathname.startsWith("/admin");
 
   useEffect(() => {
     const footer = document.getElementById("site-footer");
@@ -25,6 +30,8 @@ export function WhatsAppFab() {
     return () => observer.disconnect();
   }, []);
 
+  if (hidden) return null;
+
   return (
     <a
       href={whatsappUrl()}
@@ -33,7 +40,7 @@ export function WhatsAppFab() {
       aria-label="Chat with AZ ONE OFFICIAL on WhatsApp"
       tabIndex={footerVisible ? -1 : 0}
       aria-hidden={footerVisible}
-      className={`fixed right-5 bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+3.75rem)] z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-all duration-300 hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#25D366] motion-reduce:transition-none sm:right-8 sm:bottom-[calc(2rem+3.75rem)] ${
+      className={`fixed right-5 ${pathname.startsWith("/account") ? "bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+7.25rem)] md:bottom-[calc(2rem+3.75rem)]" : "bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+3.75rem)]"} z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-all duration-300 hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#25D366] motion-reduce:transition-none sm:right-8 sm:bottom-[calc(2rem+3.75rem)] ${
         footerVisible
           ? "pointer-events-none translate-y-3 opacity-0"
           : "translate-y-0 opacity-100"

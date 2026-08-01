@@ -21,11 +21,7 @@ export default function BlogPage() {
         {BLOG_POSTS.map((post) => (
           <article key={post.slug} className="flex h-full flex-col rounded-xl border border-border p-6">
             <p className="text-muted-foreground text-xs">
-              {new Date(post.date).toLocaleDateString("en-MY", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}{" "}
+              {post.date.slice(0, 10).split("-").reverse().join("-")}{" "}
               · {post.readMinutes} min read
             </p>
             <h2 className="mt-2 text-lg font-semibold text-foreground">

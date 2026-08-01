@@ -48,7 +48,6 @@ interface Staff {
   employee_id?: string | null;
   position?: string | null;
   department?: string | null;
-  employment_status?: string | null;
   phone?: string | null;
   id_issued_on?: string | null;
   birthday?: string | null;
@@ -98,6 +97,7 @@ function badgeData(s: Staff) {
     department: s.department ?? "",
     phone: s.phone ?? "",
     ic: s.ic_number ?? "",
+    joined: s.joined_on ? isoToDMY(s.joined_on) : "",
     issued: s.id_issued_on ? isoToDMY(s.id_issued_on) : "",
     photo: s.photo_key ? `/api/v1/media/file/${encodeURIComponent(s.photo_key)}` : "",
   };
@@ -105,42 +105,12 @@ function badgeData(s: Staff) {
 
 /** On-screen live preview at true PORTRAIT card size (54 × 85.6 mm, ID-1 rotated). */
 function BadgePreview({ s }: { s: Staff }) {
-  const d = badgeData(s);
-  const f = (label: string, value: string) => (
-    <div>
-      <p className="text-[5.5px] uppercase tracking-wider text-[#8a93a6]">{label}</p>
-      <p className="text-[8px] font-semibold text-[#1a2946]">{value || "—"}</p>
-    </div>
-  );
+  // Renders the EXACT print markup + CSS, so preview and print never drift.
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
-    <div
-      className="relative overflow-hidden border border-[#1a2946] bg-gradient-to-b from-white via-white to-[#f4f6fb] text-center"
-      style={{ width: "54mm", height: "85.6mm", padding: "4mm", fontFamily: "Arial, Helvetica, sans-serif" }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo.png" alt="AZ ONE OFFICIAL" className="mx-auto" style={{ height: "6mm", width: "auto" }} />
-      <div className="mx-auto mt-2 flex items-center justify-center overflow-hidden border border-[#dfe3ec] bg-[#f4f6fb]" style={{ width: "22mm", height: "28mm" }}>
-        {d.photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={d.photo} alt={d.name} className="h-full w-full object-cover" />
-        ) : (
-          <span className="text-[6px] text-[#8a93a6]">PHOTO</span>
-        )}
-      </div>
-      <p className="mt-1.5 text-[10px] font-extrabold leading-tight text-[#1a2946]">{d.name}</p>
-      <span className="mt-0.5 inline-block rounded bg-[#1a2946] px-1.5 py-0.5 text-[6px] font-bold uppercase text-white">
-        {d.role}
-      </span>
-      <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-1 text-left">
-        {f("Employee ID", d.employee_id)}
-        {f("Position", d.position)}
-        {f("Department", d.department)}
-        {f("Phone", d.phone)}
-      </div>
-      <div className="absolute border-t border-[#dfe3ec] pt-1 text-[5px] leading-snug text-[#8a93a6]" style={{ bottom: "2.5mm", left: "4mm", right: "4mm" }}>
-        {COMPANY_LOCATION}<br />
-        SSM 202603168673 (JM1046169-H) · Issued {d.issued || "—"}
-      </div>
+    <div style={{ width: "54mm", height: "85.6mm" }}>
+      <style dangerouslySetInnerHTML={{ __html: BADGE_CSS }} />
+      <div dangerouslySetInnerHTML={{ __html: badgeCardHtml(s, origin) }} />
     </div>
   );
 }
@@ -148,20 +118,39 @@ function BadgePreview({ s }: { s: Staff }) {
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
     html,body{margin:0;padding:0}
-    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4mm;
+    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm 0;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;text-align:center;
-      background:linear-gradient(180deg,#fff 55%,#f4f6fb);position:relative;
+      background:#faf6ec;position:relative;overflow:hidden;
       border:0.3mm solid #1a2946}
-    .photo{width:22mm;height:28mm;margin:2mm auto 0;border:0.2mm solid #dfe3ec;
-      background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .deco{position:absolute;left:0;right:0;bottom:0;width:100%;height:13mm;display:block}
+    .arc{position:absolute;top:0;right:0;width:16mm;height:16mm;display:block}
+    .content{position:relative;z-index:1}
+    .tagline{margin-top:0.8mm;font-size:4.6px;font-weight:700;letter-spacing:.28em;color:#b98a2e;text-transform:uppercase}
+    .photo{width:20mm;height:26mm;margin:1.6mm auto 0;border:0.2mm solid #e3dcc8;
+      background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .name{margin-top:1.5mm;font-size:10px;font-weight:800;line-height:1.15}
-    .role{display:inline-block;margin-top:0.5mm;font-size:6px;font-weight:700;
-      text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 4px;border-radius:2px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1mm 2mm;margin-top:1.5mm;text-align:left}
-    .foot{position:absolute;bottom:2.5mm;left:4mm;right:4mm;font-size:5px;line-height:1.4;
-      color:#8a93a6;border-top:0.2mm solid #dfe3ec;padding-top:1mm}
+    .name{margin-top:1.4mm;font-size:10px;font-weight:800;line-height:1.15}
+    .role{display:inline-block;margin-top:0.6mm;font-size:6px;font-weight:700;
+      text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 5px;border-radius:2px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:0.9mm 2mm;margin-top:1.6mm;text-align:left}
+    .foot{position:absolute;bottom:14mm;left:4mm;right:4mm;z-index:1;font-size:5px;line-height:1.4;
+      color:#8a93a6;border-top:0.2mm solid #e3dcc8;padding-top:0.8mm}
 `;
+
+/** The bottom navy sweep with its gold edge, and a thin gold arc top-right —
+    the brand-card look. Both are decorative layers: the sweep occupies only
+    the bottom 13 mm and the foot text sits at 14 mm, so no text is ever
+    interrupted. */
+const BADGE_DECOR = `
+  <svg class="arc" viewBox="0 0 60 60" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M14,0 Q46,10 60,44 L60,0 Z" fill="#1a2946"/>
+    <path d="M10,0 Q44,9 60,46" fill="none" stroke="#c9a24b" stroke-width="1.6"/>
+  </svg>
+  <svg class="deco" viewBox="0 0 200 48" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,46 Q60,14 200,4 L200,48 L0,48 Z" fill="#c9a24b"/>
+    <path d="M0,48 Q64,20 200,10 L200,48 Z" fill="#1a2946"/>
+    <path d="M0,46 Q60,14 200,4" fill="none" stroke="#e7c877" stroke-width="1.4"/>
+  </svg>`;
 
 function badgeCardHtml(s: Staff, origin: string): string {
   const d = badgeData(s);
@@ -170,19 +159,23 @@ function badgeCardHtml(s: Staff, origin: string): string {
   const field = (label: string, value: string) =>
     `<div><span style="font-size:5.5px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6">${label}</span><br/><span style="font-size:8px;font-weight:600;color:#1a2946">${value || "—"}</span></div>`;
   return `<div class="card">
-    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto"/>
-    <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
-    <div class="name">${d.name}</div>
-    <div class="role">${d.role}</div>
-    <div class="grid">
-      ${field("Employee ID", d.employee_id)}
-      ${field("Position", d.position)}
-      ${field("Department", d.department)}
-      ${field("Phone", d.phone)}
-      ${field("IC No.", d.ic)}
-      ${field("Issued", d.issued)}
+    ${BADGE_DECOR}
+    <div class="content">
+      <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto"/>
+      <div class="tagline">Live · Connect · Grow</div>
+      <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
+      <div class="name">${d.name}</div>
+      <div class="role">${d.role}</div>
+      <div class="grid">
+        ${field("Employee ID", d.employee_id)}
+        ${field("Position", d.position)}
+        ${field("Department", d.department)}
+        ${field("Phone", d.phone)}
+        ${field("NRIC", d.ic)}
+        ${field("Joined on", d.joined)}
+      </div>
     </div>
-    <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H)</div>
+    <div class="foot">${COMPANY_LOCATION}<br/>SSM 202603168673 (JM1046169-H) · Issued ${d.issued || "—"}</div>
   </div>`;
 }
 

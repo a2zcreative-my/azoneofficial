@@ -74,6 +74,12 @@ function StatusBadge({ value }: { value: string }) {
   );
 }
 
+/** ISO date → DD-MM-YYYY. */
+function dmyD(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}-${m}-${y}`;
+}
+
 export function StaffPanel() {
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [comment, setComment] = useState<Record<number, string>>({});
@@ -114,7 +120,7 @@ export function StaffPanel() {
         <span className="text-sm font-medium">
           {r.user_name}
           <span className="text-muted-foreground font-normal">
-            {" "}· {r.type} leave · {r.start_date} → {r.end_date} ({r.days}{" "}
+            {" "}· {r.type} leave · {dmyD(r.start_date)} → {dmyD(r.end_date)} ({r.days}{" "}
             {r.days === 1 ? "day" : "days"})
           </span>
         </span>

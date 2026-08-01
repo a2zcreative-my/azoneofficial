@@ -84,7 +84,7 @@ interface AttendanceRow {
 }
 
 export function HrPanel() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [shift, setShift] = useState("");
   const [reports, setReports] = useState<
@@ -92,7 +92,7 @@ export function HrPanel() {
   >([]);
   const [draft, setDraft] = useState({
     period: "daily",
-    report_date: new Date().toISOString().slice(0, 10),
+    report_date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
     content: "",
   });
   const [birthdays, setBirthdays] = useState<{ name: string; birthday: string }[]>([]);
@@ -238,7 +238,7 @@ export function HrPanel() {
             {birthdays.map((b) => (
               <li key={b.name} className="flex justify-between text-sm">
                 <span>{b.name}</span>
-                <span className="text-muted-foreground">{b.birthday}</span>
+                <span className="text-muted-foreground">{dmy(b.birthday)}</span>
               </li>
             ))}
           </ul>
@@ -617,7 +617,7 @@ interface OpsReport {
 export function OperationsPanel() {
   const [reports, setReports] = useState<OpsReport[]>([]);
   const [draft, setDraft] = useState({
-    report_date: new Date().toISOString().slice(0, 10),
+    report_date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
     operational_summary: "",
     sales_summary: "",
     strategy_note: "",
@@ -772,7 +772,7 @@ export function OverviewPanel() {
           <p className="text-sm font-semibold">Latest operational report</p>
           {data.latest_ops_report ? (
             <div className="mt-2">
-              <p className="text-muted-foreground text-xs">{data.latest_ops_report.report_date}</p>
+              <p className="text-muted-foreground text-xs">{dmy(data.latest_ops_report.report_date)}</p>
               <p className="mt-1 text-sm">{data.latest_ops_report.operational_summary}</p>
               {data.latest_ops_report.sales_summary && (
                 <p className="text-muted-foreground mt-1 text-xs">
@@ -960,7 +960,7 @@ function utcToMytLocal(utc: string): string {
  * is marked (manual/amended) and audit-logged with the actor.
  */
 export function AttendanceAdminPanel() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
   const [staff, setStaff] = useState<{ id: number; name: string }[]>([]);
   const [edit, setEdit] = useState<Record<number, string>>({});

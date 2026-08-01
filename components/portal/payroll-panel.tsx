@@ -31,7 +31,7 @@ const card = "rounded-lg border border-border bg-card p-5";
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
 
-const _COMPANY = {
+const COMPANY = {
   name: "AZ ONE OFFICIAL",
   ssm: "SSM Registration No. 202603168673 (JM1046169-H)",
   location: "Setia Tropika, Johor Bahru, Malaysia",
@@ -194,7 +194,7 @@ export function printPayslip(
 }
 
 export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [entries, setEntries] = useState<Record<number, Entry>>({});
   const [msg, setMsg] = useState("");
@@ -387,7 +387,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
  * the payroll processors (CEO/COO). No entry yet → clearly says so.
  */
 export function MyPayslip() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
   const [joinedOn, setJoinedOn] = useState<string | null>(null);

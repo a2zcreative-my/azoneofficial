@@ -833,12 +833,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const tok = data?.data;
     if (!tok?.access_token) return errorResponse("auth_failed", "TikTok did not return an access token", 400);
     await env.DB.prepare(
-      `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at)
-       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'))
+      `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at, shop_cipher)
+       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'), NULL)
        ON CONFLICT (provider) DO UPDATE SET
-         access_token = ?1, refresh_token = ?2,
+         access_token = ?1, refresh_token = ?2, shop_cipher = NULL,
          expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')`,
     ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
+
+    const shopsData = (await tiktokSignedFetch(env, "/authorization/202309/shops", {})) as {
+      data?: { shops?: { cipher?: string }[] }
+    } | null;
+    const cipher = shopsData?.data?.shops?.[0]?.cipher;
+    if (cipher) {
+      await env.DB.prepare(`UPDATE integration_tokens SET shop_cipher = ?1 WHERE provider = 'tiktok'`).bind(cipher).run();
+    }
+
     await audit(env, null, "tiktok.authorized");
     return new Response(
       `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">

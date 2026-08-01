@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
-import { PwaRegister } from "@/components/pwa-register";
 import { ScrollMemory } from "@/components/ui/scroll-memory";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
 import { WhatsAppFab } from "@/components/ui/whatsapp-fab";

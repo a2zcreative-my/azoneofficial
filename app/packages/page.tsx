@@ -57,7 +57,7 @@ export default function PackagesPage() {
       {/* Comparison — desktop only; the cards above already say this on mobile */}
       <section className="hidden lg:block">
         <h2>Compare side by side</h2>
-        <div className="mt-6 overflow-hidden rounded-xl border border-border">
+        <div className="border-border mt-6 overflow-x-auto rounded-xl border">
           <table className="w-full border-collapse text-left text-sm">
             <caption className="sr-only">
               Feature comparison across AZ ONE OFFICIAL live commerce packages

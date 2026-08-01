@@ -377,3 +377,15 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.51 — 01 Aug 2026 — IC number everywhere it belongs
 - NRIC on staff record, add-staff form, payslip I/C # row, badge (migration 0022)
+
+## v1.4.52 — 01 Aug 2026 — WhatsApp FAB scoping
+- Hidden on /portal and /admin; retained on public site and /account
+
+## v1.4.53 — 01 Aug 2026 — Brand badge
+- Cream + navy/gold sweep design; NRIC + join date on card; text zone protected; unified preview/print
+
+## v1.4.54 — 01 Aug 2026 — DD-MM-YYYY / MYT audit
+- Eight display violations fixed; all today/month defaults moved from UTC to MYT
+
+## v1.4.55 — 01 Aug 2026 — App view everywhere
+- /admin + /account join /portal (app bar, bottom nav, transitions); mobile fit sweep (tables, FAB, corner buttons)

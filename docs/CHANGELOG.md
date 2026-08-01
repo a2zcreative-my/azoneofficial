@@ -2,6 +2,67 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.55] — 2026-08-01 — App view on all three surfaces; mobile fit sweep
+
+### Added — /admin and /account now match /portal's app view (phones only)
+- **/admin**: sticky app bar showing the current section title, bottom tab bar with the first four sections + **More** sheet holding the rest (respecting role visibility of Users/Staff/Audit), screen transitions, safe-area padding, bottom clearance. Desktop unchanged
+- **/account** (customers): sticky app bar, two-tab bottom bar (Account · My Enquiries), screen transitions, bottom clearance
+- /portal already had all of this (v1.4.49–50) — the three surfaces now feel consistent
+
+### Fixed — mobile fit
+- **The public packages comparison table couldn't scroll on phones** (overflow was hidden, cutting columns off) — now scrolls horizontally
+- **WhatsApp button on /account lifts above the new bottom bar** on phones instead of overlapping it (desktop position unchanged; still absent from /portal and /admin per v1.4.52)
+- **The corner back-to-top button is hidden on all three app-view surfaces** — the bottom bar owns that corner, and tab taps already return to top
+- Audited every data table across portal/admin: all already scroll horizontally in place, so wide tables (payroll, attendance, audit) pan within their card instead of breaking the screen
+
+### Deploy
+- Rebuild the site only. No worker change, no migration
+
+
+## [1.4.54] — 2026-08-01 — Date audit: DD-MM-YYYY + Malaysia time everywhere
+
+### Fixed — every display date now DD-MM-YYYY, every timestamp Malaysia time
+Audit of every file found and fixed these violations:
+- **HR Staff birthdays** rendered raw ISO (1997-02-09) → now 09-02-1997
+- **Overview's latest ops report date** rendered raw ISO → DMY
+- **/admin enquiries and audit lists** rendered raw UTC database timestamps → DD-MM-YYYY HH:mm in MYT
+- **/admin audit panel** used slashes (01/08/2026) → dashes
+- **Attendance PDF footer** ("Generated …") used the browser's locale and timezone → MYT DMY
+- **/admin staff panel leave ranges** rendered raw ISO → DMY
+- **Blog dates** long-form → DD-MM-YYYY
+- **Portal notification timestamps** showed day + short month without year → DD-MM-YYYY HH:mm MYT
+
+### Fixed — "today" and "this month" now computed in Malaysia time
+Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal thought it was still *yesterday* — on the 1st of a month, payroll/attendance/report defaults pointed at the **previous month**. All defaults (payroll months ×3, attendance month, HR pay month, task report dates ×2) now compute in MYT. Server-side attendance/payslip queries already used MYT (+8) — verified unchanged
+
+### Known boundary
+- Native date-picker *inputs* render per the phone/browser locale (a browser behaviour that can't be styled); the values stored and every date the system itself displays are consistent DMY/MYT
+
+### Deploy
+- Rebuild the site only. No worker change, no migration
+
+
+## [1.4.53] — 2026-08-01 — Badge redesigned to the brand card, with NRIC + join date
+
+### Changed
+- **Badge now follows the brand-card design**: cream ivory base, the navy sweep with gold edging across the bottom corner, a thin gold arc top-right, and the gold **LIVE · CONNECT · GROW** tagline under the logo — matching the provided artwork
+- **Text is never interrupted**: the decorative sweep occupies only the bottom 13 mm as a background layer; all details sit in a content layer above it, and the footer line stops at 14 mm — so the curves stay purely decorative at any content length
+- **NRIC and Joined on are now on the badge**, joining Employee ID, Position, Department and Phone in the details grid; the issue date moved to the footer line
+- **Preview = print, guaranteed**: the on-screen badge preview now renders the exact same markup and CSS as the print version, so what you approve is what prints — individually or 9-per-A4
+
+### Deploy
+- Rebuild the site only. Fill Joined on + IC in Staff Details for each person so the badge shows them
+
+
+## [1.4.52] — 2026-08-01 — WhatsApp button off the internal surfaces
+
+### Changed
+- **The floating WhatsApp button no longer appears on /portal or /admin** — those are internal staff surfaces where a customer-contact button has no business. It remains on the public site and on **/account** (customers), exactly as specified. Implemented path-aware inside the button itself, so any page added later inherits the right behaviour automatically
+
+### Deploy
+- Rebuild the site only. No worker change, no migration
+
+
 ## [1.4.51] — 2026-08-01 — IC number (NRIC) across staff record, payslip, and badge
 
 ### Added (migration 0022)

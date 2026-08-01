@@ -59,10 +59,10 @@ function mytTime(iso: string): string {
   });
 }
 function mytDateTime(iso: string): string {
-  return new Date(iso.replace(" ", "T") + "Z").toLocaleString("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
+  // DD-MM-YYYY HH:mm in Malaysia time — the one date format system-wide.
+  const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
+  const i = d.toISOString();
+  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
 }
 function mytToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kuala_Lumpur" });
@@ -148,7 +148,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const a = await api<{ records: { type: string; created_at: string }[] }>(`/staff/attendance?month=${month}`);
     setToday((a.data?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     const l = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
@@ -157,7 +157,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
     setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed").slice(0, 5));
     const n = await api<{ announcements: Announcement[] }>(`/staff/announcements`);
     setAnns((n.data?.announcements ?? []).slice(0, 3));
-  }, []);
+  }, [loadTikTok]);
   useEffect(() => { void load(); }, [load]);
 
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
@@ -296,7 +296,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 /* ================= Attendance ================= */
 
 function Attendance({ user }: { user: User }) {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [records, setRecords] = useState<{ type: string; created_at: string; name?: string }[]>([]);
   const [reportMode, setReportMode] = useState(false);
   const canReport = MANAGE_ROLES.includes(user.role);
@@ -742,7 +742,7 @@ function Sales({ user }: { user: User }) {
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
-  }, [loadTikTok]);
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const addCustomer = async () => {
@@ -998,7 +998,6 @@ export default function PortalPage() {
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -1055,6 +1054,7 @@ export default function PortalPage() {
     );
   }
 
+  const [moreOpen, setMoreOpen] = useState(false);
   const unread = notifs.filter((n) => !n.is_read).length;
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
