@@ -86,8 +86,6 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-
-
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
   crypto.getRandomValues(arr);
@@ -337,17 +335,31 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string }[]): { sk
 /** The token response does NOT include the shop identifier. Order APIs
     require shop_cipher, which comes from Get Authorized Shops — fetched once
     after authorization and stored beside the token (v1.4.57). */
-async function refreshTikTokShopCipher(env: Env): Promise<boolean> {
+async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail: string }> {
   const data = (await tiktokSignedFetch(env, "/authorization/202309/shops", {})) as {
-    data?: { shops?: { id?: string; cipher?: string }[] };
+    code?: number; message?: string;
+    data?: {
+      shops?: { id?: string; cipher?: string }[];
+      shop_list?: { shop_id?: string; shop_cipher?: string; cipher?: string }[];
+    };
   } | null;
-  const shop = data?.data?.shops?.[0];
-  if (!shop?.cipher) return false;
+  if (!data) return { ok: false, detail: "no response from TikTok" };
+  // Both response shapes seen across TikTok Shop API versions are accepted.
+  const a = data.data?.shops?.[0];
+  const b = data.data?.shop_list?.[0];
+  const cipher = a?.cipher ?? b?.shop_cipher ?? b?.cipher ?? null;
+  const shopId = a?.id ?? b?.shop_id ?? null;
+  if (!cipher) {
+    const why = typeof data.code === "number" && data.code !== 0
+      ? `TikTok code ${data.code}: ${data.message ?? "no message"}`
+      : "authorized shop list came back empty — the seller authorization may not have completed for this shop";
+    return { ok: false, detail: why };
+  }
   await env.DB.prepare(
     `UPDATE integration_tokens SET shop_id = ?1, shop_cipher = ?2, updated_at = datetime('now')
      WHERE provider = 'tiktok'`,
-  ).bind(shop.id ?? null, shop.cipher).run();
-  return true;
+  ).bind(shopId, cipher).run();
+  return { ok: true, detail: "stored" };
 }
 
 /** Order webhooks carry only an id + status, so the line items are fetched.
@@ -646,9 +658,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // Older authorizations stored the token without the shop identifier —
     // resolve it now so a re-authorization is never needed for this.
     if (!tokNow.shop_cipher) {
-      const ok = await refreshTikTokShopCipher(env);
-      if (!ok) {
-        return errorResponse("no_shop_cipher", "Could not resolve the authorized shop — ensure the Seller authorization completed and the order/shop scopes are active, then try again", 502);
+      const cipherRes = await refreshTikTokShopCipher(env);
+      if (!cipherRes.ok) {
+        return errorResponse("no_shop_cipher", `Could not resolve the authorized shop — ${cipherRes.detail}`, 502);
       }
     }
     // Last 30 days of orders, newest first, one page of 50.
@@ -867,8 +879,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
          expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')`,
     ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
     // Order APIs need the shop_cipher — resolve and store it immediately.
-    const cipherOk = await refreshTikTokShopCipher(env);
-    await audit(env, null, "tiktok.authorized", undefined, undefined, { shop_cipher_stored: cipherOk });
+    const cipherRes = await refreshTikTokShopCipher(env);
+    await audit(env, null, "tiktok.authorized", undefined, undefined, { shop_cipher: cipherRes.detail });
     return new Response(
       `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">
        <h2>TikTok Shop connected</h2>

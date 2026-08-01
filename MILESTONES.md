@@ -395,3 +395,9 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.57 — 01 Aug 2026 — shop_cipher fix
 - Get Authorized Shops wired at callback + sync self-heal; Missing identifier resolved
+
+## v1.4.58 — 01 Aug 2026 — Badge overlap-proof
+- Flow footer via flex column; goldline + tagline removed; spacing tuned
+
+## v1.4.59 — 01 Aug 2026 — TikTok diagnostics
+- Shop resolution reports TikTok's actual answer; shops[] + shop_list[] shapes both accepted

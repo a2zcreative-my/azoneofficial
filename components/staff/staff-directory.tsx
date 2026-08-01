@@ -121,23 +121,22 @@ function BadgePreview({ s }: { s: Staff }) {
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
     html,body{margin:0;padding:0;background:transparent}
-    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4mm;
+    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;text-align:center;
-      background:linear-gradient(180deg,#fff 55%,#f4f6fb);position:relative;overflow:hidden;
-      border:0.3mm solid #1a2946}
-    .goldline{width:16mm;height:0.5mm;background:#c9a24b;margin:1.2mm auto 0;border-radius:1mm}
-    .tagline{margin-top:0.8mm;font-size:4.6px;font-weight:700;letter-spacing:.26em;color:#b98a2e;text-transform:uppercase}
-    .photo{width:20mm;height:25mm;margin:1.6mm auto 0;border:0.2mm solid #dfe3ec;
-      background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden}
+      background:linear-gradient(180deg,#fff 55%,#f4f6fb);overflow:hidden;
+      border:0.3mm solid #1a2946;
+      display:flex;flex-direction:column;align-items:stretch}
+    .photo{width:22mm;height:26mm;margin:2mm auto 0;border:0.2mm solid #dfe3ec;
+      background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .name{margin-top:1.3mm;font-size:9px;font-weight:800;line-height:1.15}
-    .role{display:inline-block;margin-top:0.6mm;font-size:6px;font-weight:700;
-      text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 5px;border-radius:2px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:0.8mm 2mm;margin-top:1.4mm;text-align:left}
-    .grid .v{font-size:7.5px;font-weight:600;color:#1a2946;line-height:1.15}
+    .name{margin-top:1.6mm;font-size:9.5px;font-weight:800;line-height:1.15}
+    .role{align-self:center;margin-top:0.8mm;font-size:6px;font-weight:700;
+      text-transform:uppercase;background:#1a2946;color:#fff;padding:1px 6px;border-radius:2px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1mm 2.5mm;margin-top:1.8mm;text-align:left}
+    .grid .v{font-size:7.5px;font-weight:600;color:#1a2946;line-height:1.2}
     .grid .k{font-size:5.2px;letter-spacing:.06em;text-transform:uppercase;color:#8a93a6}
-    .foot{position:absolute;bottom:2.5mm;left:4mm;right:4mm;font-size:5px;line-height:1.4;
-      color:#8a93a6;border-top:0.2mm solid #dfe3ec;padding-top:0.9mm;background:transparent}
+    .foot{margin-top:auto;padding-top:1mm;font-size:5px;line-height:1.4;
+      color:#8a93a6;border-top:0.2mm solid #dfe3ec}
 `;
 
 function badgeCardHtml(s: Staff, origin: string): string {
@@ -147,9 +146,7 @@ function badgeCardHtml(s: Staff, origin: string): string {
   const field = (label: string, value: string) =>
     `<div><span class="k">${label}</span><br/><span class="v">${value || "—"}</span></div>`;
   return `<div class="card">
-    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:5.5mm;width:auto"/>
-    <div class="goldline"></div>
-    <div class="tagline">Live · Connect · Grow</div>
+    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:6mm;width:auto;align-self:center;flex:none"/>
     <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
     <div class="name">${d.name}</div>
     <div class="role">${d.role}</div>

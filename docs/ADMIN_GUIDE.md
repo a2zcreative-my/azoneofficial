@@ -605,3 +605,13 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.57 | TikTok shop_cipher resolved via Get Authorized Shops (callback + Sync self-heal); "Missing identifier" fixed without re-authorization. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.58 | Badge: flex-column layout (footer can never overlap), gold line + tagline removed, spacing tuned. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.59 | TikTok shop-cipher lookup surfaces TikTok's real code/message; both response shapes handled. |

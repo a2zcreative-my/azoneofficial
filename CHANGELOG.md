@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.59] — 2026-08-01 — TikTok shop resolution: real diagnostics + both response shapes
+
+### Fixed
+- **"Could not resolve the authorized shop" was hiding TikTok's actual answer.** The shop-cipher lookup now reports exactly what TikTok said — an API code + message (e.g. a scope/permission refusal), or "authorized shop list came back empty" (meaning the Seller authorization never completed for the shop). No more guessing
+- **Both authorized-shops response shapes are accepted** (`shops[].cipher` and `shop_list[].shop_cipher`) — TikTok's API versions differ on this, and if the shape was the issue, this release fixes it outright
+- The authorization audit entry now records the cipher-resolution outcome for later inspection
+
+### Deploy
+- `npx wrangler deploy` → press **Sync from TikTok** again. Either it works, or the message now names the exact TikTok-side cause
+
+
+## [1.4.58] — 2026-08-01 — Badge layout made overlap-proof; gold line + tagline removed
+
+### Fixed
+- **The footer could still collide with the details grid** (visible over the NRIC/Joined row): the footer was absolutely positioned, so growing content ran underneath it. The card is now a **flex column and the footer is part of the flow, pinned to the bottom by spacing** — content can only push it down within the card, never overlap it. This holds for any name/position length, structurally
+- **Gold divider line and LIVE · CONNECT · GROW removed** per instruction — the card reads logo → photo → name → role → details → footer, clean and professional
+- Space freed by the removals goes to breathing room: slightly larger photo (22×26 mm), name, and grid spacing
+
+### Deploy
+- Rebuild the site only
+
+
 ## [1.4.57] — 2026-08-01 — Fix: TikTok "Missing identifier / shop_cipher" on Sync
 
 ### Fixed
