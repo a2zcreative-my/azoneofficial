@@ -54,6 +54,7 @@ interface Staff {
   blood_type?: string | null;
   photo_key?: string | null;
   is_active: number;
+  employment_status?: string | null;
 }
 
 interface ErrShape { error?: { message?: string } }
