@@ -407,3 +407,6 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.61 — 01 Aug 2026 — Dual-endpoint shop lookup
 - authorization + seller shops endpoints both attempted; per-attempt error detail
+
+## v1.4.62 — 01 Aug 2026 — Badge final polish
+- Colon-aligned rows; small gold tagline; rhythm tuned

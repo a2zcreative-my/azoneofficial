@@ -125,13 +125,16 @@ const BADGE_CSS = `
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;
       background:#fff;overflow:hidden;border:0.3mm solid #1a2946;
       display:flex;flex-direction:column;align-items:stretch}
-    .photo{width:20mm;height:24mm;margin:2mm auto 0;border:0.2mm solid #dfe3ec;
+    .photo{width:20mm;height:24mm;margin:1.8mm auto 0;border:0.2mm solid #dfe3ec;
       background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .rows{margin-top:2.2mm;text-align:left}
-    .row{display:flex;align-items:baseline;gap:1mm;padding:0.55mm 0}
-    .row .k{flex:none;width:15mm;font-size:6.2px;font-weight:800;letter-spacing:.04em}
-    .row .v{flex:1;font-size:7.2px;font-weight:600;line-height:1.2}
+    .tagline{margin-top:0.8mm;text-align:center;font-size:4.4px;font-weight:700;
+      letter-spacing:.3em;color:#b98a2e;text-transform:uppercase;flex:none}
+    .rows{margin-top:2.4mm;text-align:left}
+    .row{display:flex;align-items:baseline;padding:0.6mm 0}
+    .row .k{flex:none;width:14.5mm;font-size:6.2px;font-weight:800;letter-spacing:.04em}
+    .row .c{flex:none;width:2mm;font-size:7.2px;font-weight:600}
+    .row .v{flex:1;font-size:7.2px;font-weight:600;line-height:1.25}
     .foot{margin-top:auto;padding-top:1mm;border-top:0.2mm solid #dfe3ec;
       display:flex;justify-content:space-between;align-items:flex-end;gap:2mm;
       font-size:4.8px;line-height:1.35;color:#8a93a6}
@@ -144,9 +147,10 @@ function badgeCardHtml(s: Staff, origin: string): string {
   const logo = `${origin}/logo.png`;
   const photo = d.photo ? `${origin}${d.photo}` : "";
   const row = (label: string, value: string) =>
-    `<div class="row"><span class="k">${label}</span><span class="v">: ${value || "—"}</span></div>`;
+    `<div class="row"><span class="k">${label}</span><span class="c">:</span><span class="v">${value || "—"}</span></div>`;
   return `<div class="card">
     <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:7mm;width:auto;align-self:center;flex:none"/>
+    <div class="tagline">Live · Connect · Grow</div>
     <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
     <div class="rows">
       ${row("NAME", d.name.toUpperCase())}

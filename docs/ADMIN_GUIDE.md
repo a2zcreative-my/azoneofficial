@@ -625,3 +625,8 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.61 | Shop-cipher lookup tries authorization + seller endpoint families; per-attempt diagnostics. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.62 | Badge: three-column aligned rows (label/colon/value), small gold tagline under logo, spacing rhythm tuned. |

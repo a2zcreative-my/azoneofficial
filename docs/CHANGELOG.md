@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.62] — 2026-08-01 — Badge final polish: aligned columns + small tagline
+
+### Changed
+- **Every row now aligns on three true columns** — label, colon, value — so all colons sit in one vertical line and a wrapped value's second line starts exactly under its first, never under the colon
+- **Small gold LIVE · CONNECT · GROW** returns beneath the logo, subtle and letter-spaced as requested
+- Vertical rhythm evened out (row padding, photo spacing) for the organized, professional finish
+
+### Deploy
+- Rebuild the site only
+
+
 ## [1.4.61] — 2026-08-01 — TikTok shop lookup tries both endpoint families
 
 ### Changed
