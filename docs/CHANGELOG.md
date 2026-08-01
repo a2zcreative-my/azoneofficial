@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.64] — 2026-08-01 — More sheet: reliable close + friendlier touch (and an /admin build fix)
+
+### Fixed
+- **"Close not function" — real iOS bug, now fixed.** iPhone Safari doesn't fire taps on plain backdrop layers, so tapping the dimmed area never closed the sheet. The backdrop is now a genuine button (iOS honours it), and the sheet also gains an explicit **✕ Close button** and a tappable drag-handle — three reliable ways out, plus selecting any section still closes it
+- **/admin build error introduced in v1.4.55**: the mobile menu referenced state that was never declared (my scripting slip — the declaration step never wrote to disk). If your `pnpm build` failed recently, this was why. Declared and verified
+- **Background no longer scrolls** while the sheet is open — it behaves like a native menu, not a floating layer
+
+### Changed — touch ergonomics
+- Bottom-bar buttons: taller (56 px minimum), larger labels, centred — comfortably thumb-sized on all three surfaces (/portal, /admin, /account)
+- Sheet grid buttons: taller with more spacing between them
+
+### Deploy
+- Rebuild the site (`pnpm build`) — this build should succeed even if the previous one errored on /admin
+
+
+## [1.4.63] — 2026-08-01 — Badge: DEPARTMENT row added
+
+### Changed
+- **DEPARTMENT : row added directly below POSITION** on the badge, in the same aligned three-column style. Rows now: NAME / EMP. NO / NRIC / DATE JOIN / DATE ISSUED / POSITION / DEPARTMENT
+
+### Deploy
+- Rebuild the site only
+
+
 ## [1.4.62] — 2026-08-01 — Badge final polish: aligned columns + small tagline
 
 ### Changed

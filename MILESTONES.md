@@ -410,3 +410,8 @@ Live Hosts cannot reach finance, CMS, or admin. Customers cannot reach staff or 
 
 ## v1.4.62 — 01 Aug 2026 — Badge final polish
 - Colon-aligned rows; small gold tagline; rhythm tuned
+
+## v1.4.63 — 01 Aug 2026 — Badge DEPARTMENT row
+
+## v1.4.64 — 01 Aug 2026 — Mobile menu UX
+- iOS-reliable close (button backdrop, ✕, handle); 56px targets; scroll lock; admin moreOpen declaration fix

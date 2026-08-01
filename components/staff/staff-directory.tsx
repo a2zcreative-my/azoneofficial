@@ -159,6 +159,7 @@ function badgeCardHtml(s: Staff, origin: string): string {
       ${row("DATE JOIN", d.joined)}
       ${row("DATE ISSUED", d.issued)}
       ${row("POSITION", (d.position || "").toUpperCase())}
+      ${row("DEPARTMENT", (d.department || "").toUpperCase())}
     </div>
     <div class="foot">
       <span class="left">${COMPANY_LOCATION}</span>

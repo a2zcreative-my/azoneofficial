@@ -812,6 +812,12 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("Dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
 
+  // While the More sheet is open, the page behind must not scroll.
+  useEffect(() => {
+    document.body.style.overflow = moreOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [moreOpen]);
+
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data) setUser(r.data.user);
@@ -897,7 +903,7 @@ export default function AdminPage() {
                   key={t}
                   type="button"
                   onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                  className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                  className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
                     tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
                   }`}
                 >
@@ -909,7 +915,7 @@ export default function AdminPage() {
                 <button
                   type="button"
                   onClick={() => setMoreOpen((v) => !v)}
-                  className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                  className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
                     moreOpen || rest.includes(tab) ? "text-primary" : "text-muted-foreground"
                   }`}
                 >
@@ -919,20 +925,38 @@ export default function AdminPage() {
               )}
             </nav>
             {moreOpen && (
-              <div className="fixed inset-0 z-30 md:hidden" onClick={() => setMoreOpen(false)}>
-                <div className="absolute inset-0 bg-black/40" />
-                <div
-                  className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="bg-border mx-auto mb-3 h-1 w-10 rounded-full" />
-                  <div className="grid grid-cols-3 gap-2">
+              <div className="fixed inset-0 z-30 md:hidden">
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  className="absolute inset-0 cursor-pointer bg-black/40"
+                  onClick={() => setMoreOpen(false)}
+                />
+                <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="w-9" />
+                    <button
+                      type="button"
+                      aria-label="Close menu"
+                      className="bg-border mx-auto h-1.5 w-12 rounded-full"
+                      onClick={() => setMoreOpen(false)}
+                    />
+                    <button
+                      type="button"
+                      aria-label="Close"
+                      className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
                     {rest.map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                        className={`rounded-lg border px-2 py-3 text-xs font-medium ${
+                        className={`min-h-14 rounded-lg border px-2 py-3 text-xs font-medium ${
                           tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                         }`}
                       >

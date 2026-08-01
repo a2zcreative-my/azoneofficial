@@ -58,12 +58,8 @@ SELECT
   bank_name, bank_account, joined_on
 FROM users;
 
-PRAGMA defer_foreign_keys = TRUE;
-PRAGMA legacy_alter_table = ON;
-
-ALTER TABLE users RENAME TO _users_old;
+DROP TABLE users;
 ALTER TABLE users_new5 RENAME TO users;
--- DROP TABLE _users_old; -- Retained to avoid D1/SQLite FK constraint bugs on DROP
 
 -- Current staff default to 'permanent' (legacy 'active' said only "employed").
 -- probation/resigned/terminated are left untouched.

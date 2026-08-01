@@ -630,3 +630,13 @@ tab bar (first four tabs + More). Desktop unchanged.
 | Version | Change |
 |---|---|
 | v1.4.62 | Badge: three-column aligned rows (label/colon/value), small gold tagline under logo, spacing rhythm tuned. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.63 | Badge: DEPARTMENT row below POSITION. |
+
+
+| Version | Change |
+|---|---|
+| v1.4.64 | More sheet closes reliably on iOS (button backdrop + ✕ + handle); bigger touch targets; scroll lock; /admin missing-state build fix. |

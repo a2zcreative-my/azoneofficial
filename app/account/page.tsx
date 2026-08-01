@@ -132,7 +132,7 @@ export default function AccountPage() {
             key={t}
             type="button"
             onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
               tab === t ? "text-primary" : "text-muted-foreground"
             }`}
           >
