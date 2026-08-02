@@ -1375,6 +1375,13 @@ function Sales({ user }: { user: User }) {
     doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false,
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
+  const { show: showToast, node: toastNode } = useSaveToast();
+  // v1.4.94: backdating + typo edits. editingDoc = the document being fixed
+  // (its number never changes); doc_date/paid_date allow true past dates for
+  // payments received before this system existed.
+  const [docDate, setDocDate] = useState("");
+  const [paidDate, setPaidDate] = useState("");
+  const [editingDoc, setEditingDoc] = useState<{ id: number; doc_number: string } | null>(null);
   const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
   const load = useCallback(async () => {
@@ -1393,11 +1400,37 @@ function Sales({ user }: { user: User }) {
     setCust({ company: "", contact_person: "", phone: "", email: "" });
     void load();
   };
-  const createDoc = async () => {
-    if (doc.customer_id === -1 || doc.items.some((i) => !i.name)) return; // 0 = walk-in is valid
-    await api(`/staff/docs`, { method: "POST", body: JSON.stringify({ ...doc, salesperson_id: doc.salesperson_id || undefined }) });
+  const resetDocForm = () => {
     setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false });
-    void load();
+    setDocDate(""); setPaidDate(""); setEditingDoc(null);
+  };
+
+  const createDoc = async () => {
+    // v1.4.94: silent returns were why "nothing saved" — every stop now says why.
+    if (doc.customer_id === -1) { showToast("No changes", "Choose a customer first (Walk-in counts)", "notice"); return; }
+    if (doc.items.some((i) => !i.name.trim())) { showToast("No changes", "Every line needs an item description", "notice"); return; }
+    if (doc.items.every((i) => !i.unit_price_cents)) { showToast("No changes", "Enter a unit price (RM)", "notice"); return; }
+    const payload = {
+      ...doc,
+      salesperson_id: doc.salesperson_id || undefined,
+      doc_date: docDate || undefined,
+      paid_date: doc.paid_received ? (paidDate || docDate || undefined) : undefined,
+    };
+    if (editingDoc) {
+      const res = await api<{ error?: { message?: string } }>(`/staff/docs/${editingDoc.id}/edit`, { method: "POST", body: JSON.stringify(payload) });
+      if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Update failed — check access", "notice"); return; }
+      showToast("Saved", `${editingDoc.doc_number} updated`);
+      const idP = editingDoc.id;
+      resetDocForm(); void load();
+      void printDoc(idP); // fresh PDF straight after the fix
+      return;
+    }
+    const res = await api<{ id?: number; doc_number?: string; error?: { message?: string } }>(`/staff/docs`, { method: "POST", body: JSON.stringify(payload) });
+    if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Create failed — check access", "notice"); return; }
+    showToast("Saved", `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}`);
+    const newId = res.data.id;
+    resetDocForm(); void load();
+    void printDoc(newId); // PDF opens immediately after creation
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
     const body = d.doc_type === "INV"
@@ -1442,7 +1475,10 @@ function Sales({ user }: { user: User }) {
         </div>
 
         <div className={card}>
-          <p className="text-sm font-semibold">Create document</p>
+          {toastNode}
+          <p className="text-sm font-semibold">
+            {editingDoc ? <>Editing {editingDoc.doc_number} <button type="button" className="ml-1 text-xs font-normal underline" onClick={resetDocForm}>cancel</button></> : "Create document"}
+          </p>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
@@ -1461,6 +1497,22 @@ function Sales({ user }: { user: User }) {
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
                 </select>
               </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Document date (backdate allowed)</span>
+                <input type="date" className={inputClass} value={docDate}
+                  max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)}
+                  onChange={(e) => setDocDate(e.target.value)} />
+              </label>
+              {doc.doc_type === "INV" && doc.paid_received ? (
+                <label className="block">
+                  <span className="text-muted-foreground mb-1 block text-xs">Payment received date</span>
+                  <input type="date" className={inputClass} value={paidDate}
+                    max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)}
+                    onChange={(e) => setPaidDate(e.target.value)} />
+                </label>
+              ) : <span />}
             </div>
             <label className="block">
               <span className="text-muted-foreground mb-1 block text-xs">Sales person (who made this sale)</span>
@@ -1507,7 +1559,7 @@ function Sales({ user }: { user: User }) {
               </label>
             )}
             <p className="text-sm font-medium">Total: {fmtRM(total)}</p>
-            <button type="button" className={btnClass} onClick={() => void createDoc()}>Create with auto number</button>
+            <button type="button" className={btnClass} onClick={() => void createDoc()}>{editingDoc ? `Update ${editingDoc.doc_number}` : "Create with auto number"}</button>
           </div>
         </div>
       </div>
@@ -1549,6 +1601,24 @@ function Sales({ user }: { user: User }) {
               </select>
             )}
             {d.doc_type === "QT" && <span className="text-muted-foreground text-xs">Quotation</span>}
+            <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
+              title="Fix a typo — loads the document into the form; the number never changes"
+              onClick={async () => {
+                const r = await fetch(`/api/v1/staff/docs/${d.id}`, { credentials: "include" });
+                if (!r.ok) return;
+                const { doc: full } = (await r.json()) as { doc: DocFull & { customer_id?: number; salesperson_id?: number | null } };
+                let its: DocItem[] = [];
+                try { its = JSON.parse(full.items); } catch { its = []; }
+                setDoc({
+                  doc_type: full.doc_type, customer_id: (full as { customer_id?: number }).customer_id ?? -1,
+                  salesperson_id: (full as { salesperson_id?: number | null }).salesperson_id ?? 0,
+                  items: its.length ? its : [{ name: "", qty: 1, unit_price_cents: 0 }],
+                  discount_cents: full.discount_cents ?? 0, tax_percent: full.tax_percent ?? 0, paid_received: false,
+                });
+                setDocDate(full.created_at.slice(0, 10));
+                setEditingDoc({ id: d.id, doc_number: d.doc_number });
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}>Edit</button>
             <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
               onClick={() => void printDoc(d.id)}>PDF</button>
           </div>

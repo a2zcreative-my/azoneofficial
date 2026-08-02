@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.94] — 2026-08-02 — "Nothing saved" fixed loudly · backdated invoices · document editing · PDF straight after create
+
+### Fixed — why "Create with auto number" seemed to do nothing
+- The form had **silent stops**: with "Choose customer…" still selected (or an empty item line) the button returned without a word, and a server error (e.g. **migration 0035 not yet applied** — the new salesperson column makes the insert fail until it runs) vanished equally silently. Now every stop speaks: amber toasts for "Choose a customer first (Walk-in counts)", "Every line needs an item description", "Enter a unit price (RM)", and any server error message; success shows a green toast with the new document number. **Run migration 0035 before testing** — that is very likely the actual reason yours didn't save
+
+### Added
+- **Backdated documents**: a "Document date (backdate allowed)" field (past dates only, capped at today) — an invoice for a payment received before this system existed carries its true date; with "Payment already received" ticked, a "Payment received date" field backdates `paid_at` too, so the revenue card books it in the correct month
+- **Edit documents**: an **Edit** button on every row loads the document back into the form ("Editing INV-AZOO… · cancel"), lets you fix items, prices, discount, tax, customer, sales person or date, and **Update** recomputes totals — the document number NEVER changes, edits are audited (`doc.edit`), and invoice edits require finance rights just like invoice creation
+- **PDF immediately**: after creating or updating, the print view opens by itself with the fresh figures — create → PDF in one motion, exactly the flow asked for
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (applies **0035** if not yet run) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.93] — 2026-08-02 — Professional KPI editor · sales form clarity + Sales person · walk-in repair
 
 ### Fixed (honesty note)

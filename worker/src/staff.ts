@@ -1231,11 +1231,16 @@ export async function handleStaff(
     // v1.4.93: salesperson — any staff member; defaults to whoever created it.
     const salespersonId = typeof body.salesperson_id === "number" && body.salesperson_id > 0
       ? Math.round(body.salesperson_id) : user.id;
+    // v1.4.94: backdating — payments received before this system existed can
+    // be invoiced on their true date. Past dates only, never the future.
+    const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const docDate = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayMyt
+      ? body.doc_date : null;
     const res = await env.DB.prepare(
       `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
-        notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING id`,
+        notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(?15, datetime('now'))) RETURNING id`,
     ).bind(
       docType, number, customerId, JSON.stringify(items), discount, taxPct, total,
       str(body.notes, 2000) ? body.notes : null,
@@ -1245,14 +1250,17 @@ export async function handleStaff(
       docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
       salespersonId,
       user.id,
+      docDate ? `${docDate} 00:00:00` : null,
     ).first<{ id: number }>();
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
     if (docType === "INV" && body.paid_received === true && res?.id) {
+      const payDate = typeof body.paid_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.paid_date) && body.paid_date <= todayMyt
+        ? `${body.paid_date} 00:00:00` : (docDate ? `${docDate} 00:00:00` : null);
       await env.DB.prepare(
         `UPDATE sales_documents SET payment_status = 'paid', payment_method = 'bank_transfer',
-         payment_ref = ?1, paid_at = datetime('now') WHERE id = ?2`,
-      ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, res.id).run();
+         payment_ref = ?1, paid_at = COALESCE(?2, datetime('now')) WHERE id = ?3`,
+      ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, payDate, res.id).run();
     }
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
     return json({ id: res?.id, doc_number: number, total_cents: total }, 201);
@@ -1307,6 +1315,46 @@ export async function handleStaff(
     }
     await audit(env, user.id, "doc.update_status", "sales_documents", id);
     return json({ ok: true });
+  }
+  const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
+  if (docEdit && method === "POST") {
+    // v1.4.94: fix typos on an existing document — items, amounts, customer,
+    // salesperson, date. The document NUMBER never changes; totals recompute;
+    // audited. Invoice edits need finance rights, like invoice creation.
+    const idE = docEdit[1]!;
+    const docE = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
+      .bind(idE).first<{ doc_type: string }>();
+    if (!docE) return err("not_found", "Document not found", 404);
+    if (docE.doc_type === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+      return err("forbidden", "Insufficient rights to edit this document type", 403);
+    }
+    if (!body || !Array.isArray(body.items) || body.items.length === 0) {
+      return err("invalid_input", "items are required", 400);
+    }
+    const itemsE = (body.items as { name?: unknown; qty?: unknown; unit_price_cents?: unknown }[])
+      .filter((i) => str(i.name, 200) && typeof i.qty === "number" && i.qty > 0 && typeof i.unit_price_cents === "number" && i.unit_price_cents >= 0)
+      .map((i) => ({ name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number }));
+    if (itemsE.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
+    const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
+    const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
+    const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
+    const totalE = Math.max(0, Math.round((subE - discE) * (1 + taxE / 100)));
+    let custE: number | null = typeof body.customer_id === "number" && body.customer_id > 0 ? body.customer_id : null;
+    if (body.customer_id === 0) {
+      const wi = await env.DB.prepare(`SELECT id FROM customers WHERE company = 'Walk-in Customer'`).first<{ id: number }>();
+      custE = wi?.id ?? null;
+    }
+    const spE = typeof body.salesperson_id === "number" && body.salesperson_id > 0 ? Math.round(body.salesperson_id) : null;
+    const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const dateE = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayE
+      ? `${body.doc_date} 00:00:00` : null;
+    await env.DB.prepare(
+      `UPDATE sales_documents SET items = ?1, discount_cents = ?2, tax_percent = ?3, total_cents = ?4,
+       customer_id = COALESCE(?5, customer_id), salesperson_id = COALESCE(?6, salesperson_id),
+       created_at = COALESCE(?7, created_at) WHERE id = ?8`,
+    ).bind(JSON.stringify(itemsE), discE, taxE, totalE, custE, spE, dateE, idE).run();
+    await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
+    return json({ ok: true, total_cents: totalE });
   }
 
   /* ---- notifications ---- */
