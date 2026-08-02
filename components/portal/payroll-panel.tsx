@@ -70,6 +70,17 @@ interface Entry {
     hourly ORP = monthly wage ÷ 26 ÷ 8; OT pay = 1.5 × hourly × hours.
     (Rest-day 2.0× and public-holiday 3.0× OT can be added when needed —
     say the word.) One formula, used by table, slip and self-view. */
+/** v1.4.89: the payroll CYCLE month. A month's payroll is processed and paid
+    up to the 5th of the following month — so until the 5th (MYT), the month
+    the business is still working on is the PREVIOUS one. From the 5th, the
+    cycle closes and the present month takes over. Both the processing panel
+    and My payslip open on this month by default. */
+function payrollCycleMonth(): string {
+  const now = new Date(Date.now() + 8 * 3600 * 1000);
+  if (now.getUTCDate() < 5) now.setUTCMonth(now.getUTCMonth() - 1);
+  return now.toISOString().slice(0, 7);
+}
+
 function otPay(basicCents: number, hours: number | null | undefined): number {
   if (!hours || hours <= 0) return 0;
   return Math.round((basicCents / 26 / 8) * 1.5 * hours);
@@ -243,7 +254,8 @@ export function printPayslip(
 }
 
 export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
-  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
+  // Opens on the cycle month: July until 05-08, then August (v1.4.89).
+  const [month, setMonth] = useState(payrollCycleMonth());
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [entries, setEntries] = useState<Record<number, Entry>>({});
   const [msg, setMsg] = useState("");
@@ -720,8 +732,11 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
  */
 export function MyPayslip() {
   // v1.4.86: future months are not selectable — no payslip can exist for a
-  // month that hasn't happened, so offering them was an incorrect flow.
-  const nowMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+  // month that hasn't happened. v1.4.89: the picker follows the payroll
+  // CYCLE — until the 5th the latest month offered (and shown by default)
+  // is the PREVIOUS month, whose slip is the one about to release; the
+  // present month only appears from the 5th, after the cycle closes.
+  const nowMonth = payrollCycleMonth();
   const [month, setMonth] = useState(nowMonth);
   const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);

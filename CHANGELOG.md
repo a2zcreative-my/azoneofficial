@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.89] — 2026-08-02 — Payroll & payslip calendars follow the payroll cycle
+
+### Changed
+- **Both month pickers now open on the payroll-cycle month, exactly as specified**: a month's payroll runs until the 5th of the following month, so **until the 5th, Payroll processing and My payslip open on the PREVIOUS month** (today, 02-08: July — the cycle still in progress / the slip releasing on the 5th). **From the 5th, the present month takes over.** My payslip's month cap follows the same rule, so before the 5th staff can no longer even select the current month and meet a pointless "available next month" lock (the 08-2026 → 07-09-2026 screen goes away until August's cycle actually opens). Payroll processors can still navigate to any month manually
+
+### Deploy
+- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
+
+
 ## [1.4.88] — 2026-08-02 — Recurring expenses, due dates & a Payments-due board
 
 ### Category guidance (as asked)
