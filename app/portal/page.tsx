@@ -1264,8 +1264,10 @@ async function printDoc(id: number) {
   // v1.4.97: authorised signature auto-assigned by creator — the COO's own
   // documents carry the COO's signature; everyone else's (CEO, CCO, HR,
   // sales & marketing) carry the CEO's. Transparent PNGs incl. company chop.
-  const sigSrc = `${location.origin}/signatures/${doc.created_by_role === "coo" ? "coo" : "ceo"}-sign.png`;
-  const sigImg = `<img src="${sigSrc}" alt="" style="height:86px;max-width:200px;object-fit:contain;display:block;margin:0 auto -14px;" />`;
+  const sigSrc = `${location.origin}/signatures/${(doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo"))}-sign.png`;
+  const sigImg = `<img src="${sigSrc}" alt="" style="height:112px;max-width:250px;object-fit:contain;display:block;margin:0 auto -16px;" />`;
+  // Standardized signer identity under the line: FULL NAME → Position → company.
+  const signerLines = `<div class="signer"><span class="nm">${(doc.signer_name ?? "").toUpperCase()}</span><br/>${doc.signer_position ?? ""}<br/><span class="tiny">AZ ONE OFFICIAL</span></div>`;
   const metaRows = [
     ["No.", doc.doc_number],
     ["Date", dOnly(doc.created_at)],
@@ -1286,11 +1288,11 @@ async function printDoc(id: number) {
            <p class="tiny">Please send the transfer receipt via WhatsApp +60 12-383 4821 with the invoice number as reference.</p>
            ${isPaid ? `<p class="paidline">✔ PAID${doc.paid_at ? " · " + dOnly(doc.paid_at) : ""}${doc.payment_ref ? " · Ref: " + doc.payment_ref : ""}</p>` : ""}
          </div>
-         <div class="sig">${sigImg}<div class="line"></div>Authorised signature<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+         <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Authorised signature</span>${signerLines}</div>
        </div>`
     : doc.doc_type === "DO"
       ? `<div class="split">
-           <div class="sig">${sigImg}<div class="line"></div>Delivered by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+           <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Delivered by</span>${signerLines}</div>
            <div class="sig"><div class="line"></div>Received in good order<br/><span class="tiny">Name / Company chop &amp; date</span></div>
          </div>`
       : `<div class="split">
@@ -1299,7 +1301,7 @@ async function printDoc(id: number) {
              <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dOnly(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
            </div>
            <div class="split2">
-             <div class="sig">${sigImg}<div class="line"></div>Prepared by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+             <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Prepared by</span>${signerLines}</div>
              <div class="sig"><div class="line"></div>Accepted by<br/><span class="tiny">Signature, company chop &amp; date</span></div>
            </div>
          </div>`;
@@ -1350,8 +1352,11 @@ async function printDoc(id: number) {
     .pay p { margin: 2px 0; }
     .pay .bt { font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
     .paidline { color: #15803d; font-weight: 800; margin-top: 6px !important; }
-    .sig { text-align: center; min-width: 180px; font-size: 10.5px; }
-    .sig .line { border-bottom: 1px solid #1a2946; height: 44px; margin-bottom: 5px; }
+    .sig { text-align: center; min-width: 200px; font-size: 10.5px; }
+    .sig .line { border-bottom: 1px solid #1a2946; height: 18px; margin-bottom: 5px; }
+    .sig .lbl { display: block; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #8a93a6; margin-bottom: 3px; }
+    .signer .nm { font-weight: 800; font-size: 11.5px; letter-spacing: .02em; }
+    .signer { line-height: 1.5; }
     .tiny { font-size: 9px; color: #8a93a6; }
     .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
     .notes { margin-top: 12px; font-size: 11px; color: #5b6472; white-space: pre-wrap; }
@@ -1404,6 +1409,9 @@ interface DocFull {
   payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
   salesperson_name?: string | null;
   created_by_role?: string | null;
+  signer_role?: string | null;
+  signer_name?: string | null;
+  signer_position?: string | null;
 }
 
 function Sales({ user }: { user: User }) {

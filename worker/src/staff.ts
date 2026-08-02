@@ -1311,9 +1311,21 @@ export async function handleStaff(
        FROM sales_documents d JOIN customers c ON c.id = d.customer_id
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        LEFT JOIN users cb ON cb.id = d.created_by WHERE d.id = ?1`,
-    ).bind(docGet[1]).first();
+    ).bind(docGet[1]).first<Record<string, unknown>>();
     if (!d) return err("not_found", "Document not found", 404);
-    return json({ doc: d });
+    // v1.4.99: the printed signature block names the signer — the COO on the
+    // COO's own documents, otherwise the CEO — full name + position.
+    const signRole = d.created_by_role === "coo" ? "coo" : "ceo";
+    const signer = await env.DB.prepare(
+      `SELECT COALESCE(full_name, name) AS signer_name, position FROM users
+       WHERE role = ?1 AND is_active = 1 ORDER BY id LIMIT 1`,
+    ).bind(signRole).first<{ signer_name: string; position: string | null }>();
+    return json({ doc: {
+      ...d,
+      signer_role: signRole,
+      signer_name: signer?.signer_name ?? "AZ ONE OFFICIAL",
+      signer_position: signer?.position ?? (signRole === "coo" ? "Chief Operating Officer" : "Chief Executive Officer"),
+    } });
   }
 
   const docMatch = path.match(/^\/docs\/(\d+)$/);

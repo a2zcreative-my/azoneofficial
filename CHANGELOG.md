@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.99] — 2026-08-02 — Official signature PNGs · signer name + position under the Authorised signature
+
+### Changed
+- **Your clean transparent PNGs replace the extracted ones**: `public/signatures/ceo-sign.png` and `coo-sign.png` are now the files you supplied (signature + AZ ONE OFFICIAL chop, properly cut), and the image prints larger (112px tall) so the chop is legible — the previous render was too small
+- **Signer identity under the line, standardized on all three documents**: each signature block now reads — signature image → line → small caps label (*Authorised signature* / *Delivered by* / *Prepared by*) → **FULL NAME** in bold → **Position** → AZ ONE OFFICIAL. The worker returns the signer automatically: the **COO's full name and position on the COO's own documents, the CEO's on everything else** (pulled live from Staff Details `full_name` + `position`, so a title change updates every future print; sensible fallbacks if the position field is empty)
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Make sure your and the COO's **Position** fields are filled in Staff Details — that's what prints under the name
+
+
 ## [1.4.98] — 2026-08-02 — Maybank account on invoices · payment details + signature pinned to the page bottom (full A4, standardized)
 
 ### Added / Changed
