@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { compressImage } from "@/lib/compress-image";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
 
@@ -1124,6 +1125,7 @@ export function AttendanceAdminPanel() {
   const [sortDir, setSortDir] = useState<1 | -1>(1);
   // v1.4.78: find one specific staff member instead of scanning the full list.
   const [filterId, setFilterId] = useState(0);
+  const { show: showToast, node: toastNode } = useSaveToast();
   const clickSort = (k: "name" | "type" | "time" | "mark") => {
     if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
     else { setSortKey(k); setSortDir(1); }
@@ -1147,8 +1149,7 @@ export function AttendanceAdminPanel() {
     setMsg("");
     const res = await api<{ error?: { message?: string } }>(path, init);
     if (res.ok) {
-      setMsg(okMsg);
-      window.setTimeout(() => setMsg(""), 3000);
+      showToast("Saved", okMsg);
       void load();
     } else {
       setMsg(res.data?.error?.message ?? "Action failed — check access");
@@ -1157,6 +1158,7 @@ export function AttendanceAdminPanel() {
 
   return (
     <div className={`${card} mt-4 md:mt-6`}>
+      {toastNode}
       <p className="text-sm font-semibold">Staff attendance — corrections &amp; back-entry</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Amend a wrong punch or add clock in/out for days worked before this
@@ -1250,10 +1252,17 @@ export function AttendanceAdminPanel() {
                 </td>
                 <td className={`${td} whitespace-nowrap`}>
                   <button type="button" className="text-xs underline"
-                    onClick={() => void act(`/attendance/${r.id}`, {
-                      method: "PATCH",
-                      body: JSON.stringify({ myt: (edit[r.id] ?? utcToMytLocal(r.created_at)).replace("T", " ") }),
-                    }, "Record updated.")}>
+                    onClick={() => {
+                      const current = edit[r.id] ?? utcToMytLocal(r.created_at);
+                      if (current === utcToMytLocal(r.created_at)) {
+                        showToast("No changes", `${r.name} — time unchanged`, "notice");
+                        return;
+                      }
+                      void act(`/attendance/${r.id}`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ myt: current.replace("T", " ") }),
+                      }, `${r.name} — record updated`);
+                    }}>
                     Save
                   </button>
                   <button type="button" className="text-destructive ml-2 text-xs underline"
@@ -1301,6 +1310,7 @@ export function ClaimsPanel() {
   const [draft, setDraft] = useState({ claim_date: "", category: "travel", amount: "", description: "" });
   const [receipt, setReceipt] = useState<File | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
+  const { show: showToast, node: toastNode } = useSaveToast();
 
   const load = useCallback(async () => {
     const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
@@ -1329,12 +1339,13 @@ export function ClaimsPanel() {
     }
     setDraft({ claim_date: "", category: "travel", amount: "", description: "" });
     setReceipt(null);
-    setMsg("Claim submitted — the CEO has been notified.");
+    showToast("Saved", "Claim submitted — the CEO has been notified");
     void load();
   };
 
   const decide = async (id: number, action: "approve" | "reject") => {
     await api(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
+    showToast("Saved", `Claim ${action === "approve" ? "approved" : "rejected"} — claimant notified`);
     void load();
   };
 
@@ -1379,6 +1390,7 @@ export function ClaimsPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {toastNode}
       <div className={card}>
         <p className="text-sm font-semibold">Submit a claim</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1429,6 +1441,120 @@ export function ClaimsPanel() {
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
           {(canDecide ? decided : claims).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
           {(canDecide ? decided : claims).map((c) => claimRow(c, false))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ================= Company expenses (v1.4.87) ================= */
+
+interface ExpenseRec {
+  id: number;
+  expense_date: string;
+  category: string;
+  amount_cents: number;
+  vendor?: string | null;
+  description?: string | null;
+  created_by_name?: string | null;
+}
+
+const EXPENSE_CATEGORIES = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"] as const;
+
+/** Company operating expenses — CEO and COO record what the company spends
+    (rent, software, ads, logistics …). Separate from CLAIMS, which are staff
+    reimbursements routed to the CEO for approval. */
+export function ExpensesPanel() {
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
+  const [rows, setRows] = useState<ExpenseRec[]>([]);
+  const [draft, setDraft] = useState({ expense_date: "", category: "software", amount: "", vendor: "", description: "" });
+  const [msg, setMsg] = useState("");
+  const { show: showToast, node: toastNode } = useSaveToast();
+
+  const load = useCallback(async () => {
+    const res = await api<{ expenses: ExpenseRec[] }>(`/expenses?month=${month}`);
+    if (res.ok && res.data) setRows(res.data.expenses);
+  }, [month]);
+  useEffect(() => { void load(); }, [load]);
+
+  const rmc = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const total = rows.reduce((a, r) => a + r.amount_cents, 0);
+
+  const addExpense = async () => {
+    if (!draft.expense_date || !Number(draft.amount)) { setMsg("Date and amount are required."); return; }
+    setMsg("");
+    const res = await api<{ id?: number; error?: { message?: string } }>(`/expenses`, {
+      method: "POST",
+      body: JSON.stringify({ ...draft, amount: Number(draft.amount), vendor: draft.vendor || undefined, description: draft.description || undefined }),
+    });
+    if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not record the expense"); return; }
+    showToast("Saved", `Expense recorded — ${rmc(Math.round(Number(draft.amount) * 100))}`);
+    setDraft({ expense_date: "", category: "software", amount: "", vendor: "", description: "" });
+    void load();
+  };
+
+  return (
+    <div className="space-y-4">
+      {toastNode}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">Company expenses</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              Operating costs the company pays — rent, software, ads, logistics.
+              Staff reimbursements belong in Claims (approved by the CEO), not here.
+            </p>
+          </div>
+          <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+            value={month} max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)}
+            onChange={(e) => setMonth(e.target.value)} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input type="date" className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" title="Expense date"
+            value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} />
+          <select className="border-input bg-background h-9 max-w-40 rounded-lg border px-2 text-sm capitalize" value={draft.category}
+            onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
+            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 max-w-36 rounded-lg border px-2 text-sm" placeholder="Amount (RM)"
+            value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
+          <input className="border-input bg-background h-9 max-w-52 flex-1 rounded-lg border px-2 text-sm" placeholder="Vendor (optional)"
+            value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input className="border-input bg-background h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder="What was this for? (optional)"
+            value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+            onClick={() => void addExpense()}>Record expense</button>
+        </div>
+        {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
+      </div>
+
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>
+          <p className="text-sm font-semibold">Total {rmc(total)}</p>
+        </div>
+        <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+          {rows.length === 0 && <p className="text-muted-foreground text-sm">No expenses recorded this month.</p>}
+          {rows.map((r) => (
+            <div key={r.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm">
+                  <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                  {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {dmy(r.expense_date)}
+                  {r.description ? ` · ${r.description}` : ""}
+                  {r.created_by_name ? ` · by ${r.created_by_name}` : ""}
+                </p>
+              </div>
+              <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
+            </div>
+          ))}
         </div>
       </div>
     </div>

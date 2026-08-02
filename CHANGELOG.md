@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.87] — 2026-08-02 — Save toasts everywhere (with honest "No changes") · Expenses tab for CEO/COO
+
+### Added
+- **Save confirmation toast** — the same animated notification family as clock-in (centred card, ring draw, tick) now confirms saves, and when nothing actually changed it shows an amber **"No changes"** with an "i" instead of pretending to work. Shared component (`components/ui/save-toast.tsx`); wired with REAL change-detection into:
+  - **Payroll**: row Save (per-person, compares against the loaded snapshot), **Save all** (skips unchanged rows, reports "Saved — N entries" or "No changes"), **Base salaries** ("updated for N staff" / "already match")
+  - **Staff Details**: record Save ("Saved — <name>" / "No changes — nothing to save")
+  - **Attendance corrections**: row Save ("record updated" / "time unchanged") and Add/Remove
+  - **Profile**: phone Save ("updated" / "unchanged")
+  - Claims submit, event add and expense add show success toasts (forms are always changes by nature)
+- **Expenses tab** (migration **0032**, `expenses`) for **CEO and COO** (+admin tier): record company operating costs — date, category (rent / utilities / software / marketing / equipment / logistics / supplies / other), amount, vendor, description — with a month filter and month TOTAL; audited (`expense.create/delete`). Clarified in-app: **Expenses ≠ Claims** — Claims are staff reimbursements routed to the CEO for approval (that tab already existed); Expenses are what the company itself pays
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0032**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.86] — 2026-08-02 — My payslip: future months no longer selectable
 
 ### Fixed

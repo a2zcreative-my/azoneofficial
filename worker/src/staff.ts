@@ -40,6 +40,8 @@ const PERMS: Record<string, readonly Role[]> = {
   claims_decide: ["super_admin", "ceo"],
   // Sales revenue dashboard (v1.4.75) — per the CEO's list.
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
+  // Company expenses (v1.4.87) — CEO and COO per the CEO's spec.
+  expenses: ["super_admin", "admin", "ceo", "coo"],
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // Invoice finance status changes.
@@ -846,6 +848,51 @@ export async function handleStaff(
       `Your claim of RM ${(row.amount_cents / 100).toFixed(2)} was ${status}${typeof body?.note === "string" && body.note ? ` — ${body.note.slice(0, 200)}` : ""}`,
       `claim:${clMatch[1]}`);
     await audit(env, user.id, `claim.${action}`, "claims", clMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- company expenses (v1.4.87): CEO + COO ---- */
+
+  if (path === "/expenses" && method === "GET") {
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    const urlE = new URL(request.url);
+    const mE = urlE.searchParams.get("month"); // optional YYYY-MM filter
+    const { results } = await env.DB.prepare(
+      mE
+        ? `SELECT e.*, u.name AS created_by_name FROM expenses e
+           LEFT JOIN users u ON u.id = e.created_by
+           WHERE e.expense_date LIKE ?1 || '%' ORDER BY e.expense_date DESC, e.id DESC LIMIT 300`
+        : `SELECT e.*, u.name AS created_by_name FROM expenses e
+           LEFT JOIN users u ON u.id = e.created_by
+           ORDER BY e.expense_date DESC, e.id DESC LIMIT 300`,
+    ).bind(...(mE ? [mE] : [])).all();
+    return json({ expenses: results });
+  }
+  if (path === "/expenses" && method === "POST") {
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    const catsE = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
+    const centsE = Math.round(Number(body?.amount) * 100);
+    if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expense_date ?? "")) || !Number.isFinite(centsE) || centsE <= 0 || centsE > 1000000000) {
+      return err("invalid_input", "expense_date (YYYY-MM-DD) and a positive amount are required", 400);
+    }
+    const categoryE = typeof body.category === "string" && catsE.includes(body.category) ? body.category : "other";
+    const res = await env.DB.prepare(
+      `INSERT INTO expenses (expense_date, category, amount_cents, vendor, description, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+    ).bind(
+      body.expense_date, categoryE, centsE,
+      typeof body.vendor === "string" ? body.vendor.slice(0, 200) : null,
+      typeof body.description === "string" ? body.description.slice(0, 1000) : null,
+      user.id,
+    ).first<{ id: number }>();
+    await audit(env, user.id, "expense.create", "expenses", String(res?.id), { category: categoryE, amount_cents: centsE });
+    return json({ id: res?.id }, 201);
+  }
+  const exMatch = path.match(/^\/expenses\/(\d+)$/);
+  if (exMatch && method === "DELETE") {
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    await env.DB.prepare(`DELETE FROM expenses WHERE id = ?1`).bind(exMatch[1]).run();
+    await audit(env, user.id, "expense.delete", "expenses", exMatch[1]);
     return json({ ok: true });
   }
 

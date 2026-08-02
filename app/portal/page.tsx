@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { useSaveToast } from "@/components/ui/save-toast";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -20,6 +21,7 @@ import {
   InventoryPanel,
   OverviewPanel,
   ClaimsPanel,
+  ExpensesPanel,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 
@@ -380,6 +382,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
   const [calMonth, setCalMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const canManage = EVENTS_MANAGE_ROLES.includes(role);
+  const { show: showToast, node: toastNode } = useSaveToast();
 
   // v1.4.81: Johor public holidays render on the calendar too.
   const [holidays, setHolidays] = useState<{ holiday_date: string; name: string; kind: string }[]>([]);
@@ -413,6 +416,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
     if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not create the event"); return; }
     setDraft({ title: "", category: "training", event_date: "", start_time: "", end_time: "", location: "", details: "" });
     setShowForm(false);
+    showToast("Saved", "Event created — all staff notified");
     void loadEvents();
   };
 
@@ -423,6 +427,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
 
   return (
     <div className={card}>
+      {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">
@@ -1339,6 +1344,7 @@ function Profile() {
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { show: showToast, node: toastNode } = useSaveToast();
   useEffect(() => {
     void api<{ profile: Record<string, string | null> }>(`/staff/profile`).then((r) => {
       if (r.data?.profile) {
@@ -1348,12 +1354,18 @@ function Profile() {
     });
   }, []);
   const save = async () => {
+    if (phone === (profile.phone ?? "")) {
+      showToast("No changes", "Phone number unchanged", "notice");
+      return;
+    }
     setSaving(true);
     const res = await api(`/staff/profile`, { method: "PATCH", body: JSON.stringify({ phone }) });
     setSaving(false);
     if (res.ok) {
       setSaved(true);
+      setProfile((pr) => ({ ...pr, phone }));
       setTimeout(() => setSaved(false), 2000);
+      showToast("Saved", "Phone number updated");
     } else {
       alert("Failed to save phone number");
     }
@@ -1370,6 +1382,7 @@ function Profile() {
             </div>
           ))}
         </dl>
+        {toastNode}
         <label className="mt-4 block">
           <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
           <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
@@ -1394,7 +1407,7 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Claims", "Inventory", "Birthdays", "Overview", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Claims", "Expenses", "Inventory", "Birthdays", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -1408,6 +1421,8 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Payroll: ["ceo", "coo", "super_admin", "admin"],
   // Expense claims (v1.4.75): CEO/COO/CCO/HR submit; the CEO decides.
   Claims: ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"],
+  // Company expenses (v1.4.87): CEO and COO per spec.
+  Expenses: ["ceo", "coo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -1663,6 +1678,7 @@ export default function PortalPage() {
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
         {tab === "Claims" && <ClaimsPanel />}
+        {tab === "Expenses" && <ExpensesPanel />}
         {tab === "Attendance" && (
           <>
             <Attendance user={user} />

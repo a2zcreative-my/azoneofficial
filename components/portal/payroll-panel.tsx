@@ -9,7 +9,8 @@
  * or hr_admin (hr_manage); COO/CCO see it read-only via exec view.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
 
@@ -252,6 +253,15 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   // 20 July (10 of 26 days): basic shows RM2100, deduction RM1292.31,
   // net RM807.69. Same money as the old proration, but visible and fair.
   const [monthDays, setMonthDays] = useState(26);
+  const { show: showToast, node: toastNode } = useSaveToast();
+  // v1.4.87: change detection — snapshot of each row as loaded, so Save can
+  // honestly say "No changes" instead of pretending to work.
+  const pristineRef = useRef<Record<number, string>>({});
+  const fingerprint = (id: number) => {
+    const e = entry(id);
+    const d = workedDays[id];
+    return JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, typeof d === "number" && !Number.isNaN(d) ? d : null, e.note ?? null]);
+  };
   const [workedDays, setWorkedDays] = useState<Record<number, number>>({});
 
 
@@ -275,6 +285,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       const d = workedDays[u.id];
       const hasDays = typeof d === "number" && !Number.isNaN(d);
       if (!e && !hasDays) continue; // nothing entered for this row
+      if (fingerprint(u.id) === pristineRef.current[u.id]) continue; // unchanged
       const res = await api(`/payroll`, {
         method: "POST",
         body: JSON.stringify({
@@ -286,8 +297,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       });
       if (res.ok) n += 1;
     }
-    setMsg(`Saved ${n} ${n === 1 ? "entry" : "entries"} for ${month}.`);
-    window.setTimeout(() => setMsg(""), 3000);
+    if (n === 0) showToast("No changes", "Every row already matches what's saved", "notice");
+    else showToast("Saved", `${n} ${n === 1 ? "entry" : "entries"} saved for ${month}`);
     void load();
   };
 
@@ -347,6 +358,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     setEntries(map);
     setWorkedDays(savedDays);
     setRelease(p.data?.release ?? null);
+    // Snapshot the just-loaded state per row for no-change detection.
+    const snap: Record<number, string> = {};
+    for (const u of list) {
+      const e = map[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+      const d = savedDays[u.id];
+      snap[u.id] = JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, d ?? null, e.note ?? null]);
+    }
+    pristineRef.current = snap;
   }, [month]);
   useEffect(() => {
     void load();
@@ -362,8 +381,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     setEntries((m) => ({ ...m, [id]: { ...entry(id), [key]: cents } }));
   };
 
-  const save = async (id: number) => {
+  const save = async (id: number, name?: string) => {
     setMsg("");
+    if (fingerprint(id) === pristineRef.current[id]) {
+      showToast("No changes", name ? `${name} — nothing to save` : "Nothing to save", "notice");
+      return;
+    }
     const d = workedDays[id];
     const res = await api<{ error?: { message?: string } }>(`/payroll`, {
       method: "POST",
@@ -374,8 +397,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
       }),
     });
-    setMsg(res.ok ? "Saved." : (res.data?.error?.message ?? "Save failed"));
-    window.setTimeout(() => setMsg(""), 2500);
+    if (res.ok) showToast("Saved", name ?? "Payroll entry saved");
+    else setMsg(res.data?.error?.message ?? "Save failed");
     void load();
   };
 
@@ -386,6 +409,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
 
   return (
     <div className={`${card} mt-4 md:mt-6`}>
+      {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">Payroll processing</p>
@@ -514,8 +538,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   if (res.ok) n++;
                 }
               }
-              setMsg(n > 0 ? `Base salary updated for ${n} staff.` : "No changes to save.");
-              window.setTimeout(() => setMsg(""), 3500);
+              if (n > 0) showToast("Saved", `Base salary updated for ${n} staff`);
+              else showToast("No changes", "Base salaries already match", "notice");
               void load();
             }}
           >
@@ -638,7 +662,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                             Base
                           </button>
                         )}
-                        <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id)}>
+                        <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id, u.name)}>
                           Save
                         </button>
                       </>

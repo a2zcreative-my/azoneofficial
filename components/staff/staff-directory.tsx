@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { compressImage } from "@/lib/compress-image";
+import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 
 const API = "/api/v1/staff";
@@ -236,6 +237,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   // v1.4.74 minimalist view: records are COLLAPSED by default — one line each.
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
+  const { show: showToast, node: toastNode } = useSaveToast();
 
   const toggleSelect = (id: number) =>
     setSelected((prev) => {
@@ -276,9 +278,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     void load();
   }, [load]);
 
-  const save = async (id: number) => {
+  const save = async (id: number, name?: string) => {
     const d = draft[id];
-    if (!d || Object.keys(d).length === 0) return;
+    if (!d || Object.keys(d).length === 0) {
+      showToast("No changes", name ? `${name} — nothing to save` : "Nothing to save", "notice");
+      return;
+    }
     setRowMsg((m) => ({ ...m, [id]: "" }));
     // Dates were typed DD-MM-YYYY; store ISO.
     const payload: Record<string, string> = {};
@@ -290,6 +295,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       setSaved(id);
       setDraft((s) => ({ ...s, [id]: {} }));
       window.setTimeout(() => setSaved(null), 3000);
+      showToast("Saved", name ?? "Staff record updated");
       void load();
     } else {
       setRowMsg((m) => ({ ...m, [id]: res.data?.error?.message ?? "Save failed — check access" }));
@@ -308,6 +314,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
 
   return (
     <div className="space-y-3">
+      {toastNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
         <p className="text-sm font-medium">Staff directory &amp; ID badges</p>
         <p className="text-muted-foreground text-xs">
@@ -512,7 +519,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   <button
                     type="button"
                     className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85`}
-                    onClick={() => void save(u.id)}
+                    onClick={() => void save(u.id, u.name)}
                   >
                     Save
                   </button>
