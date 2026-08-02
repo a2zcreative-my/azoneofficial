@@ -369,7 +369,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       )}
       {!readOnly && showCreate && (
       <div className={card}>
-        <p className="text-sm font-semibold">Add a staff member <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => setShowCreate(false)}>hide</button></p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Add a staff member</p>
+          <button type="button"
+            className="border-border hover:bg-secondary inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium"
+            onClick={() => setShowCreate(false)}>
+            Hide form <span aria-hidden="true">▲</span>
+          </button>
+        </div>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Company emails (@azoneofficial.com) aren&apos;t Google accounts, so
           staff can&apos;t self-register — create the account here with a

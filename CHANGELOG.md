@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.117] — 2026-08-02 — Receipt attach resubmits a rejected claim · claim form fits ONE A4
+
+### Changed (Claims)
+- **Attaching a receipt to a REJECTED claim now resubmits it automatically.** The missing receipt was the reason for rejection — once it's attached the claim goes straight back to pending, the previous decision and any chain stamps are cleared, the first stage of the approval chain is notified ("Resubmitted with receipt"), and the staff member sees "Receipt attached — claim RESUBMITTED for approval". Audited `claim.resubmit` (via receipt_attach). "Edit & resubmit" remains for when the claim's content itself needs fixing
+- The 📎 attach on a *pending* claim behaves as before — attaches quietly without restarting anything
+
+### Changed (printed claim form — one A4 page)
+- The whole form **including the receipt** now fits a single A4 sheet: page margins 14mm → 9mm, tightened header/table/signature spacing (signature boxes 78 → 64px), receipt box capped at 72×58mm, and break-inside guards on the receipt box and footer so nothing spills onto a second page. All content — meta grid, up to 10 item rows, declaration, status line, three signatures, ✂ CUT HERE, receipt, footer — on page 1
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.116] — 2026-08-02 — "Hide" is a proper button
+
+### Changed
+- The Add-a-staff-member card's tiny underlined "hide" text link is now a real button — "**Hide form ▲**", bordered, h-8, hover state, sitting flush right of the card header — matching the "+ New staff record — show details" button that opens it
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.115] — 2026-08-02 — THE receipt bug, found and fixed
 
 ### Fixed (root cause of every failed receipt upload)

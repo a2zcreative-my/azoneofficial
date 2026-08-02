@@ -1036,7 +1036,21 @@ export async function handleStaff(
     const key = `claims/${clMatch[1]}-${Date.now()}`;
     await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
     await env.DB.prepare(`UPDATE claims SET receipt_key = ?1 WHERE id = ?2`).bind(key, clMatch[1]).run();
-    return json({ ok: true });
+    // v1.4.117: attaching a receipt to a REJECTED claim resubmits it — the
+    // missing receipt was the fix, so the claim goes straight back through
+    // the chain (decision + chain stamps cleared, first stage notified).
+    let resubmittedR = false;
+    if (row.status === "rejected") {
+      const cRow = await env.DB.prepare(`SELECT amount_cents FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ amount_cents: number }>();
+      await env.DB.prepare(
+        `UPDATE claims SET status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL,
+         hr_reviewed_by = NULL, hr_reviewed_at = NULL, pre_approved_by = NULL, pre_approved_at = NULL WHERE id = ?1`,
+      ).bind(clMatch[1]).run();
+      await notifyClaimFirstStage(user.role, user.name, clMatch[1]!, cRow?.amount_cents ?? 0, "Resubmitted with receipt");
+      await audit(env, user.id, "claim.resubmit", "claims", clMatch[1]!, { via: "receipt_attach" });
+      resubmittedR = true;
+    }
+    return json({ ok: true, resubmitted: resubmittedR });
   }
   if (clMatch && clMatch[2] === "/receipt" && method === "GET") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);

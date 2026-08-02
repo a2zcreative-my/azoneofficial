@@ -1429,33 +1429,34 @@ async function printClaimForm(c: Claim) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${claimNo} — Employee Claim Form</title>
   <style>
-    @page { size: A4; margin: 14mm; }
+    /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
+    @page { size: A4; margin: 9mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; }
-    h1 { text-align: center; margin: 4px 0 0; font-size: 19px; letter-spacing: .04em; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto; }
+    h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
     h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
-    h2 { text-align: center; margin: 6px 0 14px; font-size: 14px; font-weight: 600; }
-    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 10px; }
+    h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 7px; }
     table { width: 100%; border-collapse: collapse; }
-    .meta td { border: 1px solid #1a2946; padding: 5px 8px; }
+    .meta td { border: 1px solid #1a2946; padding: 4px 8px; }
     .meta .k { width: 21%; font-weight: 700; background: #f2f4f8; }
     .meta .v { width: 29%; }
-    .sect { margin: 12px 0 4px; font-weight: 700; }
+    .sect { margin: 8px 0 3px; font-weight: 700; }
     .det th { border: 1px solid #1a2946; background: #1a2946; color: #fff; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
-    .det td { border: 1px solid #1a2946; padding: 6px 8px; height: 22px; }
+    .det td { border: 1px solid #1a2946; padding: 4px 8px; height: 18px; }
     .det td.r { text-align: right; font-variant-numeric: tabular-nums; }
-    .total { margin-top: 10px; font-weight: 700; }
-    .decl { margin-top: 12px; font-size: 11px; }
+    .total { margin-top: 7px; font-weight: 700; }
+    .decl { margin-top: 8px; font-size: 10.5px; }
     .sys { margin-top: 6px; font-weight: 800; color: ${c.status === "approved" ? "#15803d" : c.status === "rejected" ? "#b91c1c" : "#b45309"}; }
     .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
     .sig .hd2 { font-weight: 700; background: #f2f4f8; }
-    .sig .body { height: 78px; }
-    .receiptwrap { display: flex; justify-content: flex-end; margin-top: 14px; }
-    .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 8px 10px; max-width: 86mm; text-align: center; }
-    .receiptbox .bt { margin: 0 0 6px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
-    .receiptbox img { max-width: 80mm; max-height: 78mm; object-fit: contain; display: block; margin: 0 auto; }
-    .cut { margin-top: 18px; text-align: center; color: #8a93a6; font-size: 10px; letter-spacing: .06em; }
-    .foot { margin-top: 10px; font-size: 8.5px; color: #8a93a6; text-align: center; }
+    .sig .body { height: 64px; }
+    .receiptwrap { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; break-inside: avoid; }
+    .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
+    .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
+    .cut { margin-top: 10px; text-align: center; color: #8a93a6; font-size: 10px; letter-spacing: .06em; }
+    .foot { margin-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     @media print { body { padding: 0; } }
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
@@ -1684,7 +1685,12 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                       method: "POST", credentials: "include",
                       headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
                     });
-                    if (up.ok) { showToast("Saved", "Receipt attached to your claim"); void load(); }
+                    if (up.ok) {
+                      let resub = false;
+                      try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
+                      showToast("Saved", resub ? "Receipt attached — claim RESUBMITTED for approval" : "Receipt attached to your claim");
+                      void load();
+                    }
                     else {
                       let m = "";
                       try { m = ((await up.json()) as { error?: { message?: string } })?.error?.message ?? ""; } catch { /* not JSON */ }
