@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.125] — 2026-08-02 — Claim form: CEO full name + signature on approval · no CUT HERE · footer at page bottom
+
+### Changed (printed claim form)
+- **CEO cell uses the FULL name** (uppercase, matching the Employee cell) — from the deciding CEO's user record, no longer the short display name
+- **CEO signature auto-inserts once approved:** on approved claims the CEO's official signature PNG prints in the Signature space, and **Date fills with the decision date** — matching the QT/DO/INV signing convention. Pending/rejected forms keep the blank signing space
+- **✂ CUT HERE removed** — the receipt box now sits directly below the signatures
+- **Footer pinned to the bottom of the A4 page** via the flex margin-top:auto pattern (the house rule — never absolute positioning), so the company/SSM line always sits at the true page bottom regardless of how many claim rows the form has
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.124] — 2026-08-02 — Expenses payroll figure now tallies with the Payroll tab (migration **0041**)
 
 ### Root cause of the discrepancy (full-file check done)

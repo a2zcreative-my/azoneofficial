@@ -1362,6 +1362,7 @@ interface Claim {
   claimant_position?: string | null;
   claimant_department?: string | null;
   decided_by_name?: string | null;
+  decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -1442,7 +1443,8 @@ async function printClaimForm(c: Claim) {
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
     @page { size: A4; margin: 9mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
+           display: flex; flex-direction: column; min-height: 277mm; /* A4 297mm − 2×9mm page margin − safety */ }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
     h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
     h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
@@ -1465,8 +1467,7 @@ async function printClaimForm(c: Claim) {
     .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
     .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
-    .cut { margin-top: 10px; text-align: center; color: #8a93a6; font-size: 10px; letter-spacing: .06em; }
-    .foot { margin-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     @media print { body { padding: 0; } }
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
@@ -1505,10 +1506,11 @@ async function printClaimForm(c: Claim) {
     <tr>
       <td class="body">Name: ${(c.claimant_full || c.claimant || "")}<br/>Signature:<br/><br/><br/>Date:</td>
       <td class="body">Name:<br/>Signature:<br/><br/><br/>Date:</td>
-      <td class="body">Name:${c.status !== "pending" && c.decided_by_name ? " " + c.decided_by_name : ""}<br/>Signature:<br/><br/><br/>Date:</td>
+      <td class="body">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}<br/>
+        Signature:${c.status === "approved" ? `<br/><img src="/signatures/ceo-sign.png" alt="" style="height:44px;display:block;margin:2px 0" onerror="this.style.display='none'"/>` : "<br/><br/><br/>"}
+        Date: ${c.status === "approved" && c.decided_at ? dmy(c.decided_at) : ""}</td>
     </tr>
   </table>
-  <p class="cut">✂ ————————————————————————— CUT HERE —————————————————————————</p>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
   <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
   </body></html>`);

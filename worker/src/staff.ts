@@ -855,7 +855,7 @@ export async function handleStaff(
                   (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS day_seq,
                   u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
                   u.department AS claimant_department, u.role AS claimant_role,
-                  d.name AS decided_by_name, hb.name AS hr_reviewed_by_name, pb.name AS pre_approved_by_name FROM claims c
+                  d.name AS decided_by_name, d.full_name AS decided_by_full, hb.name AS hr_reviewed_by_name, pb.name AS pre_approved_by_name FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
            LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by`;
     const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
