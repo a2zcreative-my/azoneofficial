@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.110] — 2026-08-02 — Receipt-too-large popup with the WhatsApp fix
+
+### Fixed
+- Oversized receipt uploads previously **failed silently** — the claim went through and the staff member never knew the receipt didn't. Every failure path now speaks up
+
+### Added
+- **Clear size limit: 8 MB** (generous — receipts compress to ~200 KB), enforced in three layers with the same friendly message everywhere: *"Receipt too large — the maximum is 8 MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy."*
+  1. **On file selection** — an oversized PDF (no client compression possible) or an extreme photo (>40 MB) is refused immediately with the popup, before any waiting
+  2. **On submit** — photos are auto-compressed first (longest side 1600px, as since v1.4.76, typically 5–15× smaller); if one still exceeds 8 MB (e.g. iPhone HEIC that couldn't be decoded), the claim submits WITHOUT it and the popup says so, adding "then use Edit on your claim to attach it"
+  3. **On the server** — a hard 8 MB cap (HTTP 413) with the same tip, so nothing oversized slips through by any route; a failed upload after a successful claim is now also reported instead of swallowed
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.109] — 2026-08-02 — Staff claims are expenses too
 
 ### Added (Expenses tab)

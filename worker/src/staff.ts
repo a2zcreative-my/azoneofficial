@@ -997,6 +997,12 @@ export async function handleStaff(
     if (!["pending", "rejected"].includes(row.status)) return err("invalid_state", "Approved claims are locked", 400);
     const ct = request.headers.get("content-type") ?? "image/jpeg";
     if (!/^image\//.test(ct) && ct !== "application/pdf") return err("invalid_input", "Receipt must be an image or PDF", 400);
+    // v1.4.110: hard size cap so staff get a clear message instead of a
+    // silent failure. 8 MB is generous — receipts compress to ~200 KB.
+    const lenR = Number(request.headers.get("content-length") ?? 0);
+    if (lenR > 8 * 1024 * 1024) {
+      return err("too_large", "Receipt too large — maximum 8 MB. Tip: send the photo to yourself on WhatsApp, save it back from the chat (WhatsApp compresses it), then upload that copy.", 413);
+    }
     const key = `claims/${clMatch[1]}-${Date.now()}`;
     await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
     await env.DB.prepare(`UPDATE claims SET receipt_key = ?1 WHERE id = ?2`).bind(key, clMatch[1]).run();

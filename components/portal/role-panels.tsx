@@ -1374,6 +1374,13 @@ interface Claim {
   created_at: string;
 }
 
+/* v1.4.110: receipt size limit + the message staff see when a photo is too
+   big. The WhatsApp trick is the easiest compressor everyone already has:
+   send the photo to yourself (or any chat), save it back from the chat —
+   WhatsApp compresses hard — then upload that copy. */
+const MAX_RECEIPT_MB = 8;
+const RECEIPT_TOO_BIG = `Receipt too large — the maximum is ${MAX_RECEIPT_MB} MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy.`;
+
 /* v1.4.106: which chain a claimant's role follows (mirrors the leave chain). */
 const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
   ["marketing", "sales_marketing", "editor", "live_host"].includes(role ?? "") ? "staff"
@@ -1543,11 +1550,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (!resE.ok) { setMsg(resE.data?.error?.message ?? "Could not update the claim"); return; }
       if (receipt) {
         const compressedE = await compressImage(receipt);
-        await fetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
-          body: compressedE,
-        });
+        if (compressedE.size > MAX_RECEIPT_MB * 1024 * 1024) {
+          showToast("No changes", `Claim updated WITHOUT the receipt. ${RECEIPT_TOO_BIG}`, "notice");
+        } else {
+          const up = await fetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
+            body: compressedE,
+          });
+          if (!up.ok) showToast("No changes", `Claim updated, but the receipt failed to upload. ${RECEIPT_TOO_BIG}`, "notice");
+        }
       }
       showToast("Saved", resE.data?.resubmitted ? "Claim resubmitted — CEO notified for approval" : "Claim updated — still awaiting CEO approval");
       setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null);
@@ -1561,12 +1573,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
     if (receipt) {
       const compressed = await compressImage(receipt); // PDFs pass through untouched
-      await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
+      if (compressed.size > MAX_RECEIPT_MB * 1024 * 1024) {
+        showToast("No changes", `Claim submitted WITHOUT the receipt. ${RECEIPT_TOO_BIG} Then use Edit on your claim to attach it.`, "notice");
+      } else {
+      const up = await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": compressed.type || receipt.type || "image/jpeg" },
         body: compressed,
       });
+      if (!up.ok) showToast("No changes", `Claim submitted, but the receipt failed to upload. ${RECEIPT_TOO_BIG} Then use Edit on your claim to attach it.`, "notice");
+      }
     }
     setPurpose(""); setItems([{ ...emptyItem }]);
     setReceipt(null);
@@ -1779,7 +1796,25 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <label className="border-border inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm hover:bg-secondary">
             {receipt ? `Receipt: ${receipt.name}` : "Attach receipt (image/PDF)"}
             <input type="file" accept="image/*,application/pdf" className="hidden"
-              onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                // v1.4.110: PDFs can't be compressed client-side — hard limit
+                // now. Oversized photos get a chance: compression runs on
+                // submit, and only if still too big is the upload refused.
+                if (f && f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) {
+                  showToast("No changes", RECEIPT_TOO_BIG, "notice");
+                  e.target.value = "";
+                  setReceipt(null);
+                  return;
+                }
+                if (f && f.size > 40 * 1024 * 1024) {
+                  showToast("No changes", RECEIPT_TOO_BIG, "notice");
+                  e.target.value = "";
+                  setReceipt(null);
+                  return;
+                }
+                setReceipt(f);
+              }} />
           </label>
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
             onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? "Resubmit for approval" : "Update claim") : "Submit claim"}</button>
