@@ -861,7 +861,10 @@ export async function handleStaff(
     const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
     const scope =
       all ? ""
-        : ["hr_admin", "coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN})`
+        // v1.4.121: HR keeps the full APPROVED history too (read-only, for
+        // printing claim forms + payout proofs for compilation).
+        : user.role === "hr_admin" ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN} OR c.status = 'approved')`
+        : ["coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN})`
           : user.role === "cco" ? ` WHERE (c.user_id = ?1 OR u.role = 'hr_admin')`
             : ` WHERE c.user_id = ?1`;
     const { results } = await env.DB.prepare(
@@ -984,7 +987,8 @@ export async function handleStaff(
     const rowG = await env.DB.prepare(`SELECT user_id, payment_proof_key FROM claims WHERE id = ?1`)
       .bind(claimProof[1]).first<{ user_id: number; payment_proof_key: string | null }>();
     if (!rowG?.payment_proof_key) return err("not_found", "No payment proof attached", 404);
-    if (rowG.user_id !== user.id && !can(user, "claims_decide")) return err("forbidden", "Not your claim", 403);
+    // v1.4.121: HR reads payout proofs for compilation (proof exists ⇒ paid).
+    if (rowG.user_id !== user.id && !can(user, "claims_decide") && user.role !== "hr_admin") return err("forbidden", "Not your claim", 403);
     const objP = await env.MEDIA.get(rowG.payment_proof_key);
     if (!objP) return err("not_found", "Payment proof file missing", 404);
     return new Response(objP.body, { headers: { "Content-Type": objP.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
@@ -1085,9 +1089,11 @@ export async function handleStaff(
   }
   if (clMatch && clMatch[2] === "/receipt" && method === "GET") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
-    const row = await env.DB.prepare(`SELECT user_id, receipt_key FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; receipt_key: string | null }>();
+    const row = await env.DB.prepare(`SELECT user_id, status, receipt_key FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string; receipt_key: string | null }>();
     if (!row?.receipt_key) return err("not_found", "No receipt attached", 404);
-    if (row.user_id !== user.id && !can(user, "claims_decide")) return err("forbidden", "Not your claim", 403);
+    // v1.4.121: HR reads approved claims' receipts for compilation (read-only).
+    const hrHistory = user.role === "hr_admin" && row.status === "approved";
+    if (row.user_id !== user.id && !can(user, "claims_decide") && !hrHistory) return err("forbidden", "Not your claim", 403);
     const obj = await env.MEDIA.get(row.receipt_key);
     if (!obj) return err("not_found", "Receipt file missing", 404);
     return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });

@@ -152,16 +152,18 @@ export function printPayslip(
     dedLines.push(`<tr><td>UNPAID LEAVE (${n2(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE)</td><td class="amt">${amt(unpaidDed)}</td></tr>`);
   }
   if (incompAdj > 0) {
-    dedLines.push(`<tr><td>INCOMPLETE MONTH (WORKED ${e.worked_days} OF ${e.month_working_days} WORKING DAYS)</td><td class="amt">${amt(incompAdj)}</td></tr>`);
+    dedLines.push(`<tr><td>INCOMPLETE MONTH (WORKED ${e.worked_days} OF ${e.month_working_days} PAYABLE DAYS)</td><td class="amt">${amt(incompAdj)}</td></tr>`);
   }
   const dedRows = dedLines.length > 0 ? dedLines.join("") : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
+  const othersRow = (label: string, v: number) =>
+    v > 0 ? `<tr><td>${label}</td><td class="amt">${n2(v)}</td></tr>` : "";
   const othersRows = x
     ? `<tr><td>WORKING DAYS (TOTAL CLOCKED IN)</td><td class="amt">${n2(x.working_day)}</td></tr>
-       <tr><td>PUBLIC HOLIDAY</td><td class="amt">${n2(x.public_holiday)}</td></tr>
-       <tr><td>ANNUAL LEAVE</td><td class="amt">${n2(x.annual_leave)}</td></tr>
-       <tr><td>MEDICAL LEAVE</td><td class="amt">${n2(x.medical_leave)}</td></tr>
-       <tr><td>EMERGENCY LEAVE (PAID)</td><td class="amt">${n2(x.emergency_leave ?? 0)}</td></tr>
-       <tr><td>UNPAID LEAVE</td><td class="amt">${n2(x.unpaid_leave ?? 0)}</td></tr>`
+       ${othersRow("PUBLIC HOLIDAY", x.public_holiday)}
+       ${othersRow("ANNUAL LEAVE", x.annual_leave)}
+       ${othersRow("MEDICAL LEAVE", x.medical_leave)}
+       ${othersRow("EMERGENCY LEAVE (PAID)", x.emergency_leave ?? 0)}
+       ${othersRow("UNPAID LEAVE", x.unpaid_leave ?? 0)}`
     : "";
 
   const w = window.open("", "_blank", "width=900,height=950");

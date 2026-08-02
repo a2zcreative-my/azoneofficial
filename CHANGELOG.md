@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.121] — 2026-08-02 — HR's read-only approved-claims history for compilation
+
+### Added
+- **hr_admin now sees every CEO-approved claim** (including paid ones) in a dedicated card: **"Approved claims history — compilation"**. Strictly read-only — no edit, no approve/reject, no mark-paid, no attach — with exactly what HR needs for records: the claim number (CLM-AZOO…), claimant, amount, a **PAID {date}** or **payment due** chip, and three links per row: **Print claim form**, **Receipt**, and **Payment proof** (the CEO's bank slip)
+- Server-side, the access is scoped precisely: HR's claim list gains approved claims only (pending/rejected claims of the exec chain remain invisible to HR as before); the receipt file is readable by HR **only for approved claims**; the payout proof is readable by HR (its existence already implies paid). All writes remain locked to the existing roles — claimant for receipts, CEO for decisions/payment/proof
+- HR's own "My claims" list stays personal (their claims + their review queue) — the history lives in its own card so the compilation view never mixes with day-to-day work
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.120] — 2026-08-02 — Payslip: zero rows hidden · working days = clocked-in only
+
+### Changed
+- **"Working days" on the slip means one thing now: the clocked-in total.** The old "WORKING DAYS IN MONTH (MON–FRI LESS HOLIDAYS)" row was already removed in v1.4.118 — the screenshot showing it was a pre-rebuild print. What remained was the deduction note reusing the phrase; it now reads "INCOMPLETE MONTH (WORKED 5 OF 22 **PAYABLE DAYS**)" so the words "working days" belong solely to the clocked-in figure. (The 22 stays in the note because the incomplete-month formula you approved in v1.4.84 divides by the month's payable days — the note exists precisely so the math on the slip is self-explanatory)
+- **Zero rows no longer print.** PUBLIC HOLIDAY, ANNUAL LEAVE, MEDICAL LEAVE, EMERGENCY LEAVE (PAID) and UNPAID LEAVE appear **only when they have data (> 0)** — a clean month shows just "WORKING DAYS (TOTAL CLOCKED IN)" plus the balances. The Public Holiday row itself stays (v1.4.119) — it simply hides when the count is zero
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.119] — 2026-08-02 — Public Holiday row restored
 
 ### Fixed (my misreading, reversed)

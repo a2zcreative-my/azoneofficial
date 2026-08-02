@@ -1638,6 +1638,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   };
   const pending = claims.filter((c) => c.status === "pending");
   const decided = claims.filter((c) => c.status !== "pending");
+  // v1.4.121: HR's read-only APPROVED history (incl. paid) for printing the
+  // claim form + payout proof for compilation. Their main list stays personal.
+  const hrHistory = role === "hr_admin" ? claims.filter((c) => c.status === "approved") : [];
+  const mainList = role === "hr_admin" ? claims.filter((c) => c.user_id === userId || c.status !== "approved") : claims;
 
   const claimItems = (c: Claim): { claim_date: string; category: string; description?: string; amount_cents: number }[] => {
     try {
@@ -1774,7 +1778,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 }} />
             </label>
           )}
-          {c.payment_proof_key && (c.user_id === userId || canDecide) && (
+          {c.payment_proof_key && (c.user_id === userId || canDecide || role === "hr_admin") && (
             <p className="mt-1 text-xs">
               <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">View payment receipt (payout proof)</a>
             </p>
@@ -1910,10 +1914,39 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div className={card}>
         <p className="text-sm font-semibold">{canDecide ? "All claims" : "My claims"}</p>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {(canDecide ? decided : claims).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
-          {(canDecide ? decided : claims).map((c) => claimRow(c, false))}
+          {(canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
+          {(canDecide ? decided : mainList).map((c) => claimRow(c, false))}
         </div>
       </div>
+
+      {role === "hr_admin" && (
+        <div className={card}>
+          <p className="text-sm font-semibold">Approved claims history — compilation</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Read-only: every CEO-approved claim, for printing the claim form and
+            the payment receipt (payout proof) for HR records.
+          </p>
+          <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+            {hrHistory.length === 0 && <p className="text-muted-foreground text-sm">No approved claims yet.</p>}
+            {hrHistory.map((c) => (
+              <div key={`hrh-${c.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+                <span className="min-w-0">
+                  <span className="font-medium">{claimNoOf(c)}</span>
+                  <span className="text-muted-foreground"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
+                  {c.paid_at
+                    ? <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">PAID {dmy(c.paid_at)}</span>
+                    : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">payment due</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-xs">
+                  <button type="button" className="underline" onClick={() => void printClaimForm(c)}>Print claim form</button>
+                  {c.receipt_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">Receipt</a>}
+                  {c.payment_proof_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
