@@ -1344,8 +1344,8 @@ function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
-  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number }>({
-    doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0,
+  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; paid_received?: boolean }>({
+    doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false,
   });
   const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
@@ -1364,9 +1364,9 @@ function Sales({ user }: { user: User }) {
     void load();
   };
   const createDoc = async () => {
-    if (!doc.customer_id || doc.items.some((i) => !i.name)) return;
+    if (doc.customer_id === -1 || doc.items.some((i) => !i.name)) return; // 0 = walk-in is valid
     await api(`/staff/docs`, { method: "POST", body: JSON.stringify(doc) });
-    setDoc({ doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0 });
+    setDoc({ doc_type: "QT", customer_id: -1, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false });
     void load();
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
@@ -1444,6 +1444,12 @@ function Sales({ user }: { user: User }) {
               <input type="number" min={0} step={0.5} className={inputClass} placeholder="Tax %" value={doc.tax_percent}
                 onChange={(e) => setDoc((d) => ({ ...d, tax_percent: Number(e.target.value) }))} />
             </div>
+            {doc.doc_type === "INV" && (
+              <label className="flex items-center gap-1.5 text-sm" title="Payment already in hand (e.g. bank transfer received) — the invoice is created as PAID and counts in revenue immediately">
+                <input type="checkbox" checked={doc.paid_received} onChange={(e) => setDoc((d) => ({ ...d, paid_received: e.target.checked }))} />
+                Payment already received (bank transfer)
+              </label>
+            )}
             <p className="text-sm font-medium">Total: {fmtRM(total)}</p>
             <button type="button" className={btnClass} onClick={() => void createDoc()}>Create with auto number</button>
           </div>

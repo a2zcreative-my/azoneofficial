@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.91] — 2026-08-02 — Walk-in invoices · payroll amount inside the expenses total · expense editing
+
+### Added
+- **Invoice for an unidentified buyer**: the customer dropdown gains **"🚶 Walk-in / unidentified buyer"** — pick it and the invoice bills a shared "Walk-in Customer" record (created automatically the first time), so a received payment can always be invoiced even when you don't know who the buyer is. Paired with a new **"Payment already received (bank transfer)"** checkbox on invoice creation: tick it and the invoice is born **PAID** — stamped bank transfer, counted in revenue immediately, green chip and PAID stamp from the start. (If the buyer later identifies themselves, add them as a proper customer for the next document)
+- **Staff payroll inside the expenses total**: the 💳 Payments-due payroll line now shows the actual amount (previous month's payroll, computed with the exact payslip formula — basic + commission + allowance + OT − deductions − unpaid leave − incomplete month), and the month's **Total** includes it with a breakdown: "incl. staff payroll RM 4,653.84 (07-2026) + expenses RM 2,140.00". Money out is finally one number
+- **Edit expenses** (typo fixes): every recorded expense gains an **Edit** link — date, category, amount, vendor and description editable inline with Save/Cancel, honest "No changes" toast, audited `expense.update`. **Staff payroll is deliberately not editable here** — its figures live in the Payroll tab, exactly as specified
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0034 already covers everything)
+
+
 ## [1.4.90] — 2026-08-02 — Invoice payments (bank transfer) · true sales figure + KPI target · branded QT/DO/INV templates
 
 ### Added (migration **0034**: `payment_method`, `payment_ref`, `paid_at` on sales_documents + `sales_targets`)

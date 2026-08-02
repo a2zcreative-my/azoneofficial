@@ -886,7 +886,63 @@ export async function handleStaff(
         upcoming.push(r);
       }
     }
-    return json({ expenses: results, upcoming });
+    // v1.4.91: staff payroll paid during this month = the PREVIOUS month's
+    // payroll (cycle closes on the 5th). Net per entry uses the same formula
+    // as the payslip: basic + commission + allowance + OT − manual deduction
+    // − unpaid leave (base ÷ 26 × days) − incomplete month.
+    let staffPayroll: { month: string; cents: number } | null = null;
+    if (mE) {
+      const yP = Number(mE.slice(0, 4));
+      const moP = Number(mE.slice(5, 7));
+      const prevM = new Date(Date.UTC(yP, moP - 2, 1)).toISOString().slice(0, 7);
+      const { results: pes } = await env.DB.prepare(
+        `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
+                COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
+                p.worked_days, p.month_working_days, u.base_salary_cents
+         FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
+      ).bind(prevM).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
+      const { results: uls } = await env.DB.prepare(
+        `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
+         WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
+      ).bind(prevM).all<{ user_id: number; days: number }>();
+      const ulMap = new Map(uls.map((r) => [r.user_id, r.days]));
+      let sum = 0;
+      for (const e of pes) {
+        const ul = ulMap.get(e.user_id) ?? 0;
+        const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
+        let adj = 0;
+        if (e.worked_days !== null && e.worked_days !== undefined && e.month_working_days && e.month_working_days > 0) {
+          const adjustable = Math.max(0, Math.max(0, e.month_working_days - e.worked_days) - ul);
+          adj = Math.round((e.basic_cents * adjustable) / e.month_working_days);
+        }
+        sum += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+      }
+      staffPayroll = { month: prevM, cents: sum };
+    }
+    return json({ expenses: results, upcoming, staff_payroll: staffPayroll });
+  }
+  const exEdit = path.match(/^\/expenses\/(\d+)$/);
+  if (exEdit && method === "PATCH") {
+    // v1.4.91: fix typos on a recorded expense. (Staff payroll is computed
+    // from the Payroll tab and is not editable here — by design.)
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    const catsP = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const setV = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
+    if (typeof body?.expense_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.expense_date)) setV("expense_date", body.expense_date);
+    if (typeof body?.category === "string" && catsP.includes(body.category)) setV("category", body.category);
+    if (typeof body?.amount === "number" && body.amount > 0) setV("amount_cents", Math.round(body.amount * 100));
+    if (typeof body?.vendor === "string") setV("vendor", body.vendor.slice(0, 200) || null);
+    if (typeof body?.description === "string") setV("description", body.description.slice(0, 1000) || null);
+    if (typeof body?.due_day === "number" && body.due_day >= 1 && body.due_day <= 31) setV("due_day", Math.round(body.due_day));
+    else if (body?.due_day === null) sets.push("due_day = NULL");
+    if (body?.recurring === true || body?.recurring === false) setV("recurring", body.recurring ? 1 : 0);
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    await env.DB.prepare(`UPDATE expenses SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
+      .bind(...vals, exEdit[1]).run();
+    await audit(env, user.id, "expense.update", "expenses", exEdit[1]);
+    return json({ ok: true });
   }
   const exPaid = path.match(/^\/expenses\/(\d+)\/paid$/);
   if (exPaid && method === "POST") {
@@ -1130,6 +1186,23 @@ export async function handleStaff(
     if (typeof body.customer_id !== "number" || !Array.isArray(body.items) || body.items.length === 0) {
       return err("invalid_input", "customer_id and items are required", 400);
     }
+    // v1.4.91: walk-in buyer — customer_id 0 bills the shared "Walk-in
+    // Customer" record (created once), so a payment can be invoiced even
+    // when the buyer's identity isn't known.
+    let customerId = body.customer_id as number;
+    if (customerId === 0) {
+      const existing = await env.DB.prepare(
+        `SELECT id FROM customers WHERE company = 'Walk-in Customer'`,
+      ).first<{ id: number }>();
+      if (existing) customerId = existing.id;
+      else {
+        const created = await env.DB.prepare(
+          `INSERT INTO customers (company, notes, created_by) VALUES ('Walk-in Customer', 'Shared record for unidentified buyers', ?1) RETURNING id`,
+        ).bind(user.id).first<{ id: number }>();
+        customerId = created?.id ?? 0;
+      }
+      if (!customerId) return err("server_error", "Could not prepare the walk-in customer record", 500);
+    }
     const items = (body.items as { name?: unknown; qty?: unknown; unit_price_cents?: unknown }[])
       .filter((i) => str(i.name, 200) && typeof i.qty === "number" && i.qty > 0 && typeof i.unit_price_cents === "number" && i.unit_price_cents >= 0)
       .map((i) => ({ name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number }));
@@ -1147,7 +1220,7 @@ export async function handleStaff(
         notes, valid_until, delivery_status, payment_status, due_date, created_by)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
     ).bind(
-      docType, number, body.customer_id, JSON.stringify(items), discount, taxPct, total,
+      docType, number, customerId, JSON.stringify(items), discount, taxPct, total,
       str(body.notes, 2000) ? body.notes : null,
       docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
       docType === "DO" ? "pending" : null,
@@ -1155,6 +1228,14 @@ export async function handleStaff(
       docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
       user.id,
     ).first<{ id: number }>();
+    // v1.4.91: payment already in hand — the invoice is born paid (bank
+    // transfer) and counts in revenue immediately.
+    if (docType === "INV" && body.paid_received === true && res?.id) {
+      await env.DB.prepare(
+        `UPDATE sales_documents SET payment_status = 'paid', payment_method = 'bank_transfer',
+         payment_ref = ?1, paid_at = datetime('now') WHERE id = ?2`,
+      ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, res.id).run();
+    }
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
     return json({ id: res?.id, doc_number: number, total_cents: total }, 201);
   }

@@ -1478,12 +1478,19 @@ export function ExpensesPanel() {
   // viewed month, plus the payroll due line.
   const [upcoming, setUpcoming] = useState<ExpenseRec[]>([]);
   const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean } | null>(null);
+  // v1.4.91: the previous month's payroll total (net, same formula as the
+  // payslips) — paid during this month, so it belongs in this month's total.
+  const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number } | null>(null);
+  // Inline edit for typo fixes (staff payroll excluded — computed in Payroll).
+  const [editId, setEditId] = useState<number | null>(null);
+  const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
 
   const load = useCallback(async () => {
-    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[] }>(`/expenses?month=${month}`);
+    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number } | null }>(`/expenses?month=${month}`);
     if (res.ok && res.data) {
       setRows(res.data.expenses);
       setUpcoming(res.data.upcoming ?? []);
+      setStaffPayroll(res.data.staff_payroll ?? null);
     }
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
@@ -1575,9 +1582,14 @@ export function ExpensesPanel() {
             {payrollDue && (
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>
-                  <p className="text-sm font-semibold">Staff payroll — {payrollDue.month.split("-").reverse().join("-")}</p>
+                  <p className="text-sm font-semibold">
+                    Staff payroll — {payrollDue.month.split("-").reverse().join("-")}
+                    {staffPayroll && staffPayroll.month === payrollDue.month && (
+                      <span className="ml-2">{rmc(staffPayroll.cents)}</span>
+                    )}
+                  </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then)
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) — figures from the Payroll tab
                   </p>
                 </div>
                 {payrollDue.released
@@ -1651,11 +1663,51 @@ export function ExpensesPanel() {
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>
-          <p className="text-sm font-semibold">Total {rmc(total)}</p>
+          <div className="text-right">
+            <p className="text-sm font-semibold">Total {rmc(total + (staffPayroll?.cents ?? 0))}</p>
+            {staffPayroll && staffPayroll.cents > 0 && (
+              <p className="text-muted-foreground text-xs">
+                incl. staff payroll {rmc(staffPayroll.cents)} ({staffPayroll.month.split("-").reverse().join("-")}) + expenses {rmc(total)}
+              </p>
+            )}
+          </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
           {rows.length === 0 && <p className="text-muted-foreground text-sm">No expenses recorded this month.</p>}
-          {rows.map((r) => (
+          {rows.map((r) => editId === r.id ? (
+            <div key={r.id} className="border-border rounded-lg border px-3 py-2">
+              <div className="flex flex-wrap gap-2">
+                <input type="date" className="border-input bg-background h-8 max-w-40 rounded-lg border px-2 text-sm"
+                  value={edit.expense_date} onChange={(e) => setEdit((d) => ({ ...d, expense_date: e.target.value }))} />
+                <select className="border-input bg-background h-8 max-w-36 rounded-lg border px-2 text-sm capitalize"
+                  value={edit.category} onChange={(e) => setEdit((d) => ({ ...d, category: e.target.value }))}>
+                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input type="number" min={0} step="0.01" className="border-input bg-background h-8 max-w-32 rounded-lg border px-2 text-sm"
+                  placeholder="Amount (RM)" value={edit.amount} onChange={(e) => setEdit((d) => ({ ...d, amount: e.target.value }))} />
+                <input className="border-input bg-background h-8 max-w-48 flex-1 rounded-lg border px-2 text-sm" placeholder="Vendor"
+                  value={edit.vendor} onChange={(e) => setEdit((d) => ({ ...d, vendor: e.target.value }))} />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input className="border-input bg-background h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder="Description"
+                  value={edit.description} onChange={(e) => setEdit((d) => ({ ...d, description: e.target.value }))} />
+                <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+                  onClick={async () => {
+                    const unchanged = edit.expense_date === r.expense_date && edit.category === r.category
+                      && Math.round(Number(edit.amount) * 100) === r.amount_cents
+                      && edit.vendor === (r.vendor ?? "") && edit.description === (r.description ?? "");
+                    if (unchanged) { showToast("No changes", "Nothing to save", "notice"); setEditId(null); return; }
+                    if (!edit.expense_date || !Number(edit.amount)) return;
+                    const res = await api(`/expenses/${r.id}`, { method: "PATCH", body: JSON.stringify({
+                      expense_date: edit.expense_date, category: edit.category, amount: Number(edit.amount),
+                      vendor: edit.vendor, description: edit.description,
+                    }) });
+                    if (res.ok) { showToast("Saved", "Expense updated"); setEditId(null); void load(); }
+                  }}>Save</button>
+                <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
             <div key={r.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
               <div className="min-w-0">
                 <p className="text-sm">
@@ -1675,7 +1727,14 @@ export function ExpensesPanel() {
                       : null}
                 </p>
               </div>
-              <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
+              <span className="flex items-center gap-2">
+                <button type="button" className="text-xs underline"
+                  onClick={() => {
+                    setEditId(r.id);
+                    setEdit({ expense_date: r.expense_date, category: r.category, amount: (r.amount_cents / 100).toString(), vendor: r.vendor ?? "", description: r.description ?? "" });
+                  }}>Edit</button>
+                <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
+              </span>
             </div>
           ))}
         </div>
