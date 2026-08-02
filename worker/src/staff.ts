@@ -152,6 +152,17 @@ async function audit(
   }
 }
 
+/** v1.4.114: non-fatal error-log writer for this module (index.ts has its own). */
+async function logError(env: Env, source: string, message: string): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO error_log (source, message) VALUES (?1, ?2)`,
+    ).bind(source, message.slice(0, 500)).run();
+  } catch (e) {
+    console.error("error_log write failed:", source, message, e);
+  }
+}
+
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
 const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
 
@@ -457,6 +468,21 @@ export async function handleStaff(
       `SELECT id, created_at FROM attendance_records
        WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
     ).bind(user.id, body.type, todayMYT).first<{ id: number; created_at: string }>();
+    // v1.4.113 (CEO's rule): the flow is clock IN first, then clock OUT.
+    // A clock-out without today's clock-in is refused with a clear message —
+    // enforced here, not just in the UI.
+    if (body.type === "clock_out") {
+      const inRow = await env.DB.prepare(
+        `SELECT id FROM attendance_records
+         WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
+      ).bind(user.id, todayMYT).first<{ id: number }>();
+      if (!inRow) {
+        return json(
+          { error: { code: "no_clock_in", message: "You haven't clocked in today — clock in first, then clock out at the end of your shift." } },
+          400,
+        );
+      }
+    }
     if (dup) {
       // Tell them WHEN they punched, so the confirmation is useful rather
       // than just a refusal. Time returned in Malaysia time.
@@ -1126,33 +1152,46 @@ export async function handleStaff(
         }
         sum += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
       }
-      const paidRow = await env.DB.prepare(
-        `SELECT paid_at FROM payroll_payments WHERE month = ?1`,
-      ).bind(prevM).first<{ paid_at: string }>();
-      staffPayroll = { month: prevM, cents: sum, paid_at: paidRow?.paid_at ?? null } as { month: string; cents: number; paid_at?: string | null };
+      let paidAtP: string | null = null;
+      try {
+        const paidRow = await env.DB.prepare(
+          `SELECT paid_at FROM payroll_payments WHERE month = ?1`,
+        ).bind(prevM).first<{ paid_at: string }>();
+        paidAtP = paidRow?.paid_at ?? null;
+      } catch (e) {
+        // payroll_payments arrives with migration 0037 — degrade, don't die.
+        await logError(env, "expenses_payroll_paid", e instanceof Error ? e.message : String(e));
+      }
+      staffPayroll = { month: prevM, cents: sum, paid_at: paidAtP } as { month: string; cents: number; paid_at?: string | null };
     }
     // v1.4.112 (CEO's rule): a claim belongs to the month its CLAIM DATES
     // fall in (1st → month end) once APPROVED — that month's expense, whether
     // the money moved yet or not. Payments-completed still lists actual
     // payments by paid_at (cash movements), and approved-unpaid claims sit
     // on Payments due.
-    const { results: claimsInMonth } = await env.DB.prepare(
+    let claimsInMonth: unknown[] = [], claimsPaid: unknown[] = [], claimsDue: unknown[] = [];
+    try {
+      ({ results: claimsInMonth } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, c.claim_date, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.status = 'approved' AND strftime('%Y-%m', c.claim_date) = ?1
        ORDER BY c.claim_date ASC`,
-    ).bind(month).all();
-    const { results: claimsPaid } = await env.DB.prepare(
+    ).bind(month).all());
+    ({ results: claimsPaid } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.paid_at IS NOT NULL AND strftime('%Y-%m', c.paid_at) = ?1
        ORDER BY c.paid_at DESC`,
-    ).bind(month).all();
-    const { results: claimsDue } = await env.DB.prepare(
+    ).bind(month).all());
+    ({ results: claimsDue } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.decided_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.status = 'approved' AND c.paid_at IS NULL ORDER BY c.decided_at ASC`,
-    ).all();
+    ).all());
+    } catch (e) {
+      // claims.paid_at arrives with migration 0037 — degrade, don't die.
+      await logError(env, "expenses_claims", e instanceof Error ? e.message : String(e));
+    }
     return json({ expenses: results, upcoming, staff_payroll: staffPayroll, staff_claims: { in_month: claimsInMonth, paid: claimsPaid, due: claimsDue } });
   }
   const exEdit = path.match(/^\/expenses\/(\d+)$/);
@@ -1243,10 +1282,13 @@ export async function handleStaff(
       const ex = await env.DB.prepare(
         `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = ?1`,
       ).bind(m).first<{ c: number }>();
-      const clm = await env.DB.prepare(
-        `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM claims
-         WHERE status = 'approved' AND strftime('%Y-%m', claim_date) = ?1`,
-      ).bind(m).first<{ c: number }>();
+      let clm: { c: number } | null = null;
+      try {
+        clm = await env.DB.prepare(
+          `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM claims
+           WHERE status = 'approved' AND strftime('%Y-%m', claim_date) = ?1`,
+        ).bind(m).first<{ c: number }>();
+      } catch { /* pre-0037 DB — claims column set incomplete */ }
       // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
       const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
       const pr = await env.DB.prepare(

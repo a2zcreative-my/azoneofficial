@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.114] — 2026-08-02 — Why the tab looked empty: unapplied migrations. Hardened + one-tap receipt attach
+
+### Root cause (both complaints, one cause)
+- v1.4.109–112 read columns/tables created by **migrations 0037 and 0038** (claims.paid_at, chain columns, payroll_payments). If those migrations are **not applied** on the remote D1, `/expenses` throws → the whole endpoint 500s → the tab renders EMPTY with no message (looks exactly like data loss), and claim **edit/resubmit** 500s too (blocking the attach-via-edit path). The data itself is untouched
+- **Run this first:** `npx wrangler d1 migrations apply azoneofficial --remote` — then `npx wrangler deploy` → `pnpm build` → hard refresh
+
+### Hardened (so this class of failure can never blank the tab again)
+- `/expenses` and `/pnl` now **degrade instead of dying**: the new payroll-payment and claims lookups are individually guarded — if their tables/columns are missing, the core expense list still returns and the failure is written to the error log (`expenses_claims`, `expenses_payroll_paid`; visible in /admin → System health)
+- A failed `/expenses` load now shows a **loud amber line** ("⚠ Server error — expenses could not be loaded…") instead of a silent empty list
+
+### Added — 📎 one-tap "Attach receipt"
+- Staff no longer need to edit the claim to add a missing receipt: their own pending/rejected claims without one show **📎 Attach receipt** directly on the row — pick the photo/PDF, it compresses, size-checks (8 MB popup with the WhatsApp tip on failure, including server refusals), uploads, and confirms "Receipt attached to your claim"
+
+### Deploy
+- **Migrations 0037 + 0038** → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.113] — 2026-08-02 — Clock-in-first flow with a popup
+
+### Added
+- **The punch flow is now enforced: clock IN first, then clock OUT.** Tapping "Clock out" without today's clock-in shows an instant popup — *"Clock in first — You haven't clocked in today — clock in first, then clock out at the end of your shift."* — in the same animated toast style as the punch confirmations
+- **Server-enforced too**, not just hidden in the UI: the worker refuses a clock-out with no clock-in on record for the day (HTTP 400 `no_clock_in`), so a stale tab or a direct API call can't create an out-without-in. If the server refusal fires (e.g. an old tab open since yesterday), the same popup shows rather than a quiet error line
+- The one-in/one-out-per-day rule and all lateness/early-out classifications are unchanged
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.112] — 2026-08-02 — Month attribution rules set by the CEO
 
 ### The three rules, as stated

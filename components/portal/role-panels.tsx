@@ -1667,6 +1667,34 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         </p>
         <p className="text-muted-foreground text-xs">
           {dmy(c.claim_date)}{" · "}
+          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
+            <>
+              <label className="cursor-pointer underline" title="Attach the receipt photo/PDF directly — no need to edit the claim">
+                📎 Attach receipt
+                <input type="file" accept="image/*,application/pdf" className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
+                    if (f.size > 40 * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
+                    const comp = await compressImage(f);
+                    if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
+                    const up = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, {
+                      method: "POST", credentials: "include",
+                      headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
+                    });
+                    if (up.ok) { showToast("Saved", "Receipt attached to your claim"); void load(); }
+                    else {
+                      let m = "";
+                      try { m = ((await up.json()) as { error?: { message?: string } })?.error?.message ?? ""; } catch { /* not JSON */ }
+                      showToast("No changes", m || RECEIPT_TOO_BIG, "notice");
+                    }
+                  }} />
+              </label>
+              {" · "}
+            </>
+          )}
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
             <>
               <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
@@ -1887,12 +1915,16 @@ export function ExpensesPanel() {
   // v1.4.109: staff claims are expenses too — paid claims join the month,
   // approved-unpaid ones appear under Payments due.
   const [staffClaims, setStaffClaims] = useState<{ in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] }>({ in_month: [], paid: [], due: [] });
+  const [loadError, setLoadError] = useState("");
   // Inline edit for typo fixes (staff payroll excluded — computed in Payroll).
   const [editId, setEditId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
 
   const load = useCallback(async () => {
     const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
+    // v1.4.114: a failed load must SAY SO — a silent empty list looks like
+    // data loss (the CEO's screenshot).
+    setLoadError(res.ok ? "" : ((res.data as { error?: { message?: string } } | null)?.error?.message ?? "Server error — expenses could not be loaded. If this version was just deployed, apply migrations 0037 + 0038 first."));
     if (res.ok && res.data) {
       setRows(res.data.expenses);
       setUpcoming(res.data.upcoming ?? []);
@@ -2144,7 +2176,8 @@ export function ExpensesPanel() {
           </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {rows.length === 0 && (
+          {loadError && <p className="mb-2 text-sm font-medium text-amber-700">⚠ {loadError}</p>}
+          {rows.length === 0 && !loadError && (
             <p className="text-muted-foreground text-sm">
               No expenses recorded for this month. This tab shows ONE month at a
               time — earlier records (e.g. July) are under the month picker at

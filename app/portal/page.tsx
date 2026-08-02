@@ -167,6 +167,17 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
   const [punchError, setPunchError] = useState("");
   const punch = async (type: string) => {
+    // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
+    // clocking in gets an instant popup (and the server refuses it too).
+    if (type === "clock_out" && !today.some((r) => r.type === "clock_in")) {
+      setPunchToast({
+        title: "Clock in first",
+        sub: "You haven't clocked in today — clock in first, then clock out at the end of your shift.",
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 3600);
+      return;
+    }
     setBusy(type);
     setPunchError("");
     const res = await api<{ flag?: string; error?: { message?: string } }>(`/staff/attendance`, {
@@ -198,6 +209,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT`,
       });
       window.setTimeout(() => setPunchToast(null), 2600);
+    } else if ((res.data?.error as { code?: string } | undefined)?.code === "no_clock_in") {
+      setPunchToast({ title: "Clock in first", sub: res.data?.error?.message ?? "Clock in before clocking out.", variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 3600);
     } else {
       setPunchError(res.data?.error?.message ?? "Punch failed — try again.");
     }
