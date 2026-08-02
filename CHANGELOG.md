@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.93] — 2026-08-02 — Professional KPI editor · sales form clarity + Sales person · walk-in repair
+
+### Fixed (honesty note)
+- The v1.4.91 walk-in patch was **partially lost before it was written to disk** (a scripting slip on my side): the "Payment received" checkbox and the create/reset logic shipped, but the customer dropdown never gained the walk-in option and the form state was missing its field — which is exactly why the Create document form felt confusing and un-submittable. Both are now properly in place and verified
+
+### Changed
+- **KPI target input**: the browser `prompt()` box is gone. "Set target" now opens a clean inline editor inside the KPI block — RM field, **Save target** button, Cancel, Esc to close — with the save-toast confirmation and an honest "No changes" when the figure is identical
+- **Create document, readable**: every field is labelled — Document type · Customer (with **🚶 Walk-in / general buyer** for unidentified buyers) · **Sales person (who made this sale)** · Item / service description · Qty · **Unit price (RM)** · Discount (RM, optional) · Tax % (optional). Prices are typed in **RM now, not sen** (stored in sen underneath, so nothing else changes)
+- **Sales person on every document** (migration **0035**: `salesperson_id`): a dropdown lists every staff member (CEO, COO, CCO, sales & marketing, marketing, HR — any staff role) with **"Me (default)"** preselected; the worker defaults to the creator when untouched. The documents list shows "· sales: <name>" and the printed QT/DO/INV carries a **Sales person** row in the meta box — you always know who sold. Backed by a new minimal `/staff-list` endpoint (id + name + role only; no phone/IC/bank/salary exposed)
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0035**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.92] — 2026-08-02 — Printable Employee Claim Form (AZOO-HR-CLM-001)
 
 ### Added

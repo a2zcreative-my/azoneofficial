@@ -321,6 +321,10 @@ function SalesRevenueCard({ role }: { role?: string }) {
   }, []);
   useEffect(() => { loadRev(); }, [loadRev]);
   const canTarget = ["super_admin", "admin", "ceo", "coo"].includes(role ?? "");
+  // v1.4.93: inline target editor — no more browser prompt() box.
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState("");
+  const { show: showToast, node: toastNode } = useSaveToast();
   if (!rev) return null;
   const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const total = rev.tiktok.this_cents + rev.invoiced.this_cents;
@@ -335,6 +339,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
   );
   return (
     <div className={card}>
+      {toastNode}
       <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         TikTok figures from synced order amounts (returned orders excluded).
@@ -349,18 +354,36 @@ function SalesRevenueCard({ role }: { role?: string }) {
       <div className="border-border mt-3 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold tracking-wide uppercase">🎯 Monthly sales target (KPI)</p>
-          {canTarget && (
-            <button type="button" className="text-xs underline"
-              onClick={async () => {
-                const v = window.prompt(`Sales target for ${rev.month} (RM):`, rev.target_cents ? String(rev.target_cents / 100) : "");
-                if (v === null || !Number(v)) return;
-                await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(Number(v) * 100) }) });
-                loadRev();
-              }}>
+          {canTarget && !editingTarget && (
+            <button type="button" className="text-xs underline" onClick={() => { setTargetDraft(rev.target_cents ? (rev.target_cents / 100).toString() : ""); setEditingTarget(true); }}>
               {rev.target_cents ? "Edit target" : "Set target"}
             </button>
           )}
         </div>
+        {editingTarget && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm">Target for {rev.month.split("-").reverse().join("-")}:</span>
+            <span className="flex items-center gap-1 text-sm">
+              RM
+              <input type="number" min={0} step="0.01" autoFocus
+                className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
+                placeholder="e.g. 20000" value={targetDraft}
+                onChange={(e) => setTargetDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setEditingTarget(false); }} />
+            </span>
+            <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+              onClick={async () => {
+                const v = Number(targetDraft);
+                if (!v || v <= 0) { showToast("No changes", "Enter a target amount first", "notice"); return; }
+                if (Math.round(v * 100) === (rev.target_cents ?? 0)) { showToast("No changes", "Target unchanged", "notice"); setEditingTarget(false); return; }
+                const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(v * 100) }) });
+                if (res.ok) { showToast("Saved", `Sales target set — RM ${v.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`); setEditingTarget(false); loadRev(); }
+              }}>
+              Save target
+            </button>
+            <button type="button" className="text-xs underline" onClick={() => setEditingTarget(false)}>Cancel</button>
+          </div>
+        )}
         {rev.target_cents ? (() => {
           const pct = Math.min(100, Math.round((total / rev.target_cents) * 100));
           return (
@@ -1178,7 +1201,7 @@ function Announcements({ user }: { user: User }) {
 /* ================= Sales (CRM + documents) ================= */
 
 interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null }
-interface SalesDoc { id: number; doc_type: string; doc_number: string; company: string; total_cents: number; payment_status: string | null; delivery_status: string | null; created_at: string }
+interface SalesDoc { id: number; doc_type: string; doc_number: string; company: string; total_cents: number; payment_status: string | null; delivery_status: string | null; created_at: string; salesperson_name?: string | null }
 interface DocItem { name: string; qty: number; unit_price_cents: number }
 
 
@@ -1213,6 +1236,7 @@ async function printDoc(id: number) {
     ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dmy(doc.valid_until)]] : []),
     ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dmy(doc.due_date)]] : []),
     ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
+    ...(doc.salesperson_name ? [["Sales person", doc.salesperson_name]] : []),
   ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
 
   const bottom = doc.doc_type === "INV"
@@ -1338,15 +1362,19 @@ interface DocFull {
   address?: string; customer_phone?: string; customer_email?: string; items: string; discount_cents: number;
   tax_percent: number; total_cents: number; notes?: string; due_date?: string; valid_until?: string; created_at: string;
   payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
+  salesperson_name?: string | null;
 }
 
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
-  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; paid_received?: boolean }>({
-    doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false,
+  // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
+  // salesperson_id: 0 = "me" (worker defaults to the creator).
+  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; paid_received: boolean }>({
+    doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false,
   });
+  const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
   const load = useCallback(async () => {
@@ -1354,6 +1382,8 @@ function Sales({ user }: { user: User }) {
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
+    const sl = await api<{ staff: { id: number; name: string; role: string }[] }>(`/staff/staff-list`);
+    setStaffList(sl.data?.staff ?? []);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -1365,8 +1395,8 @@ function Sales({ user }: { user: User }) {
   };
   const createDoc = async () => {
     if (doc.customer_id === -1 || doc.items.some((i) => !i.name)) return; // 0 = walk-in is valid
-    await api(`/staff/docs`, { method: "POST", body: JSON.stringify(doc) });
-    setDoc({ doc_type: "QT", customer_id: -1, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false });
+    await api(`/staff/docs`, { method: "POST", body: JSON.stringify({ ...doc, salesperson_id: doc.salesperson_id || undefined }) });
+    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false });
     void load();
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
@@ -1415,34 +1445,60 @@ function Sales({ user }: { user: User }) {
           <p className="text-sm font-semibold">Create document</p>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <select className={inputClass} value={doc.doc_type} onChange={(e) => setDoc((d) => ({ ...d, doc_type: e.target.value }))}>
-                <option value="QT">Quotation</option>
-                <option value="DO">Delivery Order</option>
-                {canInvoice && <option value="INV">Invoice</option>}
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Document type</span>
+                <select className={inputClass} value={doc.doc_type} onChange={(e) => setDoc((d) => ({ ...d, doc_type: e.target.value }))}>
+                  <option value="QT">Quotation</option>
+                  <option value="DO">Delivery Order</option>
+                  {canInvoice && <option value="INV">Invoice</option>}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Customer</span>
+                <select className={inputClass} value={doc.customer_id} onChange={(e) => setDoc((d) => ({ ...d, customer_id: Number(e.target.value) }))}>
+                  <option value={-1}>Choose customer…</option>
+                  <option value={0}>🚶 Walk-in / general buyer</option>
+                  {customers.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="block">
+              <span className="text-muted-foreground mb-1 block text-xs">Sales person (who made this sale)</span>
+              <select className={inputClass} value={doc.salesperson_id} onChange={(e) => setDoc((d) => ({ ...d, salesperson_id: Number(e.target.value) }))}>
+                <option value={0}>Me (default)</option>
+                {staffList.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace("_", " ")}</option>)}
               </select>
-              <select className={inputClass} value={doc.customer_id} onChange={(e) => setDoc((d) => ({ ...d, customer_id: Number(e.target.value) }))}>
-                <option value={0}>Customer…</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
-              </select>
+            </label>
+            <div className="text-muted-foreground grid grid-cols-[1fr_70px_110px] gap-2 text-xs">
+              <span>Item / service description</span><span>Qty</span><span>Unit price (RM)</span>
             </div>
             {doc.items.map((item, i) => (
               <div key={i} className="grid grid-cols-[1fr_70px_110px] gap-2">
-                <input className={inputClass} placeholder="Item" value={item.name}
+                <input className={inputClass} placeholder="e.g. Tudung Bawal Premium" value={item.name}
                   onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, name: e.target.value } : x) }))} />
                 <input type="number" min={1} className={inputClass} value={item.qty}
                   onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, qty: Number(e.target.value) } : x) }))} />
-                <input type="number" min={0} className={inputClass} placeholder="Price (sen)" value={item.unit_price_cents}
-                  onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, unit_price_cents: Number(e.target.value) } : x) }))} />
+                <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
+                  value={item.unit_price_cents ? (item.unit_price_cents / 100).toString() : ""}
+                  onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, unit_price_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) } : x) }))} />
               </div>
             ))}
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>
               + Add line
             </button>
             <div className="grid grid-cols-2 gap-3">
-              <input type="number" min={0} className={inputClass} placeholder="Discount (sen)" value={doc.discount_cents}
-                onChange={(e) => setDoc((d) => ({ ...d, discount_cents: Number(e.target.value) }))} />
-              <input type="number" min={0} step={0.5} className={inputClass} placeholder="Tax %" value={doc.tax_percent}
-                onChange={(e) => setDoc((d) => ({ ...d, tax_percent: Number(e.target.value) }))} />
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Discount (RM, optional)</span>
+                <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
+                  value={doc.discount_cents ? (doc.discount_cents / 100).toString() : ""}
+                  onChange={(e) => setDoc((d) => ({ ...d, discount_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) }))} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Tax % (optional)</span>
+                <input type="number" min={0} step={0.5} className={inputClass} placeholder="0"
+                  value={doc.tax_percent || ""}
+                  onChange={(e) => setDoc((d) => ({ ...d, tax_percent: Number(e.target.value || 0) }))} />
+              </label>
             </div>
             {doc.doc_type === "INV" && (
               <label className="flex items-center gap-1.5 text-sm" title="Payment already in hand (e.g. bank transfer received) — the invoice is created as PAID and counts in revenue immediately">
@@ -1464,7 +1520,7 @@ function Sales({ user }: { user: User }) {
           <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span>
               <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
-              <span className="text-muted-foreground"> · {dmy(d.created_at)}</span>
+              <span className="text-muted-foreground"> · {dmy(d.created_at)}{d.salesperson_name ? ` · sales: ${d.salesperson_name}` : ""}</span>
             </span>
             {d.doc_type === "INV" && (d as SalesDoc & { payment_status?: string; payment_ref?: string | null; paid_at?: string | null }).payment_status === "paid" && (
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"

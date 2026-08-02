@@ -352,6 +352,17 @@ export async function handleStaff(
     return json({ photo_key: key, url: `/api/v1/media/file/${encodeURIComponent(key)}` }, 201);
   }
 
+  if (path === "/staff-list" && method === "GET") {
+    // v1.4.93: minimal staff list (id, name, role) for pickers like the
+    // Sales-person dropdown — available to every staff role, exposes nothing
+    // sensitive (no phone/IC/bank/salary).
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, role FROM users
+       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')
+       ORDER BY name`,
+    ).all();
+    return json({ staff: results });
+  }
   if (path === "/users" && method === "GET") {
     // hr_manage writes; exec_view (CEO) reads — the Birthdays tab and the
     // Overview need the staff list even for read-only executives.
@@ -1171,7 +1182,8 @@ export async function handleStaff(
     const t = url.searchParams.get("type");
     const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
     const { results } = await env.DB.prepare(
-      `SELECT d.*, c.company FROM sales_documents d
+      `SELECT d.*, c.company, sp.name AS salesperson_name FROM sales_documents d
+       LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${filter}
        ORDER BY d.created_at DESC LIMIT 200`,
     ).all();
@@ -1216,11 +1228,14 @@ export async function handleStaff(
     const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100)));
 
     const number = await docNumber(env, docType);
+    // v1.4.93: salesperson — any staff member; defaults to whoever created it.
+    const salespersonId = typeof body.salesperson_id === "number" && body.salesperson_id > 0
+      ? Math.round(body.salesperson_id) : user.id;
     const res = await env.DB.prepare(
       `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
-        notes, valid_until, delivery_status, payment_status, due_date, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
+        notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING id`,
     ).bind(
       docType, number, customerId, JSON.stringify(items), discount, taxPct, total,
       str(body.notes, 2000) ? body.notes : null,
@@ -1228,6 +1243,7 @@ export async function handleStaff(
       docType === "DO" ? "pending" : null,
       docType === "INV" ? "unpaid" : null,
       docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
+      salespersonId,
       user.id,
     ).first<{ id: number }>();
     // v1.4.91: payment already in hand — the invoice is born paid (bank
@@ -1245,8 +1261,10 @@ export async function handleStaff(
   if (docGet && method === "GET") {
     if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
     const d = await env.DB.prepare(
-      `SELECT d.*, c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone, c.address
-       FROM sales_documents d JOIN customers c ON c.id = d.customer_id WHERE d.id = ?1`,
+      `SELECT d.*, c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone, c.address,
+              sp.name AS salesperson_name
+       FROM sales_documents d JOIN customers c ON c.id = d.customer_id
+       LEFT JOIN users sp ON sp.id = d.salesperson_id WHERE d.id = ?1`,
     ).bind(docGet[1]).first();
     if (!d) return err("not_found", "Document not found", 404);
     return json({ doc: d });
