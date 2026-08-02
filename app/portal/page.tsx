@@ -1227,7 +1227,11 @@ function Announcements({ user }: { user: User }) {
 /* ================= Sales (CRM + documents) ================= */
 
 interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null }
-interface SalesDoc { id: number; doc_type: string; doc_number: string; company: string; total_cents: number; payment_status: string | null; delivery_status: string | null; created_at: string; salesperson_name?: string | null }
+interface SalesDoc {
+  id: number; doc_type: string; doc_number: string; company: string; total_cents: number;
+  payment_status: string | null; delivery_status: string | null; created_at: string;
+  payment_ref?: string | null; paid_at?: string | null; salesperson_name?: string | null;
+}
 interface DocItem { name: string; qty: number; unit_price_cents: number }
 
 
@@ -1245,6 +1249,7 @@ async function printDoc(id: number) {
   })();
   const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const title = { QT: "QUOTATION", DO: "DELIVERY ORDER", INV: "INVOICE" }[doc.doc_type] ?? doc.doc_type;
+  const dOnly = (v: string) => dmy(v.slice(0, 10)); // printed docs show dates without times
   const subtotal = items.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
   const taxAmt = Math.round((subtotal - (doc.discount_cents ?? 0)) * ((doc.tax_percent ?? 0) / 100));
   const rows = items.map((it, i) =>
@@ -1256,11 +1261,16 @@ async function printDoc(id: number) {
       <td class="r">${rm(it.qty * it.unit_price_cents)}</td>
     </tr>`).join("");
   const isPaid = doc.doc_type === "INV" && doc.payment_status === "paid";
+  // v1.4.97: authorised signature auto-assigned by creator — the COO's own
+  // documents carry the COO's signature; everyone else's (CEO, CCO, HR,
+  // sales & marketing) carry the CEO's. Transparent PNGs incl. company chop.
+  const sigSrc = `${location.origin}/signatures/${doc.created_by_role === "coo" ? "coo" : "ceo"}-sign.png`;
+  const sigImg = `<img src="${sigSrc}" alt="" style="height:86px;max-width:200px;object-fit:contain;display:block;margin:0 auto -14px;" />`;
   const metaRows = [
     ["No.", doc.doc_number],
-    ["Date", dmy(doc.created_at)],
-    ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dmy(doc.valid_until)]] : []),
-    ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dmy(doc.due_date)]] : []),
+    ["Date", dOnly(doc.created_at)],
+    ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dOnly(doc.valid_until)]] : []),
+    ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dOnly(doc.due_date)]] : []),
     ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
     ...(doc.salesperson_name ? [["Sales person", doc.salesperson_name]] : []),
   ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
@@ -1269,26 +1279,27 @@ async function printDoc(id: number) {
     ? `<div class="split">
          <div class="pay">
            <p class="bt">PAYMENT DETAILS</p>
-           <p>Method : <strong>Bank transfer</strong></p>
-           <p>Bank &nbsp;&nbsp;&nbsp;: MAYBANK</p>
-           <p>Name &nbsp;&nbsp;: AZ ONE OFFICIAL</p>
+           <p>Method &nbsp;: <strong>Bank transfer</strong></p>
+           <p>Bank &nbsp;&nbsp;&nbsp;&nbsp;: MAYBANK</p>
+           <p>Name &nbsp;&nbsp;&nbsp;: AZ ONE OFFICIAL</p>
+           <p>A/C No &nbsp;: <strong>5516 2328 7032</strong></p>
            <p class="tiny">Please send the transfer receipt via WhatsApp +60 12-383 4821 with the invoice number as reference.</p>
-           ${isPaid ? `<p class="paidline">✔ PAID${doc.paid_at ? " · " + dmy(doc.paid_at) : ""}${doc.payment_ref ? " · Ref: " + doc.payment_ref : ""}</p>` : ""}
+           ${isPaid ? `<p class="paidline">✔ PAID${doc.paid_at ? " · " + dOnly(doc.paid_at) : ""}${doc.payment_ref ? " · Ref: " + doc.payment_ref : ""}</p>` : ""}
          </div>
-         <div class="sig"><div class="line"></div>Authorised signature<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+         <div class="sig">${sigImg}<div class="line"></div>Authorised signature<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
        </div>`
     : doc.doc_type === "DO"
       ? `<div class="split">
-           <div class="sig"><div class="line"></div>Delivered by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+           <div class="sig">${sigImg}<div class="line"></div>Delivered by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
            <div class="sig"><div class="line"></div>Received in good order<br/><span class="tiny">Name / Company chop &amp; date</span></div>
          </div>`
       : `<div class="split">
            <div class="pay">
              <p class="bt">TERMS</p>
-             <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dmy(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
+             <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dOnly(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
            </div>
            <div class="split2">
-             <div class="sig"><div class="line"></div>Prepared by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+             <div class="sig">${sigImg}<div class="line"></div>Prepared by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
              <div class="sig"><div class="line"></div>Accepted by<br/><span class="tiny">Signature, company chop &amp; date</span></div>
            </div>
          </div>`;
@@ -1301,7 +1312,8 @@ async function printDoc(id: number) {
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto;
+           display: flex; flex-direction: column; min-height: 268mm; } /* A4 minus @page margins — bottom block pinned to the page foot */
     .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
     .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
     .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }
@@ -1330,7 +1342,9 @@ async function printDoc(id: number) {
     .tot td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
     .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; font-size: 14px; padding: 8px 10px; }
     .tot tr.grand td:first-child { border-radius: 6px 0 0 6px; } .tot tr.grand td:last-child { border-radius: 0 6px 6px 0; }
-    .split { display: flex; gap: 16px; margin-top: 26px; justify-content: space-between; flex-wrap: wrap; align-items: flex-end; }
+    .split { display: flex; gap: 16px; margin-top: auto; padding-top: 26px; justify-content: space-between; flex-wrap: wrap; align-items: flex-end; }
+    /* margin-top:auto = the payment details + authorised signature sit at the
+       BOTTOM of the A4 page on every document type, uniformly. */
     .split2 { display: flex; gap: 16px; flex: 1; justify-content: flex-end; flex-wrap: wrap; }
     .pay { background: #f6f7fa; border-radius: 6px; padding: 10px 12px; max-width: 320px; }
     .pay p { margin: 2px 0; }
@@ -1339,7 +1353,7 @@ async function printDoc(id: number) {
     .sig { text-align: center; min-width: 180px; font-size: 10.5px; }
     .sig .line { border-bottom: 1px solid #1a2946; height: 44px; margin-bottom: 5px; }
     .tiny { font-size: 9px; color: #8a93a6; }
-    .foot { margin-top: 26px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
+    .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
     .notes { margin-top: 12px; font-size: 11px; color: #5b6472; white-space: pre-wrap; }
     .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d; color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
     @media print { body { padding: 0; } }
@@ -1389,11 +1403,13 @@ interface DocFull {
   tax_percent: number; total_cents: number; notes?: string; due_date?: string; valid_until?: string; created_at: string;
   payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
   salesperson_name?: string | null;
+  created_by_role?: string | null;
 }
 
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
+  const [docsError, setDocsError] = useState<string | null>(null);
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
   // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
   // salesperson_id: 0 = "me" (worker defaults to the creator).
@@ -1411,13 +1427,14 @@ function Sales({ user }: { user: User }) {
   // v1.4.96: aligned with the worker's finance permission — sales_marketing
   // creates QT/DO; invoices are created by finance roles ON THEIR BEHALF via
   // the Sales person dropdown (that's the attribution mechanism).
-  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"].includes(user.role);
+  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
-    const d = await api<{ docs: SalesDoc[] }>(`/staff/docs`);
+    const d = await api<{ docs: SalesDoc[]; error?: { message?: string } }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
+    setDocsError(d.ok ? null : (d.data?.error?.message ?? "Could not load documents — press Refresh to retry"));
     const sl = await api<{ staff: { id: number; name: string; role: string }[] }>(`/staff/staff-list`);
     setStaffList(sl.data?.staff ?? []);
   }, []);
@@ -1458,7 +1475,8 @@ function Sales({ user }: { user: User }) {
     if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Create failed — check access", "notice"); return; }
     showToast("Saved", `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}`);
     const newId = res.data.id;
-    resetDocForm(); void load();
+    resetDocForm();
+    await load(); // v1.4.97: awaited so the new document is visible in the list at once
     void printDoc(newId); // PDF opens immediately after creation
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
@@ -1598,8 +1616,12 @@ function Sales({ user }: { user: User }) {
       </div>
 
       <div className={card}>
-        <p className="text-sm font-semibold">Documents</p>
-        {docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold">Documents</p>
+          <button type="button" className="text-xs underline" onClick={() => void load()}>Refresh</button>
+        </div>
+        {docsError && <p className="mt-2 text-sm font-medium text-amber-700">{docsError}</p>}
+        {!docsError && docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
         <div className="max-h-96 overflow-y-auto">
         {docs.map((d) => (
           <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">

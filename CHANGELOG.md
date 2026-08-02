@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.98] — 2026-08-02 — Maybank account on invoices · payment details + signature pinned to the page bottom (full A4, standardized)
+
+### Added / Changed
+- **Bank account on the invoice payment box**: A/C No **5516 2328 7032** (grouped for readability) joins Method · Bank (MAYBANK) · Name (AZ ONE OFFICIAL) — customers finally have the full transfer details on the document itself
+- **Full-A4 layout, standardized across INV / QT / DO**: the printed page is now a flex column at full A4 height, and the bottom block — payment details + Authorised signature on invoices, the signature pairs on Delivery Orders and Quotations — is **pinned to the bottom of the page** with `margin-top:auto` (per the house rule: flex pinning, never absolute). Short documents no longer end mid-page; every document type shares the same structure: header → bill-to → items → totals → notes → bottom block at the page foot → footer line
+- **Dates on printed documents show the date only** — "24-07-2026", not "24-07-2026 00:00" — in the meta box (Date / Valid until / Payment due), the ✔ PAID line, and the quotation validity sentence
+
+### Deploy
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
+
+
+## [1.4.97] — 2026-08-02 — Documents list fixed · authorised signatures on QT/DO/INV · sales_marketing invoicing
+
+### Fixed — why the Documents list stayed empty
+- A stray fragment from a v1.4.93 automated edit had corrupted `printDoc`'s closing line and left the document-list type incomplete — depending on build settings this either broke the frontend build or the list rendering. The fragment is **removed and both types repaired**; additionally the list now refreshes **awaited** right after creation (the new document appears instantly), the Documents card gains a **Refresh** button, and any loading error is shown in amber instead of a silent "No documents yet." — so a problem can never masquerade as an empty list again. View + reprint: every row keeps its **Edit** and **PDF** buttons; PDF reprints any document at any time
+
+### Added
+- **Authorised signatures, auto-assigned** (from the two photos provided): both signatures were extracted to **transparent-background PNGs** (paper lighting normalised, black ink + blue AZ ONE OFFICIAL company chop preserved, cropped) at `public/signatures/ceo-sign.png` and `coo-sign.png`. The printed documents place the image above the signature line per your rule — **COO-created documents carry the COO's signature; documents created by CEO, CCO, HR admin or sales & marketing carry the CEO's** — on the Invoice's *Authorised signature*, the DO's *Delivered by*, and the Quotation's *Prepared by* blocks. The worker returns the creator's role for the selection
+- **sales_marketing can now create invoices**: added to the worker's finance permission and the Invoice option restored in their form, per instruction — with the signature rule above ensuring their documents still print under the CEO's authority
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. (If your previous `pnpm build` reported errors, the v1.4.93 fragment was the cause — this build is clean)
+
+
 ## [1.4.96] — 2026-08-02 — Delete item lines · the "Insufficient" invoice error fixed (CEO now in finance)
 
 ### Fixed — the "Insufficient rights" error, root cause

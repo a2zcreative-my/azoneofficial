@@ -47,7 +47,10 @@ const PERMS: Record<string, readonly Role[]> = {
   // Invoice finance status changes.
   // v1.4.96: ceo added — the CEO was hitting "Insufficient rights" creating
   // invoices because finance omitted him while the UI offered the option.
-  finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"],
+  // v1.4.97: sales_marketing added on the CEO's instruction — they insert
+  // sales including invoices; the printed authorised signature auto-falls
+  // back to the CEO for non-CEO/COO creators.
+  finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // HR task reports (daily / weekly / monthly).
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // Inventory, postage tracking, marketing materials — sales_marketing only
@@ -1304,9 +1307,10 @@ export async function handleStaff(
     if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
     const d = await env.DB.prepare(
       `SELECT d.*, c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone, c.address,
-              sp.name AS salesperson_name
+              sp.name AS salesperson_name, cb.role AS created_by_role
        FROM sales_documents d JOIN customers c ON c.id = d.customer_id
-       LEFT JOIN users sp ON sp.id = d.salesperson_id WHERE d.id = ?1`,
+       LEFT JOIN users sp ON sp.id = d.salesperson_id
+       LEFT JOIN users cb ON cb.id = d.created_by WHERE d.id = ?1`,
     ).bind(docGet[1]).first();
     if (!d) return err("not_found", "Document not found", 404);
     return json({ doc: d });
