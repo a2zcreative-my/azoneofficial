@@ -508,17 +508,6 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               <span className="flex items-center gap-2">
                 {saved === u.id && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
-                <button
-                  type="button"
-                  className={`${btn} border-border border hover:bg-secondary`}
-                  onClick={() => setOpen((o) => {
-                    const next = new Set(o);
-                    if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
-                    return next;
-                  })}
-                >
-                  {open.has(u.id) ? "Hide details ▴" : "Details ▾"}
-                </button>
                 {open.has(u.id) && !readOnly && (
                   <button
                     type="button"
@@ -578,6 +567,17 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   />
                 </label>
                 )}
+                <button
+                  type="button"
+                  className={`${btn} border-border border hover:bg-secondary`}
+                  onClick={() => setOpen((o) => {
+                    const next = new Set(o);
+                    if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
+                    return next;
+                  })}
+                >
+                  {open.has(u.id) ? "Hide details ▴" : "Details ▾"}
+                </button>
               </span>
             </div>
             {open.has(u.id) && (

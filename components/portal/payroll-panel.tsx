@@ -214,6 +214,24 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     setEntries((m) => ({ ...m, [id]: { ...e, basic_cents: prorated } }));
   };
 
+  /** v1.4.77: auto-calculation from attendance — fill every "days" input
+      with the clock-in day count. Values stay editable afterwards, so a
+      wrong or cheated punch can be overridden before prorating (and fixed
+      permanently in Attendance → corrections). */
+  const autoFillDays = () => {
+    const filled: Record<number, number> = {};
+    for (const u of staff) filled[u.id] = attDays[u.id] ?? 0;
+    setWorkedDays(filled);
+    setMsg("Days filled from clock-in records — review, adjust if needed, then Prorate.");
+    window.setTimeout(() => setMsg(""), 5000);
+  };
+
+  const prorateAll = () => {
+    for (const u of staff) prorate(u.id);
+    setMsg("Prorated every row with a basic amount and a days value.");
+    window.setTimeout(() => setMsg(""), 4000);
+  };
+
   const saveAll = async () => {
     setMsg("");
     let n = 0;
@@ -228,11 +246,17 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     void load();
   };
 
+  const [attDays, setAttDays] = useState<Record<number, number>>({});
+
   const load = useCallback(async () => {
-    const [u, p] = await Promise.all([
+    const [u, p, a] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
       api<{ entries: (Entry & { name: string })[] }>(`/payroll?month=${month}`),
+      api<{ days: { user_id: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
     ]);
+    const dmap: Record<number, number> = {};
+    for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
+    setAttDays(dmap);
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
       (x) => x.role !== "customer" && x.role !== "super_admin",
     );
@@ -302,6 +326,22 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           />
           <button
             type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="Fill every days box with this month's clock-in day count from Attendance"
+            onClick={autoFillDays}
+          >
+            Auto days from clock-ins
+          </button>
+          <button
+            type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="Basic × days ÷ working days, for every row"
+            onClick={prorateAll}
+          >
+            Prorate all
+          </button>
+          <button
+            type="button"
             className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
             onClick={() => void saveAll()}
           >
@@ -354,10 +394,16 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                           type="number" min={0} max={31}
                           className="border-input bg-background w-12 rounded border px-1 py-0.5 text-xs"
                           placeholder="d"
-                          title={`Days worked (of ${monthDays})`}
+                          title={`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`}
                           value={workedDays[u.id] ?? ""}
                           onChange={(ev) => setWorkedDays((m) => ({ ...m, [u.id]: Number(ev.target.value) }))}
                         />
+                        <span
+                          className="text-muted-foreground ml-1 text-[10px]"
+                          title="Clock-in days recorded in Attendance this month"
+                        >
+                          ⏱{attDays[u.id] ?? 0}
+                        </span>
                         <button type="button" className="ml-1 text-xs underline" title="Basic × days / working days"
                           onClick={() => prorate(u.id)}>
                           Prorate

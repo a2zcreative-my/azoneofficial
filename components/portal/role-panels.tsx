@@ -1156,11 +1156,14 @@ export function AttendanceAdminPanel() {
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="block">
+          <span className="text-muted-foreground mb-0.5 block text-[11px] font-semibold tracking-wide uppercase">Add record</span>
         <select className={inputClass} style={{ maxWidth: "14rem" }} value={add.user_id}
           onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
-          <option value={0}>Add record: select staff…</option>
+          <option value={0}>Select staff…</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
+        </label>
         <select className={inputClass} style={{ maxWidth: "8rem" }} value={add.type}
           onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
           <option value="clock_in">Clock in</option>

@@ -646,38 +646,138 @@ function Attendance({ user }: { user: User }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <input type="month" className={`${inputClass} w-auto`} value={month} onChange={(e) => setMonth(e.target.value)} />
-        {canReport && (
-          <button type="button" className={btnGhost} onClick={() => setReportMode((v) => !v)}>
-            {reportMode ? "My attendance" : "Team report"}
-          </button>
-        )}
-      </div>
       <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">
+              {reportMode && canReport ? "Team attendance report" : "My attendance"}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {reportMode && canReport
+                ? "Every punch across the team for the chosen month. Times are Malaysia time."
+                : "Your days at work with hours counted — first clock-in to last clock-out. Times are Malaysia time."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {reportMode && canReport && records.length > 0 && (
+              <select className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={sortBy} title="Sort records"
+                onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
+                <option value="time">Sort: Time (default)</option>
+                <option value="az">Sort: Name A–Z</option>
+                <option value="za">Sort: Name Z–A</option>
+              </select>
+            )}
+            <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} />
+            {canReport && (
+              <button type="button" className={btnGhost} onClick={() => setReportMode((v) => !v)}>
+                {reportMode ? "My attendance" : "Team report"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {records.length === 0 && <p className="text-muted-foreground mt-3 text-sm">No records for this month.</p>}
+
+        {/* Personal view (v1.4.77): grouped by day — Date | In | Out | Hours. */}
+        {!reportMode && records.length > 0 && (() => {
+          const byDay = new Map<string, { ins: string[]; outs: string[] }>();
+          for (const r of records) {
+            const d = mytDateOf(r.created_at);
+            const g = byDay.get(d) ?? { ins: [], outs: [] };
+            (r.type === "clock_in" ? g.ins : g.outs).push(r.created_at);
+            byDay.set(d, g);
+          }
+          const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+          const hoursOf = (firstIn?: string, lastOut?: string) => {
+            if (!firstIn || !lastOut) return null;
+            const ms = new Date(lastOut.replace(" ", "T") + "Z").getTime() - new Date(firstIn.replace(" ", "T") + "Z").getTime();
+            if (ms <= 0) return null;
+            const h = Math.floor(ms / 3600000);
+            const m = Math.round((ms % 3600000) / 60000);
+            return `${h}h ${String(m).padStart(2, "0")}m`;
+          };
+          const totalMs = days.reduce((sum, [, g]) => {
+            const fi = g.ins.sort()[0];
+            const lo = g.outs.sort().at(-1);
+            if (!fi || !lo) return sum;
+            const ms = new Date(lo.replace(" ", "T") + "Z").getTime() - new Date(fi.replace(" ", "T") + "Z").getTime();
+            return ms > 0 ? sum + ms : sum;
+          }, 0);
+          return (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[420px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-border border-b">
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Date</th>
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">In</th>
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Out</th>
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {days.map(([d, g]) => {
+                    const firstIn = g.ins.sort()[0];
+                    const lastOut = g.outs.sort().at(-1);
+                    const hrs = hoursOf(firstIn, lastOut);
+                    return (
+                      <tr key={d} className="border-border border-b last:border-0">
+                        <td className="px-2 py-1.5 font-medium whitespace-nowrap">{dmy(d)}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">
+                          {firstIn ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{mytTime(firstIn)}</span> : <span className="text-muted-foreground text-xs">—</span>}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">
+                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : <span className="text-muted-foreground text-xs">still in / missing</span>}
+                        </td>
+                        <td className="px-2 py-1.5 font-medium whitespace-nowrap">{hrs ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-border border-t-2 font-semibold">
+                    <td className="px-2 py-2">{days.length} day{days.length === 1 ? "" : "s"}</td>
+                    <td className="px-2 py-2" colSpan={2}></td>
+                    <td className="px-2 py-2 whitespace-nowrap">{totalMs > 0 ? `${Math.floor(totalMs / 3600000)}h ${String(Math.round((totalMs % 3600000) / 60000)).padStart(2, "0")}m` : "—"}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          );
+        })()}
+
+        {/* Team report: every punch, sortable, with clear In/Out chips. */}
         {reportMode && canReport && records.length > 0 && (
-          <div className="mb-2 flex justify-end">
-            <select className={`${inputClass} max-w-44`} value={sortBy} title="Sort records"
-              onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
-              <option value="time">Sort: Time (default)</option>
-              <option value="az">Sort: Name A–Z</option>
-              <option value="za">Sort: Name Z–A</option>
-            </select>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[480px] border-collapse text-sm">
+              <thead>
+                <tr className="border-border border-b">
+                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Staff</th>
+                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Type</th>
+                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Time (MYT)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(sortBy === "time"
+                  ? records
+                  : [...records].sort((a, b) => {
+                      const cmp = (a.name ?? "").localeCompare(b.name ?? "");
+                      return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
+                    })
+                ).map((r, i) => (
+                  <tr key={i} className="border-border border-b last:border-0">
+                    <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.name ?? "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.type === "clock_in" ? "bg-green-100 text-green-800" : "bg-secondary"}`}>
+                        {r.type === "clock_in" ? "In" : "Out"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{mytDateTime(r.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-        {records.length === 0 && <p className="text-muted-foreground text-sm">No records for this month.</p>}
-        {(sortBy === "time" || !reportMode
-          ? records
-          : [...records].sort((a, b) => {
-              const cmp = (a.name ?? "").localeCompare(b.name ?? "");
-              return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
-            })
-        ).map((r, i) => (
-          <p key={i} className="border-border border-b py-1.5 text-sm last:border-0">
-            {r.name ? <span className="font-medium">{r.name} · </span> : null}
-            {r.type.replace("_", " ")} — {mytDateTime(r.created_at)} MYT
-          </p>
-        ))}
       </div>
     </div>
   );

@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.77] — 2026-08-02 — Payroll days auto-calculated from clock-ins · Attendance redesigned · Details toggle right-aligned
+
+### Added
+- **Payroll ⇄ Attendance auto-calculation**: new `GET /payroll/attendance-days` counts each person's distinct clock-in days for the month (MYT). In Payroll: **"Auto days from clock-ins"** fills every days box in one press, a small **⏱N** beside each box always shows the recorded count, and **"Prorate all"** applies Basic × days ÷ working days to every row at once. The days boxes stay fully editable — that is the manual-correction path for wrong or dishonest punches — and the permanent fix is Attendance → corrections & back-entry, where every amendment is marked and audit-logged. Flow: set working days → Auto days → review/adjust → Prorate all → Save all
+
+### Changed
+- **Attendance tab redesigned**: personal view is now a real report — one row per DAY (Date | In | Out | Hours), green In chips, first-in→last-out hour counting, "still in / missing" flag for open days, and a footer totalling days + hours for the month (payroll cross-check at a glance). Team report is now a proper table (Staff | In/Out chip | Time) with the sort control, and the month picker + controls live in the card header instead of floating above it
+- **Staff Details**: the Details ▾ / Hide details ▴ toggle moved to the RIGHT end of the button row, as requested
+- Corrections card: "Add record" controls now labelled
+
+### Deploy
+- `npx wrangler deploy` (new payroll endpoint) → `pnpm build` → hard refresh. No new migration
+
+
 ## [1.4.76] — 2026-08-02 — R2 slimming (image compression + gzipped backups) · events calendar · density polish
 
 ### Added

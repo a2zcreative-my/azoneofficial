@@ -1345,6 +1345,23 @@ export async function handleStaff(
     ).bind(month).all();
     return json({ month, entries: results });
   }
+  if (path === "/payroll/attendance-days" && method === "GET") {
+    // v1.4.77: auto-calculation source — how many distinct days each staff
+    // member clocked in during the month (MYT dates). Payroll fills the
+    // "days worked" inputs from this; the inputs STAY editable so a wrong or
+    // dishonest punch can be overridden (and permanently corrected in
+    // Attendance → corrections & back-entry).
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const urlA = new URL(request.url);
+    const mA = urlA.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const { results } = await env.DB.prepare(
+      `SELECT user_id, COUNT(DISTINCT date(created_at, '+8 hours')) AS days
+       FROM attendance_records
+       WHERE type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?1
+       GROUP BY user_id`,
+    ).bind(mA).all<{ user_id: number; days: number }>();
+    return json({ month: mA, days: results });
+  }
   if (path === "/payroll/detail" && method === "GET") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const urlD = new URL(request.url);
