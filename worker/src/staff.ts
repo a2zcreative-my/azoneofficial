@@ -1131,9 +1131,17 @@ export async function handleStaff(
       ).bind(prevM).first<{ paid_at: string }>();
       staffPayroll = { month: prevM, cents: sum, paid_at: paidRow?.paid_at ?? null } as { month: string; cents: number; paid_at?: string | null };
     }
-    // v1.4.109: staff CLAIMS are company expenses too — cash basis:
-    // a claim becomes this month's expense when the CEO marks it PAID.
-    // Approved-but-unpaid claims surface on the Payments-due card.
+    // v1.4.112 (CEO's rule): a claim belongs to the month its CLAIM DATES
+    // fall in (1st → month end) once APPROVED — that month's expense, whether
+    // the money moved yet or not. Payments-completed still lists actual
+    // payments by paid_at (cash movements), and approved-unpaid claims sit
+    // on Payments due.
+    const { results: claimsInMonth } = await env.DB.prepare(
+      `SELECT c.id, c.amount_cents, c.paid_at, c.claim_date, u.name AS claimant FROM claims c
+       LEFT JOIN users u ON u.id = c.user_id
+       WHERE c.status = 'approved' AND strftime('%Y-%m', c.claim_date) = ?1
+       ORDER BY c.claim_date ASC`,
+    ).bind(month).all();
     const { results: claimsPaid } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
@@ -1145,7 +1153,7 @@ export async function handleStaff(
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.status = 'approved' AND c.paid_at IS NULL ORDER BY c.decided_at ASC`,
     ).all();
-    return json({ expenses: results, upcoming, staff_payroll: staffPayroll, staff_claims: { paid: claimsPaid, due: claimsDue } });
+    return json({ expenses: results, upcoming, staff_payroll: staffPayroll, staff_claims: { in_month: claimsInMonth, paid: claimsPaid, due: claimsDue } });
   }
   const exEdit = path.match(/^\/expenses\/(\d+)$/);
   if (exEdit && method === "PATCH") {
@@ -1237,7 +1245,7 @@ export async function handleStaff(
       ).bind(m).first<{ c: number }>();
       const clm = await env.DB.prepare(
         `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM claims
-         WHERE paid_at IS NOT NULL AND strftime('%Y-%m', paid_at) = ?1`,
+         WHERE status = 'approved' AND strftime('%Y-%m', claim_date) = ?1`,
       ).bind(m).first<{ c: number }>();
       // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
       const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);

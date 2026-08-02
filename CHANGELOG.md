@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.112] — 2026-08-02 — Month attribution rules set by the CEO
+
+### The three rules, as stated
+1. **July payroll counts in AUGUST** — this was already the design (the "Staff payroll — 07-2026" line lives inside the 08-2026 card and joins the August Total). What the screenshot exposed: the amount showed nothing because **July payroll hasn't been processed yet** — the figure comes from the Payroll tab's entries. The line now says so explicitly: *"(figure appears once 07-2026 payroll is processed in the Payroll tab — it counts in THIS month's total)"*
+2. **Utilities and other expenses belong to the month they're recorded in** — already the behaviour: recording in August books to August; recurring items carry forward to each month's Payments due until recorded for that month. Unchanged
+3. **Claims belong to the month their claim dates fall in (1st → month end)** — CHANGED from v1.4.109's paid-date basis: an **approved** claim now counts in the month of its claim date, whether the money has moved yet or not. The Expenses Total and the P&L Claims column both follow claim-date attribution ("+ staff claims RM X (N, by claim date)"). Payments due (approved-unpaid) and ✅ Payments completed (actual payment dates) keep tracking the cash movements separately
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.111] — 2026-08-02 — "Missing" expenses explained · News label on desktop
 
 ### Clarified (not a data loss)
