@@ -1298,6 +1298,7 @@ interface Claim {
   decided_by_name?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
+  items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
   created_at: string;
 }
 
@@ -1358,10 +1359,14 @@ function printClaimForm(c: Claim) {
   <table class="det">
     <thead><tr><th style="width:18%">Date</th><th style="width:20%">Category</th><th>Description</th><th style="width:18%">Amount (RM)</th></tr></thead>
     <tbody>
-      <tr><td>${dmy(c.claim_date)}</td><td style="text-transform:capitalize">${c.category}</td><td>${c.description ?? ""}</td><td class="r">${rmv(c.amount_cents)}</td></tr>
-      <tr><td></td><td></td><td></td><td></td></tr>
-      <tr><td></td><td></td><td></td><td></td></tr>
-      <tr><td></td><td></td><td></td><td></td></tr>
+      ${(() => {
+        let its: { claim_date: string; category: string; description?: string; amount_cents: number }[] = [];
+        try { its = c.items ? JSON.parse(c.items) : []; } catch { its = []; }
+        if (its.length === 0) its = [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
+        const rows = its.map((it) => `<tr><td>${dmy(it.claim_date)}</td><td style="text-transform:capitalize">${it.category}</td><td>${it.description ?? ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
+        while (rows.length < 4) rows.push("<tr><td></td><td></td><td></td><td></td></tr>");
+        return rows.join("");
+      })()}
     </tbody>
   </table>
   <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
@@ -1395,7 +1400,12 @@ export function ClaimsPanel() {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
-  const [draft, setDraft] = useState({ claim_date: "", category: "travel", amount: "", description: "" });
+  // v1.4.95: one claim form, several expense lines — like the paper form.
+  const emptyItem = { claim_date: "", category: "travel", description: "", amount: "" };
+  const [purpose, setPurpose] = useState("");
+  const [items, setItems] = useState([{ ...emptyItem }]);
+  // v1.4.95: minimalist list — rows collapsed, Details ▾ per claim.
+  const [expanded, setExpanded] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -1409,11 +1419,16 @@ export function ClaimsPanel() {
   const rmc = (c: number) => `RM ${(c / 100).toFixed(2)}`;
 
   const submit = async () => {
-    if (!draft.claim_date || !Number(draft.amount)) { setMsg("Date and amount are required."); return; }
+    const filled = items.filter((i) => i.claim_date || Number(i.amount) || i.description.trim());
+    if (filled.length === 0) { setMsg("Add at least one item (date + amount)."); return; }
+    if (filled.some((i) => !i.claim_date || !Number(i.amount))) { setMsg("Every item needs a date and an amount."); return; }
     setMsg("");
     const res = await api<{ id?: number; error?: { message?: string } }>(`/claims`, {
       method: "POST",
-      body: JSON.stringify({ ...draft, amount: Number(draft.amount), description: draft.description || undefined }),
+      body: JSON.stringify({
+        purpose: purpose || undefined,
+        items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: Number(i.amount) })),
+      }),
     });
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
     if (receipt) {
@@ -1425,7 +1440,7 @@ export function ClaimsPanel() {
         body: compressed,
       });
     }
-    setDraft({ claim_date: "", category: "travel", amount: "", description: "" });
+    setPurpose(""); setItems([{ ...emptyItem }]);
     setReceipt(null);
     showToast("Saved", "Claim submitted — the CEO has been notified");
     void load();
@@ -1445,29 +1460,58 @@ export function ClaimsPanel() {
   const pending = claims.filter((c) => c.status === "pending");
   const decided = claims.filter((c) => c.status !== "pending");
 
+  const claimItems = (c: Claim): { claim_date: string; category: string; description?: string; amount_cents: number }[] => {
+    try {
+      const its = c.items ? JSON.parse(c.items) : [];
+      if (Array.isArray(its) && its.length > 0) return its;
+    } catch { /* fall through */ }
+    return [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
+  };
+
+  // v1.4.95: minimalist rows — one line collapsed; Details ▾ opens items,
+  // receipt, print form and the decision trail.
   const claimRow = (c: Claim, actions: boolean) => (
     <div key={c.id} className="border-border rounded-lg border px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           {c.claimant && <span className="font-medium">{c.claimant} · </span>}
           <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>{" "}
+          {claimItems(c).length > 1
+            ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} items</span>
+            : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>}{" "}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{c.status}</span>
         </p>
-        <p className="text-muted-foreground text-xs">Expense date {dmy(c.claim_date)}</p>
+        <p className="text-muted-foreground text-xs">
+          {dmy(c.claim_date)}{" · "}
+          <button type="button" className="underline" onClick={() => setExpanded((e) => e === c.id ? null : c.id)}>
+            Details {expanded === c.id ? "▴" : "▾"}
+          </button>
+        </p>
       </div>
-      {c.description && <p className="text-muted-foreground mt-1 text-xs">{c.description}</p>}
-      <p className="text-muted-foreground mt-1 text-xs">
-        {c.receipt_key
-          ? <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
-          : "No receipt attached"}
-        {" · "}
-        <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
-          onClick={() => printClaimForm(c)}>
-          Print claim form
-        </button>
-        {c.decided_by_name && <> · decided by {c.decided_by_name}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
-      </p>
+      {expanded === c.id && (
+        <>
+          {c.description && <p className="text-muted-foreground mt-1 text-xs">Purpose: {c.description}</p>}
+          <div className="mt-1 space-y-0.5">
+            {claimItems(c).map((it, i) => (
+              <p key={i} className="text-muted-foreground text-xs">
+                {dmy(it.claim_date)} · <span className="capitalize">{it.category}</span>
+                {it.description ? ` · ${it.description}` : ""} · {rmc(it.amount_cents)}
+              </p>
+            ))}
+          </div>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {c.receipt_key
+              ? <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
+              : "No receipt attached"}
+            {" · "}
+            <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
+              onClick={() => printClaimForm(c)}>
+              Print claim form
+            </button>
+            {c.decided_by_name && <> · decided by {c.decided_by_name}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
+          </p>
+        </>
+      )}
       {actions && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder="Note (optional — sent to the claimant)"
@@ -1490,18 +1534,34 @@ export function ClaimsPanel() {
           Expense claims from CEO, COO, CCO and HR — every claim is approved or
           rejected by the CEO, who is notified the moment you submit.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input type="date" className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" title="Expense date"
-            value={draft.claim_date} onChange={(e) => setDraft((d) => ({ ...d, claim_date: e.target.value }))} />
-          <select className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm capitalize" value={draft.category}
-            onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-            {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 max-w-36 rounded-lg border px-2 text-sm" placeholder="Amount (RM)"
-            value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
+        <input className="border-input bg-background mt-3 h-9 w-full rounded-lg border px-2 text-sm" placeholder="Purpose (shown on the printed form, optional)"
+          value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+        <div className="text-muted-foreground mt-2 grid grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] gap-2 text-xs">
+          <span>Date</span><span>Category</span><span>Description</span><span>Amount (RM)</span><span />
         </div>
-        <input className="border-input bg-background mt-2 h-9 w-full rounded-lg border px-2 text-sm" placeholder="What was this for? (optional)"
-          value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+        {items.map((it, i) => (
+          <div key={i} className="mt-1 grid grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] items-center gap-2">
+            <input type="date" className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+              value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
+            <select className="border-input bg-background h-9 rounded-lg border px-2 text-sm capitalize" value={it.category}
+              onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
+              {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input className="border-input bg-background h-9 min-w-0 rounded-lg border px-2 text-sm" placeholder="e.g. Grab to client meeting"
+              value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
+            <input type="number" min={0} step="0.01" className="border-input bg-background h-9 rounded-lg border px-2 text-sm" placeholder="0.00"
+              value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
+            {items.length > 1
+              ? <button type="button" className="text-destructive text-xs underline" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>✕</button>
+              : <span />}
+          </div>
+        ))}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>+ Add item</button>
+          <p className="text-sm font-semibold">
+            Total: RM {(items.reduce((a, i) => a + (Number(i.amount) || 0), 0)).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="border-border inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm hover:bg-secondary">
             {receipt ? `Receipt: ${receipt.name}` : "Attach receipt (image/PDF)"}

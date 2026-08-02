@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.95] — 2026-08-02 — Monthly KPI cycle (last month's result stays visible) · multi-item claims, minimalist
+
+### Changed — KPI as a monthly cycle
+- Targets were already **per-month**, so each new month starts fresh (an automatic reset) — what was missing was the cycle around it, now added: **last month's KPI result stays on the Sales Revenue card all month** as a motivation banner — 🏆 green *"Last month (07-2026): RM 18,540.00 of RM 15,000.00 — 124% TARGET HIT — keep the streak going!"* or 📈 amber *"… — 62% — this month is the comeback."* And **from the 25th onward**, if next month's target isn't set yet, leadership sees an ⏰ *"Month-end soon — set 09-2026's target before the 30th/31st"* nudge with a one-click **Set next month's target** editor (same inline editor, posts to the next month). Once set, the card confirms "Next month's target already set"
+
+### Changed — Claims, matching the paper form
+- **Multi-item claims** (migration **0036**: `items` JSON on claims): one form now takes several expense lines — Date · Category · Description · Amount (RM) per row, **+ Add item** (up to 10), live **Total**, a **Purpose** field (prints on the form) — mirroring the AZOO-HR-CLM-001 details table. The stored total is the sum; the CEO's notification carries the total; old single-line claims keep working
+- **Minimalist list, as asked**: claim rows collapse to one line — claimant · total · "3 items" (or category) chip · status · date · **Details ▾**. Expanding shows the purpose, each item line, the receipt link, Print claim form and the decision trail. Approve/Reject stay visible on pending rows without expanding
+- The printed **AZOO-HR-CLM-001** now lists every item as its own row (blank rows pad to the form's minimum), with the grand total
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0036**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.94] — 2026-08-02 — "Nothing saved" fixed loudly · backdated invoices · document editing · PDF straight after create
 
 ### Fixed — why "Create with auto number" seemed to do nothing

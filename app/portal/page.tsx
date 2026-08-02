@@ -310,6 +310,9 @@ interface RevenueData {
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
   invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };  outstanding?: { cents: number; docs: number };
   target_cents?: number | null;
+  next_month?: string;
+  last_target_cents?: number | null;
+  next_target_cents?: number | null;
 }
 
 /** Sales revenue at a glance — TikTok order amounts (captured by the sync)
@@ -322,7 +325,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
   useEffect(() => { loadRev(); }, [loadRev]);
   const canTarget = ["super_admin", "admin", "ceo", "coo"].includes(role ?? "");
   // v1.4.93: inline target editor — no more browser prompt() box.
-  const [editingTarget, setEditingTarget] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<null | "this" | "next">(null);
   const [targetDraft, setTargetDraft] = useState("");
   const { show: showToast, node: toastNode } = useSaveToast();
   if (!rev) return null;
@@ -355,33 +358,35 @@ function SalesRevenueCard({ role }: { role?: string }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold tracking-wide uppercase">🎯 Monthly sales target (KPI)</p>
           {canTarget && !editingTarget && (
-            <button type="button" className="text-xs underline" onClick={() => { setTargetDraft(rev.target_cents ? (rev.target_cents / 100).toString() : ""); setEditingTarget(true); }}>
+            <button type="button" className="text-xs underline" onClick={() => { setTargetDraft(rev.target_cents ? (rev.target_cents / 100).toString() : ""); setEditingTarget("this"); }}>
               {rev.target_cents ? "Edit target" : "Set target"}
             </button>
           )}
         </div>
         {editingTarget && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm">Target for {rev.month.split("-").reverse().join("-")}:</span>
+            <span className="text-sm">Target for {(editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month).split("-").reverse().join("-")}:</span>
             <span className="flex items-center gap-1 text-sm">
               RM
               <input type="number" min={0} step="0.01" autoFocus
                 className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
                 placeholder="e.g. 20000" value={targetDraft}
                 onChange={(e) => setTargetDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") setEditingTarget(false); }} />
+                onKeyDown={(e) => { if (e.key === "Escape") setEditingTarget(null); }} />
             </span>
             <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
               onClick={async () => {
                 const v = Number(targetDraft);
+                const m = editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month;
+                const current = editingTarget === "next" ? (rev.next_target_cents ?? 0) : (rev.target_cents ?? 0);
                 if (!v || v <= 0) { showToast("No changes", "Enter a target amount first", "notice"); return; }
-                if (Math.round(v * 100) === (rev.target_cents ?? 0)) { showToast("No changes", "Target unchanged", "notice"); setEditingTarget(false); return; }
-                const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(v * 100) }) });
-                if (res.ok) { showToast("Saved", `Sales target set — RM ${v.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`); setEditingTarget(false); loadRev(); }
+                if (Math.round(v * 100) === current) { showToast("No changes", "Target unchanged", "notice"); setEditingTarget(null); return; }
+                const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: m, target_cents: Math.round(v * 100) }) });
+                if (res.ok) { showToast("Saved", `Sales target for ${m.split("-").reverse().join("-")} — RM ${v.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`); setEditingTarget(null); loadRev(); }
               }}>
               Save target
             </button>
-            <button type="button" className="text-xs underline" onClick={() => setEditingTarget(false)}>Cancel</button>
+            <button type="button" className="text-xs underline" onClick={() => setEditingTarget(null)}>Cancel</button>
           </div>
         )}
         {rev.target_cents ? (() => {
@@ -400,6 +405,27 @@ function SalesRevenueCard({ role }: { role?: string }) {
         })() : (
           <p className="text-muted-foreground mt-1 text-xs">No target set for this month yet.</p>
         )}
+        {rev.last_target_cents ? (() => {
+          // v1.4.95: last month's KPI result stays visible this month — the
+          // team sees where they landed, and the bar to beat.
+          const lastPct = Math.round((lastTotal / rev.last_target_cents!) * 100);
+          const hit = lastPct >= 100;
+          return (
+            <p className={`mt-2 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
+              {hit ? "🏆" : "📈"} Last month ({rev.last_month.split("-").reverse().join("-")}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
+              {hit ? "TARGET HIT — keep the streak going!" : "— this month is the comeback."}
+            </p>
+          );
+        })() : null}
+        {canTarget && !editingTarget && new Date(Date.now() + 8 * 3600 * 1000).getUTCDate() >= 25 && !rev.next_target_cents && rev.next_month && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            ⏰ Month-end soon — set {rev.next_month.split("-").reverse().join("-")}&apos;s target before the 30th/31st.{" "}
+            <button type="button" className="underline" onClick={() => { setTargetDraft(""); setEditingTarget("next"); }}>Set next month&apos;s target</button>
+          </p>
+        )}
+        {rev.next_target_cents ? (
+          <p className="text-muted-foreground mt-2 text-xs">Next month&apos;s target already set: {rm(rev.next_target_cents)}.</p>
+        ) : null}
       </div>
     </div>
   );

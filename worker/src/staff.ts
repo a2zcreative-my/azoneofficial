@@ -801,17 +801,42 @@ export async function handleStaff(
   if (path === "/claims" && method === "POST") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cats = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
-    const cents = Math.round(Number(body?.amount) * 100);
-    if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.claim_date ?? "")) || !Number.isFinite(cents) || cents <= 0 || cents > 100000000) {
-      return err("invalid_input", "claim_date (YYYY-MM-DD) and a positive amount are required", 400);
+    // v1.4.95: multi-item claims — one form, several expense lines, exactly
+    // like the paper AZOO-HR-CLM-001. Legacy single-line submissions still work.
+    let itemsJson: string | null = null;
+    let cents = 0;
+    let claimDate = "";
+    let category = "other";
+    if (Array.isArray(body?.items) && body!.items.length > 0) {
+      if (body!.items.length > 10) return err("invalid_input", "At most 10 items per claim", 400);
+      const parsed = (body!.items as { claim_date?: unknown; category?: unknown; description?: unknown; amount?: unknown }[])
+        .map((i) => ({
+          claim_date: typeof i.claim_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(i.claim_date) ? i.claim_date : null,
+          category: typeof i.category === "string" && cats.includes(i.category) ? i.category : "other",
+          description: typeof i.description === "string" ? i.description.slice(0, 300) : "",
+          amount_cents: Math.round(Number(i.amount) * 100),
+        }));
+      if (parsed.some((i) => !i.claim_date || !Number.isFinite(i.amount_cents) || i.amount_cents <= 0 || i.amount_cents > 100000000)) {
+        return err("invalid_input", "Every item needs a date and a positive amount", 400);
+      }
+      cents = parsed.reduce((a, i) => a + i.amount_cents, 0);
+      claimDate = parsed[0]!.claim_date as string;
+      category = parsed[0]!.category;
+      itemsJson = JSON.stringify(parsed);
+    } else {
+      cents = Math.round(Number(body?.amount) * 100);
+      if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.claim_date ?? "")) || !Number.isFinite(cents) || cents <= 0 || cents > 100000000) {
+        return err("invalid_input", "claim_date (YYYY-MM-DD) and a positive amount are required", 400);
+      }
+      claimDate = body.claim_date as string;
+      category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "other";
     }
-    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "other";
+    const purpose = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000)
+      : typeof body?.description === "string" ? body.description.slice(0, 1000) : null;
     const res = await env.DB.prepare(
-      `INSERT INTO claims (user_id, claim_date, category, amount_cents, description)
-       VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
-    ).bind(user.id, body.claim_date, category, cents,
-      typeof body.description === "string" ? body.description.slice(0, 1000) : null,
-    ).first<{ id: number }>();
+      `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+    ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
     // Tell the decider(s): a claim is waiting. Per spec that is the CEO.
     const { results: deciders } = await env.DB.prepare(
       `SELECT id FROM users WHERE role IN ('ceo') AND is_active = 1 AND id != ?1`,
@@ -1022,18 +1047,25 @@ export async function handleStaff(
       `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
        FROM sales_documents WHERE doc_type = 'INV' AND payment_status != 'paid'`,
     ).first<{ cents: number; docs: number }>();
-    const target = env.DB.prepare(
+    const targetOf = (m: string) => env.DB.prepare(
       `SELECT target_cents FROM sales_targets WHERE month = ?1`,
-    ).bind(month).first<{ target_cents: number }>();
-    const [tThis, tLast, iThis, iLast, out, tgt] = await Promise.all([
-      tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding, target,
+    ).bind(m).first<{ target_cents: number }>();
+    // v1.4.95: targets are per-month rows, so each new month RESETS by
+    // construction; last month's KPI result stays on the card for the team,
+    // and next month's target can be set before month-end.
+    const nextMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 7);
+    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext] = await Promise.all([
+      tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
+      targetOf(month), targetOf(lastMonth), targetOf(nextMonth),
     ]);
     return json({
-      month, last_month: lastMonth,
+      month, last_month: lastMonth, next_month: nextMonth,
       tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
       invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
       outstanding: { cents: out?.cents ?? 0, docs: out?.docs ?? 0 },
       target_cents: tgt?.target_cents ?? null,
+      last_target_cents: tgtLast?.target_cents ?? null,
+      next_target_cents: tgtNext?.target_cents ?? null,
     });
   }
   if (path === "/revenue/target" && method === "POST") {
