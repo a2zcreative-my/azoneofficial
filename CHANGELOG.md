@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.85] — 2026-08-02 — Overtime in Payroll
+
+### Added
+- **OT (hrs) column** in Payroll (migration **0031**: `ot_hours` + `ot_cents` on the entry): enter the month's overtime hours (halves allowed) and the amount computes itself at the **Employment Act normal-working-day rate — 1.5 × hourly ORP**, where hourly ORP = monthly wage ÷ 26 ÷ 8. The computed RM shows live under the hours box, NET and the TOTAL row include it, and both the hours and the computed sen are stored so the slip reproduces the figure forever
+- **Payslip**: EARNINGS gains `OVERTIME (H HRS × 1.5 × HOURLY ORP)`; gross, TOTAL and NETT include it; the staff self-view summary shows OT too
+- Scope note: 1.5× covers OT on **normal working days**. Rest-day (2.0×) and public-holiday (3.0×) OT rates exist in the Act — if live sessions start landing on those days, say the word and the column grows the rate split
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0031**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.84] — 2026-08-02 — Working days computed truthfully · one-pass payroll flow (proper HRM behaviour)
+
+### The "26 days" problem, resolved
+- The CEO is right that Mon–Fri staff will dispute "5 OF 26 DAYS": **26 is NOT the month's working days** — it's the Employment Act's fixed statutory divisor (1/26 of monthly wages per day) that applies ONLY to the unpaid-leave rate. The month's real working days for a Mon–Fri company are computed: **weekdays minus every calendar holiday** — July 2026 = 23 weekdays − Hari Hol (21-07) = **22**. The two numbers now never masquerade as each other:
+  - Payslip deduction line reads `UNPAID LEAVE (N DAYS × 1/26 MONTHLY WAGE)` — the statutory rate named explicitly
+  - Incomplete-month line reads `INCOMPLETE MONTH (WORKED 5 OF 22 WORKING DAYS)` — the true count
+  - OTHERS box now opens with `WORKING DAYS IN MONTH (MON–FRI LESS HOLIDAYS): 22` and `DAYS PRESENT (CLOCKED IN): 5` — the slip explains its own arithmetic, which is the dispute prevention
+- Consequence: July nets computed on the honest 22-day basis change slightly (Izzudin 5/22 → net RM 895.45, not RM 773.08) — the previous figures silently under-paid against a Mon–Fri interpretation, exactly the dispute risk being closed
+
+### One-pass payroll (no more one-by-one)
+- **Everything auto-fills on opening the month**: Basic from base salaries (v1.4.78) · **Working days (auto)** computed by the server from the calendar · **days worked auto-filled from attendance** (saved values always win; staff with zero punches stay blank = full month, so a non-punching account is never silently zeroed). Flow is now: open month → glance → **Save all** → payslips correct → auto-release on the 5th
+- "Auto days from clock-ins" relabelled **Re-fill days** (it now only re-overwrites manual edits); **Save all was already there** and remains the single-click save
+- Still deliberately absent, as specified: **no KWSP/SOCSO/EIS** lines — registration pending; the payslip structure gains them the day it lands
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Then open July: working days shows 22, days are pre-filled, press **Save all** once and reprint
+
+
 ## [1.4.83] — 2026-08-02 — Payslip lock now applies to EVERYONE, no processor bypass
 
 ### Fixed

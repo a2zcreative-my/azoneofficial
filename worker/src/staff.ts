@@ -1490,7 +1490,25 @@ export async function handleStaff(
        WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%'
        GROUP BY user_id`,
     ).bind(mA).all<{ user_id: number; days: number }>();
-    return json({ month: mA, days: results, unpaid });
+    // v1.4.84: the month's TRUE working-day count, computed — Mon–Fri minus
+    // every holiday on the calendar (public, replacement and company days).
+    // This is what "working days" means on the payslip; July 2026 = 22
+    // (23 weekdays − Hari Hol 21-07), NOT a blanket 26. The statutory ÷26
+    // used for unpaid leave is a separate, fixed Employment Act rate.
+    const yA = Number(mA.slice(0, 4));
+    const moA = Number(mA.slice(5, 7));
+    const lastDay = new Date(Date.UTC(yA, moA, 0)).getUTCDate();
+    const { results: hols } = await env.DB.prepare(
+      `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+    ).bind(mA).all<{ holiday_date: string }>();
+    const holSet = new Set(hols.map((h) => h.holiday_date));
+    let workingDays = 0;
+    for (let d = 1; d <= lastDay; d++) {
+      const dt = new Date(Date.UTC(yA, moA - 1, d));
+      const dow = dt.getUTCDay();
+      if (dow >= 1 && dow <= 5 && !holSet.has(dt.toISOString().slice(0, 10))) workingDays++;
+    }
+    return json({ month: mA, days: results, unpaid, working_days: workingDays });
   }
   if (path === "/payroll/detail" && method === "GET") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
@@ -1512,17 +1530,22 @@ export async function handleStaff(
     // basis (null = full month, no adjustment). Basic itself stays FULL.
     const intOrNull = (v: unknown) =>
       typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 31 ? Math.round(v) : null;
+    // v1.4.85: overtime — hours (0–300, halves allowed) + the computed sen.
+    const otHours = typeof body.ot_hours === "number" && Number.isFinite(body.ot_hours) && body.ot_hours > 0 && body.ot_hours <= 300
+      ? Math.round(body.ot_hours * 2) / 2 : null;
     await env.DB.prepare(
-      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, deduction_cents, worked_days, month_working_days, note, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, note, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
        ON CONFLICT (user_id, month) DO UPDATE SET
          basic_cents = ?3, commission_cents = ?4, allowance_cents = ?5,
-         deduction_cents = ?6, worked_days = ?7, month_working_days = ?8,
-         note = ?9, updated_at = datetime('now')`,
+         ot_hours = ?6, ot_cents = ?7,
+         deduction_cents = ?8, worked_days = ?9, month_working_days = ?10,
+         note = ?11, updated_at = datetime('now')`,
     ).bind(
       body.user_id, month,
       cents(body.basic_cents), cents(body.commission_cents),
-      cents(body.allowance_cents), cents(body.deduction_cents),
+      cents(body.allowance_cents), otHours, cents(body.ot_cents),
+      cents(body.deduction_cents),
       intOrNull(body.worked_days), intOrNull(body.month_working_days),
       str(body.note, 300) ? body.note : null, user.id,
     ).run();
