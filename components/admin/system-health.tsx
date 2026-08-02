@@ -65,7 +65,7 @@ export function SystemHealthCard() {
     : null;
 
   return (
-    <div className="border-border bg-card rounded-lg border p-5">
+    <div className="border-border bg-card rounded-lg border p-4 md:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">System health</p>

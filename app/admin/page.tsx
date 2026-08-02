@@ -7,6 +7,7 @@
  */
 
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
+import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { SystemHealthCard } from "@/components/admin/system-health";
@@ -354,9 +355,12 @@ function MediaPanel() {
     setError("");
     try {
       const kind = file.type.startsWith("video") ? "video" : file.type.startsWith("image") ? "image" : "document";
+      // R2 free tier: images are resized/recompressed client-side first
+      // (videos and documents pass through unchanged).
+      const payload = kind === "image" ? await compressImage(file) : file;
       const res = await fetch(
         `${API}/media?filename=${encodeURIComponent(file.name)}&kind=${kind}`,
-        { method: "POST", credentials: "include", headers: { "Content-Type": file.type }, body: file },
+        { method: "POST", credentials: "include", headers: { "Content-Type": payload.type || file.type }, body: payload },
       );
       if (!res.ok) setError("Upload failed.");
     } catch {
@@ -372,7 +376,7 @@ function MediaPanel() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <label className="block">
         <span className="mb-2 block text-sm font-semibold">Upload file</span>
         <input
@@ -849,7 +853,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-5 py-6 pb-24 md:pb-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-4 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
@@ -1008,13 +1012,13 @@ export default function AdminPage() {
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
         {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory canAmend /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
         {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && (
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             <SystemHealthCard />
             <AuditPanel />
           </div>
         )}
         {tab === "Account" && (
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             <AccountPanel />
             <TwoFactorPanel />
           </div>

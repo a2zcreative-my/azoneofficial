@@ -46,7 +46,7 @@ const btnClass =
   "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
-const card = "rounded-lg border border-border bg-card p-4";
+const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 
 /**
  * Attendance timestamps are stored in UTC (datetime('now') in D1) — correct
@@ -205,7 +205,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const hasOut = today.some((r) => r.type === "clock_out");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -229,7 +229,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
             onClick={() => go("Leave")} onKeyDown={(e) => e.key === "Enter" && go("Leave")}>
@@ -375,6 +375,10 @@ function UpcomingEventsCard({ role }: { role: string }) {
   const [msg, setMsg] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({ title: "", category: "training", event_date: "", start_time: "", end_time: "", location: "", details: "" });
+  // v1.4.76: professional month-calendar view (default) with a list toggle.
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [calMonth, setCalMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const canManage = EVENTS_MANAGE_ROLES.includes(role);
 
   const loadEvents = useCallback(async () => {
@@ -383,6 +387,8 @@ function UpcomingEventsCard({ role }: { role: string }) {
   }, []);
   useEffect(() => { void loadEvents(); }, [loadEvents]);
 
+  const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const upcoming = events.filter((e) => e.event_date >= todayISO);
   const daysAway = (iso: string) => {
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const n = Math.round((new Date(iso).getTime() - new Date(today).getTime()) / 86400000);
@@ -413,19 +419,30 @@ function UpcomingEventsCard({ role }: { role: string }) {
         <div>
           <p className="text-sm font-semibold">
             Upcoming events
-            {events.length > 0 && (
+            {upcoming.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
-                {events.length}
+                {upcoming.length}
               </span>
             )}
           </p>
           <p className="text-muted-foreground mt-0.5 text-xs">Trainings, classes and important company dates — everyone is notified when one is added.</p>
         </div>
-        {canManage && (
-          <button type="button" className={btnGhost} onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Close" : "+ Add event"}
-          </button>
-        )}
+        <span className="flex items-center gap-2">
+          <span className="border-border inline-flex overflow-hidden rounded-lg border text-xs">
+            {(["calendar", "list"] as const).map((v) => (
+              <button key={v} type="button"
+                className={`px-3 py-1.5 font-medium capitalize ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
+                onClick={() => setView(v)}>
+                {v}
+              </button>
+            ))}
+          </span>
+          {canManage && (
+            <button type="button" className={btnGhost} onClick={() => setShowForm((v) => !v)}>
+              {showForm ? "Close" : "+ Add event"}
+            </button>
+          )}
+        </span>
       </div>
       {canManage && showForm && (
         <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
@@ -451,9 +468,21 @@ function UpcomingEventsCard({ role }: { role: string }) {
           <button type="button" className={btnClass} onClick={() => void createEvent()}>Save event — notifies all staff</button>
         </div>
       )}
+      {view === "calendar" && (
+        <EventsCalendar
+          events={events}
+          month={calMonth}
+          onMonth={setCalMonth}
+          selected={selectedDay}
+          onSelect={setSelectedDay}
+          canManage={canManage}
+          onRemove={(id) => void removeEvent(id)}
+        />
+      )}
+      {view === "list" && (
       <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
-        {events.length === 0 && <p className="text-muted-foreground text-sm">No upcoming events scheduled.</p>}
-        {events.map((ev) => (
+        {upcoming.length === 0 && <p className="text-muted-foreground text-sm">No upcoming events scheduled.</p>}
+        {upcoming.map((ev) => (
           <div key={ev.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
             <div className="min-w-0">
               <p className="text-sm">
@@ -475,6 +504,127 @@ function UpcomingEventsCard({ role }: { role: string }) {
           </div>
         ))}
       </div>
+      )}
+    </div>
+  );
+}
+
+/** Category dot / accent colours — consistent across dots, chips, agenda. */
+const EVENT_COLORS: Record<string, string> = {
+  training: "bg-amber-500",
+  class: "bg-sky-500",
+  meeting: "bg-violet-500",
+  event: "bg-emerald-500",
+};
+
+/** Month calendar — professional on desktop AND phones: 7-column grid,
+    today ringed, category-coloured markers (titles on desktop, dots on
+    mobile), tap a day for its agenda below. Weeks start Sunday (MY). */
+function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage, onRemove }: {
+  events: CompanyEvent[];
+  month: string;
+  onMonth: (m: string) => void;
+  selected: string | null;
+  onSelect: (d: string | null) => void;
+  canManage: boolean;
+  onRemove: (id: number) => void;
+}) {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  const first = new Date(Date.UTC(y, m - 1, 1));
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lead = first.getUTCDay(); // 0 = Sunday
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const iso = (d: number) => `${month}-${String(d).padStart(2, "0")}`;
+  const byDay = (d: string) => events.filter((e) => e.event_date === d);
+  const shift = (delta: number) => {
+    onSelect(null);
+    onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
+  };
+  const monthLabel = first.toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" });
+  const cells: (number | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  const dayEvents = selected ? byDay(selected) : [];
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between">
+        <button type="button" aria-label="Previous month" className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(-1)}>‹</button>
+        <p className="text-sm font-semibold">{monthLabel}</p>
+        <button type="button" aria-label="Next month" className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(1)}>›</button>
+      </div>
+      <div className="text-muted-foreground mt-2 grid grid-cols-7 text-center text-[11px] font-semibold tracking-wide uppercase">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <span key={d} className="py-1">{d}</span>)}
+      </div>
+      <div className="border-border grid grid-cols-7 overflow-hidden rounded-lg border">
+        {cells.map((d, i) => {
+          if (d === null) return <div key={`x${i}`} className="border-border bg-secondary/20 min-h-12 border-r border-b last:border-r-0 md:min-h-20" />;
+          const dISO = iso(d);
+          const evs = byDay(dISO);
+          const isToday = dISO === today;
+          const isSel = dISO === selected;
+          return (
+            <button
+              key={dISO}
+              type="button"
+              onClick={() => onSelect(isSel ? null : dISO)}
+              className={`border-border relative min-h-12 border-r border-b p-1 text-left align-top transition-colors last:border-r-0 md:min-h-20 md:p-1.5 ${isSel ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
+            >
+              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ? "bg-primary text-primary-foreground font-bold" : "font-medium"}`}>{d}</span>
+              {/* Mobile: dots. Desktop: title snippets. */}
+              {evs.length > 0 && (
+                <>
+                  <span className="mt-0.5 flex flex-wrap gap-0.5 md:hidden">
+                    {evs.slice(0, 4).map((e) => <span key={e.id} className={`h-1.5 w-1.5 rounded-full ${EVENT_COLORS[e.category] ?? "bg-primary"}`} />)}
+                  </span>
+                  <span className="mt-0.5 hidden md:block">
+                    {evs.slice(0, 2).map((e) => (
+                      <span key={e.id} className="mb-0.5 block truncate rounded bg-secondary px-1 py-0.5 text-[10px] leading-tight">
+                        <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${EVENT_COLORS[e.category] ?? "bg-primary"}`} />
+                        {e.title}
+                      </span>
+                    ))}
+                    {evs.length > 2 && <span className="text-muted-foreground block text-[10px]">+{evs.length - 2} more</span>}
+                  </span>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div className="text-muted-foreground mt-2 flex flex-wrap gap-3 text-[11px]">
+        {Object.entries(EVENT_COLORS).map(([k, cls]) => (
+          <span key={k} className="inline-flex items-center gap-1 capitalize"><span className={`h-2 w-2 rounded-full ${cls}`} />{k}</span>
+        ))}
+      </div>
+      {selected && (
+        <div className="border-border mt-3 rounded-lg border p-3">
+          <p className="text-sm font-semibold">{dmy(selected)}</p>
+          {dayEvents.length === 0 ? (
+            <p className="text-muted-foreground mt-1 text-sm">No events this day.</p>
+          ) : (
+            dayEvents.map((ev) => (
+              <div key={ev.id} className="mt-2 flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm">
+                    <span className={`mr-1.5 inline-block h-2 w-2 rounded-full align-middle ${EVENT_COLORS[ev.category] ?? "bg-primary"}`} />
+                    <span className="font-medium">{ev.title}</span>{" "}
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{ev.category}</span>
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-xs">
+                    {ev.start_time ? `${ev.start_time}${ev.end_time ? `–${ev.end_time}` : ""}` : "All day"}
+                    {ev.location ? ` · ${ev.location}` : ""}
+                    {ev.created_by_name ? ` · added by ${ev.created_by_name}` : ""}
+                  </p>
+                  {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
+                </div>
+                {canManage && (
+                  <button type="button" className="text-destructive text-xs underline" onClick={() => onRemove(ev.id)}>Remove</button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -594,7 +744,7 @@ function Leave({ user }: { user: User }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
           const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
@@ -615,7 +765,7 @@ function Leave({ user }: { user: User }) {
         })}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Apply for leave</p>
           <div className="mt-3 space-y-3">
@@ -710,7 +860,7 @@ function Tasks({ user }: { user: User }) {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
         <p className="text-sm font-semibold">{canManage ? "Create / assign a task" : "Create a task"}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -792,7 +942,7 @@ function Announcements({ user }: { user: User }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {canPost && (
         <div className={card}>
           <p className="text-sm font-semibold">Publish announcement</p>
@@ -938,8 +1088,8 @@ function Sales({ user }: { user: User }) {
   const total = Math.max(0, Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100)));
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-4 md:space-y-6">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Add customer</p>
           <div className="mt-3 space-y-3">
@@ -1064,7 +1214,7 @@ function Profile() {
     }
   };
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
         <p className="text-sm font-semibold">My profile</p>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -1204,7 +1354,7 @@ export default function PortalPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-5 py-6 pb-24 md:pb-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
@@ -1390,7 +1540,7 @@ export default function PortalPage() {
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
         {tab === "Profile" && (
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             <Profile />
             <MyPayslip />
             <TwoFactorPanel />

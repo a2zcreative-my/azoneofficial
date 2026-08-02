@@ -29,7 +29,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-4";
+const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 

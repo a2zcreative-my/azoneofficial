@@ -34,7 +34,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-5";
+const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 const btnSmall =
   "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors disabled:opacity-50";
 
@@ -164,7 +164,7 @@ export function StaffPanel() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">
           Leave administration

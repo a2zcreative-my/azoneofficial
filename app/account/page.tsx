@@ -23,7 +23,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-5";
+const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btnClass =
@@ -78,7 +78,7 @@ export default function AccountPage() {
   if (!checked || !user) return null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-5 py-6 pb-24 md:pb-6">
+    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
@@ -178,7 +178,7 @@ export default function AccountPage() {
 
       {tab === "Enquiries" && (
       <>
-      <div className={`${card} mt-6`}>
+      <div className={`${card} mt-4 md:mt-6`}>
         <p className="text-sm font-semibold">Ask AZ ONE OFFICIAL</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Send a question to our team — it reaches staff with your name and
@@ -216,7 +216,7 @@ export default function AccountPage() {
         </button>
       </div>
 
-      <div className={`${card} mt-6`}>
+      <div className={`${card} mt-4 md:mt-6`}>
         <p className="text-sm font-semibold">My enquiries</p>
         {enquiries.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">

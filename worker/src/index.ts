@@ -532,15 +532,20 @@ async function runBackup(env: Env, actorId: number | null): Promise<
       rowCount += results.length;
     }
     const mytDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const key = `backups/db-${mytDate}.json`;
-    const body = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump });
-    await env.MEDIA.put(key, body, { httpMetadata: { contentType: "application/json" } });
+    // v1.4.76: gzip the dump (R2 free tier) — JSON compresses ~85–90%.
+    const key = `backups/db-${mytDate}.json.gz`;
+    const raw = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump });
+    const gzipped = new Response(
+      new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")),
+    );
+    const body = await gzipped.arrayBuffer();
+    await env.MEDIA.put(key, body, { httpMetadata: { contentType: "application/gzip" } });
     // Retention: keep the newest 30 backup objects.
     const listed = await env.MEDIA.list({ prefix: "backups/" });
     const sorted = listed.objects.sort((a, b) => b.key.localeCompare(a.key));
     for (const stale of sorted.slice(30)) await env.MEDIA.delete(stale.key);
-    await audit(env, actorId, "system.backup", "r2", key, { tables: tables.length, rows: rowCount, bytes: body.length, source: actorId ? "manual" : "cron" });
-    return { ok: true, key, tables: tables.length, rows: rowCount, bytes: body.length };
+    await audit(env, actorId, "system.backup", "r2", key, { tables: tables.length, rows: rowCount, bytes: body.byteLength, raw_bytes: raw.length, source: actorId ? "manual" : "cron" });
+    return { ok: true, key, tables: tables.length, rows: rowCount, bytes: body.byteLength };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logError(env, "backup", msg);

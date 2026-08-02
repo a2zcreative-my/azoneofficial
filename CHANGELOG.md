@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.76] — 2026-08-02 — R2 slimming (image compression + gzipped backups) · events calendar · density polish
+
+### Added
+- **Client-side image compression before every R2 upload** (`lib/compress-image.ts`): longest side capped at 1600px, JPEG quality 0.82 — sharp enough for staff photos, claim receipts and site media, typically 5–15× smaller than phone-camera originals. Wired into staff photos (add form + record row), claim receipts, and admin site media. Safety rails: PDFs, videos, documents, GIFs and SVGs pass through untouched; any failure or a larger result falls back to the original. PDFs are NOT recompressed (no reliable in-browser way without quality loss) — they're usually small; if a huge scanned PDF becomes a problem, photograph the receipt as an image instead
+- **Nightly backups now gzipped**: `backups/db-YYYY-MM-DD.json.gz` via CompressionStream — JSON dumps shrink ~85–90%, so 30 retained backups cost a fraction of the free-tier 10 GB. Audit records both stored and raw byte counts
+- **Events month calendar** — the Dashboard events card now defaults to a professional calendar with a Calendar | List toggle: 7-column month grid (‹ › navigation), today ringed in navy, category-coloured markers (title snippets on desktop, colour dots on phones), colour legend, tap/click a day for its agenda below (with Remove for managers). Events API now returns from the previous month onward so recent history is visible; the list view still shows upcoming only
+
+### Changed
+- **Density pass across /portal, /admin and /account** (~40 spots): card padding p-5 → p-4 md:p-5 (p-4 → p-3.5 md:p-4), section stacks space-y-6 → space-y-4 md:space-y-6, grid gaps gap-6 → gap-4 md:gap-6, stat grids gap-4 → gap-3 md:gap-4, page shells px-5 py-6 → px-4 py-4 md:px-5 md:py-6. Phones lose the oversized white space; desktop keeps its comfortable rhythm
+
+### Deploy
+- `npx wrangler deploy` (gzip backups) → `pnpm build` → hard refresh. No new migration
+
+
 ## [1.4.75] — 2026-08-02 — Payroll totals · Claims (CEO approves) · Sales revenue on the Dashboard
 
 ### Added

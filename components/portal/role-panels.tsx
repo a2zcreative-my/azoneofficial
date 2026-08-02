@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { compressImage } from "@/lib/compress-image";
 
 const API = "/api/v1/staff";
 
@@ -42,7 +43,7 @@ const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btnClass =
   "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
-const card = "rounded-lg border border-border bg-card p-5";
+const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
 function dmy(iso: string | null | undefined): string {
@@ -122,7 +123,7 @@ export function HrPanel() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -181,7 +182,7 @@ export function HrPanel() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Task report</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -446,7 +447,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   }, [load]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <TikTokOrdersCard role={role} onChanged={() => void load()} />
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
@@ -507,7 +508,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Postage tracking — non-TikTok orders</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -671,7 +672,7 @@ export function CommercialPanel() {
   }, [load]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">New business development entry</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -772,7 +773,7 @@ export function OperationsPanel() {
   }, [load]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Daily operational report</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -869,15 +870,15 @@ export function OverviewPanel() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="space-y-4 md:space-y-6">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
         {stat("Clocked in today", data.clocked_in_today)}
         {stat("Pending leave requests", data.pending_leave)}
         {stat("Low / out-of-stock items", data.low_stock_items)}
         {stat("Events next 30 days", data.upcoming_events_30d ?? 0)}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Sales documents issued to clients</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -942,7 +943,7 @@ export function OverviewPanel() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Task progress (company-wide)</p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -1146,7 +1147,7 @@ export function AttendanceAdminPanel() {
   };
 
   return (
-    <div className={`${card} mt-6`}>
+    <div className={`${card} mt-4 md:mt-6`}>
       <p className="text-sm font-semibold">Staff attendance — corrections &amp; back-entry</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Amend a wrong punch or add clock in/out for days worked before this
@@ -1296,11 +1297,12 @@ export function ClaimsPanel() {
     });
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
     if (receipt) {
+      const compressed = await compressImage(receipt); // PDFs pass through untouched
       await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": receipt.type || "image/jpeg" },
-        body: receipt,
+        headers: { "Content-Type": compressed.type || receipt.type || "image/jpeg" },
+        body: compressed,
       });
     }
     setDraft({ claim_date: "", category: "travel", amount: "", description: "" });
@@ -1354,7 +1356,7 @@ export function ClaimsPanel() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Submit a claim</p>
         <p className="text-muted-foreground mt-0.5 text-xs">

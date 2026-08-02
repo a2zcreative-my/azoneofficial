@@ -699,13 +699,14 @@ export async function handleStaff(
   /* ---- company events (v1.4.73) ---- */
 
   if (path === "/events" && method === "GET") {
-    // Every staff member sees upcoming events — that is the point of the
-    // feature. Past events drop off automatically (MYT date).
+    // Every staff member sees events. v1.4.76: includes the previous month
+    // onwards so the calendar view can show recent history; the list view
+    // filters to upcoming client-side.
     const { results } = await env.DB.prepare(
       `SELECT e.*, u.name AS created_by_name FROM events e
        LEFT JOIN users u ON u.id = e.created_by
-       WHERE e.event_date >= date('now', '+8 hours')
-       ORDER BY e.event_date ASC, e.start_time ASC LIMIT 50`,
+       WHERE e.event_date >= date('now', '+8 hours', 'start of month', '-1 month')
+       ORDER BY e.event_date ASC, e.start_time ASC LIMIT 200`,
     ).all();
     return json({ events: results });
   }

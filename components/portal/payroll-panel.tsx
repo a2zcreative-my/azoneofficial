@@ -27,7 +27,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-5";
+const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
 
@@ -275,7 +275,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   return (
-    <div className={`${card} mt-6`}>
+    <div className={`${card} mt-4 md:mt-6`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">Payroll processing</p>

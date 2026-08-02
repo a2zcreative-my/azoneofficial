@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { compressImage } from "@/lib/compress-image";
 import { PasswordInput } from "@/components/ui/password-input";
 
 const API = "/api/v1/staff";
@@ -30,7 +31,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-4";
+const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input =
   "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
@@ -412,11 +413,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 // Photo chosen up front? Attach it to the account just created.
                 let photoNote = "";
                 if (newPhoto && res.data?.id) {
+                  const compressed = await compressImage(newPhoto);
                   const up = await fetch(`${API}/users/${res.data.id}/photo`, {
                     method: "POST",
                     credentials: "include",
-                    headers: { "Content-Type": newPhoto.type || "image/jpeg" },
-                    body: newPhoto,
+                    headers: { "Content-Type": compressed.type || "image/jpeg" },
+                    body: compressed,
                   });
                   photoNote = up.ok ? " Photo uploaded." : " (Photo upload failed — use Upload photo on the row.)";
                 }
@@ -557,11 +559,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                       e.target.value = "";
                       if (!file) return;
                       setRowMsg((m) => ({ ...m, [u.id]: "" }));
+                      const compressed = await compressImage(file);
                       const res = await fetch(`${API}/users/${u.id}/photo`, {
                         method: "POST",
                         credentials: "include",
-                        headers: { "Content-Type": file.type || "image/jpeg" },
-                        body: file,
+                        headers: { "Content-Type": compressed.type || "image/jpeg" },
+                        body: compressed,
                       });
                       if (res.ok) {
                         setSaved(u.id);
