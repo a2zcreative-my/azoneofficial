@@ -2,6 +2,31 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.127] — 2026-08-02 — Claim form: aligned signature grid · every printed time in Malaysia time
+
+### Fixed
+- **Malaysia time everywhere on the form.** Timestamps are stored in UTC in the database, and the form printed them raw — so an approval at 22:45 Malaysia time printed as "14:45". Every printed timestamp now converts to **MYT (+8)** and says so: the header Date, the "APPROVED IN SYSTEM … on DD-MM-YYYY HH:MM MYT" status line, and the CEO's Date under the signature. The system already detected Malaysia time internally (attendance, payroll cutoffs, audit views all shift +8) — the claim form printout was the gap, now closed
+- **Signature columns aligned.** Each of the three cells now uses the same fixed internal grid: a name zone (sized for two-line names like MOHD ALIF FARHAN BIN NAZARUDIN), an identical signature zone (the CEO's PNG sits inside it without pushing anything), and **Date pinned to the same baseline in all three cells** — flex with margin-top:auto, per the house rule. Name, Signature and Date now line up straight across the row regardless of name length or signature presence
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.126] — 2026-08-02 — Payroll figure breakdown: mismatches now name themselves
+
+### Added
+- The Expenses "Staff payroll" line gains an expandable **Breakdown** — every saved entry the figure is built from, with the person's name and their saved net. Comparing it against the Payroll tab makes any mismatch self-diagnosing:
+  - a **name in the breakdown that isn't in the Payroll tab** = a ghost entry (test account / out-of-scope user) inflating the figure
+  - a **different amount** than the tab shows = that row hasn't been re-saved since editing
+  - a **"recomputed ⚠" marker** = the row was saved before the net-storing update (v1.4.124) — the server recomputed it; press Save all to store the exact net
+
+### Reminder — the tally sequence (v1.4.124 must be live first)
+The two figures only converge after ALL of: migration **0041** applied remotely → `wrangler deploy` → `pnpm build` + hard refresh → **Payroll 07-2026: Save all**. The Payroll tab shows live on-screen values (e.g. the new RM 75 allowance and 1.5h OT); Expenses reads what was last SAVED — until Save all runs on the new build, they cannot match by design
+
+### Deploy
+- Migration **0041** (with 0040) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: **Save all** → check the Breakdown
+
+
 ## [1.4.125] — 2026-08-02 — Claim form: CEO full name + signature on approval · no CUT HERE · footer at page bottom
 
 ### Changed (printed claim form)

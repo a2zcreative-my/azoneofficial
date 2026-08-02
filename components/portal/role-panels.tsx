@@ -1405,6 +1405,16 @@ const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
 async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
+  // v1.4.127: DB timestamps are UTC — every printed time must be Malaysia
+  // time (+8), matching the system-wide MYT convention.
+  const mytStamp = (iso: string | null | undefined): string => {
+    if (!iso) return "";
+    if (iso.length <= 10) return dmy(iso); // date-only: no shift needed
+    const d = new Date(new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z")).getTime() + 8 * 3600 * 1000);
+    if (Number.isNaN(d.getTime())) return dmy(iso);
+    const i = d.toISOString();
+    return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
+  };
   const chainLine = [
     c.hr_reviewed_by_name ? `HR reviewed by ${c.hr_reviewed_by_name}` : null,
     c.pre_approved_by_name ? `Pre-approved by ${c.pre_approved_by_name}` : null,
@@ -1431,7 +1441,7 @@ async function printClaimForm(c: Claim) {
     } catch { /* form still prints without the receipt */ }
   }
   const sysLine = c.status === "approved"
-    ? `APPROVED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}${c.decided_at ? " on " + dmy(c.decided_at) : ""}`
+    ? `APPROVED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}${c.decided_at ? " on " + mytStamp(c.decided_at) + " MYT" : ""}`
     : c.status === "rejected"
       ? `REJECTED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}`
       : "PENDING SYSTEM APPROVAL";
@@ -1462,7 +1472,11 @@ async function printClaimForm(c: Claim) {
     .sys { margin-top: 6px; font-weight: 800; color: ${c.status === "approved" ? "#15803d" : c.status === "rejected" ? "#b91c1c" : "#b45309"}; }
     .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
     .sig .hd2 { font-weight: 700; background: #f2f4f8; }
-    .sig .body { height: 64px; }
+    .sig .body { height: 108px; }
+    .sig .body { display: flex; flex-direction: column; }
+    .sig .nm { min-height: 26px; }        /* room for two-line names — same in every cell */
+    .sig .sg { height: 52px; }            /* signature zone identical across cells */
+    .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
     .receiptwrap { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
@@ -1475,7 +1489,7 @@ async function printClaimForm(c: Claim) {
   <h2>Employee Claim Form</h2>
   <table class="meta">
     <tr><td class="k">Document No.</td><td class="v">AZOO-HR-CLM-001</td><td class="k">Version</td><td class="v">002</td></tr>
-    <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${dmy(c.created_at)}</td></tr>
+    <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
     <tr><td class="k">Employee</td><td class="v">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class="k">Department</td><td class="v">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
     <tr><td class="k">Position</td><td class="v">${(c.claimant_position ?? "").toUpperCase()}</td><td class="k">Purpose</td><td class="v">${c.description ?? ""}</td></tr>
     <tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
@@ -1504,11 +1518,11 @@ async function printClaimForm(c: Claim) {
       <td class="hd2">Chief Executive Officer (CEO)</td>
     </tr>
     <tr>
-      <td class="body">Name: ${(c.claimant_full || c.claimant || "")}<br/>Signature:<br/><br/><br/>Date:</td>
-      <td class="body">Name:<br/>Signature:<br/><br/><br/>Date:</td>
-      <td class="body">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}<br/>
-        Signature:${c.status === "approved" ? `<br/><img src="/signatures/ceo-sign.png" alt="" style="height:44px;display:block;margin:2px 0" onerror="this.style.display='none'"/>` : "<br/><br/><br/>"}
-        Date: ${c.status === "approved" && c.decided_at ? dmy(c.decided_at) : ""}</td>
+      <td class="body"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div><div class="sg">Signature:</div><div class="dt">Date:</div></td>
+      <td class="body"><div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div></td>
+      <td class="body"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
+        <div class="sg">Signature:${c.status === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></td>
     </tr>
   </table>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
@@ -1987,7 +2001,7 @@ export function ExpensesPanel() {
   const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean } | null>(null);
   // v1.4.91: the previous month's payroll total (net, same formula as the
   // payslips) — paid during this month, so it belongs in this month's total.
-  const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number; paid_at?: string | null } | null>(null);
+  const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null>(null);
   // v1.4.109: staff claims are expenses too — paid claims join the month,
   // approved-unpaid ones appear under Payments due.
   const [staffClaims, setStaffClaims] = useState<{ in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] }>({ in_month: [], paid: [], due: [] });
@@ -1997,7 +2011,7 @@ export function ExpensesPanel() {
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
 
   const load = useCallback(async () => {
-    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
+    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
     // v1.4.114: a failed load must SAY SO — a silent empty list looks like
     // data loss (the CEO's screenshot).
     setLoadError(res.ok ? "" : ((res.data as { error?: { message?: string } } | null)?.error?.message ?? "Server error — expenses could not be loaded. If this version was just deployed, apply migrations 0037 + 0038 first."));
@@ -2108,6 +2122,21 @@ export function ExpensesPanel() {
                   <p className="text-muted-foreground text-xs">
                     Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
+                  {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
+                    <details className="mt-1 text-xs">
+                      <summary className="text-muted-foreground cursor-pointer select-none">
+                        Breakdown — {staffPayroll!.entries!.length} saved {staffPayroll!.entries!.length === 1 ? "entry" : "entries"} (compare with the Payroll tab: extra or missing names / different figures = rows not yet re-saved)
+                      </summary>
+                      <ul className="mt-1 space-y-0.5">
+                        {staffPayroll!.entries!.map((r, i) => (
+                          <li key={i} className="flex justify-between gap-3">
+                            <span>{properName(r.name)}{!r.saved_net && <span className="text-amber-700" title="Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net."> · recomputed ⚠</span>}</span>
+                            <span className="tabular-nums">{rmc(r.cents)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
                 <span className="flex items-center gap-1.5">
                   {staffPayroll?.paid_at

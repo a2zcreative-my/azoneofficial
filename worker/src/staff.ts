@@ -1193,7 +1193,7 @@ export async function handleStaff(
       const { results: pes } = await env.DB.prepare(
         `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
                 COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents, p.net_cents,
-                p.worked_days, p.month_working_days, u.base_salary_cents
+                p.worked_days, p.month_working_days, u.base_salary_cents, u.name AS uname
          FROM payroll_entries p JOIN users u ON u.id = p.user_id
          WHERE p.month = ?1 AND u.is_active = 1
            AND u.role NOT IN ('customer', 'super_admin')
@@ -1206,10 +1206,17 @@ export async function handleStaff(
       ).bind(prevM).all<{ user_id: number; days: number }>();
       const ulMap = new Map(uls.map((r) => [r.user_id, r.days]));
       let sum = 0;
+      // v1.4.126: per-person breakdown in the response — a mismatch with the
+      // Payroll tab now NAMES the row causing it (stale save or ghost entry).
+      const rowsOut: { name: string; cents: number; saved_net: boolean }[] = [];
       for (const e of pes) {
         // v1.4.124: the net the panel SAVED is authoritative; the formula
         // below only covers rows saved before net_cents existed.
-        if (e.net_cents !== null && e.net_cents !== undefined) { sum += e.net_cents; continue; }
+        if (e.net_cents !== null && e.net_cents !== undefined) {
+          sum += e.net_cents;
+          rowsOut.push({ name: (e as unknown as { uname: string }).uname, cents: e.net_cents, saved_net: true });
+          continue;
+        }
         const ul = ulMap.get(e.user_id) ?? 0;
         const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
         let adj = 0;
@@ -1217,7 +1224,9 @@ export async function handleStaff(
           const adjustable = Math.max(0, Math.max(0, e.month_working_days - e.worked_days) - ul);
           adj = Math.round((e.basic_cents * adjustable) / e.month_working_days);
         }
-        sum += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+        const rowNet = Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+        sum += rowNet;
+        rowsOut.push({ name: (e as unknown as { uname: string }).uname, cents: rowNet, saved_net: false });
       }
       let paidAtP: string | null = null;
       try {
@@ -1229,7 +1238,7 @@ export async function handleStaff(
         // payroll_payments arrives with migration 0037 — degrade, don't die.
         await logError(env, "expenses_payroll_paid", e instanceof Error ? e.message : String(e));
       }
-      staffPayroll = { month: prevM, cents: sum, paid_at: paidAtP } as { month: string; cents: number; paid_at?: string | null };
+      staffPayroll = { month: prevM, cents: sum, paid_at: paidAtP, entries: rowsOut } as { month: string; cents: number; paid_at?: string | null };
     }
     // v1.4.112 (CEO's rule): a claim belongs to the month its CLAIM DATES
     // fall in (1st → month end) once APPROVED — that month's expense, whether
