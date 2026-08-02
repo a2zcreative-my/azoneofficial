@@ -33,6 +33,13 @@ const PERMS: Record<string, readonly Role[]> = {
   // Company events (training / classes / meetings) — v1.4.73. CEO included:
   // the boss schedules trainings. Everyone can VIEW; these roles manage.
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  // Expense claims (v1.4.75) — per the CEO's spec: CEO, COO, CCO and HR
+  // submit; EVERY decision is the CEO's alone (super_admin only as the
+  // system-recovery fallback, admin deliberately excluded).
+  claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  claims_decide: ["super_admin", "ceo"],
+  // Sales revenue dashboard (v1.4.75) — per the CEO's list.
+  revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // Invoice finance status changes.
@@ -756,6 +763,114 @@ export async function handleStaff(
     await env.DB.prepare(`DELETE FROM events WHERE id = ?1`).bind(evMatch[1]).run();
     await audit(env, user.id, "event.delete", "events", evMatch[1]);
     return json({ ok: true });
+  }
+
+  /* ---- expense claims (v1.4.75): CEO/COO/CCO/HR submit, CEO decides ---- */
+
+  if (path === "/claims" && method === "GET") {
+    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    // Deciders see everyone's claims (the approval queue); submitters their own.
+    const all = can(user, "claims_decide");
+    const { results } = await env.DB.prepare(
+      all
+        ? `SELECT c.*, u.name AS claimant, d.name AS decided_by_name FROM claims c
+           LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
+           ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`
+        : `SELECT c.*, u.name AS claimant, d.name AS decided_by_name FROM claims c
+           LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
+           WHERE c.user_id = ?1 ORDER BY c.created_at DESC LIMIT 100`,
+    ).bind(...(all ? [] : [user.id])).all();
+    return json({ claims: results, can_decide: all });
+  }
+  if (path === "/claims" && method === "POST") {
+    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    const cats = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
+    const cents = Math.round(Number(body?.amount) * 100);
+    if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.claim_date ?? "")) || !Number.isFinite(cents) || cents <= 0 || cents > 100000000) {
+      return err("invalid_input", "claim_date (YYYY-MM-DD) and a positive amount are required", 400);
+    }
+    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "other";
+    const res = await env.DB.prepare(
+      `INSERT INTO claims (user_id, claim_date, category, amount_cents, description)
+       VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
+    ).bind(user.id, body.claim_date, category, cents,
+      typeof body.description === "string" ? body.description.slice(0, 1000) : null,
+    ).first<{ id: number }>();
+    // Tell the decider(s): a claim is waiting. Per spec that is the CEO.
+    const { results: deciders } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role IN ('ceo') AND is_active = 1 AND id != ?1`,
+    ).bind(user.id).all();
+    for (const d of deciders as { id: number }[]) {
+      await notify(env, d.id, "claim", `Claim awaiting your approval: ${user.name} — RM ${(cents / 100).toFixed(2)} (${category})`, `claim:${res?.id}`);
+    }
+    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents });
+    return json({ id: res?.id }, 201);
+  }
+  const clMatch = path.match(/^\/claims\/(\d+)(\/receipt|\/decide)?$/);
+  if (clMatch && clMatch[2] === "/receipt" && method === "POST") {
+    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    const row = await env.DB.prepare(`SELECT user_id, status FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string }>();
+    if (!row) return err("not_found", "Claim not found", 404);
+    if (row.user_id !== user.id) return err("forbidden", "Only the claimant attaches receipts", 403);
+    if (row.status !== "pending") return err("invalid_state", "Decided claims are locked", 400);
+    const ct = request.headers.get("content-type") ?? "image/jpeg";
+    if (!/^image\//.test(ct) && ct !== "application/pdf") return err("invalid_input", "Receipt must be an image or PDF", 400);
+    const key = `claims/${clMatch[1]}-${Date.now()}`;
+    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    await env.DB.prepare(`UPDATE claims SET receipt_key = ?1 WHERE id = ?2`).bind(key, clMatch[1]).run();
+    return json({ ok: true });
+  }
+  if (clMatch && clMatch[2] === "/receipt" && method === "GET") {
+    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    const row = await env.DB.prepare(`SELECT user_id, receipt_key FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; receipt_key: string | null }>();
+    if (!row?.receipt_key) return err("not_found", "No receipt attached", 404);
+    if (row.user_id !== user.id && !can(user, "claims_decide")) return err("forbidden", "Not your claim", 403);
+    const obj = await env.MEDIA.get(row.receipt_key);
+    if (!obj) return err("not_found", "Receipt file missing", 404);
+    return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
+  }
+  if (clMatch && clMatch[2] === "/decide" && method === "POST") {
+    // Per the CEO's instruction: EVERY claim decision is the CEO's.
+    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
+    const action = body?.action;
+    if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
+    const row = await env.DB.prepare(`SELECT user_id, status, amount_cents FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string; amount_cents: number }>();
+    if (!row) return err("not_found", "Claim not found", 404);
+    if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
+    const status = action === "approve" ? "approved" : "rejected";
+    await env.DB.prepare(
+      `UPDATE claims SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3 WHERE id = ?4`,
+    ).bind(status, user.id, typeof body?.note === "string" ? body.note.slice(0, 500) : null, clMatch[1]).run();
+    await notify(env, row.user_id, "claim",
+      `Your claim of RM ${(row.amount_cents / 100).toFixed(2)} was ${status}${typeof body?.note === "string" && body.note ? ` — ${body.note.slice(0, 200)}` : ""}`,
+      `claim:${clMatch[1]}`);
+    await audit(env, user.id, `claim.${action}`, "claims", clMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- sales revenue (v1.4.75): dashboard figures, TikTok included ---- */
+
+  if (path === "/revenue" && method === "GET") {
+    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const lastMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+    const tiktok = (m: string) => env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents, COUNT(*) AS orders
+       FROM postage_records
+       WHERE order_ref LIKE 'TT-%' AND status != 'returned'
+         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+    ).bind(m).first<{ cents: number; orders: number }>();
+    const invoiced = (m: string) => env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
+       FROM sales_documents WHERE doc_type = 'INV'
+         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+    ).bind(m).first<{ cents: number; docs: number }>();
+    const [tThis, tLast, iThis, iLast] = await Promise.all([tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth)]);
+    return json({
+      month, last_month: lastMonth,
+      tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
+      invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
+    });
   }
 
   /* ---- tasks ---- */

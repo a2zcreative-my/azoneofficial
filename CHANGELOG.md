@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.75] — 2026-08-02 — Payroll totals · Claims (CEO approves) · Sales revenue on the Dashboard
+
+### Added
+- **Payroll month totals**: a bold TOTAL row under the table — Basic / Commission / Allowance / Deduction and the final **NET** payout for the whole month, updating live as figures are typed
+- **Claims tab** (migration **0026**, `claims`): CEO, COO, CCO and HR (+admin tier) submit expense claims — date, category (travel/meal/accommodation/equipment/medical/other), amount, description, optional receipt (image/PDF → R2). **Every decision is the CEO's alone** (super_admin retained solely as system-recovery fallback; admin deliberately excluded from deciding). CEO gets a bell notification on each submission and sees a Pending approvals queue with Approve / Reject + optional note; the claimant is notified of the outcome. All actions audited (`claim.create/approve/reject`)
+- **Sales revenue card on the Dashboard** for CEO, COO, CCO, sales_marketing, marketing and hr_admin (+admin tier): TikTok Shop revenue (synced order amounts, returned orders excluded), Invoiced revenue (INV documents), and combined Total — this month vs last with a ▲/▼ % change
+- **TikTok order amounts now captured** (migration 0026: `postage_records.order_amount_cents`): the sync reads `payment.total_amount` on insert and backfills existing TT- records via COALESCE on the next pass
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0026**) → `npx wrangler deploy` → `pnpm build` → hard refresh. TikTok amounts for the existing 7 orders appear after the next 30-minute sync (or press Sync)
+
+
 ## [1.4.74] — 2026-08-01 — Minimalist Staff Details (collapsed records) · A–Z sorting
 
 ### Changed

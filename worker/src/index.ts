@@ -665,6 +665,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
         city?: string; state?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
       };
+      payment?: { total_amount?: string | number; currency?: string };
     }[] };
   } | null;
   if (!data || (typeof data.code === "number" && data.code !== 0)) {
@@ -698,14 +699,19 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
       null
     )?.slice(0, 80) ?? null;
+    // v1.4.75: order amount in cents for the revenue dashboard. TikTok sends
+    // the total as a decimal string; parse defensively, reject nonsense.
+    const paidRaw = Number(o.payment?.total_amount);
+    const amountNow = Number.isFinite(paidRaw) && paidRaw >= 0 ? Math.round(paidRaw * 100) : null;
     if (exists) {
       // Already imported: keep its shipping status and tracking current —
       // stock stays untouched (it moved on first import).
       await env.DB.prepare(
         `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(tracking_no, ?2),
            buyer_city = COALESCE(buyer_city, ?3),
-           updated_at = datetime('now') WHERE id = ?4 AND status != 'returned'`,
-      ).bind(uiNow, trackNow, cityNow, exists.id).run();
+           order_amount_cents = COALESCE(order_amount_cents, ?4),
+           updated_at = datetime('now') WHERE id = ?5 AND status != 'returned'`,
+      ).bind(uiNow, trackNow, cityNow, amountNow, exists.id).run();
       skipped += 1;
       continue;
     }
@@ -726,9 +732,9 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
     if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
     const rec = await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, status, note, updated_by)
-       VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, NULL) RETURNING id`,
-    ).bind(orderRef, trackNow, cityNow, uiNow, notes.join(" · ")).first<{ id: number }>();
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
+       VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, ?6, NULL) RETURNING id`,
+    ).bind(orderRef, trackNow, cityNow, amountNow, uiNow, notes.join(" · ")).first<{ id: number }>();
     if (canDeduct) {
       for (const l of resolved) {
         const upd = await env.DB.prepare(

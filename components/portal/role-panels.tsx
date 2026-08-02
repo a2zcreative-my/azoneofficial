@@ -1246,3 +1246,167 @@ export function AttendanceAdminPanel() {
     </div>
   );
 }
+
+
+/* ================= Expense claims (v1.4.75) ================= */
+
+interface Claim {
+  id: number;
+  user_id: number;
+  claim_date: string;
+  category: string;
+  amount_cents: number;
+  description?: string | null;
+  receipt_key?: string | null;
+  status: string;
+  claimant?: string | null;
+  decided_by_name?: string | null;
+  decision_note?: string | null;
+  created_at: string;
+}
+
+const CLAIM_CATEGORIES = ["travel", "meal", "accommodation", "equipment", "medical", "other"] as const;
+
+/** Expense claims — CEO, COO, CCO and HR submit; per the CEO's instruction
+    EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
+    the CEO sees a pending queue with Approve / Reject and an optional note.
+    Both sides are bell-notified. */
+export function ClaimsPanel() {
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [canDecide, setCanDecide] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [draft, setDraft] = useState({ claim_date: "", category: "travel", amount: "", description: "" });
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const [note, setNote] = useState<Record<number, string>>({});
+
+  const load = useCallback(async () => {
+    const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
+    if (res.ok && res.data) { setClaims(res.data.claims); setCanDecide(res.data.can_decide); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const rmc = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+
+  const submit = async () => {
+    if (!draft.claim_date || !Number(draft.amount)) { setMsg("Date and amount are required."); return; }
+    setMsg("");
+    const res = await api<{ id?: number; error?: { message?: string } }>(`/claims`, {
+      method: "POST",
+      body: JSON.stringify({ ...draft, amount: Number(draft.amount), description: draft.description || undefined }),
+    });
+    if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
+    if (receipt) {
+      await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": receipt.type || "image/jpeg" },
+        body: receipt,
+      });
+    }
+    setDraft({ claim_date: "", category: "travel", amount: "", description: "" });
+    setReceipt(null);
+    setMsg("Claim submitted — the CEO has been notified.");
+    void load();
+  };
+
+  const decide = async (id: number, action: "approve" | "reject") => {
+    await api(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
+    void load();
+  };
+
+  const badgeCls: Record<string, string> = {
+    pending: "bg-amber-100 text-amber-800",
+    approved: "bg-green-100 text-green-800",
+    rejected: "bg-red-100 text-red-800",
+  };
+  const pending = claims.filter((c) => c.status === "pending");
+  const decided = claims.filter((c) => c.status !== "pending");
+
+  const claimRow = (c: Claim, actions: boolean) => (
+    <div key={c.id} className="border-border rounded-lg border px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm">
+          {c.claimant && <span className="font-medium">{c.claimant} · </span>}
+          <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>{" "}
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{c.status}</span>
+        </p>
+        <p className="text-muted-foreground text-xs">Expense date {dmy(c.claim_date)}</p>
+      </div>
+      {c.description && <p className="text-muted-foreground mt-1 text-xs">{c.description}</p>}
+      <p className="text-muted-foreground mt-1 text-xs">
+        {c.receipt_key
+          ? <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
+          : "No receipt attached"}
+        {c.decided_by_name && <> · decided by {c.decided_by_name}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
+      </p>
+      {actions && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder="Note (optional — sent to the claimant)"
+            value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
+          <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={() => void decide(c.id, "approve")}>Approve</button>
+          <button type="button" className="border-border text-destructive inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            onClick={() => void decide(c.id, "reject")}>Reject</button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className={card}>
+        <p className="text-sm font-semibold">Submit a claim</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Expense claims from CEO, COO, CCO and HR — every claim is approved or
+          rejected by the CEO, who is notified the moment you submit.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input type="date" className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" title="Expense date"
+            value={draft.claim_date} onChange={(e) => setDraft((d) => ({ ...d, claim_date: e.target.value }))} />
+          <select className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm capitalize" value={draft.category}
+            onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
+            {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 max-w-36 rounded-lg border px-2 text-sm" placeholder="Amount (RM)"
+            value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
+        </div>
+        <input className="border-input bg-background mt-2 h-9 w-full rounded-lg border px-2 text-sm" placeholder="What was this for? (optional)"
+          value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="border-border inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm hover:bg-secondary">
+            {receipt ? `Receipt: ${receipt.name}` : "Attach receipt (image/PDF)"}
+            <input type="file" accept="image/*,application/pdf" className="hidden"
+              onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
+          </label>
+          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+            onClick={() => void submit()}>Submit claim</button>
+        </div>
+        {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
+      </div>
+
+      {canDecide && (
+        <div className={card}>
+          <p className="text-sm font-semibold">
+            Pending approvals
+            {pending.length > 0 && (
+              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{pending.length}</span>
+            )}
+          </p>
+          <div className="mt-3 space-y-2">
+            {pending.length === 0 && <p className="text-muted-foreground text-sm">Nothing awaiting your decision.</p>}
+            {pending.map((c) => claimRow(c, true))}
+          </div>
+        </div>
+      )}
+
+      <div className={card}>
+        <p className="text-sm font-semibold">{canDecide ? "All claims" : "My claims"}</p>
+        <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+          {(canDecide ? decided : claims).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
+          {(canDecide ? decided : claims).map((c) => claimRow(c, false))}
+        </div>
+      </div>
+    </div>
+  );
+}

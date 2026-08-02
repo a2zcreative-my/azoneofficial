@@ -19,6 +19,7 @@ import {
   HrPanel,
   InventoryPanel,
   OverviewPanel,
+  ClaimsPanel,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 
@@ -290,7 +291,55 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
       </div>
 
+      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
+
       <UpcomingEventsCard role={user.role} />
+    </div>
+  );
+}
+
+/* ================= Sales revenue (v1.4.75) ================= */
+
+const REVENUE_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
+
+interface RevenueData {
+  month: string;
+  last_month: string;
+  tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
+  invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };
+}
+
+/** Sales revenue at a glance — TikTok order amounts (captured by the sync)
+    plus invoices issued, this month vs last. */
+function SalesRevenueCard() {
+  const [rev, setRev] = useState<RevenueData | null>(null);
+  useEffect(() => {
+    void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+  }, []);
+  if (!rev) return null;
+  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const total = rev.tiktok.this_cents + rev.invoiced.this_cents;
+  const lastTotal = rev.tiktok.last_cents + rev.invoiced.last_cents;
+  const delta = lastTotal > 0 ? Math.round(((total - lastTotal) / lastTotal) * 100) : null;
+  const box = (label: string, value: string, sub: string) => (
+    <div className="border-border rounded-lg border p-3">
+      <p className="text-muted-foreground text-xs tracking-wide uppercase">{label}</p>
+      <p className="mt-1 text-xl font-semibold">{value}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">{sub}</p>
+    </div>
+  );
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        TikTok figures come from synced order amounts (returned orders excluded);
+        invoiced figures from INV documents in the Sales module.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
+        {box("Invoiced", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} invoices · last month ${rm(rev.invoiced.last_cents)}`)}
+        {box("Total", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
+      </div>
     </div>
   );
 }
@@ -1050,7 +1099,7 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Inventory", "Birthdays", "Overview", "Profile"] as const;
+const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Claims", "Inventory", "Birthdays", "Overview", "Profile"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -1062,6 +1111,8 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
   HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   Payroll: ["ceo", "coo", "super_admin", "admin"],
+  // Expense claims (v1.4.75): CEO/COO/CCO/HR submit; the CEO decides.
+  Claims: ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -1316,6 +1367,7 @@ export default function PortalPage() {
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
+        {tab === "Claims" && <ClaimsPanel />}
         {tab === "Attendance" && (
           <>
             <Attendance user={user} />

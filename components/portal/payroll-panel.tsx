@@ -375,6 +375,33 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               );
             })}
           </tbody>
+          {/* v1.4.75: month totals — the final amount at a glance. Live: they
+              update as figures are typed, before saving. */}
+          <tfoot>
+            {(() => {
+              const tot = staff.reduce(
+                (a, u) => {
+                  const e = entry(u.id);
+                  a.basic += e.basic_cents; a.comm += e.commission_cents;
+                  a.allow += e.allowance_cents; a.ded += e.deduction_cents;
+                  a.net += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents);
+                  return a;
+                },
+                { basic: 0, comm: 0, allow: 0, ded: 0, net: 0 },
+              );
+              return (
+                <tr className="border-border border-t-2 font-semibold">
+                  <td className="px-2 py-2">TOTAL — {staff.length} staff</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.basic)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.comm)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.allow)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap text-base">{rm(tot.net)}</td>
+                  <td className="px-2 py-2"></td>
+                </tr>
+              );
+            })()}
+          </tfoot>
         </table>
       </div>
     </div>
