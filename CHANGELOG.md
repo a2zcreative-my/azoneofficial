@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.109] — 2026-08-02 — Staff claims are expenses too
+
+### Added (Expenses tab)
+- **Paid staff claims now count in the month's expenses** — cash basis, consistent with the rest of the tab: a claim becomes an expense in the month the CEO presses 💸 Mark paid. The month **Total** includes them, with the breakdown reading "incl. staff payroll … + expenses … + staff claims RM X (N)"
+- **Approved-but-unpaid claims appear under 💳 Payments due** — amount, "staff claim" chip, claimant name, approval date, and a DUE pill, with the instruction to pay the claimant then press Mark paid on the Claims tab
+- **Paid claims join ✅ Payments completed** — 🧾 lines with claimant and payment date, included in the completed total
+
+### Changed (Overview P&L)
+- The 6-month P&L gains a **Claims column**: claims paid in each month now sit on the cost side alongside Expenses and Payroll, so Profit reflects them
+
+### Repaired
+- Restored two TypeScript type additions (`staff_payroll.paid_at`) that a v1.4.101 edit batch had asserted but never written to disk — without this the build would have failed on the Payments-completed code
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.108] — 2026-08-02 — Full registered address on the badge (and every printed footer)
+
+### Changed
+- The staff ID badge footer now carries the **full registered address** on two lines — "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika," / "81200 Johor Bahru, Johor, Malaysia" — replacing the short "Setia Tropika, Johor Bahru, Malaysia"
+- The same full address replaces the compact form on the **payslip footer** and the **claim form footer**, so every printed document now states the identical registered address as the QT/DO/INV and SOA. No compact variant remains anywhere
+
+### Deploy
+- `pnpm build` → hard refresh only (re-print badges to see it)
+
+
 ## [1.4.107] — 2026-08-02 — CEO override on the claim chain
 
 ### Changed

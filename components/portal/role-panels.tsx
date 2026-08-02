@@ -868,7 +868,7 @@ interface Overview {
   inventory_status?: { status: string; n: number }[];
 }
 
-interface PnlRow { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; profit_cents: number }
+interface PnlRow { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; claims_cents: number; profit_cents: number }
 
 /** v1.4.101: month-by-month P&L — the number the CEO wants each month.
     Revenue is cash basis (TikTok + PAID invoices); costs = recorded expenses
@@ -886,15 +886,16 @@ function PnlCard() {
       <p className="text-sm font-semibold">📊 Profit &amp; Loss — last 6 months</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Revenue on a payment-received basis (TikTok + paid invoices) against
-        expenses + the payroll cycle paid in the month. Payroll here uses the
-        entry totals; the Expenses tab shows the exact net figure.
+        expenses + the payroll cycle paid in the month + staff claims paid in
+        the month. Payroll here uses the entry totals; the Expenses tab shows
+        the exact net figure.
       </p>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-border border-b">
               <th className={th}>Month</th><th className={`${th} text-right`}>TikTok</th><th className={`${th} text-right`}>Invoiced</th>
-              <th className={`${th} text-right`}>Expenses</th><th className={`${th} text-right`}>Payroll</th><th className={`${th} text-right`}>Profit</th>
+              <th className={`${th} text-right`}>Expenses</th><th className={`${th} text-right`}>Payroll</th><th className={`${th} text-right`}>Claims</th><th className={`${th} text-right`}>Profit</th>
             </tr>
           </thead>
           <tbody>
@@ -905,6 +906,7 @@ function PnlCard() {
                 <td className={`${td} text-right`}>{rm(r.invoiced_cents)}</td>
                 <td className={`${td} text-right`}>{rm(r.expenses_cents)}</td>
                 <td className={`${td} text-right`}>{rm(r.payroll_cents)}</td>
+                <td className={`${td} text-right`}>{rm(r.claims_cents)}</td>
                 <td className={`${td} text-right font-semibold ${r.profit_cents >= 0 ? "text-green-700" : "text-red-600"}`}>{rm(r.profit_cents)}</td>
               </tr>
             ))}
@@ -1490,7 +1492,7 @@ async function printClaimForm(c: Claim) {
   </table>
   <p class="cut">✂ ————————————————————————— CUT HERE —————————————————————————</p>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
-  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · Setia Tropika, Johor Bahru · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
+  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
   </body></html>`);
   w.document.close();
 }
@@ -1832,6 +1834,8 @@ const EXPENSE_CATEGORIES = ["rent", "utilities", "software", "marketing", "equip
 /** Company operating expenses — CEO and COO record what the company spends
     (rent, software, ads, logistics …). Separate from CLAIMS, which are staff
     reimbursements routed to the CEO for approval. */
+interface ClaimExp { id: number; amount_cents: number; paid_at?: string | null; decided_at?: string | null; claimant?: string | null }
+
 export function ExpensesPanel() {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<ExpenseRec[]>([]);
@@ -1845,16 +1849,20 @@ export function ExpensesPanel() {
   // v1.4.91: the previous month's payroll total (net, same formula as the
   // payslips) — paid during this month, so it belongs in this month's total.
   const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number; paid_at?: string | null } | null>(null);
+  // v1.4.109: staff claims are expenses too — paid claims join the month,
+  // approved-unpaid ones appear under Payments due.
+  const [staffClaims, setStaffClaims] = useState<{ paid: ClaimExp[]; due: ClaimExp[] }>({ paid: [], due: [] });
   // Inline edit for typo fixes (staff payroll excluded — computed in Payroll).
   const [editId, setEditId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
 
   const load = useCallback(async () => {
-    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number } | null }>(`/expenses?month=${month}`);
+    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null } | null; staff_claims?: { paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
     if (res.ok && res.data) {
       setRows(res.data.expenses);
       setUpcoming(res.data.upcoming ?? []);
       setStaffPayroll(res.data.staff_payroll ?? null);
+      setStaffClaims(res.data.staff_claims ?? { paid: [], due: [] });
     }
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
@@ -1935,7 +1943,7 @@ export function ExpensesPanel() {
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
       </div>
 
-      {(payrollDue || upcoming.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
+      {(payrollDue || upcoming.length > 0 || staffClaims.due.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
         <div className={card}>
           <p className="text-sm font-semibold">💳 Payments due — {month.split("-").reverse().join("-")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1953,7 +1961,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split("T")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split("T")[1]?.slice(0, 5)} MYT</span> (payslips release then) · figures from the Payroll tab
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · figures from the Payroll tab
                   </p>
                 </div>
                 <span className="flex items-center gap-1.5">
@@ -1976,6 +1984,19 @@ export function ExpensesPanel() {
                 </span>
               </div>
             )}
+            {staffClaims.due.map((c) => (
+              <div key={`clm-${c.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm">
+                    <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">staff claim</span>
+                    {c.claimant && <span className="text-muted-foreground"> · {properName(c.claimant)}</span>}
+                  </p>
+                  <p className="text-muted-foreground text-xs">Approved{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""} — pay the claimant, then press 💸 Mark paid on the Claims tab</p>
+                </div>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>
+              </div>
+            ))}
             {upcoming.map((r) => {
               const [yy, mm] = month.split("-").map(Number);
               const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
@@ -2045,8 +2066,8 @@ export function ExpensesPanel() {
           // released: paid expenses + the payroll run once marked paid.
           const done = rows.filter((r) => r.paid_at);
           const payrollDone = staffPayroll?.paid_at ? staffPayroll : null;
-          if (done.length === 0 && !payrollDone) return null;
-          const doneTotal = done.reduce((a, r) => a + r.amount_cents, 0) + (payrollDone?.cents ?? 0);
+          if (done.length === 0 && !payrollDone && staffClaims.paid.length === 0) return null;
+          const doneTotal = done.reduce((a, r) => a + r.amount_cents, 0) + (payrollDone?.cents ?? 0) + staffClaims.paid.reduce((a, r) => a + r.amount_cents, 0);
           return (
             <div className="border-border mb-4 rounded-lg border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2059,6 +2080,11 @@ export function ExpensesPanel() {
                     💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> · Staff payroll ({payrollDone.month.split("-").reverse().join("-")}) · released {dmy(payrollDone.paid_at!.slice(0, 10))}
                   </p>
                 )}
+                {staffClaims.paid.map((c) => (
+                  <p key={`clmdone-${c.id}`} className="text-muted-foreground text-xs">
+                    🧾 <span className="text-foreground font-medium">{rmc(c.amount_cents)}</span> · Staff claim{c.claimant ? ` — ${properName(c.claimant)}` : ""} · paid {c.paid_at ? dmy(c.paid_at.slice(0, 10)) : ""}
+                  </p>
+                ))}
                 {done.map((r) => (
                   <p key={`done-${r.id}`} className="text-muted-foreground text-xs">
                     <span className="text-foreground font-medium">{rmc(r.amount_cents)}</span> · <span className="capitalize">{r.category}</span>
@@ -2072,10 +2098,10 @@ export function ExpensesPanel() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>
           <div className="text-right">
-            <p className="text-sm font-semibold">Total {rmc(total + (staffPayroll?.cents ?? 0))}</p>
+            <p className="text-sm font-semibold">Total {rmc(total + (staffPayroll?.cents ?? 0) + staffClaims.paid.reduce((a, r) => a + r.amount_cents, 0))}</p>
             {staffPayroll && staffPayroll.cents > 0 && (
               <p className="text-muted-foreground text-xs">
-                incl. staff payroll {rmc(staffPayroll.cents)} ({staffPayroll.month.split("-").reverse().join("-")}) + expenses {rmc(total)}
+                incl. staff payroll {rmc(staffPayroll.cents)} ({staffPayroll.month.split("-").reverse().join("-")}) + expenses {rmc(total)}{staffClaims.paid.length > 0 ? ` + staff claims ${rmc(staffClaims.paid.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.paid.length})` : ""}
               </p>
             )}
           </div>

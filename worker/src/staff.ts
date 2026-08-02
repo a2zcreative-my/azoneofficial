@@ -1125,7 +1125,21 @@ export async function handleStaff(
       ).bind(prevM).first<{ paid_at: string }>();
       staffPayroll = { month: prevM, cents: sum, paid_at: paidRow?.paid_at ?? null } as { month: string; cents: number; paid_at?: string | null };
     }
-    return json({ expenses: results, upcoming, staff_payroll: staffPayroll });
+    // v1.4.109: staff CLAIMS are company expenses too — cash basis:
+    // a claim becomes this month's expense when the CEO marks it PAID.
+    // Approved-but-unpaid claims surface on the Payments-due card.
+    const { results: claimsPaid } = await env.DB.prepare(
+      `SELECT c.id, c.amount_cents, c.paid_at, u.name AS claimant FROM claims c
+       LEFT JOIN users u ON u.id = c.user_id
+       WHERE c.paid_at IS NOT NULL AND strftime('%Y-%m', c.paid_at) = ?1
+       ORDER BY c.paid_at DESC`,
+    ).bind(month).all();
+    const { results: claimsDue } = await env.DB.prepare(
+      `SELECT c.id, c.amount_cents, c.decided_at, u.name AS claimant FROM claims c
+       LEFT JOIN users u ON u.id = c.user_id
+       WHERE c.status = 'approved' AND c.paid_at IS NULL ORDER BY c.decided_at ASC`,
+    ).all();
+    return json({ expenses: results, upcoming, staff_payroll: staffPayroll, staff_claims: { paid: claimsPaid, due: claimsDue } });
   }
   const exEdit = path.match(/^\/expenses\/(\d+)$/);
   if (exEdit && method === "PATCH") {
@@ -1202,7 +1216,7 @@ export async function handleStaff(
     for (let i = 5; i >= 0; i--) {
       months.push(new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
     }
-    const rows = [] as { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; profit_cents: number }[];
+    const rows = [] as { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; claims_cents: number; profit_cents: number }[];
     for (const m of months) {
       const tt = await env.DB.prepare(
         `SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records
@@ -1215,6 +1229,10 @@ export async function handleStaff(
       const ex = await env.DB.prepare(
         `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = ?1`,
       ).bind(m).first<{ c: number }>();
+      const clm = await env.DB.prepare(
+        `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM claims
+         WHERE paid_at IS NOT NULL AND strftime('%Y-%m', paid_at) = ?1`,
+      ).bind(m).first<{ c: number }>();
       // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
       const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
       const pr = await env.DB.prepare(
@@ -1222,8 +1240,8 @@ export async function handleStaff(
          FROM payroll_entries p WHERE p.month = ?1`,
       ).bind(prevPm).first<{ c: number }>();
       const revenue = (tt?.c ?? 0) + (inv?.c ?? 0);
-      const cost = (ex?.c ?? 0) + (pr?.c ?? 0);
-      rows.push({ month: m, tiktok_cents: tt?.c ?? 0, invoiced_cents: inv?.c ?? 0, expenses_cents: ex?.c ?? 0, payroll_cents: pr?.c ?? 0, profit_cents: revenue - cost });
+      const cost = (ex?.c ?? 0) + (pr?.c ?? 0) + (clm?.c ?? 0);
+      rows.push({ month: m, tiktok_cents: tt?.c ?? 0, invoiced_cents: inv?.c ?? 0, expenses_cents: ex?.c ?? 0, payroll_cents: pr?.c ?? 0, claims_cents: clm?.c ?? 0, profit_cents: revenue - cost });
     }
     return json({ months: rows });
   }

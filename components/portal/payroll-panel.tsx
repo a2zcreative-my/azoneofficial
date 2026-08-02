@@ -36,7 +36,7 @@ const inputSm =
 const _COMPANY = {
   name: "AZ ONE OFFICIAL",
   ssm: "SSM Registration No. 202603168673 (JM1046169-H)",
-  location: "Setia Tropika, Johor Bahru, Malaysia",
+  location: "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor, Malaysia",
 };
 
 interface StaffRow {
@@ -249,7 +249,7 @@ export function printPayslip(
       </tr>
     </table>
   </div>
-  <p class="company">AZ ONE OFFICIAL <span>(SSM 202603168673 / JM1046169-H) · Setia Tropika, Johor Bahru, Malaysia · Computer-generated payslip — no signature required.</span></p>
+  <p class="company">AZ ONE OFFICIAL <span>(SSM 202603168673 / JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · Computer-generated payslip — no signature required.</span></p>
   <p class="privacy">SULIT / PRIVATE &amp; CONFIDENTIAL — This payslip is issued to the named employee pursuant to the Employment Act 1955 and contains personal data protected under the Personal Data Protection Act 2010 (PDPA). It must not be disclosed, copied, or shared with any other party without the employee's or the company's written consent. Retain for your records.</p>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`);

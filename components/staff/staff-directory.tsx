@@ -93,7 +93,8 @@ const SELECT_FIELDS: Partial<Record<string, string[]>> = {
 };
 
 /** Company location shown on every badge — edit here if the office moves. */
-const COMPANY_LOCATION = "Setia Tropika, Johor Bahru, Malaysia";
+// v1.4.108: the FULL registered address on the badge (two lines).
+const COMPANY_LOCATION = "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>81200 Johor Bahru, Johor, Malaysia";
 
 /** The one source of truth for what a badge shows. */
 function badgeData(s: Staff) {
