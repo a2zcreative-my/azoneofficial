@@ -2263,7 +2263,7 @@ export default function PortalPage() {
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
-        {tab === "Claims" && <ClaimsPanel />}
+        {tab === "Claims" && <ClaimsPanel userId={user.id} />}
         {tab === "Expenses" && <ExpensesPanel />}
         {tab === "Attendance" && (
           <>

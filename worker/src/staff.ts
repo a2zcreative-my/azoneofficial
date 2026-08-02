@@ -812,6 +812,50 @@ export async function handleStaff(
     ).bind(...(all ? [] : [user.id])).all();
     return json({ claims: results, can_decide: all });
   }
+  const claimEdit = path.match(/^\/claims\/(\d+)\/edit$/);
+  if (claimEdit && method === "POST") {
+    // v1.4.104: the claimant edits their own claim while it is PENDING, or
+    // after a REJECTION — an edited rejected claim goes back to pending and
+    // the CEO is notified of the resubmission. APPROVED claims are locked.
+    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    const cur = await env.DB.prepare(
+      `SELECT user_id, status, paid_at FROM claims WHERE id = ?1`,
+    ).bind(claimEdit[1]).first<{ user_id: number; status: string; paid_at: string | null }>();
+    if (!cur) return err("not_found", "Claim not found", 404);
+    if (cur.user_id !== user.id) return err("forbidden", "Only the claimant edits their claim", 403);
+    if (cur.status === "approved" || cur.paid_at) return err("invalid_state", "Approved claims are locked — submit a new claim instead", 400);
+    const catsE = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
+    if (!Array.isArray(body?.items) || body!.items.length === 0 || body!.items.length > 10) {
+      return err("invalid_input", "1–10 items are required", 400);
+    }
+    const parsedE = (body!.items as { claim_date?: unknown; category?: unknown; description?: unknown; amount?: unknown }[])
+      .map((i) => ({
+        claim_date: typeof i.claim_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(i.claim_date) ? i.claim_date : null,
+        category: typeof i.category === "string" && catsE.includes(i.category) ? i.category : "other",
+        description: typeof i.description === "string" ? i.description.slice(0, 300) : "",
+        amount_cents: Math.round(Number(i.amount) * 100),
+      }));
+    if (parsedE.some((i) => !i.claim_date || !Number.isFinite(i.amount_cents) || i.amount_cents <= 0 || i.amount_cents > 100000000)) {
+      return err("invalid_input", "Every item needs a date and a positive amount", 400);
+    }
+    const centsE = parsedE.reduce((a, i) => a + i.amount_cents, 0);
+    const purposeE = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000) : null;
+    const wasRejected = cur.status === "rejected";
+    await env.DB.prepare(
+      `UPDATE claims SET claim_date = ?1, category = ?2, amount_cents = ?3, description = ?4, items = ?5,
+       status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL WHERE id = ?6`,
+    ).bind(parsedE[0]!.claim_date, parsedE[0]!.category, centsE, purposeE, JSON.stringify(parsedE), claimEdit[1]).run();
+    const { results: decidersE } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role IN ('ceo') AND is_active = 1 AND id != ?1`,
+    ).bind(user.id).all();
+    for (const d of decidersE as { id: number }[]) {
+      await notify(env, d.id, "claim",
+        `${wasRejected ? "Resubmitted after rejection" : "Updated claim"} awaiting your approval: ${user.name} — RM ${(centsE / 100).toFixed(2)}`,
+        `claim:${claimEdit[1]}`);
+    }
+    await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
+    return json({ ok: true, resubmitted: wasRejected });
+  }
   const claimPaid = path.match(/^\/claims\/(\d+)\/paid$/);
   if (claimPaid && method === "POST") {
     // v1.4.101: after approval the CEO records the actual payment — the
@@ -882,7 +926,7 @@ export async function handleStaff(
     const row = await env.DB.prepare(`SELECT user_id, status FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string }>();
     if (!row) return err("not_found", "Claim not found", 404);
     if (row.user_id !== user.id) return err("forbidden", "Only the claimant attaches receipts", 403);
-    if (row.status !== "pending") return err("invalid_state", "Decided claims are locked", 400);
+    if (!["pending", "rejected"].includes(row.status)) return err("invalid_state", "Approved claims are locked", 400);
     const ct = request.headers.get("content-type") ?? "image/jpeg";
     if (!/^image\//.test(ct) && ct !== "application/pdf") return err("invalid_input", "Receipt must be an image or PDF", 400);
     const key = `claims/${clMatch[1]}-${Date.now()}`;

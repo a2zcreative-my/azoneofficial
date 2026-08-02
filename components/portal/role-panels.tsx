@@ -1371,16 +1371,36 @@ interface Claim {
     AZOO-HR-CLM-001 template. HR prints the PDF, signatures are collected in
     wet ink; the SYSTEM approval (CEO decides in the Claims tab) remains the
     authoritative one, and its outcome is stamped on the form. */
-function printClaimForm(c: Claim) {
+async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const claimNo = `AZOO-CLM-${String(c.id).padStart(4, "0")}`;
+  // v1.4.102: the uploaded receipt prints ON the form (bottom right) when it
+  // is an image — fetched as a blob so it is fully loaded before printing.
+  // PDF receipts can't be inlined into the page; the form says so instead.
+  // The window opens FIRST (inside the click) so popup blockers stay quiet.
+  const w = window.open("", "_blank", "width=820,height=1000");
+  if (!w) return;
+  w.document.write("<p style=\"font-family:Arial;padding:20px;color:#5b6472\">Preparing claim form…</p>");
+  let receiptImg = "";
+  let receiptNote = "";
+  if (c.receipt_key) {
+    try {
+      const rr = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, { credentials: "include" });
+      const ct = rr.headers.get("content-type") ?? "";
+      if (rr.ok && ct.startsWith("image/")) {
+        const blobUrl = URL.createObjectURL(await rr.blob());
+        receiptImg = `<div class="receiptbox"><p class="bt">RECEIPT (UPLOADED BY STAFF)</p><img src="${blobUrl}" alt="Receipt" /></div>`;
+      } else if (rr.ok) {
+        receiptNote = `<p class="tiny" style="text-align:right;margin-top:10px">Receipt attached as PDF in the system — printed separately.</p>`;
+      }
+    } catch { /* form still prints without the receipt */ }
+  }
   const sysLine = c.status === "approved"
     ? `APPROVED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}${c.decided_at ? " on " + dmy(c.decided_at) : ""}`
     : c.status === "rejected"
       ? `REJECTED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}`
       : "PENDING SYSTEM APPROVAL";
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
+  w.document.open();
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${claimNo} — Employee Claim Form</title>
@@ -1406,10 +1426,14 @@ function printClaimForm(c: Claim) {
     .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
     .sig .hd2 { font-weight: 700; background: #f2f4f8; }
     .sig .body { height: 78px; }
+    .receiptwrap { display: flex; justify-content: flex-end; margin-top: 14px; }
+    .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 8px 10px; max-width: 86mm; text-align: center; }
+    .receiptbox .bt { margin: 0 0 6px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
+    .receiptbox img { max-width: 80mm; max-height: 78mm; object-fit: contain; display: block; margin: 0 auto; }
     .cut { margin-top: 18px; text-align: center; color: #8a93a6; font-size: 10px; letter-spacing: .06em; }
     .foot { margin-top: 10px; font-size: 8.5px; color: #8a93a6; text-align: center; }
     @media print { body { padding: 0; } }
-  </style></head><body onload="window.print()">
+  </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
   <h1>AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
   <h2>Employee Claim Form</h2>
@@ -1450,6 +1474,7 @@ function printClaimForm(c: Claim) {
     </tr>
   </table>
   <p class="cut">✂ ————————————————————————— CUT HERE —————————————————————————</p>
+  ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
   <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · Setia Tropika, Johor Bahru · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
   </body></html>`);
   w.document.close();
@@ -1461,7 +1486,7 @@ const CLAIM_CATEGORIES = ["travel", "meal", "accommodation", "equipment", "medic
     EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
-export function ClaimsPanel() {
+export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
@@ -1471,6 +1496,8 @@ export function ClaimsPanel() {
   const [items, setItems] = useState([{ ...emptyItem }]);
   // v1.4.95: minimalist list — rows collapsed, Details ▾ per claim.
   const [expanded, setExpanded] = useState<number | null>(null);
+  // v1.4.104: edit-before-approval / resubmit-after-rejection.
+  const [editingClaim, setEditingClaim] = useState<{ id: number; wasRejected: boolean } | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -1488,12 +1515,31 @@ export function ClaimsPanel() {
     if (filled.length === 0) { setMsg("Add at least one item (date + amount)."); return; }
     if (filled.some((i) => !i.claim_date || !Number(i.amount))) { setMsg("Every item needs a date and an amount."); return; }
     setMsg("");
+    const payloadC = {
+      purpose: purpose || undefined,
+      items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: Number(i.amount) })),
+    };
+    if (editingClaim) {
+      const resE = await api<{ ok?: boolean; resubmitted?: boolean; error?: { message?: string } }>(`/claims/${editingClaim.id}/edit`, {
+        method: "POST", body: JSON.stringify(payloadC),
+      });
+      if (!resE.ok) { setMsg(resE.data?.error?.message ?? "Could not update the claim"); return; }
+      if (receipt) {
+        const compressedE = await compressImage(receipt);
+        await fetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
+          body: compressedE,
+        });
+      }
+      showToast("Saved", resE.data?.resubmitted ? "Claim resubmitted — CEO notified for approval" : "Claim updated — still awaiting CEO approval");
+      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null);
+      void load();
+      return;
+    }
     const res = await api<{ id?: number; error?: { message?: string } }>(`/claims`, {
       method: "POST",
-      body: JSON.stringify({
-        purpose: purpose || undefined,
-        items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: Number(i.amount) })),
-      }),
+      body: JSON.stringify(payloadC),
     });
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
     if (receipt) {
@@ -1552,6 +1598,21 @@ export function ClaimsPanel() {
         </p>
         <p className="text-muted-foreground text-xs">
           {dmy(c.claim_date)}{" · "}
+          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
+            <>
+              <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
+                onClick={() => {
+                  setEditingClaim({ id: c.id, wasRejected: c.status === "rejected" });
+                  setPurpose(c.description ?? "");
+                  setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString() })));
+                  setReceipt(null);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}>
+                {c.status === "rejected" ? "Edit & resubmit" : "Edit"}
+              </button>
+              {" · "}
+            </>
+          )}
           <button type="button" className="underline" onClick={() => setExpanded((e) => e === c.id ? null : c.id)}>
             Details {expanded === c.id ? "▴" : "▾"}
           </button>
@@ -1574,7 +1635,7 @@ export function ClaimsPanel() {
               : "No receipt attached"}
             {" · "}
             <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
-              onClick={() => printClaimForm(c)}>
+              onClick={() => void printClaimForm(c)}>
               Print claim form
             </button>
             {c.decided_by_name && <> · decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
@@ -1607,7 +1668,11 @@ export function ClaimsPanel() {
     <div className="space-y-4 md:space-y-6">
       {toastNode}
       <div className={card}>
-        <p className="text-sm font-semibold">Submit a claim</p>
+        <p className="text-sm font-semibold">
+          {editingClaim
+            ? <>Editing AZOO-CLM-{String(editingClaim.id).padStart(4, "0")}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); }}>cancel</button></>
+            : "Submit a claim"}
+        </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Expense claims from CEO, COO, CCO and HR — every claim is approved or
           rejected by the CEO, who is notified the moment you submit.
@@ -1647,7 +1712,7 @@ export function ClaimsPanel() {
               onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
           </label>
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
-            onClick={() => void submit()}>Submit claim</button>
+            onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? "Resubmit for approval" : "Update claim") : "Submit claim"}</button>
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       </div>
@@ -1809,7 +1874,7 @@ export function ExpensesPanel() {
             Commit each payment before its due date. Recurring expenses from
             earlier months appear here until recorded for this month.
           </p>
-<div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-2">
             {payrollDue && (
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>

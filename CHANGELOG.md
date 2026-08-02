@@ -2,6 +2,37 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.104] — 2026-08-02 — Claim editing lifecycle: edit before approval · locked once approved · edit & resubmit after rejection
+
+### Added
+- **Before the CEO decides**: the claimant sees an **Edit** link on their own pending claim — it loads the claim back into the form ("Editing AZOO-CLM-0001 · cancel"), purpose and every item line prefilled; **Update claim** saves the changes (audited `claim.edit`) and the CEO is notified of the updated figures. A new receipt can be attached during the edit
+- **Once approved (or paid): locked.** The worker refuses edits on approved claims outright — "Approved claims are locked — submit a new claim instead"
+- **After a rejection**: the claim is no longer a dead end — the claimant sees **Edit & resubmit**, fixes the form, and **Resubmit for approval** sends it back to **pending**: the previous decision (decided-by, note) is cleared, the CEO is bell-notified *"Resubmitted after rejection awaiting your approval"*, and the cycle runs again (audited `claim.resubmit`). Receipt uploads are now also allowed on rejected claims so the missing proof can be added before resubmitting
+- Only the **claimant themselves** can edit — checked server-side against the session, not just hidden in the UI
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.103] — 2026-08-02 — Receipt below the CUT HERE line
+
+### Changed
+- The printed receipt box now sits **below the ✂ CUT HERE line**, bottom right — the top section (the formal claim form with the Receipt ☑/☐ checkbox, details, signatures) can be cut and filed on its own, with the receipt on the detachable lower portion. The **Receipt checkbox stays in the meta grid** exactly as before, auto-ticking ☑ Yes / ☑ No from whether a receipt is attached — the form always states whether proof exists even after the halves are separated
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.102] — 2026-08-02 — Receipt prints on the claim form
+
+### Added
+- The staff-uploaded receipt now prints **on the Employee Claim Form itself** — a bordered "RECEIPT (UPLOADED BY STAFF)" box at the **bottom right**, above the ✂ CUT HERE line. The image is fetched fully (as a blob, with your session) **before** the print dialog opens and rendered at up to 80×78mm — clearly visible, never a half-loaded blank. Because compressed receipt photos can't be inlined when they're PDFs, a PDF receipt prints a note instead ("Receipt attached as PDF in the system — printed separately"); use View receipt to print that PDF on its own page. The receipt checkbox in the meta grid keeps auto-ticking as before
+- The print window now opens immediately on the click (popup-blocker safe) with a brief "Preparing claim form…" while the receipt loads
+
+### Deploy
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
+
+
 ## [1.4.101] — 2026-08-02 — The big one: full address · News · sales clarity · client money management · staff lifecycle · claim payments · payments completed · inventory pricing · birthdays everywhere · tab re-sort · Users tab · P&L (migration **0037**)
 
 ### Company address (portal / admin / account / documents)
