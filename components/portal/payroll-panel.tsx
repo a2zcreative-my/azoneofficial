@@ -443,8 +443,15 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <p className="text-sm font-semibold">Payroll processing</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             One-pass flow: everything auto-fills — Basic from base salaries,
-            working days computed (Mon–Fri minus calendar holidays; July 2026
-            = 22), days worked from attendance — review, then Save all.
+            working days computed (Mon–Fri minus the holidays on the company
+            calendar for that month), days worked from attendance — review,
+            then Save all. A holiday the team did NOT observe (worked instead,
+            to be replaced later) must be deleted from that month in the
+            holiday calendar — the month then counts that day as a working
+            day — and added on the actual replacement date, which reduces THAT
+            month&apos;s working days. After any calendar change, press
+            Re-fill days and Save all so saved entries recompute — otherwise
+            payslips keep the old figures and staff are over- or under-paid.
             Net = basic + commission + allowance + overtime (hours × 1.5 ×
             hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid
             leave (statutory rate: 1/26 of monthly wage per day, Employment

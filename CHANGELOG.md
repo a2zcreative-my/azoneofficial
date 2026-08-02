@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.123] — 2026-08-02 — HR compilation card: Receipt link removed
+
+### Changed
+- The **"Receipt" link is removed** from HR's "Approved claims history — compilation" card — the claimant submits the **original physical receipt** to HR, so a digital printout isn't part of the compilation. Each row keeps exactly what HR files: **Print claim form** (which still includes the receipt image in its box, for cross-checking against the original) and **Payment proof** (the CEO's bank slip)
+- Server-side read access is unchanged — the printed claim form embeds the receipt image, so the form keeps printing complete
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.122] — 2026-08-02 — Hari Hol not observed in July (migration **0040**) · payroll description corrected
+
+### Fixed (avoids over-paying July's prorated slips)
+- **Migration 0040 removes Hari Hol Almarhum Sultan Iskandar (21-07-2026) from the holiday calendar** — per the CEO, the team did NOT take it (most staff's first reporting day was 20-07); it will be replaced in August instead. July 2026 therefore counts **23 working days**, which makes every incomplete-month deduction slightly larger and correct (e.g. worked 5 of 23 instead of 5 of 22 — leaving it at 22 would over-pay all six prorated slips)
+- **After applying, in Payroll processing: confirm the auto box shows 23 → press "Re-fill days" → "Save all"** — saved entries carry their own month_working_days, so they must be re-saved to pick up 23 before the 05-08-2026 payment run. Payslips then read "WORKED X OF 23 PAYABLE DAYS"
+- **The August replacement:** when the replacement date is decided, add it in the HR holiday calendar (e.g. "Hari Hol — replacement day") — August's working-day count drops by one automatically, and if August payroll was already filled, Re-fill days + Save all there too
+
+### Changed
+- The Payroll processing description no longer hardcodes "July 2026 = 22". It now explains the rule generally — including exactly this case: an unobserved holiday must be deleted from its month (making that day count as working) and added on the actual replacement date, followed by Re-fill days + Save all so no slip keeps stale figures
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0040**) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: Re-fill days + Save all for 07-2026
+
+
 ## [1.4.121] — 2026-08-02 — HR's read-only approved-claims history for compilation
 
 ### Added

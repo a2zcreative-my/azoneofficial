@@ -1939,7 +1939,6 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 </span>
                 <span className="flex shrink-0 items-center gap-2 text-xs">
                   <button type="button" className="underline" onClick={() => void printClaimForm(c)}>Print claim form</button>
-                  {c.receipt_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">Receipt</a>}
                   {c.payment_proof_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
                 </span>
               </div>
