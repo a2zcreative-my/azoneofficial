@@ -866,7 +866,35 @@ export async function handleStaff(
            LEFT JOIN users u ON u.id = e.created_by
            ORDER BY e.expense_date DESC, e.id DESC LIMIT 300`,
     ).bind(...(mE ? [mE] : [])).all();
-    return json({ expenses: results });
+    // v1.4.88: carry recurring expenses forward — the latest recurring row of
+    // each (category · vendor · description) group from EARLIER months that
+    // has no row yet in the viewed month appears as "due to record".
+    let upcoming: unknown[] = [];
+    if (mE) {
+      const { results: rec } = await env.DB.prepare(
+        `SELECT * FROM expenses WHERE recurring = 1 AND expense_date < ?1 || '-01'
+         ORDER BY expense_date DESC, id DESC LIMIT 200`,
+      ).bind(mE).all<Record<string, unknown>>();
+      const keyOf = (r: Record<string, unknown>) =>
+        `${r.category}|${(r.vendor as string) ?? ""}|${(r.description as string) ?? ""}`;
+      const existing = new Set((results as Record<string, unknown>[]).map(keyOf));
+      const seen = new Set<string>();
+      for (const r of rec) {
+        const k = keyOf(r);
+        if (existing.has(k) || seen.has(k)) continue;
+        seen.add(k);
+        upcoming.push(r);
+      }
+    }
+    return json({ expenses: results, upcoming });
+  }
+  const exPaid = path.match(/^\/expenses\/(\d+)\/paid$/);
+  if (exPaid && method === "POST") {
+    // v1.4.88: mark an expense paid — the due chip turns into PAID.
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    await env.DB.prepare(`UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`).bind(exPaid[1]).run();
+    await audit(env, user.id, "expense.paid", "expenses", exPaid[1]);
+    return json({ ok: true });
   }
   if (path === "/expenses" && method === "POST") {
     if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
@@ -876,13 +904,18 @@ export async function handleStaff(
       return err("invalid_input", "expense_date (YYYY-MM-DD) and a positive amount are required", 400);
     }
     const categoryE = typeof body.category === "string" && catsE.includes(body.category) ? body.category : "other";
+    const dueDay = typeof body.due_day === "number" && body.due_day >= 1 && body.due_day <= 31
+      ? Math.round(body.due_day) : null;
     const res = await env.DB.prepare(
-      `INSERT INTO expenses (expense_date, category, amount_cents, vendor, description, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+      `INSERT INTO expenses (expense_date, category, amount_cents, vendor, description, recurring, due_day, paid_at, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
     ).bind(
       body.expense_date, categoryE, centsE,
       typeof body.vendor === "string" ? body.vendor.slice(0, 200) : null,
       typeof body.description === "string" ? body.description.slice(0, 1000) : null,
+      body.recurring === true || body.recurring === 1 ? 1 : 0,
+      dueDay,
+      body.paid === true ? new Date().toISOString().replace("T", " ").slice(0, 19) : null,
       user.id,
     ).first<{ id: number }>();
     await audit(env, user.id, "expense.create", "expenses", String(res?.id), { category: categoryE, amount_cents: centsE });

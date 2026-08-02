@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.88] — 2026-08-02 — Recurring expenses, due dates & a Payments-due board
+
+### Category guidance (as asked)
+- **Internet (monthly bill)** → `utilities` — it's a utility service like water/electricity/phone
+- **Printer on monthly rental/lease** → `equipment`; printer **ink, toner and paper** → `supplies`
+
+### Added (migration **0033**: `recurring`, `due_day`, `paid_at` on expenses)
+- **Monthly recurring** checkbox + **Due day** (1–31) on the expense form. A recurring expense recorded last month **automatically reappears this month** in a new **💳 Payments due** card — with its amount, due date and "↻ recurring" chip — until you press **Record for this month** (one click copies it into the month on its due date, keeping the recurrence)
+- **Due tracking**: recorded expenses with a due day show an amber **DUE dd-mm** chip that turns red **OVERDUE** past the date; **Mark paid** stamps it (audited `expense.paid`) and flips the chip to green **PAID**
+- **Payroll on the same board**: the Payments-due card leads with **Staff payroll** for the previous month — "Pay by 05-08-2026, 10:00 MYT" (the exact payslip-release moment, holidays respected) with a DUE/RELEASED status chip — so the biggest monthly commitment sits beside rent and internet where the CEO/COO plan payments
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0033**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then re-add your Mr Wing rent with "Monthly recurring" ticked and due day 18 — September will surface it by itself
+
+
 ## [1.4.87] — 2026-08-02 — Save toasts everywhere (with honest "No changes") · Expenses tab for CEO/COO
 
 ### Added

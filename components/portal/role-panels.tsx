@@ -1457,6 +1457,9 @@ interface ExpenseRec {
   amount_cents: number;
   vendor?: string | null;
   description?: string | null;
+  recurring?: number;
+  due_day?: number | null;
+  paid_at?: string | null;
   created_by_name?: string | null;
 }
 
@@ -1468,13 +1471,27 @@ const EXPENSE_CATEGORIES = ["rent", "utilities", "software", "marketing", "equip
 export function ExpensesPanel() {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<ExpenseRec[]>([]);
-  const [draft, setDraft] = useState({ expense_date: "", category: "software", amount: "", vendor: "", description: "" });
+  const [draft, setDraft] = useState({ expense_date: "", category: "software", amount: "", vendor: "", description: "", recurring: false, due_day: "" });
   const [msg, setMsg] = useState("");
   const { show: showToast, node: toastNode } = useSaveToast();
+  // v1.4.88: recurring expenses from earlier months not yet recorded in the
+  // viewed month, plus the payroll due line.
+  const [upcoming, setUpcoming] = useState<ExpenseRec[]>([]);
+  const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean } | null>(null);
 
   const load = useCallback(async () => {
-    const res = await api<{ expenses: ExpenseRec[] }>(`/expenses?month=${month}`);
-    if (res.ok && res.data) setRows(res.data.expenses);
+    const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[] }>(`/expenses?month=${month}`);
+    if (res.ok && res.data) {
+      setRows(res.data.expenses);
+      setUpcoming(res.data.upcoming ?? []);
+    }
+    // Payroll is the biggest recurring commitment — show its due date the
+    // same way (previous month's payroll, payable by the release moment).
+    const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y!, m! - 2, 1)); return d.toISOString().slice(0, 7); })();
+    const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${prev}`);
+    if (pr.ok && pr.data?.release) {
+      setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
+    }
   }, [month]);
   useEffect(() => { void load(); }, [load]);
 
@@ -1486,11 +1503,18 @@ export function ExpensesPanel() {
     setMsg("");
     const res = await api<{ id?: number; error?: { message?: string } }>(`/expenses`, {
       method: "POST",
-      body: JSON.stringify({ ...draft, amount: Number(draft.amount), vendor: draft.vendor || undefined, description: draft.description || undefined }),
+      body: JSON.stringify({
+        ...draft,
+        amount: Number(draft.amount),
+        vendor: draft.vendor || undefined,
+        description: draft.description || undefined,
+        recurring: draft.recurring,
+        due_day: draft.due_day ? Number(draft.due_day) : undefined,
+      }),
     });
     if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not record the expense"); return; }
     showToast("Saved", `Expense recorded — ${rmc(Math.round(Number(draft.amount) * 100))}`);
-    setDraft({ expense_date: "", category: "software", amount: "", vendor: "", description: "" });
+    setDraft({ expense_date: "", category: "software", amount: "", vendor: "", description: "", recurring: false, due_day: "" });
     void load();
   };
 
@@ -1525,11 +1549,104 @@ export function ExpensesPanel() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input className="border-input bg-background h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder="What was this for? (optional)"
             value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap" title="A recurring expense reappears every month as due until you record it">
+            <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
+            Monthly recurring
+          </label>
+          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap" title="Day of the month the payment must be made by">
+            Due day
+            <input type="number" min={1} max={31} className="border-input bg-background h-9 w-16 rounded-lg border px-2 text-sm" placeholder="—"
+              value={draft.due_day} onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value }))} />
+          </label>
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
             onClick={() => void addExpense()}>Record expense</button>
         </div>
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
       </div>
+
+      {(payrollDue || upcoming.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
+        <div className={card}>
+          <p className="text-sm font-semibold">💳 Payments due — {month.split("-").reverse().join("-")}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Commit each payment before its due date. Recurring expenses from
+            earlier months appear here until recorded for this month.
+          </p>
+          <div className="mt-3 space-y-2">
+            {payrollDue && (
+              <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold">Staff payroll — {payrollDue.month.split("-").reverse().join("-")}</p>
+                  <p className="text-muted-foreground text-xs">
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then)
+                  </p>
+                </div>
+                {payrollDue.released
+                  ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">RELEASED</span>
+                  : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>}
+              </div>
+            )}
+            {upcoming.map((r) => {
+              const [yy, mm] = month.split("-").map(Number);
+              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
+              const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
+              return (
+                <div key={`u-${r.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm">
+                      <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                      {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
+                      <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">↻ recurring</span>
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {r.due_day ? `Due ${dueISO.split("-").reverse().join("-")}` : "No due day set"}
+                      {r.description ? ` · ${r.description}` : ""} · last recorded {dmy(r.expense_date)}
+                    </p>
+                  </div>
+                  <button type="button" className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+                    onClick={async () => {
+                      const res = await api(`/expenses`, { method: "POST", body: JSON.stringify({
+                        expense_date: dueISO, category: r.category, amount: r.amount_cents / 100,
+                        vendor: r.vendor || undefined, description: r.description || undefined,
+                        recurring: true, due_day: r.due_day ?? undefined,
+                      }) });
+                      if (res.ok) { showToast("Saved", `Recorded for ${month.split("-").reverse().join("-")} — mark it paid once committed`); void load(); }
+                    }}>
+                    Record for this month
+                  </button>
+                </div>
+              );
+            })}
+            {rows.filter((r) => r.due_day && !r.paid_at).map((r) => {
+              const [yy, mm] = month.split("-").map(Number);
+              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
+              const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
+              const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+              const overdue = todayISO > dueISO;
+              return (
+                <div key={`d-${r.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm">
+                      <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                      {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
+                    </p>
+                    <p className="mt-0.5 text-xs">
+                      <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                        {overdue ? "OVERDUE" : "DUE"} {dueISO.split("-").reverse().join("-")}
+                      </span>
+                    </p>
+                  </div>
+                  <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+                    onClick={async () => { await api(`/expenses/${r.id}/paid`, { method: "POST" }); showToast("Saved", `${rmc(r.amount_cents)} marked paid`); void load(); }}>
+                    Mark paid
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1550,6 +1667,12 @@ export function ExpensesPanel() {
                   {dmy(r.expense_date)}
                   {r.description ? ` · ${r.description}` : ""}
                   {r.created_by_name ? ` · by ${r.created_by_name}` : ""}
+                  {r.recurring === 1 && <span className="ml-1 rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-700">↻</span>}
+                  {r.paid_at
+                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 font-semibold text-green-700">PAID</span>
+                    : r.due_day
+                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
+                      : null}
                 </p>
               </div>
               <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
