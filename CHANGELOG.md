@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.111] — 2026-08-02 — "Missing" expenses explained · News label on desktop
+
+### Clarified (not a data loss)
+- The Expenses tab shows **one month at a time** and defaults to the current month. On 02-08-2026 it opens on August — a fresh, empty month — while July's records sit safely under the **month picker** (top right). The empty state now says exactly that: *"No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right."* Nothing was deleted; the DB and nightly backups are untouched
+
+### Fixed
+- The **desktop** nav pills and the More sheet rendered the raw tab key "Announcements" — only the mobile renderer had the "News" label. One shared `tabLabel()` now feeds every nav renderer, so **News** shows on desktop too (spotted on the CEO's screenshot)
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.110] — 2026-08-02 — Receipt-too-large popup with the WhatsApp fix
 
 ### Fixed

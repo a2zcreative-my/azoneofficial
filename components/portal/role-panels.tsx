@@ -2142,7 +2142,13 @@ export function ExpensesPanel() {
           </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {rows.length === 0 && <p className="text-muted-foreground text-sm">No expenses recorded this month.</p>}
+          {rows.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              No expenses recorded for this month. This tab shows ONE month at a
+              time — earlier records (e.g. July) are under the month picker at
+              the top right.
+            </p>
+          )}
           {rows.map((r) => editId === r.id ? (
             <div key={r.id} className="border-border rounded-lg border px-3 py-2">
               <div className="flex flex-wrap gap-2">

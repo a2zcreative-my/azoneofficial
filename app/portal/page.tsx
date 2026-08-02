@@ -1993,6 +1993,9 @@ function UsersPanel() {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Overview > Profile > Users.
 const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Birthdays", "Overview", "Profile", "Users"] as const;
+// v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
+// the raw "Announcements" key — spotted on the CEO's screenshot).
+const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -2178,7 +2181,7 @@ export default function PortalPage() {
                 : "shrink-0 rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
             }
           >
-            {t}
+            {tabLabel(t)}
           </button>
         ))}
       </nav>
@@ -2253,7 +2256,7 @@ export default function PortalPage() {
                     tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                   }`}
                 >
-                  {t}
+                  {tabLabel(t)}
                 </button>
               ))}
             </div>
