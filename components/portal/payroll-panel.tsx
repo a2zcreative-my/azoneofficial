@@ -156,8 +156,7 @@ export function printPayslip(
   }
   const dedRows = dedLines.length > 0 ? dedLines.join("") : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
   const othersRows = x
-    ? `${e.month_working_days ? `<tr><td>WORKING DAYS IN MONTH (MON–FRI LESS HOLIDAYS)</td><td class="amt">${n2(e.month_working_days)}</td></tr>` : ""}
-       <tr><td>DAYS PRESENT (CLOCKED IN)</td><td class="amt">${n2(x.working_day)}</td></tr>
+    ? `<tr><td>WORKING DAYS (TOTAL CLOCKED IN)</td><td class="amt">${n2(x.working_day)}</td></tr>
        <tr><td>PUBLIC HOLIDAY</td><td class="amt">${n2(x.public_holiday)}</td></tr>
        <tr><td>ANNUAL LEAVE</td><td class="amt">${n2(x.annual_leave)}</td></tr>
        <tr><td>MEDICAL LEAVE</td><td class="amt">${n2(x.medical_leave)}</td></tr>

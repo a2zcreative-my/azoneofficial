@@ -267,7 +267,7 @@ export async function handleStaff(
   // it consumed the stream, which is why every claim receipt upload failed
   // (the R2 put received a disturbed body). Both binary routes are excluded.
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -851,7 +851,9 @@ export async function handleStaff(
     // Deciders see everyone's claims (the approval queue); submitters their own.
     const all = can(user, "claims_decide");
     // v1.4.106: reviewers see the claims their stage covers, plus their own.
-    const SEL = `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
+    const SEL = `SELECT c.*,
+                  (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS day_seq,
+                  u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
                   u.department AS claimant_department, u.role AS claimant_role,
                   d.name AS decided_by_name, hb.name AS hr_reviewed_by_name, pb.name AS pre_approved_by_name FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
@@ -957,6 +959,35 @@ export async function handleStaff(
       wasRejected ? "Resubmitted after rejection" : "Updated claim");
     await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
     return json({ ok: true, resubmitted: wasRejected });
+  }
+  const claimProof = path.match(/^\/claims\/(\d+)\/payment-proof$/);
+  if (claimProof && method === "POST") {
+    // v1.4.118: the payout proof (bank slip) — CEO only, after Mark paid.
+    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO attaches payment proof", 403);
+    const rowP = await env.DB.prepare(`SELECT status, paid_at, user_id FROM claims WHERE id = ?1`)
+      .bind(claimProof[1]).first<{ status: string; paid_at: string | null; user_id: number }>();
+    if (!rowP) return err("not_found", "Claim not found", 404);
+    if (!rowP.paid_at) return err("invalid_state", "Mark the claim paid first, then attach the payment proof", 400);
+    const ctP = request.headers.get("content-type") ?? "image/jpeg";
+    if (!/^image\//.test(ctP) && ctP !== "application/pdf") return err("invalid_input", "Payment proof must be an image or PDF", 400);
+    const lenP = Number(request.headers.get("content-length") ?? 0);
+    if (lenP > 8 * 1024 * 1024) return err("too_large", "Payment proof too large — maximum 8 MB.", 413);
+    if (!request.body) return err("invalid_input", "Payment proof body required", 400);
+    const keyP = `claims/${claimProof[1]}-proof-${Date.now()}`;
+    await env.MEDIA.put(keyP, request.body, { httpMetadata: { contentType: ctP } });
+    await env.DB.prepare(`UPDATE claims SET payment_proof_key = ?1 WHERE id = ?2`).bind(keyP, claimProof[1]).run();
+    await notify(env, rowP.user_id, "claim", "Payment proof for your claim has been attached — view it on your claim", `claim:${claimProof[1]}`);
+    await audit(env, user.id, "claim.payment_proof", "claims", claimProof[1]!);
+    return json({ ok: true });
+  }
+  if (claimProof && method === "GET") {
+    const rowG = await env.DB.prepare(`SELECT user_id, payment_proof_key FROM claims WHERE id = ?1`)
+      .bind(claimProof[1]).first<{ user_id: number; payment_proof_key: string | null }>();
+    if (!rowG?.payment_proof_key) return err("not_found", "No payment proof attached", 404);
+    if (rowG.user_id !== user.id && !can(user, "claims_decide")) return err("forbidden", "Not your claim", 403);
+    const objP = await env.MEDIA.get(rowG.payment_proof_key);
+    if (!objP) return err("not_found", "Payment proof file missing", 404);
+    return new Response(objP.body, { headers: { "Content-Type": objP.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
   }
   const claimPaid = path.match(/^\/claims\/(\d+)\/paid$/);
   if (claimPaid && method === "POST") {

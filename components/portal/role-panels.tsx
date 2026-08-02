@@ -1371,8 +1371,18 @@ interface Claim {
   hr_reviewed_by_name?: string | null;
   pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
+  day_seq?: number | null; // v1.4.118: running number within the creation day
+  payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
   created_at: string;
 }
+
+/* v1.4.118 (CEO's numbering): CLM-AZOO{DDMMYY}-{running no. that day},
+   matching the {TYPE}-AZOO{DDMMYY}-{X} scheme used by QT/DO/INV. */
+const claimNoOf = (c: Claim) => {
+  const d = c.created_at.slice(0, 10);
+  const ddmmyy = `${d.slice(8, 10)}${d.slice(5, 7)}${d.slice(2, 4)}`;
+  return `CLM-AZOO${ddmmyy}-${c.day_seq ?? c.id}`;
+};
 
 /* v1.4.110: receipt size limit + the message staff see when a photo is too
    big. The WhatsApp trick is the easiest compressor everyone already has:
@@ -1393,7 +1403,7 @@ const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
     authoritative one, and its outcome is stamped on the form. */
 async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const claimNo = `AZOO-CLM-${String(c.id).padStart(4, "0")}`;
+  const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
   const chainLine = [
     c.hr_reviewed_by_name ? `HR reviewed by ${c.hr_reviewed_by_name}` : null,
     c.pre_approved_by_name ? `Pre-approved by ${c.pre_approved_by_name}` : null,
@@ -1522,7 +1532,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   // v1.4.95: minimalist list — rows collapsed, Details ▾ per claim.
   const [expanded, setExpanded] = useState<number | null>(null);
   // v1.4.104: edit-before-approval / resubmit-after-rejection.
-  const [editingClaim, setEditingClaim] = useState<{ id: number; wasRejected: boolean } | null>(null);
+  const [editingClaim, setEditingClaim] = useState<{ id: number; no: string; wasRejected: boolean } | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -1705,7 +1715,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <>
               <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
                 onClick={() => {
-                  setEditingClaim({ id: c.id, wasRejected: c.status === "rejected" });
+                  setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
                   setPurpose(c.description ?? "");
                   setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString() })));
                   setReceipt(null);
@@ -1743,6 +1753,32 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </button>
             {c.decided_by_name && <> · decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
           </p>
+          {canDecide && c.paid_at && !c.payment_proof_key && (
+            <label className="border-border mt-2 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+              title="Attach the bank-transfer slip as payout proof — the claimant is notified">
+              📎 Attach payment receipt (bank slip)
+              <input type="file" accept="image/*,application/pdf" className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!f) return;
+                  if (f.size > 40 * 1024 * 1024) { showToast("No changes", "Payment proof too large — maximum 8 MB.", "notice"); return; }
+                  const comp = await compressImage(f);
+                  if (comp.size > 8 * 1024 * 1024) { showToast("No changes", "Payment proof too large — maximum 8 MB.", "notice"); return; }
+                  const up = await fetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
+                    method: "POST", credentials: "include",
+                    headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
+                  });
+                  if (up.ok) { showToast("Saved", "Payment receipt attached — claimant notified"); void load(); }
+                  else showToast("No changes", "Payment proof upload failed", "notice");
+                }} />
+            </label>
+          )}
+          {c.payment_proof_key && (c.user_id === userId || canDecide) && (
+            <p className="mt-1 text-xs">
+              <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">View payment receipt (payout proof)</a>
+            </p>
+          )}
           {canDecide && c.status === "approved" && !c.paid_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
               onClick={async () => {
@@ -1791,7 +1827,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div className={card}>
         <p className="text-sm font-semibold">
           {editingClaim
-            ? <>Editing AZOO-CLM-{String(editingClaim.id).padStart(4, "0")}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); }}>cancel</button></>
+            ? <>Editing {editingClaim.no}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); }}>cancel</button></>
             : "Submit a claim"}
         </p>
         <p className="text-muted-foreground mt-0.5 text-xs">

@@ -2,6 +2,31 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.119] — 2026-08-02 — Public Holiday row restored
+
+### Fixed (my misreading, reversed)
+- v1.4.118 removed the payslip's **PUBLIC HOLIDAY** row after misreading the CEO's comment — "there is no public holiday" referred to the July FIGURE looking wrong, not the row itself. The row is **restored**. The v1.4.118 improvements stay: single "WORKING DAYS (TOTAL CLOCKED IN)" line, no duplicate Days-Present row
+- Note on the July figure: the 1.00 shown comes from the seeded Johor calendar — **Hari Hol Almarhum Sultan Iskandar (31-07-2026)** from the official gazette. If the company does not observe it, delete that entry in the holidays calendar and the slip (and the working-days computation) will show 0 / 23 accordingly
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.118] — 2026-08-02 — Payslip Others simplified · CLM-AZOODDMMYY numbering · payout proof (migration **0039**)
+
+### Payslip (Others column)
+- Per the CEO: one line — **"WORKING DAYS (TOTAL CLOCKED IN)"** — showing the person's attended days from the clock-in data. The separate "DAYS PRESENT" row is removed (it duplicated the same figure), and the **"PUBLIC HOLIDAY" row is removed** entirely. The leave rows (annual/medical/emergency/unpaid) and balances stay; the deductions column still self-explains "WORKED X OF Y WORKING DAYS" where a shortfall applies
+
+### Claim numbering
+- Claim numbers now follow the company scheme: **CLM-AZOO{DDMMYY}-{running number that day}** (e.g. CLM-AZOO020826-1), matching the QT/DO/INV pattern — on the printed form's Claim No., the editing header, and everywhere the number shows. Computed from the creation date + that day's sequence; existing claims renumber consistently under the same rule
+
+### Payout proof — the answer to "should I insert the receipt paid?"
+- **Yes — and now you can.** After 💸 Mark paid, the CEO sees **"📎 Attach payment receipt (bank slip)"** on the claim (migration 0039: `payment_proof_key`): the transfer slip uploads (image/PDF, 8 MB cap), the claimant is bell-notified, and both the claimant and deciders get a **"View payment receipt (payout proof)"** link. The claim record then tells the whole story end to end: staff receipt in → approval chain → PAID + date → payout proof. Audited `claim.payment_proof`. (Binary route added to the JSON-parse exclusion list — the v1.4.115 lesson, applied)
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0039**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.117] — 2026-08-02 — Receipt attach resubmits a rejected claim · claim form fits ONE A4
 
 ### Changed (Claims)
