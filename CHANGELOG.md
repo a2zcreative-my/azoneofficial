@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.83] — 2026-08-02 — Payslip lock now applies to EVERYONE, no processor bypass
+
+### Fixed
+- **Why the CEO still saw "My payslip" before the 5th**: v1.4.80 deliberately let payroll processors (CEO/COO/admin tier) bypass the lock on the reasoning that they type the figures anyway. Per the CEO's correction, that exception is **removed** — "My payslip" is now locked for every account, processors included, until the 5th-of-next-month 10:00 MYT moment (or a manual "Release now"). One uniform rule, no early view for anyone
+- Unavoidable and stated plainly: the **Payroll processing tab** still shows figures to processors before release — they are the ones entering them. The lock governs the payslip view; the processing tab is already restricted to ceo/coo/admin tier only
+
+### Deploy
+- `npx wrangler deploy` → hard refresh. No frontend rebuild strictly required (worker-only change), no migration
+
+
 ## [1.4.82] — 2026-08-02 — Payroll logic correction: full basic + explicit incomplete-month deduction
 
 ### The logic review (done before touching code, as requested)

@@ -1379,11 +1379,14 @@ export async function handleStaff(
   if (path === "/payroll/self" && method === "GET") {
     const url0 = new URL(request.url);
     const m0 = url0.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-    // v1.4.80: staff see the slip only from the release moment (5th of the
-    // next month, 10:00 MYT, next working day if that's a holiday/weekend) —
-    // or once a processor releases the month manually. Processors bypass:
-    // they set the figures, hiding them from themselves protects nothing.
-    if (!PAYROLL_PROC.includes(user.role)) {
+    // v1.4.80: a month's slip is visible only from the release moment (5th of
+    // the next month, 10:00 MYT, next working day if that's a holiday or
+    // weekend) — or once the month is manually released.
+    // v1.4.83: NO exceptions — the CEO's instruction is that "My payslip" is
+    // locked for EVERYONE before release, payroll processors included. (The
+    // Payroll processing tab necessarily still shows figures to processors —
+    // they type them there; this lock governs the payslip view itself.)
+    {
       const availableFrom = await payslipAvailableFrom(m0);
       const released = await env.DB.prepare(
         `SELECT released_at FROM payslip_releases WHERE month = ?1`,
