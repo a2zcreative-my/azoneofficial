@@ -776,10 +776,12 @@ export async function handleStaff(
     const all = can(user, "claims_decide");
     const { results } = await env.DB.prepare(
       all
-        ? `SELECT c.*, u.name AS claimant, d.name AS decided_by_name FROM claims c
+        ? `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
+                  u.department AS claimant_department, d.name AS decided_by_name FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
            ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`
-        : `SELECT c.*, u.name AS claimant, d.name AS decided_by_name FROM claims c
+        : `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
+                  u.department AS claimant_department, d.name AS decided_by_name FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
            WHERE c.user_id = ?1 ORDER BY c.created_at DESC LIMIT 100`,
     ).bind(...(all ? [] : [user.id])).all();

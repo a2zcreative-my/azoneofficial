@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.92] — 2026-08-02 — Printable Employee Claim Form (AZOO-HR-CLM-001)
+
+### Added
+- Every claim in the Claims tab now has a **"Print claim form"** link producing the CEO's paper form as a print-ready PDF, matching the AZOO-HR-CLM-001 / Version 002 layout: branded header with gold bar and tagline, the meta grid (Document No · Version · Claim No `AZOO-CLM-0001` · Date · Employee · Department · Position · Purpose · Receipt ☑/☐, auto-ticked from whether a receipt is attached in-system), the Claim Details table with the claim's line plus blank rows for hand additions, **Total Claimed**, the declaration, and the three signature boxes — Employee / COO·CCO / CEO — with the employee's and deciding CEO's names pre-filled and space for wet-ink signatures. A **✂ CUT HERE** line and footer close it, A4 print CSS + mobile-friendly viewport like the sales documents
+- **The system stays authoritative, as specified**: the form carries a coloured *System status* line — green "APPROVED IN SYSTEM by <name> on <date>", red "REJECTED IN SYSTEM", or amber "PENDING SYSTEM APPROVAL" — so the paper copy always states that approval happens in the system and ink is for the record. `/claims` now returns the claimant's full name, position and department to fill the form
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.91] — 2026-08-02 — Walk-in invoices · payroll amount inside the expenses total · expense editing
 
 ### Added

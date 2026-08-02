@@ -1292,9 +1292,97 @@ interface Claim {
   receipt_key?: string | null;
   status: string;
   claimant?: string | null;
+  claimant_full?: string | null;
+  claimant_position?: string | null;
+  claimant_department?: string | null;
   decided_by_name?: string | null;
   decision_note?: string | null;
+  decided_at?: string | null;
   created_at: string;
+}
+
+/** v1.4.92: printable Employee Claim Form — modelled on the CEO's
+    AZOO-HR-CLM-001 template. HR prints the PDF, signatures are collected in
+    wet ink; the SYSTEM approval (CEO decides in the Claims tab) remains the
+    authoritative one, and its outcome is stamped on the form. */
+function printClaimForm(c: Claim) {
+  const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const claimNo = `AZOO-CLM-${String(c.id).padStart(4, "0")}`;
+  const sysLine = c.status === "approved"
+    ? `APPROVED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}${c.decided_at ? " on " + dmy(c.decided_at) : ""}`
+    : c.status === "rejected"
+      ? `REJECTED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}`
+      : "PENDING SYSTEM APPROVAL";
+  const w = window.open("", "_blank", "width=820,height=1000");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${claimNo} — Employee Claim Form</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; }
+    h1 { text-align: center; margin: 4px 0 0; font-size: 19px; letter-spacing: .04em; }
+    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    h2 { text-align: center; margin: 6px 0 14px; font-size: 14px; font-weight: 600; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    .meta td { border: 1px solid #1a2946; padding: 5px 8px; }
+    .meta .k { width: 21%; font-weight: 700; background: #f2f4f8; }
+    .meta .v { width: 29%; }
+    .sect { margin: 12px 0 4px; font-weight: 700; }
+    .det th { border: 1px solid #1a2946; background: #1a2946; color: #fff; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+    .det td { border: 1px solid #1a2946; padding: 6px 8px; height: 22px; }
+    .det td.r { text-align: right; font-variant-numeric: tabular-nums; }
+    .total { margin-top: 10px; font-weight: 700; }
+    .decl { margin-top: 12px; font-size: 11px; }
+    .sys { margin-top: 6px; font-weight: 800; color: ${c.status === "approved" ? "#15803d" : c.status === "rejected" ? "#b91c1c" : "#b45309"}; }
+    .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
+    .sig .hd2 { font-weight: 700; background: #f2f4f8; }
+    .sig .body { height: 78px; }
+    .cut { margin-top: 18px; text-align: center; color: #8a93a6; font-size: 10px; letter-spacing: .06em; }
+    .foot { margin-top: 10px; font-size: 8.5px; color: #8a93a6; text-align: center; }
+    @media print { body { padding: 0; } }
+  </style></head><body onload="window.print()">
+  <div class="goldbar"></div>
+  <h1>AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
+  <h2>Employee Claim Form</h2>
+  <table class="meta">
+    <tr><td class="k">Document No.</td><td class="v">AZOO-HR-CLM-001</td><td class="k">Version</td><td class="v">002</td></tr>
+    <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${dmy(c.created_at)}</td></tr>
+    <tr><td class="k">Employee</td><td class="v">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class="k">Department</td><td class="v">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${(c.claimant_position ?? "").toUpperCase()}</td><td class="k">Purpose</td><td class="v">${c.description ?? ""}</td></tr>
+    <tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
+  </table>
+  <p class="sect">Claim Details</p>
+  <table class="det">
+    <thead><tr><th style="width:18%">Date</th><th style="width:20%">Category</th><th>Description</th><th style="width:18%">Amount (RM)</th></tr></thead>
+    <tbody>
+      <tr><td>${dmy(c.claim_date)}</td><td style="text-transform:capitalize">${c.category}</td><td>${c.description ?? ""}</td><td class="r">${rmv(c.amount_cents)}</td></tr>
+      <tr><td></td><td></td><td></td><td></td></tr>
+      <tr><td></td><td></td><td></td><td></td></tr>
+      <tr><td></td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
+  <p class="decl">Declaration: I certify the above expenses were incurred for official Company business.</p>
+  <p class="sys">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}</p>
+  <table class="sig" style="margin-top:10px">
+    <tr>
+      <td class="hd2">Employee</td>
+      <td class="hd2">Administrative or<br/>Head of Department (COO / CCO)</td>
+      <td class="hd2">Chief Executive Officer (CEO)</td>
+    </tr>
+    <tr>
+      <td class="body">Name: ${(c.claimant_full || c.claimant || "")}<br/>Signature:<br/><br/><br/>Date:</td>
+      <td class="body">Name:<br/>Signature:<br/><br/><br/>Date:</td>
+      <td class="body">Name:${c.status !== "pending" && c.decided_by_name ? " " + c.decided_by_name : ""}<br/>Signature:<br/><br/><br/>Date:</td>
+    </tr>
+  </table>
+  <p class="cut">✂ ————————————————————————— CUT HERE —————————————————————————</p>
+  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · Setia Tropika, Johor Bahru · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
+  </body></html>`);
+  w.document.close();
 }
 
 const CLAIM_CATEGORIES = ["travel", "meal", "accommodation", "equipment", "medical", "other"] as const;
@@ -1373,6 +1461,11 @@ export function ClaimsPanel() {
         {c.receipt_key
           ? <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
           : "No receipt attached"}
+        {" · "}
+        <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
+          onClick={() => printClaimForm(c)}>
+          Print claim form
+        </button>
         {c.decided_by_name && <> · decided by {c.decided_by_name}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
       </p>
       {actions && (
