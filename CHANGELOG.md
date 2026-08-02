@@ -2,6 +2,36 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.131] — 2026-08-03 — One-click server-side repair: 🔧 Fix discrepancy now
+
+### What the identical screenshot proved
+- The Breakdown was **byte-for-byte the same** as before the last fixes — same RM 5,458.98, every row still "recomputed ⚠", same three stale amounts. The server data hadn't changed at all, which means the fix chain (migration 0041 → worker deploy → build → Save all) **hasn't completed on production**. The code fixes are correct but were never given a chance to run
+
+### The solution — stop depending on the sequence
+- **New: `POST /payroll/recompute`** — a server-side repair that recomputes the month's working days **directly from the holiday calendar** (Mon–Fri minus weekday holidays) and re-derives + **stores** every entry's `month_working_days` and `net_cents` using the shared formula. No browser state, no Save all, no fingerprints — the database fixes itself in one call. Audited (`payroll.recompute`)
+- **Two buttons trigger it:** "🔧 Fix discrepancy now (recompute on server)" right inside the Expenses Breakdown (where the problem shows), and "🔧 Recompute nets" in Payroll processing next to Re-fill days
+- If migration 0041 isn't applied, the button says so explicitly ("Migration 0041 is not applied — run: npx wrangler d1 migrations apply azoneofficial --remote, then press this button again") instead of failing quietly
+
+### The single remaining sequence
+1. `npx wrangler d1 migrations apply azoneofficial --remote` (0040 + 0041)
+2. `npx wrangler deploy` → `pnpm build` → hard refresh
+3. Open Expenses → Breakdown → press **🔧 Fix discrepancy now** → the toast reports "Recomputed 6 entries at 23 working days" → figure becomes RM 5,345.54, all ⚠ markers gone, matching the Payroll tab exactly
+
+### Deploy
+- Migrations **0040 + 0041** → `npx wrangler deploy` → `pnpm build` → hard refresh → press the 🔧 button
+
+
+## [1.4.130] — 2026-08-03 — Claim form repaired: the broken signature table
+
+### Fixed (my v1.4.127 regression, reversed properly)
+- v1.4.127 put `display: flex` **directly on the signature table's `<td>` cells** — which strips their table-cell behaviour, so the three columns collapsed into the stacked narrow mess in the CEO's printout, and the extra height pushed the receipt and footer onto page 2
+- The `<td>`s are table cells again; the alignment flex now lives on an **inner wrapper div** inside each cell (`.cw`), which is where it always belonged. The intended v1.4.127 result now actually renders: three equal columns side by side, Name/Signature/Date on shared baselines, CEO signature + MYT date in place, everything — receipt and footer included — back on **one A4 page**
+- Rule added to the standing lessons: never set flex/grid display on `<td>`/`<tr>` — wrap the content instead
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.129] — 2026-08-02 — P&L payroll column = NET payroll
 
 ### Changed

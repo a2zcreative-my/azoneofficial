@@ -517,6 +517,21 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           </button>
           <button
             type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change"
+            onClick={async () => {
+              const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
+                method: "POST", body: JSON.stringify({ month }),
+              });
+              if (r.ok) showToast("Saved", `Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`);
+              else showToast("No changes", r.data?.error?.message ?? "Recompute failed", "notice");
+              void load();
+            }}
+          >
+            🔧 Recompute nets
+          </button>
+          <button
+            type="button"
             className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
             onClick={() => void saveAll()}
           >

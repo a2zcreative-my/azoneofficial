@@ -1454,7 +1454,7 @@ async function printClaimForm(c: Claim) {
     @page { size: A4; margin: 9mm; }
     * { box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
-           display: flex; flex-direction: column; min-height: 277mm; /* A4 297mm − 2×9mm page margin − safety */ }
+           display: flex; flex-direction: column; min-height: 274mm; /* A4 297mm − 2×9mm page margin − rounding safety */ }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
     h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
     h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
@@ -1472,8 +1472,8 @@ async function printClaimForm(c: Claim) {
     .sys { margin-top: 6px; font-weight: 800; color: ${c.status === "approved" ? "#15803d" : c.status === "rejected" ? "#b91c1c" : "#b45309"}; }
     .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
     .sig .hd2 { font-weight: 700; background: #f2f4f8; }
-    .sig .body { height: 108px; }
-    .sig .body { display: flex; flex-direction: column; }
+    .sig .body { height: 108px; vertical-align: top; } /* stays a TABLE CELL — flex lives on .cw inside */
+    .sig .cw { display: flex; flex-direction: column; height: 100%; }
     .sig .nm { min-height: 26px; }        /* room for two-line names — same in every cell */
     .sig .sg { height: 52px; }            /* signature zone identical across cells */
     .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
@@ -1518,11 +1518,11 @@ async function printClaimForm(c: Claim) {
       <td class="hd2">Chief Executive Officer (CEO)</td>
     </tr>
     <tr>
-      <td class="body"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div><div class="sg">Signature:</div><div class="dt">Date:</div></td>
-      <td class="body"><div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div></td>
-      <td class="body"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
+      <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div><div class="sg">Signature:</div><div class="dt">Date:</div></div></td>
+      <td class="body"><div class="cw"><div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div></div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
         <div class="sg">Signature:${c.status === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
-        <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></td>
+        <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
@@ -2135,6 +2135,18 @@ export function ExpensesPanel() {
                           </li>
                         ))}
                       </ul>
+                      <button type="button"
+                        className="border-border mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+                        title="Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every entry's net — no Save all needed"
+                        onClick={async () => {
+                          const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
+                            method: "POST", body: JSON.stringify({ month: staffPayroll!.month }),
+                          });
+                          if (r.ok) { showToast("Saved", `Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days — figures now match everywhere`); void load(); }
+                          else showToast("No changes", r.data?.error?.message ?? "Recompute failed", "notice");
+                        }}>
+                        🔧 Fix discrepancy now (recompute on server)
+                      </button>
                     </details>
                   )}
                 </div>

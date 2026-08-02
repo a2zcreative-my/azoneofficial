@@ -2254,6 +2254,68 @@ export async function handleStaff(
     return json({ extras: await payslipExtras(uid, mD) });
   }
 
+  if (path === "/payroll/recompute" && method === "POST") {
+    // v1.4.131: one-click reconciliation. Recomputes the month's working days
+    // from the holiday calendar and re-derives + STORES every entry's
+    // month_working_days and net_cents server-side — fixing stale rows
+    // regardless of what the browser has loaded or saved.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const monthR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    if (!monthR) return err("invalid_input", "month (YYYY-MM) required", 400);
+    // Mon–Fri count minus weekday holidays on the calendar.
+    const yR = Number(monthR.slice(0, 4)), moR = Number(monthR.slice(5, 7));
+    const lastD = new Date(Date.UTC(yR, moR, 0)).getUTCDate();
+    let workD = 0;
+    const weekdaySet = new Set<string>();
+    for (let d = 1; d <= lastD; d++) {
+      const dt = new Date(Date.UTC(yR, moR - 1, d));
+      const dow = dt.getUTCDay();
+      if (dow >= 1 && dow <= 5) { workD++; weekdaySet.add(dt.toISOString().slice(0, 10)); }
+    }
+    let holCount = 0;
+    try {
+      const { results: hols } = await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(monthR).all<{ holiday_date: string }>();
+      for (const h of hols) if (weekdaySet.has(h.holiday_date)) holCount++;
+    } catch { /* holidays table always present since 0029 */ }
+    workD -= holCount;
+    const { results: ents } = await env.DB.prepare(
+      `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
+              COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
+              p.worked_days, u.base_salary_cents
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
+    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number }>();
+    const { results: ulsR } = await env.DB.prepare(
+      `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
+       WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
+    ).bind(monthR).all<{ user_id: number; days: number }>();
+    const ulMapR = new Map(ulsR.map((r) => [r.user_id, r.days]));
+    let fixed = 0;
+    for (const e of ents) {
+      const ul = ulMapR.get(e.user_id) ?? 0;
+      const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
+      const hasDaysR = e.worked_days !== null && e.worked_days !== undefined;
+      let adj = 0;
+      if (hasDaysR && workD > 0) {
+        const adjustable = Math.max(0, Math.max(0, workD - (e.worked_days as number)) - ul);
+        adj = Math.round((e.basic_cents * adjustable) / workD);
+      }
+      const net = Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+      try {
+        await env.DB.prepare(
+          `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
+        ).bind(hasDaysR ? workD : null, net, e.user_id, monthR).run();
+        fixed++;
+      } catch (err2) {
+        // net_cents arrives with migration 0041 — surface it instead of half-fixing
+        await logError(env, "payroll_recompute", err2 instanceof Error ? err2.message : String(err2));
+        return err("migration_missing", "Migration 0041 is not applied — run: npx wrangler d1 migrations apply azoneofficial --remote, then press this button again.", 500);
+      }
+    }
+    await audit(env, user.id, "payroll.recompute", "payroll", monthR, { working_days: workD, rows: fixed });
+    return json({ ok: true, month: monthR, working_days: workD, rows: fixed });
+  }
   if (path === "/payroll" && method === "POST") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const month = str(body?.month, 7) && /^\d{4}-\d{2}$/.test(body!.month as string) ? (body!.month as string) : null;
