@@ -1624,7 +1624,7 @@ function Sales({ user }: { user: User }) {
             <input className={inputClass} placeholder="Company *" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
             <div className="grid grid-cols-2 gap-3">
               <input className={inputClass} placeholder="Contact person" value={cust.contact_person} onChange={(e) => setCust((c) => ({ ...c, contact_person: e.target.value }))} />
-              <input className={inputClass} placeholder="Phone" value={cust.phone} onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))} />
+              <input className={inputClass} placeholder="Phone · +60 12-345 6789" value={cust.phone} onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))} />
             </div>
             <input className={inputClass} placeholder="Email" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
             <button type="button" className={btnClass} onClick={() => void addCustomer()}>Save customer</button>
@@ -1926,7 +1926,7 @@ function Profile() {
         {toastNode}
         <label className="mt-4 block">
           <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
-          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className={inputClass} placeholder="+60 12-345 6789" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </label>
         <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
         {saving ? "Saving..." : saved ? "Saved!" : "Save"}
@@ -2005,7 +2005,7 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   Payroll: ["ceo", "coo", "super_admin", "admin"],
   // Expense claims (v1.4.75): CEO/COO/CCO/HR submit; the CEO decides.
-  Claims: ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"],
+  Claims: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "editor", "marketing", "live_host", "super_admin", "admin"], // v1.4.106: every staff role claims
   // Company expenses (v1.4.87): CEO and COO per spec.
   Expenses: ["ceo", "coo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
@@ -2263,7 +2263,7 @@ export default function PortalPage() {
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
-        {tab === "Claims" && <ClaimsPanel userId={user.id} />}
+        {tab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
         {tab === "Expenses" && <ExpensesPanel />}
         {tab === "Attendance" && (
           <>

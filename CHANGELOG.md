@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.107] — 2026-08-02 — CEO override on the claim chain
+
+### Changed
+- **The CEO can approve directly, chain finished or not** — as the company's final authority, an incomplete chain no longer blocks the Approve button. But a bypass is never silent: the button asks for confirmation ("Approve anyway as CEO? The bypass will be recorded"), the claim's decision note gains "**CEO direct approval (HR review + COO pre-approval bypassed)**", and the audit log stores the skipped stages (`chain_override`). The normal flow is unchanged — stages still get notified, chips still show progress, and an approval after a completed chain records nothing extra
+- Reject remains available at any point, as before
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.106] — 2026-08-02 — Role-based claim approval chains (migration **0038**)
+
+### The chains (mirroring the leave approval chain)
+- **marketing / sales_marketing / editor / live_host** → **HR review** → **COO pre-approval** → **CEO final approval**
+- **hr_admin** → **CCO pre-approval** → **CEO final approval**
+- **COO / CCO** → **CEO final approval** directly
+- This also means **every staff role can now submit claims** (previously only hr_admin and above) — the Claims tab opens to editor/marketing/live_host/sales_marketing
+
+### How it works
+- On submission the **first stage is notified** (HR for staff claims, CCO for HR's claims, CEO otherwise) — no more everything landing straight on the CEO
+- **HR** sees staff-chain claims in a Pending-approvals queue with **"✔ HR review OK — pass to COO"**; the COO is then notified and sees **"✔ Pre-approve — pass to CEO"**; the CCO gets the same button on hr_admin claims. No self-review — the server refuses reviewing your own claim
+- Every pending claim shows a **chain progress chip**: "awaiting HR review" → "HR ✓ — awaiting COO" → "HR ✓ · COO ✓ — CEO next"
+- The **CEO's Approve is gated server-side**: approving before the chain completes returns "HR review is still pending" / "COO (or CCO) pre-approval is still pending" — surfaced as a toast. **Reject stays available at any point** (no need to run a chain for a claim you can already see is wrong)
+- **Editing/resubmitting restarts the chain**: v1.4.104's edit now clears the review + pre-approval stamps and notifies stage one again
+- The printed claim form's System-status line adds **"HR reviewed by … · Pre-approved by …"** — matching its three signature boxes
+- Audited: `claim.hr_review`, `claim.preapprove`; admin tier can backstop any stage
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0038**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.105] — 2026-08-02 — Format hints in every box · short labels
+
+### Changed (Staff Details + phone fields everywhere)
+- **Format examples now live inside the boxes** — an empty field shows exactly the shape HR/CEO/COO should type: NRIC "**YYMMDD-PB-#### · e.g. 970209-01-5183**", phone "**+60 12-345 6789**", Employee ID "e.g. AZOOM001", dates "DD-MM-YYYY · e.g. 09-02-1997", bank account "**numbers only** · e.g. 551100338444", blood type "e.g. O / A+ / B−", position/department examples
+- **Labels shortened, as asked** — the long explanations no longer stretch the layout: "Effective end date (DD-MM-YYYY — resigned/terminated)" became "**End date (resign/terminate)**", "Re-joined on (DD-MM-YYYY — payroll resumes)" became "**Re-joined on**", and the date labels dropped their repeated (DD-MM-YYYY). The detail moved into the box placeholder and a **hover tooltip** (e.g. NRIC explains the YYMMDD-PB-#### parts; End date says payroll runs up to and including it)
+- Phone hints standardized across tabs: Staff Details record + create form, **Profile** phone, and the Sales **customer** phone (which also feeds the WhatsApp reminder links — the +60 format there makes wa.me work first time)
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.104] — 2026-08-02 — Claim editing lifecycle: edit before approval · locked once approved · edit & resubmit after rejection
 
 ### Added

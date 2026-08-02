@@ -1364,8 +1364,19 @@ interface Claim {
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
   paid_at?: string | null; // v1.4.101: CEO marked the claim as paid
+  claimant_role?: string | null;        // v1.4.106 chain fields
+  hr_reviewed_at?: string | null;
+  hr_reviewed_by_name?: string | null;
+  pre_approved_at?: string | null;
+  pre_approved_by_name?: string | null;
   created_at: string;
 }
+
+/* v1.4.106: which chain a claimant's role follows (mirrors the leave chain). */
+const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
+  ["marketing", "sales_marketing", "editor", "live_host"].includes(role ?? "") ? "staff"
+    : role === "hr_admin" ? "hr"
+      : ["coo", "cco"].includes(role ?? "") ? "exec" : "top";
 
 /** v1.4.92: printable Employee Claim Form — modelled on the CEO's
     AZOO-HR-CLM-001 template. HR prints the PDF, signatures are collected in
@@ -1374,6 +1385,10 @@ interface Claim {
 async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const claimNo = `AZOO-CLM-${String(c.id).padStart(4, "0")}`;
+  const chainLine = [
+    c.hr_reviewed_by_name ? `HR reviewed by ${c.hr_reviewed_by_name}` : null,
+    c.pre_approved_by_name ? `Pre-approved by ${c.pre_approved_by_name}` : null,
+  ].filter(Boolean).join(" · ");
   // v1.4.102: the uploaded receipt prints ON the form (bottom right) when it
   // is an image — fetched as a blob so it is fully loaded before printing.
   // PDF receipts can't be inlined into the page; the form says so instead.
@@ -1460,7 +1475,7 @@ async function printClaimForm(c: Claim) {
   </table>
   <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
   <p class="decl">Declaration: I certify the above expenses were incurred for official Company business.</p>
-  <p class="sys">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}</p>
+  <p class="sys">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}${chainLine ? " · " + chainLine : ""}</p>
   <table class="sig" style="margin-top:10px">
     <tr>
       <td class="hd2">Employee</td>
@@ -1486,7 +1501,7 @@ const CLAIM_CATEGORIES = ["travel", "meal", "accommodation", "equipment", "medic
     EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
-export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
+export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?: string }) {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
@@ -1558,8 +1573,31 @@ export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
   };
 
   const decide = async (id: number, action: "approve" | "reject") => {
-    await api(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
+    // v1.4.107: the CEO can approve past an incomplete chain — but only after
+    // confirming, and the bypass is recorded on the claim + audit log.
+    if (action === "approve") {
+      const cl = claims.find((x) => x.id === id);
+      const ch = claimChainOf(cl?.claimant_role);
+      const incomplete = cl && cl.status === "pending" &&
+        ((ch === "staff" && (!cl.hr_reviewed_at || !cl.pre_approved_at)) || (ch === "hr" && !cl.pre_approved_at));
+      if (incomplete && !window.confirm("The approval chain has not finished for this claim. Approve anyway as CEO?\n\nThe bypass will be recorded on the claim and in the audit log.")) return;
+    }
+    const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
+    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Decision failed", "notice"); return; }
     showToast("Saved", `Claim ${action === "approve" ? "approved" : "rejected"} — claimant notified`);
+    void load();
+  };
+  // v1.4.106: chain stage actions.
+  const hrReview = async (id: number) => {
+    const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/review`, { method: "POST", body: JSON.stringify({}) });
+    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Review failed", "notice"); return; }
+    showToast("Saved", "HR review recorded — COO notified for pre-approval");
+    void load();
+  };
+  const preApprove = async (id: number) => {
+    const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/preapprove`, { method: "POST", body: JSON.stringify({}) });
+    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Pre-approval failed", "notice"); return; }
+    showToast("Saved", "Pre-approved — CEO notified for final approval");
     void load();
   };
 
@@ -1591,6 +1629,18 @@ export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
             ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} items</span>
             : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>}{" "}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{c.status}</span>
+          {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
+            <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
+              title="Chain: HR review → COO pre-approval → CEO final approval">
+              {c.pre_approved_at ? "HR ✓ · COO ✓ — CEO next" : c.hr_reviewed_at ? "HR ✓ — awaiting COO" : "awaiting HR review"}
+            </span>
+          )}
+          {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
+            <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
+              title="Chain: CCO pre-approval → CEO final approval">
+              {c.pre_approved_at ? "CCO ✓ — CEO next" : "awaiting CCO"}
+            </span>
+          )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
             <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
               title="Payment released by the CEO">💸 PAID {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
@@ -1651,15 +1701,33 @@ export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
           )}
         </>
       )}
-      {actions && (
+      {actions && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder="Note (optional — sent to the claimant)"
             value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? "Chain (HR → COO) not finished — approving now is a recorded CEO override" : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? "CCO pre-approval not done — approving now is a recorded CEO override" : "Final approval"}
             onClick={() => void decide(c.id, "approve")}>Approve</button>
           <button type="button" className="border-border text-destructive inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
             onClick={() => void decide(c.id, "reject")}>Reject</button>
         </div>
+      )}
+      {/* v1.4.106 stage actions — HR review, COO/CCO pre-approval. No self-review. */}
+      {c.status === "pending" && c.user_id !== userId && (
+        <>
+          {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
+            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+              onClick={() => void hrReview(c.id)}>✔ HR review OK — pass to COO</button>
+          )}
+          {(role === "coo" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "staff" && c.hr_reviewed_at && !c.pre_approved_at && (
+            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+              onClick={() => void preApprove(c.id)}>✔ Pre-approve — pass to CEO</button>
+          )}
+          {(role === "cco" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at && (
+            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+              onClick={() => void preApprove(c.id)}>✔ Pre-approve — pass to CEO</button>
+          )}
+        </>
       )}
     </div>
   );
@@ -1717,7 +1785,7 @@ export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
         {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       </div>
 
-      {canDecide && (
+      {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
         <div className={card}>
           <p className="text-sm font-semibold">
             Pending approvals
@@ -1726,8 +1794,8 @@ export function ClaimsPanel({ userId = 0 }: { userId?: number }) {
             )}
           </p>
           <div className="mt-3 space-y-2">
-            {pending.length === 0 && <p className="text-muted-foreground text-sm">Nothing awaiting your decision.</p>}
-            {pending.map((c) => claimRow(c, true))}
+            {pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">Nothing awaiting your action.</p>}
+            {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
           </div>
         </div>
       )}
@@ -1874,7 +1942,7 @@ export function ExpensesPanel() {
             Commit each payment before its due date. Recurring expenses from
             earlier months appear here until recorded for this month.
           </p>
-        <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-2">
             {payrollDue && (
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>
@@ -1885,7 +1953,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · figures from the Payroll tab
+                    Pay by <span className="font-medium">{payrollDue.by.split("T")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split("T")[1]?.slice(0, 5)} MYT</span> (payslips release then) · figures from the Payroll tab
                   </p>
                 </div>
                 <span className="flex items-center gap-1.5">

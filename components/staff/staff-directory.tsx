@@ -222,16 +222,41 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
   ["employee_id", "Employee ID"],
   ["position", "Position"],
   ["department", "Department"],
-  ["birthday", "Birth date (DD-MM-YYYY)"],
-  ["id_issued_on", "ID issued (DD-MM-YYYY)"],
-  ["blood_type", "Blood type (record only, not on badge)"],
+  ["birthday", "Birth date"],
+  ["id_issued_on", "ID issued"],
+  ["blood_type", "Blood type (not on badge)"],
   ["employment_status", "Employment status"],
-  ["left_on", "Effective end date (DD-MM-YYYY — resigned/terminated)"],
-  ["rejoined_on", "Re-joined on (DD-MM-YYYY — payroll resumes)"],
-  ["joined_on", "Joined on (DD-MM-YYYY)"],
+  ["left_on", "End date (resign/terminate)"],
+  ["rejoined_on", "Re-joined on"],
+  ["joined_on", "Joined on"],
   ["bank_name", "Bank (Malaysia)"],
   ["bank_account", "Bank account no."],
 ];
+
+/** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
+    field expects without long labels. Empty boxes show the example; long
+    explanations moved to hover titles so labels stay short. */
+const FIELD_PLACEHOLDERS: Partial<Record<keyof Staff, string>> = {
+  full_name: "e.g. MOHD ALIF FARHAN BIN NAZARUDIN",
+  ic_number: "YYMMDD-PB-#### · e.g. 970209-01-5183",
+  phone: "+60 12-345 6789",
+  employee_id: "e.g. AZOOM001",
+  position: "e.g. Chief Executive Officer",
+  department: "e.g. Management",
+  birthday: "DD-MM-YYYY · e.g. 09-02-1997",
+  id_issued_on: "DD-MM-YYYY",
+  blood_type: "e.g. O / A+ / B−",
+  left_on: "DD-MM-YYYY (last paid day)",
+  rejoined_on: "DD-MM-YYYY (payroll resumes)",
+  joined_on: "DD-MM-YYYY · e.g. 20-07-2026",
+  bank_account: "numbers only · e.g. 551100338444",
+};
+const FIELD_TITLES: Partial<Record<keyof Staff, string>> = {
+  ic_number: "Malaysian NRIC: YYMMDD-PB-#### (birth date, place-of-birth code, serial)",
+  left_on: "Effective resignation/termination date — payroll runs up to and including this date",
+  rejoined_on: "Re-join date — payroll resumes from this month",
+  bank_account: "Digits only, no dashes or spaces — prints on the payslip",
+};
 
 export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -372,7 +397,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
           <input className={input} placeholder="Blood type (optional)" value={newStaff.blood_type}
             onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
-          <input className={input} placeholder="IC number / NRIC (optional)" value={newStaff.ic_number}
+          <input className={input} placeholder="NRIC e.g. 970209-01-5183 (optional)" value={newStaff.ic_number}
             onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
           <select className={input} value={newStaff.bank_name}
             onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
@@ -640,8 +665,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     <input
                       className={input}
                       value={val(u, key)}
+                      placeholder={FIELD_PLACEHOLDERS[key]}
                       disabled={isLocked(u, key)}
-                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : undefined}
+                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : FIELD_TITLES[key]}
                       onChange={(e) => set(u.id, key, e.target.value)}
                     />
                   )}

@@ -36,7 +36,7 @@ const PERMS: Record<string, readonly Role[]> = {
   // Expense claims (v1.4.75) — per the CEO's spec: CEO, COO, CCO and HR
   // submit; EVERY decision is the CEO's alone (super_admin only as the
   // system-recovery fallback, admin deliberately excluded).
-  claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"], // v1.4.106: every staff role claims
   claims_decide: ["super_admin", "ceo"],
   // Sales revenue dashboard (v1.4.75) — per the CEO's list.
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -795,22 +795,99 @@ export async function handleStaff(
 
   /* ---- expense claims (v1.4.75): CEO/COO/CCO/HR submit, CEO decides ---- */
 
+  /* v1.4.106: role-based claim approval chains (mirrors the leave chain).
+     staff  (marketing/sales_marketing/editor/live_host): HR review -> COO pre-approval -> CEO
+     hr     (hr_admin):                                   CCO pre-approval -> CEO
+     exec   (coo/cco):                                    CEO only
+     top    (ceo/admin tier):                             CEO only */
+  const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
+    ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
+      : role === "hr_admin" ? "hr"
+        : ["coo", "cco"].includes(role) ? "exec" : "top";
+  const notifyRoles = async (roles: string[], excludeId: number, message: string, ref: string) => {
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role IN (${roles.map(() => "?").join(",")}) AND is_active = 1`,
+    ).bind(...roles).all<{ id: number }>();
+    for (const r of results) if (r.id !== excludeId) await notify(env, r.id, "claim", message, ref);
+  };
+  const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string) => {
+    const chain = claimChain(claimantRole);
+    const msg = `${prefix}: ${claimantName} — RM ${(cents / 100).toFixed(2)}`;
+    if (chain === "staff") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
+    else if (chain === "hr") await notifyRoles(["cco"], 0, `${msg} (pre-approval needed)`, `claim:${claimId}`);
+    else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
+  };
   if (path === "/claims" && method === "GET") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
     // Deciders see everyone's claims (the approval queue); submitters their own.
     const all = can(user, "claims_decide");
+    // v1.4.106: reviewers see the claims their stage covers, plus their own.
+    const SEL = `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
+                  u.department AS claimant_department, u.role AS claimant_role,
+                  d.name AS decided_by_name, hb.name AS hr_reviewed_by_name, pb.name AS pre_approved_by_name FROM claims c
+           LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
+           LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by`;
+    const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
+    const scope =
+      all ? ""
+        : ["hr_admin", "coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN})`
+          : user.role === "cco" ? ` WHERE (c.user_id = ?1 OR u.role = 'hr_admin')`
+            : ` WHERE c.user_id = ?1`;
     const { results } = await env.DB.prepare(
-      all
-        ? `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
-                  u.department AS claimant_department, d.name AS decided_by_name FROM claims c
-           LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
-           ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`
-        : `SELECT c.*, u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
-                  u.department AS claimant_department, d.name AS decided_by_name FROM claims c
-           LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
-           WHERE c.user_id = ?1 ORDER BY c.created_at DESC LIMIT 100`,
+      `${SEL}${scope} ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`,
     ).bind(...(all ? [] : [user.id])).all();
     return json({ claims: results, can_decide: all });
+  }
+  const claimReview = path.match(/^\/claims\/(\d+)\/review$/);
+  if (claimReview && method === "POST") {
+    // v1.4.106 stage 1 (staff chain only): HR reviews, then the COO pre-approves.
+    if (!["hr_admin", "admin", "super_admin"].includes(user.role)) {
+      return err("forbidden", "HR review is done by HR", 403);
+    }
+    const cr = await env.DB.prepare(
+      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, u.role AS claimant_role, u.name AS claimant_name
+       FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
+    ).bind(claimReview[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; claimant_role: string; claimant_name: string }>();
+    if (!cr) return err("not_found", "Claim not found", 404);
+    if (cr.status !== "pending") return err("invalid_state", "Already decided", 400);
+    if (claimChain(cr.claimant_role) !== "staff") return err("invalid_state", "This claim does not need an HR review", 400);
+    if (cr.hr_reviewed_at) return err("invalid_state", "Already reviewed by HR", 400);
+    if (cr.user_id === user.id) return err("forbidden", "No self-review", 403);
+    await env.DB.prepare(
+      `UPDATE claims SET hr_reviewed_by = ?1, hr_reviewed_at = datetime('now') WHERE id = ?2`,
+    ).bind(user.id, claimReview[1]).run();
+    await notifyRoles(["coo"], user.id, `Claim HR-reviewed, your pre-approval needed: ${cr.claimant_name} — RM ${(cr.amount_cents / 100).toFixed(2)}`, `claim:${claimReview[1]}`);
+    await audit(env, user.id, "claim.hr_review", "claims", claimReview[1]!);
+    return json({ ok: true });
+  }
+  const claimPre = path.match(/^\/claims\/(\d+)\/preapprove$/);
+  if (claimPre && method === "POST") {
+    // v1.4.106 stage 2: COO pre-approves staff-chain claims (after HR),
+    // CCO pre-approves hr_admin claims. Admin tier as backstop.
+    const cp = await env.DB.prepare(
+      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role, u.name AS claimant_name
+       FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
+    ).bind(claimPre[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; claimant_name: string }>();
+    if (!cp) return err("not_found", "Claim not found", 404);
+    if (cp.status !== "pending") return err("invalid_state", "Already decided", 400);
+    const chainP = claimChain(cp.claimant_role);
+    const adminTier = ["admin", "super_admin"].includes(user.role);
+    if (chainP === "staff") {
+      if (user.role !== "coo" && !adminTier) return err("forbidden", "COO pre-approves staff claims", 403);
+      if (!cp.hr_reviewed_at) return err("invalid_state", "HR review comes first", 400);
+    } else if (chainP === "hr") {
+      if (user.role !== "cco" && !adminTier) return err("forbidden", "CCO pre-approves HR claims", 403);
+    } else {
+      return err("invalid_state", "This claim goes straight to the CEO", 400);
+    }
+    if (cp.pre_approved_at) return err("invalid_state", "Already pre-approved", 400);
+    if (cp.user_id === user.id) return err("forbidden", "No self-approval", 403);
+    await env.DB.prepare(
+      `UPDATE claims SET pre_approved_by = ?1, pre_approved_at = datetime('now') WHERE id = ?2`,
+    ).bind(user.id, claimPre[1]).run();
+    await notifyRoles(["ceo"], user.id, `Claim pre-approved, your FINAL approval needed: ${cp.claimant_name} — RM ${(cp.amount_cents / 100).toFixed(2)}`, `claim:${claimPre[1]}`);
+    await audit(env, user.id, "claim.preapprove", "claims", claimPre[1]!);
+    return json({ ok: true });
   }
   const claimEdit = path.match(/^\/claims\/(\d+)\/edit$/);
   if (claimEdit && method === "POST") {
@@ -843,16 +920,12 @@ export async function handleStaff(
     const wasRejected = cur.status === "rejected";
     await env.DB.prepare(
       `UPDATE claims SET claim_date = ?1, category = ?2, amount_cents = ?3, description = ?4, items = ?5,
-       status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL WHERE id = ?6`,
+       status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL,
+       hr_reviewed_by = NULL, hr_reviewed_at = NULL, pre_approved_by = NULL, pre_approved_at = NULL WHERE id = ?6`,
     ).bind(parsedE[0]!.claim_date, parsedE[0]!.category, centsE, purposeE, JSON.stringify(parsedE), claimEdit[1]).run();
-    const { results: decidersE } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role IN ('ceo') AND is_active = 1 AND id != ?1`,
-    ).bind(user.id).all();
-    for (const d of decidersE as { id: number }[]) {
-      await notify(env, d.id, "claim",
-        `${wasRejected ? "Resubmitted after rejection" : "Updated claim"} awaiting your approval: ${user.name} — RM ${(centsE / 100).toFixed(2)}`,
-        `claim:${claimEdit[1]}`);
-    }
+    // v1.4.106: an edit restarts the chain from stage one.
+    await notifyClaimFirstStage(user.role, user.name, claimEdit[1]!, centsE,
+      wasRejected ? "Resubmitted after rejection" : "Updated claim");
     await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
     return json({ ok: true, resubmitted: wasRejected });
   }
@@ -910,13 +983,8 @@ export async function handleStaff(
       `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
     ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
-    // Tell the decider(s): a claim is waiting. Per spec that is the CEO.
-    const { results: deciders } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role IN ('ceo') AND is_active = 1 AND id != ?1`,
-    ).bind(user.id).all();
-    for (const d of deciders as { id: number }[]) {
-      await notify(env, d.id, "claim", `Claim awaiting your approval: ${user.name} — RM ${(cents / 100).toFixed(2)} (${category})`, `claim:${res?.id}`);
-    }
+    // v1.4.106: tell the FIRST stage of this claimant's chain.
+    await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim");
     await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents });
     return json({ id: res?.id }, 201);
   }
@@ -948,17 +1016,41 @@ export async function handleStaff(
     if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
     const action = body?.action;
     if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
-    const row = await env.DB.prepare(`SELECT user_id, status, amount_cents FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string; amount_cents: number }>();
+    const row = await env.DB.prepare(
+      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role
+       FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
+    ).bind(clMatch[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string }>();
     if (!row) return err("not_found", "Claim not found", 404);
     if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
+    // v1.4.106: approval normally waits for the chain; a REJECT can happen at
+    // any point. v1.4.107: the CEO is the company's final authority — he CAN
+    // approve before the chain completes, and the bypass is RECORDED (audit
+    // meta + a line on the claim's decision note) so the record shows it was
+    // a deliberate override, not a skipped process.
+    let chainOverride: string | null = null;
+    if (action === "approve") {
+      const chainD = claimChain(row.claimant_role);
+      const skipped: string[] = [];
+      if (chainD === "staff") {
+        if (!row.hr_reviewed_at) skipped.push("HR review");
+        if (!row.pre_approved_at) skipped.push("COO pre-approval");
+      } else if (chainD === "hr" && !row.pre_approved_at) {
+        skipped.push("CCO pre-approval");
+      }
+      if (skipped.length > 0) chainOverride = skipped.join(" + ");
+    }
     const status = action === "approve" ? "approved" : "rejected";
+    const noteBase = typeof body?.note === "string" && body.note ? body.note.slice(0, 400) : "";
+    const noteFinal = chainOverride
+      ? `${noteBase ? noteBase + " · " : ""}CEO direct approval (${chainOverride} bypassed)`
+      : (noteBase || null);
     await env.DB.prepare(
       `UPDATE claims SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3 WHERE id = ?4`,
-    ).bind(status, user.id, typeof body?.note === "string" ? body.note.slice(0, 500) : null, clMatch[1]).run();
+    ).bind(status, user.id, noteFinal, clMatch[1]).run();
     await notify(env, row.user_id, "claim",
       `Your claim of RM ${(row.amount_cents / 100).toFixed(2)} was ${status}${typeof body?.note === "string" && body.note ? ` — ${body.note.slice(0, 200)}` : ""}`,
       `claim:${clMatch[1]}`);
-    await audit(env, user.id, `claim.${action}`, "claims", clMatch[1]);
+    await audit(env, user.id, `claim.${action}`, "claims", clMatch[1], chainOverride ? { chain_override: chainOverride } : undefined);
     return json({ ok: true });
   }
 
