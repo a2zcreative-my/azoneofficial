@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.82] — 2026-08-02 — Payroll logic correction: full basic + explicit incomplete-month deduction
+
+### The logic review (done before touching code, as requested)
+1. The old **Prorate button OVERWROTE Basic** with the reduced figure — the slip then presented RM 673.08 as if it were Izzudin's salary. Money was right, presentation was wrong/unfair
+2. The reduced basic wasn't reproducible later (days weren't stored), so a payslip printed next month couldn't show WHY the figure was small
+3. **Double-deduction risk found and closed**: unpaid leave already deducts at basic ÷ 26 (v1.4.79); if the incomplete-month adjustment also counted those same missing days, one day would be deducted twice. The formula now excludes unpaid-leave days from the adjustment
+4. The panel's NET column ignored the unpaid-leave auto-deduction (slip and table disagreed since v1.4.79) — now every surface uses ONE shared formula
+5. Blank days box previously risked being read as 0 days → full deduction; blank now explicitly means "full month, no adjustment"
+
+### Changed
+- **One formula everywhere** (`incompleteMonthAdj`, migration **0030** persists `worked_days` + `month_working_days` on the entry): missing = workingDays − workedDays; adjustable = missing − unpaidLeaveDays (never negative); **adjustment = FULL basic × adjustable ÷ workingDays**. Net = basic + commission + allowance − manual deduction − unpaid leave − adjustment. Same net as before (RM 3,500 × 5⁄26 = RM 673.08 either way) — but the payslip now shows **BASIC PAY 3,500.00** and **INCOMPLETE MONTH (5 OF 26 DAYS WORKED) 2,826.92** instead of a shrunken basic
+- **Prorate / Prorate all buttons removed** (they were the bug). Flow now: set working days → Auto days from clock-ins → review → Save all; NET updates live and shows "−RM … auto" in red under it when auto-deductions apply
+- **Fixing July's already-prorated rows**: a **"Base"** button appears on any row whose Basic differs from the fixed base salary — one click restores the full figure, then set days and Save
+- Table NET, footer TOTAL, staff "My payslip" summary and the printed slip all agree by construction now
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0030**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then in July: click **Base** on each shrunken row, confirm the days boxes, Save all, reprint payslips
+
+
 ## [1.4.81] — 2026-08-02 — Johor public holidays on the events calendar · auto-replacement rule
 
 ### Added

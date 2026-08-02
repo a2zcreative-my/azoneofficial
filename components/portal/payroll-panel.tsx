@@ -58,7 +58,24 @@ interface Entry {
   commission_cents: number;
   allowance_cents: number;
   deduction_cents: number;
+  worked_days?: number | null;
+  month_working_days?: number | null;
   note?: string | null;
+}
+
+/** v1.4.82 incomplete-month adjustment — the ONE formula used by the table,
+    the payslip and the staff self-view so they can never disagree:
+      missing = max(0, workingDays − workedDays)
+      adjustable = max(0, missing − approvedUnpaidLeaveDays)   ← unpaid leave
+        already deducts separately at basic ÷ 26 (v1.4.79); excluding it here
+        prevents the same day being deducted twice
+      adjustment = round(FULL basic × adjustable ÷ workingDays)
+    workedDays null/undefined = full month = no adjustment. */
+function incompleteMonthAdj(basicCents: number, workedDays: number | null | undefined, workingDays: number | null | undefined, unpaidLeaveDays: number): number {
+  if (workedDays === null || workedDays === undefined || !workingDays || workingDays <= 0) return 0;
+  const missing = Math.max(0, workingDays - workedDays);
+  const adjustable = Math.max(0, missing - unpaidLeaveDays);
+  return Math.round((basicCents * adjustable) / workingDays);
 }
 
 function rm(cents: number): string {
@@ -83,7 +100,10 @@ export function printPayslip(
   // v1.4.79: unpaid leave deducts EXPLICITLY on the slip (Employment Act
   // ordinary rate: basic ÷ 26 per day) — basic stays full, the reason shows.
   const unpaidDed = x?.unpaid_deduction_cents ?? 0;
-  const totalDed = e.deduction_cents + unpaidDed;
+  // v1.4.82: incomplete month (joining month / absent days) is ALSO an
+  // explicit deduction against the FULL basic — never a shrunken basic.
+  const incompAdj = incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
+  const totalDed = e.deduction_cents + unpaidDed + incompAdj;
   const net = Math.max(0, gross - totalDed);
   const [yy, mm] = month.split("-");
   const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
@@ -102,6 +122,9 @@ export function printPayslip(
   if (unpaidDed > 0) {
     const d = x?.unpaid_leave ?? 0;
     dedLines.push(`<tr><td>UNPAID LEAVE (${n2(d)} DAY${d === 1 ? "" : "S"})</td><td class="amt">${amt(unpaidDed)}</td></tr>`);
+  }
+  if (incompAdj > 0) {
+    dedLines.push(`<tr><td>INCOMPLETE MONTH (${e.worked_days} OF ${e.month_working_days} DAYS WORKED)</td><td class="amt">${amt(incompAdj)}</td></tr>`);
   }
   const dedRows = dedLines.length > 0 ? dedLines.join("") : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
   const othersRows = x
@@ -209,21 +232,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [entries, setEntries] = useState<Record<number, Entry>>({});
   const [msg, setMsg] = useState("");
-  // Working-day proration (v1.4.43): Malaysia counts working days per month
-  // (e.g. July 2026 = 26). Enter the month's working days once, a person's
-  // days worked on their row, and Prorate computes basic × worked/total —
-  // e.g. RM2100 basic, joined 20 July (10 of 26 days) → RM807.69.
+  // v1.4.82: incomplete months are an explicit DEDUCTION, never a shrunken
+  // basic. Enter the month's working days once and each person's days worked;
+  // NET adjusts live via incompleteMonthAdj() — e.g. RM2100 basic, joined
+  // 20 July (10 of 26 days): basic shows RM2100, deduction RM1292.31,
+  // net RM807.69. Same money as the old proration, but visible and fair.
   const [monthDays, setMonthDays] = useState(26);
   const [workedDays, setWorkedDays] = useState<Record<number, number>>({});
 
-  const prorate = (id: number) => {
-    const d = workedDays[id];
-    if (!d || !monthDays) return;
-    const e = entry(id);
-    if (!e.basic_cents) return;
-    const prorated = Math.round((e.basic_cents * Math.min(d, monthDays)) / monthDays);
-    setEntries((m) => ({ ...m, [id]: { ...e, basic_cents: prorated } }));
-  };
 
   /** v1.4.77: auto-calculation from attendance — fill every "days" input
       with the clock-in day count. Values stay editable afterwards, so a
@@ -233,14 +249,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const filled: Record<number, number> = {};
     for (const u of staff) filled[u.id] = attDays[u.id] ?? 0;
     setWorkedDays(filled);
-    setMsg("Days filled from clock-in records — review, adjust if needed, then Prorate.");
-    window.setTimeout(() => setMsg(""), 5000);
-  };
-
-  const prorateAll = () => {
-    for (const u of staff) prorate(u.id);
-    setMsg("Prorated every row with a basic amount and a days value.");
-    window.setTimeout(() => setMsg(""), 4000);
+    setMsg("Days filled from clock-in records — review, correct if needed, then Save all. Net adjusts automatically; Basic stays full.");
+    window.setTimeout(() => setMsg(""), 6000);
   };
 
   const saveAll = async () => {
@@ -248,8 +258,17 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     let n = 0;
     for (const u of staff) {
       const e = entries[u.id];
-      if (!e) continue;
-      const res = await api(`/payroll`, { method: "POST", body: JSON.stringify({ ...e, month }) });
+      const d = workedDays[u.id];
+      const hasDays = typeof d === "number" && !Number.isNaN(d);
+      if (!e && !hasDays) continue; // nothing entered for this row
+      const res = await api(`/payroll`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...entry(u.id), month,
+          worked_days: hasDays ? d : null,
+          month_working_days: hasDays ? monthDays : null,
+        }),
+      });
       if (res.ok) n += 1;
     }
     setMsg(`Saved ${n} ${n === 1 ? "entry" : "entries"} for ${month}.`);
@@ -294,8 +313,13 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     list.sort((a, b) => (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9) || a.name.localeCompare(b.name));
     setStaff(list);
     const map: Record<number, Entry> = {};
-    for (const e of p.data?.entries ?? []) map[e.user_id] = e;
+    const savedDays: Record<number, number> = {};
+    for (const e of p.data?.entries ?? []) {
+      map[e.user_id] = e;
+      if (e.worked_days !== null && e.worked_days !== undefined) savedDays[e.user_id] = e.worked_days;
+    }
     setEntries(map);
+    setWorkedDays(savedDays);
     setRelease(p.data?.release ?? null);
   }, [month]);
   useEffect(() => {
@@ -314,9 +338,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
 
   const save = async (id: number) => {
     setMsg("");
+    const d = workedDays[id];
     const res = await api<{ error?: { message?: string } }>(`/payroll`, {
       method: "POST",
-      body: JSON.stringify({ ...entry(id), month }),
+      body: JSON.stringify({
+        ...entry(id), month,
+        worked_days: typeof d === "number" && !Number.isNaN(d) ? d : null,
+        month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
+      }),
     });
     setMsg(res.ok ? "Saved." : (res.data?.error?.message ?? "Save failed"));
     window.setTimeout(() => setMsg(""), 2500);
@@ -334,12 +363,13 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         <div>
           <p className="text-sm font-semibold">Payroll processing</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Basic + commission + allowance − deductions = net. One entry per
-            person per month; Payslip prints the branded A4 slip. Approved
-            unpaid leave deducts automatically ON THE PAYSLIP at basic ÷ 26
-            per day (Employment Act ordinary rate) — keep Basic full and don&apos;t
-            deduct it again; use Prorate only for mid-month joiners. Emergency
-            leave is paid and never deducted.
+            Basic stays the FULL salary. Net = basic + commission + allowance
+            − manual deduction − unpaid leave (auto, basic ÷ 26/day) −
+            incomplete month (auto, basic × missing working days ÷ working
+            days — days already deducted as unpaid leave are excluded so
+            nothing is deducted twice). Leave the days box empty for a normal
+            full month. Payslip shows every line; emergency leave is paid and
+            never deducted.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -373,14 +403,6 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             onClick={autoFillDays}
           >
             Auto days from clock-ins
-          </button>
-          <button
-            type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Basic × days ÷ working days, for every row"
-            onClick={prorateAll}
-          >
-            Prorate all
           </button>
           <button
             type="button"
@@ -486,7 +508,10 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <tbody>
             {staff.map((u) => {
               const e = entry(u.id);
-              const net = e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents;
+              const ul = unpaidDays[u.id] ?? 0;
+              const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
+              const adj = incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
+              const net = e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents - ulDed - adj;
               return (
                 <tr key={u.id} className="border-border border-b last:border-0">
                   <td className="px-2 py-1.5">
@@ -505,7 +530,17 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                       />
                     </td>
                   ))}
-                  <td className="px-2 py-1.5 font-medium whitespace-nowrap">{rm(Math.max(0, net))}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    <span className="font-medium">{rm(Math.max(0, net))}</span>
+                    {(adj > 0 || ulDed > 0) && (
+                      <span
+                        className="block text-[10px] text-red-700"
+                        title={`Auto-deducted on the payslip: ${adj > 0 ? `incomplete month ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `unpaid leave ${rm(ulDed)}` : ""} — Basic stays full`}
+                      >
+                        −{rm(adj + ulDed)} auto
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {!readOnly && (
                       <>
@@ -515,7 +550,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                           placeholder="d"
                           title={`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`}
                           value={workedDays[u.id] ?? ""}
-                          onChange={(ev) => setWorkedDays((m) => ({ ...m, [u.id]: Number(ev.target.value) }))}
+                          onChange={(ev) => setWorkedDays((m) => {
+                            // Blank = full month (no adjustment) — an empty box
+                            // must never be read as "0 days worked".
+                            const next = { ...m };
+                            if (ev.target.value === "") delete next[u.id];
+                            else next[u.id] = Number(ev.target.value);
+                            return next;
+                          })}
                         />
                         <span
                           className="text-muted-foreground ml-1 text-[10px]"
@@ -531,10 +573,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                             UL:{unpaidDays[u.id]}
                           </span>
                         )}
-                        <button type="button" className="ml-1 text-xs underline" title="Basic × days / working days"
-                          onClick={() => prorate(u.id)}>
-                          Prorate
-                        </button>
+                        {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
+                          <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
+                            Base
+                          </button>
+                        )}
                         <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id)}>
                           Save
                         </button>
@@ -555,9 +599,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               const tot = staff.reduce(
                 (a, u) => {
                   const e = entry(u.id);
+                  const ul = unpaidDays[u.id] ?? 0;
+                  const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
+                  const adj = incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
                   a.basic += e.basic_cents; a.comm += e.commission_cents;
-                  a.allow += e.allowance_cents; a.ded += e.deduction_cents;
-                  a.net += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents);
+                  a.allow += e.allowance_cents; a.ded += e.deduction_cents + ulDed + adj;
+                  a.net += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents - e.deduction_cents - ulDed - adj);
                   return a;
                 },
                 { basic: 0, comm: 0, allow: 0, ded: 0, net: 0 },
@@ -612,8 +659,12 @@ export function MyPayslip() {
   // button greys out instead of pretending one could exist.
   const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
 
+  const autoDed = entry
+    ? (extras?.unpaid_deduction_cents ?? 0) +
+      incompleteMonthAdj(entry.basic_cents, entry.worked_days, entry.month_working_days, extras?.unpaid_leave ?? 0)
+    : 0;
   const net = entry
-    ? entry.basic_cents + entry.commission_cents + entry.allowance_cents - entry.deduction_cents
+    ? entry.basic_cents + entry.commission_cents + entry.allowance_cents - entry.deduction_cents - autoDed
     : 0;
 
   return (
@@ -664,7 +715,7 @@ export function MyPayslip() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
             Basic {rm(entry.basic_cents)} · Commission {rm(entry.commission_cents)} ·
-            Allowance {rm(entry.allowance_cents)} · Deduction {rm(entry.deduction_cents)} ·{" "}
+            Allowance {rm(entry.allowance_cents)} · Deductions {rm(entry.deduction_cents + autoDed)} ·{" "}
             <span className="font-semibold">Net {rm(Math.max(0, net))}</span>
           </span>
           <button

@@ -1505,16 +1505,22 @@ export async function handleStaff(
       return err("invalid_input", "user_id and month (YYYY-MM) are required", 400);
     }
     const cents = (v: unknown) => (typeof v === "number" && v >= 0 ? Math.round(v) : 0);
+    // v1.4.82: worked_days + month_working_days persist the incomplete-month
+    // basis (null = full month, no adjustment). Basic itself stays FULL.
+    const intOrNull = (v: unknown) =>
+      typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 31 ? Math.round(v) : null;
     await env.DB.prepare(
-      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, deduction_cents, note, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, deduction_cents, worked_days, month_working_days, note, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
        ON CONFLICT (user_id, month) DO UPDATE SET
          basic_cents = ?3, commission_cents = ?4, allowance_cents = ?5,
-         deduction_cents = ?6, note = ?7, updated_at = datetime('now')`,
+         deduction_cents = ?6, worked_days = ?7, month_working_days = ?8,
+         note = ?9, updated_at = datetime('now')`,
     ).bind(
       body.user_id, month,
       cents(body.basic_cents), cents(body.commission_cents),
       cents(body.allowance_cents), cents(body.deduction_cents),
+      intOrNull(body.worked_days), intOrNull(body.month_working_days),
       str(body.note, 300) ? body.note : null, user.id,
     ).run();
     await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month });
