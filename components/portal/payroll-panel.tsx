@@ -77,10 +77,14 @@ export function printPayslip(
   u: StaffRow & { employment_status?: string | null },
   e: Entry,
   month: string,
-  x?: { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; annual_bal: number; sick_bal: number } | null,
+  x?: { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null,
 ) {
   const gross = e.basic_cents + e.commission_cents + e.allowance_cents;
-  const net = Math.max(0, gross - e.deduction_cents);
+  // v1.4.79: unpaid leave deducts EXPLICITLY on the slip (Employment Act
+  // ordinary rate: basic ÷ 26 per day) — basic stays full, the reason shows.
+  const unpaidDed = x?.unpaid_deduction_cents ?? 0;
+  const totalDed = e.deduction_cents + unpaidDed;
+  const net = Math.max(0, gross - totalDed);
   const [yy, mm] = month.split("-");
   const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
   const period = { from: `01-${mm}-${yy}`, to: `${String(lastDay).padStart(2, "0")}-${mm}-${yy}` };
@@ -91,15 +95,22 @@ export function printPayslip(
   const earn: [string, number][] = [["BASIC PAY", e.basic_cents]];
   if (e.commission_cents > 0) earn.push(["COMMISSION", e.commission_cents]);
   if (e.allowance_cents > 0) earn.push(["ALLOWANCE", e.allowance_cents]);
-  // Deductions appear ONLY when late — the deduction field records lateness.
-  const dedRows = e.deduction_cents > 0
-    ? `<tr><td>LATE DEDUCTION</td><td class="amt">${amt(e.deduction_cents)}</td></tr>`
-    : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
+  // Deduction lines: manual deduction (lateness etc.) + automatic unpaid
+  // leave. Emergency leave is PAID — it never appears here.
+  const dedLines: string[] = [];
+  if (e.deduction_cents > 0) dedLines.push(`<tr><td>LATE / OTHER DEDUCTION</td><td class="amt">${amt(e.deduction_cents)}</td></tr>`);
+  if (unpaidDed > 0) {
+    const d = x?.unpaid_leave ?? 0;
+    dedLines.push(`<tr><td>UNPAID LEAVE (${n2(d)} DAY${d === 1 ? "" : "S"})</td><td class="amt">${amt(unpaidDed)}</td></tr>`);
+  }
+  const dedRows = dedLines.length > 0 ? dedLines.join("") : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
   const othersRows = x
     ? `<tr><td>WORKING DAY</td><td class="amt">${n2(x.working_day)}</td></tr>
        <tr><td>PUBLIC HOLIDAY</td><td class="amt">${n2(x.public_holiday)}</td></tr>
        <tr><td>ANNUAL LEAVE</td><td class="amt">${n2(x.annual_leave)}</td></tr>
-       <tr><td>MEDICAL LEAVE</td><td class="amt">${n2(x.medical_leave)}</td></tr>`
+       <tr><td>MEDICAL LEAVE</td><td class="amt">${n2(x.medical_leave)}</td></tr>
+       <tr><td>EMERGENCY LEAVE (PAID)</td><td class="amt">${n2(x.emergency_leave ?? 0)}</td></tr>
+       <tr><td>UNPAID LEAVE</td><td class="amt">${n2(x.unpaid_leave ?? 0)}</td></tr>`
     : "";
 
   const w = window.open("", "_blank", "width=900,height=950");
@@ -171,7 +182,7 @@ export function printPayslip(
         </tr>
         <tr class="totals">
           <td><table class="inner"><tr class="total"><td>TOTAL :</td><td class="amt">${amt(gross)}</td></tr></table></td>
-          <td><table class="inner"><tr class="total"><td>TOTAL :</td><td class="amt">${amt(e.deduction_cents)}</td></tr></table></td>
+          <td><table class="inner"><tr class="total"><td>TOTAL :</td><td class="amt">${amt(totalDed)}</td></tr></table></td>
           <td><table class="inner">
             <tr><td>ANNL. BAL. :</td><td class="amt">${x ? n2(x.annual_bal) : "—"}</td></tr>
             <tr><td>SICK BAL. :</td><td class="amt">${x ? n2(x.sick_bal) : "—"}</td></tr>
@@ -247,6 +258,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const [attDays, setAttDays] = useState<Record<number, number>>({});
+  // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
+  const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
@@ -262,6 +275,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const dmap: Record<number, number> = {};
     for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
     setAttDays(dmap);
+    const umap: Record<number, number> = {};
+    for (const r of (a.data as { unpaid?: { user_id: number; days: number }[] } | null)?.unpaid ?? []) umap[r.user_id] = r.days;
+    setUnpaidDays(umap);
     const bmap: Record<number, number> = {};
     for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;
     setBase(bmap);
@@ -316,7 +332,11 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <p className="text-sm font-semibold">Payroll processing</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             Basic + commission + allowance − deductions = net. One entry per
-            person per month; Payslip prints the branded A4 slip.
+            person per month; Payslip prints the branded A4 slip. Approved
+            unpaid leave deducts automatically ON THE PAYSLIP at basic ÷ 26
+            per day (Employment Act ordinary rate) — keep Basic full and don&apos;t
+            deduct it again; use Prorate only for mid-month joiners. Emergency
+            leave is paid and never deducted.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -469,6 +489,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         >
                           ⏱{attDays[u.id] ?? 0}
                         </span>
+                        {(unpaidDays[u.id] ?? 0) > 0 && (
+                          <span
+                            className="ml-1 text-[10px] font-semibold text-red-700"
+                            title={`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at basic ÷ 26 per day. Keep Basic full and do NOT deduct it again here.`}
+                          >
+                            UL:{unpaidDays[u.id]}
+                          </span>
+                        )}
                         <button type="button" className="ml-1 text-xs underline" title="Basic × days / working days"
                           onClick={() => prorate(u.id)}>
                           Prorate

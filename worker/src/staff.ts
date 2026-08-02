@@ -1299,11 +1299,31 @@ export async function handleStaff(
       const accrued = full ? entitled : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
       return Math.max(0, accrued - (used?.used ?? 0));
     };
+    // v1.4.79: unpaid leave now appears as an EXPLICIT payslip deduction —
+    // basic stays full and the slip shows why the pay is lower (fairness).
+    // Rate follows the Employment Act 1955 s.60I ordinary rate of pay:
+    // monthly wages ÷ 26 per day. Emergency leave is PAID (own 3-day
+    // entitlement, common Malaysian practice) — shown in OTHERS, never
+    // deducted.
+    const unpaidDays = await leaveDays("unpaid");
+    const emergencyDays = await leaveDays("emergency");
+    let orpBase = (await env.DB.prepare(
+      `SELECT base_salary_cents FROM users WHERE id = ?1`,
+    ).bind(uid).first<{ base_salary_cents: number }>())?.base_salary_cents ?? 0;
+    if (!orpBase) {
+      orpBase = (await env.DB.prepare(
+        `SELECT basic_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`,
+      ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
+    }
+    const unpaidDeduction = unpaidDays > 0 ? Math.round((orpBase / 26) * unpaidDays) : 0;
     return {
       working_day: wd?.n ?? 0,
       public_holiday: ph?.n ?? 0,
       annual_leave: await leaveDays("annual"),
       medical_leave: await leaveDays("medical"),
+      emergency_leave: emergencyDays,
+      unpaid_leave: unpaidDays,
+      unpaid_deduction_cents: unpaidDeduction,
       annual_bal: await bal("annual", false),
       sick_bal: await bal("medical", true),
     };
@@ -1381,7 +1401,14 @@ export async function handleStaff(
        WHERE type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?1
        GROUP BY user_id`,
     ).bind(mA).all<{ user_id: number; days: number }>();
-    return json({ month: mA, days: results });
+    // v1.4.79: approved unpaid-leave days too — the panel flags them so the
+    // processor knows the payslip will auto-deduct (and doesn't double-deduct).
+    const { results: unpaid } = await env.DB.prepare(
+      `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
+       WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%'
+       GROUP BY user_id`,
+    ).bind(mA).all<{ user_id: number; days: number }>();
+    return json({ month: mA, days: results, unpaid });
   }
   if (path === "/payroll/detail" && method === "GET") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);

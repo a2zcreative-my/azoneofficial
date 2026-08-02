@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.79] — 2026-08-02 — Unpaid leave shows as an explicit payslip deduction · emergency leave confirmed paid
+
+### Changed
+- **Unpaid leave now appears ON the payslip as its own deduction line** — `UNPAID LEAVE (N DAYS)` in the DEDUCTIONS box, computed automatically from approved unpaid-leave requests at **basic ÷ 26 per day** (the Employment Act 1955 s.60I ordinary-rate divisor; uses the fixed base salary, falling back to the month's saved basic). Basic stays FULL and the slip shows exactly why nett pay is lower — the fairness the old silent proration lacked. The manual Deduction field's line is relabelled **LATE / OTHER DEDUCTION**; the deductions TOTAL and NETT PAY include both. Applies to processor prints and every staff member's own "My payslip" identically
+- **Emergency leave stays PAID and is never deducted** — shown in OTHERS as `EMERGENCY LEAVE (PAID)` with the month's count, alongside a new UNPAID LEAVE day-count row. Legal position: the Employment Act 1955 has **no "emergency leave" category** — it's company practice, most commonly paid against its own small entitlement (ours: 3 days/year) or taken from annual leave; there is no statutory obligation either way, so the 3-day paid policy is a company decision (worth confirming in the employee handbook the lawyer reviews)
+- **Payroll panel**: rows with approved unpaid leave show a red **UL:N** flag warning that the payslip deducts it automatically — keep Basic full, don't deduct again (double-punishment guard); header caption updated. `/payroll/attendance-days` now also returns unpaid-leave day counts
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No new migration (uses 0027's base salary)
+
+
 ## [1.4.78] — 2026-08-02 — Fixed base salaries (no more monthly retyping) · staff finder on attendance
 
 ### Added
