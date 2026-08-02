@@ -293,6 +293,19 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     window.setTimeout(() => setMsg(""), 6000);
   };
 
+  // v1.4.124: the net this panel displays, computed once and SAVED with the
+  // entry — /expenses sums these stored figures, so the Expenses card and
+  // this total always tally after Save all.
+  const netFor = (id: number): number => {
+    const e = entry(id);
+    const ul = unpaidDays[id] ?? 0;
+    const ulDed = ul > 0 ? Math.round(((base[id] || e.basic_cents) / 26) * ul) : 0;
+    const d = workedDays[id];
+    const adj = incompleteMonthAdj(e.basic_cents, typeof d === "number" && !Number.isNaN(d) ? d : null, monthDays, ul);
+    const ot = otPay(e.basic_cents, e.ot_hours);
+    return Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
+  };
+
   const saveAll = async () => {
     setMsg("");
     let n = 0;
@@ -309,6 +322,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           ot_cents: otPay(entry(u.id).basic_cents, entry(u.id).ot_hours),
           worked_days: hasDays ? d : null,
           month_working_days: hasDays ? monthDays : null,
+          net_cents: netFor(u.id),
         }),
       });
       if (res.ok) n += 1;
@@ -423,6 +437,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         ot_cents: otPay(entry(id).basic_cents, entry(id).ot_hours),
         worked_days: typeof d === "number" && !Number.isNaN(d) ? d : null,
         month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
+        net_cents: netFor(id),
       }),
     });
     if (res.ok) showToast("Saved", name ?? "Payroll entry saved");

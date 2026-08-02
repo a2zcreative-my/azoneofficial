@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.124] — 2026-08-02 — Expenses payroll figure now tallies with the Payroll tab (migration **0041**)
+
+### Root cause of the discrepancy (full-file check done)
+The Expenses card and the Payroll tab used the **same formula but different scope and different data freshness**:
+1. **Scope:** `/expenses` summed EVERY saved payroll entry for the month — including entries belonging to users the Payroll tab doesn't list (disabled accounts, customer/super_admin roles, staff outside their employment window). Any such row silently inflated the Expenses figure
+2. **Freshness:** the Payroll tab computes live from what's on screen; `/expenses` reads what was last SAVED — edits (e.g. the 22 → 23 working-days correction) diverge the two until Save all
+
+### Fixed — single source of truth
+- **Migration 0041:** `payroll_entries.net_cents` — the panel now computes each net once (the one shared formula) and **saves it with the entry**; `/expenses` **sums the stored nets** instead of re-deriving them. After Save all, the two figures are identical by construction
+- `/expenses` now applies the **same staff scope as the Payroll tab**: active users only, no customer/super_admin, employment lifecycle window applied — out-of-scope entries can no longer leak into the total (rows saved before 0041 still fall back to the formula, same scope)
+- The Payments-due line now says where its number comes from: *"sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches"*
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0041**, with 0040 if not yet) → `npx wrangler deploy` → `pnpm build` → hard refresh → **Payroll 07-2026: Re-fill days → Save all** (stores the nets; the Expenses figure then equals the tab total exactly)
+
+
 ## [1.4.123] — 2026-08-02 — HR compilation card: Receipt link removed
 
 ### Changed

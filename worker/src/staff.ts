@@ -1185,12 +1185,21 @@ export async function handleStaff(
       const yP = Number(mE.slice(0, 4));
       const moP = Number(mE.slice(5, 7));
       const prevM = new Date(Date.UTC(yP, moP - 2, 1)).toISOString().slice(0, 7);
+      // v1.4.124: SAME scope as the Payroll tab — active staff, no customer /
+      // super_admin, lifecycle window applied. Entries outside this scope
+      // (test users, resigned staff, disabled accounts) were inflating the
+      // Expenses figure vs the panel total.
+      const mStart = `${prevM}-01`, mEnd = `${prevM}-31`;
       const { results: pes } = await env.DB.prepare(
         `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
-                COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
+                COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents, p.net_cents,
                 p.worked_days, p.month_working_days, u.base_salary_cents
-         FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
-      ).bind(prevM).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
+         FROM payroll_entries p JOIN users u ON u.id = p.user_id
+         WHERE p.month = ?1 AND u.is_active = 1
+           AND u.role NOT IN ('customer', 'super_admin')
+           AND NOT (u.left_on IS NOT NULL AND u.left_on < ?2
+                    AND (u.rejoined_on IS NULL OR u.rejoined_on > ?3))`,
+      ).bind(prevM, mStart, mEnd).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
       const { results: uls } = await env.DB.prepare(
         `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
          WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
@@ -1198,6 +1207,9 @@ export async function handleStaff(
       const ulMap = new Map(uls.map((r) => [r.user_id, r.days]));
       let sum = 0;
       for (const e of pes) {
+        // v1.4.124: the net the panel SAVED is authoritative; the formula
+        // below only covers rows saved before net_cents existed.
+        if (e.net_cents !== null && e.net_cents !== undefined) { sum += e.net_cents; continue; }
         const ul = ulMap.get(e.user_id) ?? 0;
         const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
         let adj = 0;
@@ -2215,12 +2227,15 @@ export async function handleStaff(
     // v1.4.85: overtime — hours (0–300, halves allowed) + the computed sen.
     const otHours = typeof body.ot_hours === "number" && Number.isFinite(body.ot_hours) && body.ot_hours > 0 && body.ot_hours <= 300
       ? Math.round(body.ot_hours * 2) / 2 : null;
+    // v1.4.124: the panel sends the net it computed with THE shared formula —
+    // stored so /expenses can sum identical figures (no re-derivation drift).
+    const netCents = typeof body.net_cents === "number" && body.net_cents >= 0 ? Math.round(body.net_cents) : null;
     await env.DB.prepare(
-      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, note, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+      `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, note, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?13, ?11, ?12)
        ON CONFLICT (user_id, month) DO UPDATE SET
          basic_cents = ?3, commission_cents = ?4, allowance_cents = ?5,
-         ot_hours = ?6, ot_cents = ?7,
+         ot_hours = ?6, ot_cents = ?7, net_cents = ?13,
          deduction_cents = ?8, worked_days = ?9, month_working_days = ?10,
          note = ?11, updated_at = datetime('now')`,
     ).bind(
@@ -2229,7 +2244,7 @@ export async function handleStaff(
       cents(body.allowance_cents), otHours, cents(body.ot_cents),
       cents(body.deduction_cents),
       intOrNull(body.worked_days), intOrNull(body.month_working_days),
-      str(body.note, 300) ? body.note : null, user.id,
+      str(body.note, 300) ? body.note : null, user.id, netCents,
     ).run();
     await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month });
     return json({ ok: true });
