@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -42,6 +43,8 @@ interface Staff {
   bank_name?: string | null;
   bank_account?: string | null;
   joined_on?: string | null;
+  left_on?: string | null;
+  rejoined_on?: string | null;
   id: number;
   name: string;
   full_name?: string | null;
@@ -73,7 +76,7 @@ function dmyToISO(v: string): string {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(v.trim());
   return m ? `${m[3]}-${m[2]}-${m[1]}` : v;
 }
-const DATE_KEYS = ["birthday", "id_issued_on", "joined_on"] as const;
+const DATE_KEYS = ["birthday", "id_issued_on", "joined_on", "left_on", "rejoined_on"] as const;
 
 /** Malaysian banks — Maybank first (company primary bank). */
 const MY_BANKS = [
@@ -81,7 +84,9 @@ const MY_BANKS = [
   "AmBank", "Bank Islam", "Bank Rakyat", "BSN", "Affin Bank",
   "Alliance Bank", "OCBC Bank", "HSBC Bank", "Standard Chartered", "UOB Malaysia",
 ];
-const EMPLOYMENT_STATUSES = ["permanent", "contract", "part_time"];
+// v1.4.101: full lifecycle — Resigned/Terminated end payroll after the
+// effective date; a re-join brings payroll back from the re-join month.
+const EMPLOYMENT_STATUSES = ["permanent", "contract", "part_time", "resigned", "terminated"];
 const SELECT_FIELDS: Partial<Record<string, string[]>> = {
   bank_name: MY_BANKS,
   employment_status: EMPLOYMENT_STATUSES,
@@ -221,6 +226,8 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
   ["id_issued_on", "ID issued (DD-MM-YYYY)"],
   ["blood_type", "Blood type (record only, not on badge)"],
   ["employment_status", "Employment status"],
+  ["left_on", "Effective end date (DD-MM-YYYY — resigned/terminated)"],
+  ["rejoined_on", "Re-joined on (DD-MM-YYYY — payroll resumes)"],
   ["joined_on", "Joined on (DD-MM-YYYY)"],
   ["bank_name", "Bank (Malaysia)"],
   ["bank_account", "Bank account no."],
@@ -228,6 +235,7 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
 
 export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
   const [allStaff, setAllStaff] = useState<Staff[]>([]);
   const [draft, setDraft] = useState<Record<number, Partial<Staff>>>({});
   const [saved, setSaved] = useState<number | null>(null);
@@ -324,9 +332,18 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         </p>
       </div>
 
-      {!readOnly && (
+      {!readOnly && !showCreate && (
+        <div className={card}>
+          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+            onClick={() => setShowCreate(true)}>
+            + New staff record — show details
+          </button>
+          <p className="text-muted-foreground mt-1 text-xs">The creation form stays hidden until needed — minimalist by request.</p>
+        </div>
+      )}
+      {!readOnly && showCreate && (
       <div className={card}>
-        <p className="text-sm font-semibold">Add a staff member</p>
+        <p className="text-sm font-semibold">Add a staff member <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => setShowCreate(false)}>hide</button></p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Company emails (@azoneofficial.com) aren&apos;t Google accounts, so
           staff can&apos;t self-register — create the account here with a
@@ -505,7 +522,18 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   onChange={() => toggleSelect(u.id)}
                   title="Select for multi-badge printing"
                 />
-                {u.name} <span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
+                {properName(u.name)}
+                {["resigned", "terminated"].includes(u.employment_status ?? "") && (
+                  <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
+                    {u.employment_status}{u.left_on ? ` · ${u.left_on.split("-").reverse().join("-")}` : ""}
+                  </span>
+                )}
+                {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
+                  <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                    re-joined {u.rejoined_on.split("-").reverse().join("-")}
+                  </span>
+                )}
+                {" "}<span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
                 {!open.has(u.id) && (u.employee_id || u.position) && (
                   <span className="text-muted-foreground hidden text-xs sm:inline">
                     · {[u.employee_id, u.position].filter(Boolean).join(" · ")}

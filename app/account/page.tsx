@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
@@ -49,6 +50,7 @@ export default function AccountPage() {
   const [ask, setAsk] = useState("");
   const [tab, setTab] = useState<"Account" | "Enquiries">("Account");
   const [sending, setSending] = useState(false);
+  const { show: showToast, node: toastNode } = useSaveToast();
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -79,6 +81,7 @@ export default function AccountPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
+      {toastNode}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
@@ -206,6 +209,7 @@ export default function AccountPage() {
             setSending(false);
             if (r.ok) {
               setAsk("");
+              showToast("Sent", "Enquiry received — we will get back to you"); // v1.4.101: same save popup family as the portal
               void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
                 setEnquiries(e.data?.enquiries ?? []),
               );

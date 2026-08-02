@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
@@ -275,7 +276,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
             onClick={() => go("Announcements")} onKeyDown={(e) => e.key === "Enter" && go("Announcements")}>
-            Announcements
+            News
             {anns.length > 0 && (
               <span className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
             )}
@@ -471,6 +472,13 @@ function UpcomingEventsCard({ role }: { role: string }) {
 
   // v1.4.81: Johor public holidays render on the calendar too.
   const [holidays, setHolidays] = useState<{ holiday_date: string; name: string; kind: string }[]>([]);
+  // v1.4.101: staff birthdays render on the calendar + upcoming list — the
+  // team sees them coming and can prepare the celebration.
+  const [bdays, setBdays] = useState<{ name: string; birthday: string }[]>([]);
+  useEffect(() => {
+    void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
+      .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
+  }, []);
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -485,6 +493,14 @@ function UpcomingEventsCard({ role }: { role: string }) {
 
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const upcoming = events.filter((e) => e.event_date >= todayISO);
+  // birthdays in the next 30 days, projected onto this/next year
+  const upcomingBdays = bdays.map((b) => {
+    const md = b.birthday.slice(5);
+    let iso = `${todayISO.slice(0, 4)}-${md}`;
+    if (iso < todayISO) iso = `${Number(todayISO.slice(0, 4)) + 1}-${md}`;
+    return { name: b.name, iso };
+  }).filter((b) => (new Date(b.iso).getTime() - new Date(todayISO).getTime()) / 86400000 <= 30)
+    .sort((a, b) => a.iso.localeCompare(b.iso));
   const daysAway = (iso: string) => {
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const n = Math.round((new Date(iso).getTime() - new Date(today).getTime()) / 86400000);
@@ -566,8 +582,15 @@ function UpcomingEventsCard({ role }: { role: string }) {
           <button type="button" className={btnClass} onClick={() => void createEvent()}>Save event — notifies all staff</button>
         </div>
       )}
+      {upcomingBdays.length > 0 && (
+        <p className="mt-2 rounded-lg bg-pink-50 px-3 py-2 text-xs font-medium text-pink-800">
+          🎂 Coming up: {upcomingBdays.slice(0, 4).map((b) => `${firstName(b.name)} (${dmy(b.iso)})`).join(" · ")}
+          {upcomingBdays.length > 4 ? ` +${upcomingBdays.length - 4} more` : ""} — time to plan the celebration!
+        </p>
+      )}
       {view === "calendar" && (
         <EventsCalendar
+          birthdays={bdays}
           events={events}
           holidays={holidays}
           month={calMonth}
@@ -619,9 +642,10 @@ const EVENT_COLORS: Record<string, string> = {
 /** Month calendar — professional on desktop AND phones: 7-column grid,
     today ringed, category-coloured markers (titles on desktop, dots on
     mobile), tap a day for its agenda below. Weeks start Sunday (MY). */
-function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, canManage, onRemove }: {
+function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, selected, onSelect, canManage, onRemove }: {
   events: CompanyEvent[];
   holidays: { holiday_date: string; name: string; kind: string }[];
+  birthdays?: { name: string; birthday: string }[];
   month: string;
   onMonth: (m: string) => void;
   selected: string | null;
@@ -638,6 +662,7 @@ function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, 
   const iso = (d: number) => `${month}-${String(d).padStart(2, "0")}`;
   const byDay = (d: string) => events.filter((e) => e.event_date === d);
   const holidayOf = (d: string) => holidays.find((h) => h.holiday_date === d);
+  const bdaysOf = (d: string) => birthdays.filter((b) => b.birthday?.slice(5) === d.slice(5)); // month-day match, any year
   const shift = (delta: number) => {
     onSelect(null);
     onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
@@ -680,6 +705,14 @@ function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, 
                   </span>
                 </>
               )}
+              {bdaysOf(dISO).length > 0 && (
+                <>
+                  <span className="mt-0.5 flex md:hidden"><span className="h-1.5 w-1.5 rounded-full bg-pink-500" /></span>
+                  <span className="mt-0.5 hidden truncate rounded bg-pink-50 px-1 py-0.5 text-[10px] leading-tight font-medium text-pink-700 md:block" title={bdaysOf(dISO).map((b) => b.name).join(", ")}>
+                    🎂 {firstName(bdaysOf(dISO)[0]!.name)}{bdaysOf(dISO).length > 1 ? ` +${bdaysOf(dISO).length - 1}` : ""}
+                  </span>
+                </>
+              )}
               {/* Mobile: dots. Desktop: title snippets. */}
               {evs.length > 0 && (
                 <>
@@ -706,6 +739,7 @@ function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, 
           <span key={k} className="inline-flex items-center gap-1 capitalize"><span className={`h-2 w-2 rounded-full ${cls}`} />{k}</span>
         ))}
         <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Public holiday</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-pink-500" />🎂 Birthday</span>
       </div>
       {selected && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -716,6 +750,11 @@ function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, 
                 🏖 {holidayOf(selected)!.name}
               </span>
             )}
+            {bdaysOf(selected).map((b) => (
+              <span key={b.name} className="ml-2 rounded-full bg-pink-50 px-2 py-0.5 text-xs font-medium text-pink-700">
+                🎂 {properName(b.name)}&apos;s birthday
+              </span>
+            ))}
           </p>
           {dayEvents.length === 0 ? (
             <p className="text-muted-foreground mt-1 text-sm">{holidayOf(selected) ? "Public holiday — no company events." : "No events this day."}</p>
@@ -1180,7 +1219,7 @@ function Announcements({ user }: { user: User }) {
     <div className="space-y-4 md:space-y-6">
       {canPost && (
         <div className={card}>
-          <p className="text-sm font-semibold">Publish announcement</p>
+          <p className="text-sm font-semibold">Publish news</p>
           <div className="mt-3 space-y-3">
             <input className={inputClass} placeholder="Title" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             <textarea className={inputClass} rows={3} placeholder="Body" value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
@@ -1231,6 +1270,77 @@ interface SalesDoc {
   id: number; doc_type: string; doc_number: string; company: string; total_cents: number;
   payment_status: string | null; delivery_status: string | null; created_at: string;
   payment_ref?: string | null; paid_at?: string | null; salesperson_name?: string | null;
+  customer_id?: number; customer_phone?: string | null;
+}
+
+/** v1.4.101: printable Statement of Account per customer — same branded
+    template family as the QT/DO/INV. Invoices only (paid + outstanding). */
+function printSOA(company: string, docs: SalesDoc[]) {
+  const invs = docs.filter((d) => d.doc_type === "INV" && d.company === company)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  if (invs.length === 0) return;
+  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const total = invs.reduce((a, d) => a + d.total_cents, 0);
+  const paid = invs.filter((d) => d.payment_status === "paid").reduce((a, d) => a + d.total_cents, 0);
+  const outstanding = total - paid;
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const rows = invs.map((d, i) => `<tr>
+    <td class="c">${i + 1}</td><td>${d.doc_number}</td><td class="c">${dmy(d.created_at.slice(0, 10))}</td>
+    <td class="c">${d.payment_status === "paid" ? `<span style="color:#15803d;font-weight:700">PAID${d.paid_at ? " " + dmy(d.paid_at.slice(0, 10)) : ""}</span>` : '<span style="color:#b45309;font-weight:700">OUTSTANDING</span>'}</td>
+    <td class="r">${rm(d.total_cents)}</td>
+    <td class="r">${d.payment_status === "paid" ? "—" : rm(d.total_cents)}</td>
+  </tr>`).join("");
+  const w = window.open("", "_blank", "width=820,height=1000");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOA — ${company}</title>
+  <style>
+    @page { size: A4; margin: 14mm; } * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
+    .hd { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
+    .brand { font-size: 19px; font-weight: 800; }
+    .brand small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    .brand .addr { font-size: 9.5px; color: #5b6472; font-weight: 400; margin-top: 6px; line-height: 1.5; }
+    .docbox { text-align: right; } .docbox h2 { margin: 0 0 4px; font-size: 19px; letter-spacing: .1em; }
+    .party { margin-top: 12px; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 6px; padding: 10px 12px; max-width: 340px; }
+    .party .bt { margin: 0 0 4px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
+    .party .co { font-weight: 800; font-size: 13px; }
+    table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    .items th { background: #1a2946; color: #fff; padding: 7px 9px; text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
+    .items th.c, .items td.c { text-align: center; } .items th.r, .items td.r { text-align: right; }
+    .items td { padding: 7px 9px; border-bottom: 1px solid #e8ebf1; }
+    .items tr:nth-child(even) td { background: #fafbfd; }
+    .totwrap { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .tot { width: 300px; border-collapse: collapse; } .tot td { padding: 4px 10px; } .tot td:last-child { text-align: right; }
+    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; padding: 8px 10px; }
+    .pay { margin-top: auto; padding-top: 20px; font-size: 11px; }
+    .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; }
+    @media print { body { padding: 0; } }
+  </style></head><body onload="window.print()">
+  <div class="goldbar"></div>
+  <div class="hd">
+    <div class="brand">AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
+      <div class="addr">Live Commerce Agency · SSM 202603168673 (JM1046169-H)<br/>
+      34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>81200 Johor Bahru, Johor, Malaysia<br/>
+      admin@azoneofficial.com · WhatsApp +60 12-383 4821</div>
+    </div>
+    <div class="docbox"><h2>STATEMENT OF ACCOUNT</h2><div>As at ${dmy(today)}</div></div>
+  </div>
+  <div class="party"><p class="bt">ACCOUNT OF</p><p class="co">${company}</p></div>
+  <table class="items">
+    <thead><tr><th class="c" style="width:6%">#</th><th>Invoice No.</th><th class="c">Date</th><th class="c">Status</th><th class="r">Amount</th><th class="r">Balance</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totwrap"><table class="tot">
+    <tr><td>Total invoiced</td><td>${rm(total)}</td></tr>
+    <tr><td>Total paid</td><td>${rm(paid)}</td></tr>
+    <tr class="grand"><td>BALANCE OUTSTANDING</td><td>${rm(outstanding)}</td></tr>
+  </table></div>
+  <div class="pay">Kindly settle the outstanding balance by bank transfer — MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Please send the transfer receipt via WhatsApp +60 12-383 4821.</div>
+  <div class="foot">AZ ONE OFFICIAL · Empowering Brands Through Live Commerce and Digital Connections · azoneofficial.com<br/>This is a computer-generated statement; no signature is required.</div>
+  </body></html>`);
+  w.document.close();
 }
 interface DocItem { name: string; qty: number; unit_price_cents: number }
 
@@ -1274,7 +1384,7 @@ async function printDoc(id: number) {
     ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dOnly(doc.valid_until)]] : []),
     ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dOnly(doc.due_date)]] : []),
     ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
-    ...(doc.salesperson_name ? [["Sales person", doc.salesperson_name]] : []),
+    ...(doc.salesperson_name ? [["Sales person", firstName(doc.salesperson_name)]] : []),
   ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
 
   const bottom = doc.doc_type === "INV"
@@ -1369,7 +1479,8 @@ async function printDoc(id: number) {
     <div class="brand">AZ ONE OFFICIAL
       <small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
       <div class="addr">Live Commerce Agency · SSM 202603168673 (JM1046169-H)<br/>
-      Setia Tropika, Johor Bahru, Johor, Malaysia<br/>
+      34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>
+      81200 Johor Bahru, Johor, Malaysia<br/>
       admin@azoneofficial.com · WhatsApp +60 12-383 4821</div>
     </div>
     <div class="docbox"><h2>${title}</h2><table class="meta">${metaRows}</table></div>
@@ -1432,6 +1543,7 @@ function Sales({ user }: { user: User }) {
   const [docDate, setDocDate] = useState("");
   const [paidDate, setPaidDate] = useState("");
   const [editingDoc, setEditingDoc] = useState<{ id: number; doc_number: string } | null>(null);
+  const [invItems, setInvItems] = useState<{ name: string; sku: string; unit_price_cents?: number }[]>([]);
   // v1.4.96: aligned with the worker's finance permission — sales_marketing
   // creates QT/DO; invoices are created by finance roles ON THEIR BEHALF via
   // the Sales person dropdown (that's the attribution mechanism).
@@ -1445,6 +1557,9 @@ function Sales({ user }: { user: User }) {
     setDocsError(d.ok ? null : (d.data?.error?.message ?? "Could not load documents — press Refresh to retry"));
     const sl = await api<{ staff: { id: number; name: string; role: string }[] }>(`/staff/staff-list`);
     setStaffList(sl.data?.staff ?? []);
+    // v1.4.101: item descriptions suggest from Inventory (manual entry still fine).
+    const inv = await api<{ items?: { name: string; sku: string; unit_price_cents?: number }[] }>(`/staff/inventory`);
+    setInvItems(inv.data?.items ?? []);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -1519,10 +1634,17 @@ function Sales({ user }: { user: User }) {
               <p className="text-muted-foreground text-sm">No customers yet.</p>
             )}
             {customers.map((c) => (
-              <div key={c.id} className="border-border border-b py-1.5 text-sm last:border-0">
-                <span className="font-medium">{c.company}</span>
-                {c.contact_person && (
-                  <span className="text-muted-foreground"> · {c.contact_person}</span>
+              <div key={c.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+                <span className="min-w-0">
+                  <span className="font-medium">{c.company}</span>
+                  {c.contact_person && (
+                    <span className="text-muted-foreground"> · {c.contact_person}</span>
+                  )}
+                </span>
+                {docs.some((d) => d.doc_type === "INV" && d.company === c.company) && (
+                  <button type="button" className="border-border inline-flex h-7 shrink-0 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
+                    title="Statement of Account — all invoices, paid + outstanding, printable"
+                    onClick={() => printSOA(c.company, docs)}>SOA</button>
                 )}
               </div>
             ))}
@@ -1571,9 +1693,10 @@ function Sales({ user }: { user: User }) {
             </div>
             <label className="block">
               <span className="text-muted-foreground mb-1 block text-xs">Sales person (who made this sale)</span>
-              <select className={inputClass} value={doc.salesperson_id} onChange={(e) => setDoc((d) => ({ ...d, salesperson_id: Number(e.target.value) }))}>
-                <option value={0}>Me (default)</option>
-                {staffList.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace("_", " ")}</option>)}
+              <select className={inputClass} value={doc.salesperson_id} onChange={(e) => setDoc((d) => ({ ...d, salesperson_id: Number(e.target.value) }))}
+                title="Captured from your login automatically — change it only when creating on someone else's behalf">
+                <option value={0}>{firstName(user.name)} — me (auto from login)</option>
+                {staffList.filter((u) => u.name !== user.name).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)} — {u.role.replace(/_/g, " ")}</option>)}
               </select>
             </label>
             <div className="text-muted-foreground grid grid-cols-[1fr_70px_110px_auto] gap-2 text-xs">
@@ -1581,8 +1704,14 @@ function Sales({ user }: { user: User }) {
             </div>
             {doc.items.map((item, i) => (
               <div key={i} className="grid grid-cols-[1fr_70px_110px_auto] items-center gap-2">
-                <input className={inputClass} placeholder="e.g. Tudung Bawal Premium" value={item.name}
-                  onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, name: e.target.value } : x) }))} />
+                <input className={inputClass} placeholder="e.g. Tudung Bawal Premium" value={item.name} list="inv-item-suggestions"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const hit = invItems.find((it) => it.name === v);
+                    setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i
+                      ? { ...x, name: v, unit_price_cents: hit?.unit_price_cents && !x.unit_price_cents ? hit.unit_price_cents : x.unit_price_cents }
+                      : x) }));
+                  }} />
                 <input type="number" min={1} className={inputClass} value={item.qty}
                   onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, qty: Number(e.target.value) } : x) }))} />
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
@@ -1594,6 +1723,9 @@ function Sales({ user }: { user: User }) {
                   : <span className="w-4" />}
               </div>
             ))}
+            <datalist id="inv-item-suggestions">
+              {invItems.map((it) => <option key={it.sku} value={it.name}>{`SKU ${it.sku}${it.unit_price_cents ? ` · RM ${(it.unit_price_cents / 100).toFixed(2)}` : ""}`}</option>)}
+            </datalist>
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>
               + Add line
             </button>
@@ -1623,6 +1755,44 @@ function Sales({ user }: { user: User }) {
         </div>
       </div>
 
+      {(() => {
+        // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
+        const todayMs = Date.now() + 8 * 3600 * 1000;
+        const unpaid = docs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
+        if (unpaid.length === 0) return null;
+        const age = (d: SalesDoc) => Math.floor((todayMs - new Date(d.created_at.slice(0, 10) + "T00:00:00Z").getTime()) / 86400000);
+        const bucket = (n: number) => n <= 30 ? ["1–30 days", "bg-amber-100 text-amber-800"] : n <= 60 ? ["31–60 days", "bg-orange-100 text-orange-800"] : n <= 90 ? ["61–90 days", "bg-red-100 text-red-700"] : ["90+ days", "bg-red-200 text-red-800"];
+        return (
+          <div className={card}>
+            <p className="text-sm font-semibold">⏳ Outstanding invoices — aging</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.</p>
+            <div className="mt-2 space-y-1.5">
+              {unpaid.sort((a, b) => age(b) - age(a)).map((d) => {
+                const n = age(d);
+                const [label, cls] = bucket(n);
+                const phone = (d.customer_phone ?? "").replace(/[^0-9]/g, "");
+                const msg = encodeURIComponent(`Hi! Gentle reminder from AZ ONE OFFICIAL — invoice ${d.doc_number} (RM ${(d.total_cents / 100).toFixed(2)}) is still outstanding. Kindly settle by bank transfer to MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Thank you!`);
+                return (
+                  <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0">
+                    <span className="min-w-0 flex-1 basis-56">
+                      <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
+                      <span className="text-muted-foreground"> · {n} days</span>
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                      <span className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}>{label}</span>
+                      {phone
+                        ? <a className="inline-flex h-7 items-center rounded-lg bg-green-600 px-2.5 text-xs font-medium text-white" target="_blank" rel="noreferrer"
+                            href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}>WhatsApp reminder</a>
+                        : <span className="text-muted-foreground inline-flex h-7 items-center text-xs" title="Add a phone number on the customer record to enable one-tap reminders">no phone</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className={card}>
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Documents</p>
@@ -1637,7 +1807,7 @@ function Sales({ user }: { user: User }) {
                 controls group right: chip · status · Edit · PDF, all h-7. */}
             <span className="min-w-0 flex-1 basis-64">
               <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
-              <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.salesperson_name ? ` · sales: ${d.salesperson_name}` : ""}</span>
+              <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.salesperson_name ? ` · sales: ${firstName(d.salesperson_name)}` : ""}</span>
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {d.doc_type === "INV" && d.payment_status === "paid" && (
@@ -1666,7 +1836,18 @@ function Sales({ user }: { user: User }) {
                 {["pending", "delivered"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
               </select>
             )}
-            {d.doc_type === "QT" && <span className="text-muted-foreground inline-flex h-7 items-center text-xs">Quotation</span>}
+            {d.doc_type === "QT" && canInvoice && (
+              <button type="button" className="inline-flex h-7 items-center rounded-lg bg-[#1A2946] px-2.5 text-xs font-medium text-white"
+                title="One click Quotation → Invoice: same items, customer and sales person, fresh INV number"
+                onClick={async () => {
+                  const res = await api<{ id?: number; doc_number?: string; error?: { message?: string } }>(`/staff/docs/${d.id}/convert`, { method: "POST", body: JSON.stringify({}) });
+                  if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Conversion failed — check access", "notice"); return; }
+                  showToast("Saved", `${d.doc_number} → ${res.data.doc_number}`);
+                  await load();
+                  void printDoc(res.data.id);
+                }}>→ Invoice</button>
+            )}
+            {d.doc_type === "QT" && !canInvoice && <span className="text-muted-foreground inline-flex h-7 items-center text-xs">Quotation</span>}
             <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
               title="Fix a typo — loads the document into the form; the number never changes"
               onClick={async () => {
@@ -1767,7 +1948,51 @@ function Profile() {
 
 /* ================= Shell ================= */
 
-const ALL_TABS = ["Dashboard", "Attendance", "Leave", "Tasks", "Announcements", "Sales", "HR", "Staff Details", "Payroll", "Claims", "Expenses", "Inventory", "Birthdays", "Overview", "Profile"] as const;
+/* ================= Users (v1.4.101 — super_admin / CEO / COO) ================= */
+
+function UsersPanel() {
+  const [rows, setRows] = useState<{ id: number; name: string; full_name?: string | null; email: string; role: string; employment_status?: string | null; is_active: number; left_on?: string | null; rejoined_on?: string | null }[]>([]);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    void api<{ users?: typeof rows; staff?: typeof rows }>(`/staff/users`).then((r) => {
+      if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => u.role !== "customer"));
+      else setMsg("Could not load user accounts — check access.");
+    });
+  }, []);
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">User accounts</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Every staff account, its role and status — read-only here; account
+        management (passwords, roles, deactivation) stays in /admin.
+      </p>
+      {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
+      <div className="mt-3 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
+        {rows.map((u) => (
+          <div key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+            <span className="min-w-0">
+              <span className="font-medium">{properName(u.full_name || u.name)}</span>
+              <span className="text-muted-foreground"> · {u.email}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{u.role.replace(/_/g, " ")}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}>
+                {(u.employment_status ?? "permanent").replace(/_/g, " ")}
+                {u.left_on ? ` · until ${dmy(u.left_on)}` : ""}{u.rejoined_on ? ` · rejoined ${dmy(u.rejoined_on)}` : ""}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{u.is_active ? "active" : "disabled"}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// v1.4.101: order set by the CEO — Dashboard > News > HR > Staff Details >
+// Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
+// Expenses > Sales > Inventory > Birthdays > Overview > Profile > Users.
+const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Birthdays", "Overview", "Profile", "Users"] as const;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -1792,6 +2017,7 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Birthdays: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
   // Employee records: IDs, position, department, staff list, birth dates.
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
+  Users: ["super_admin", "ceo", "coo"],
 };
 type TabName = (typeof ALL_TABS)[number];
 
@@ -2060,6 +2286,7 @@ export default function PortalPage() {
         {tab === "Inventory" && <InventoryPanel role={user.role} />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
+        {tab === "Users" && <UsersPanel />}
         {tab === "Profile" && (
           <div className="space-y-4 md:space-y-6">
             <Profile />

@@ -357,6 +357,15 @@ export async function handleStaff(
     return json({ photo_key: key, url: `/api/v1/media/file/${encodeURIComponent(key)}` }, 201);
   }
 
+  if (path === "/birthdays-lite" && method === "GET") {
+    // v1.4.101: name + birthday only, for the calendar and dashboard —
+    // available to every staff role, nothing sensitive.
+    const { results } = await env.DB.prepare(
+      `SELECT name, birthday FROM users
+       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND birthday IS NOT NULL`,
+    ).all();
+    return json({ birthdays: results });
+  }
   if (path === "/staff-list" && method === "GET") {
     // v1.4.93: minimal staff list (id, name, role) for pickers like the
     // Sales-person dropdown — available to every staff role, exposes nothing
@@ -375,7 +384,7 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number
+      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results, staff: results });
@@ -399,7 +408,7 @@ export async function handleStaff(
         !STATUSES.includes(body.employment_status)) {
       return err("invalid_input", `employment_status must be one of: ${STATUSES.join(", ")}`, 400);
     }
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number"] as const;
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number", "left_on", "rejoined_on"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
        FROM users WHERE id = ?1`,
@@ -803,6 +812,21 @@ export async function handleStaff(
     ).bind(...(all ? [] : [user.id])).all();
     return json({ claims: results, can_decide: all });
   }
+  const claimPaid = path.match(/^\/claims\/(\d+)\/paid$/);
+  if (claimPaid && method === "POST") {
+    // v1.4.101: after approval the CEO records the actual payment — the
+    // claimant sees PAID and the date on their submission.
+    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO marks claims paid", 403);
+    const cRow = await env.DB.prepare(`SELECT user_id, status, amount_cents FROM claims WHERE id = ?1`)
+      .bind(claimPaid[1]).first<{ user_id: number; status: string; amount_cents: number }>();
+    if (!cRow) return err("not_found", "Claim not found", 404);
+    if (cRow.status !== "approved") return err("invalid_input", "Only approved claims can be marked paid", 400);
+    await env.DB.prepare(`UPDATE claims SET paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?1`)
+      .bind(claimPaid[1]).run();
+    await notify(env, cRow.user_id, "claim", `Your claim (RM ${(cRow.amount_cents / 100).toFixed(2)}) has been PAID`, `claim:${claimPaid[1]}`);
+    await audit(env, user.id, "claim.paid", "claims", claimPaid[1]!);
+    return json({ ok: true });
+  }
   if (path === "/claims" && method === "POST") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cats = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
@@ -960,7 +984,10 @@ export async function handleStaff(
         }
         sum += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
       }
-      staffPayroll = { month: prevM, cents: sum };
+      const paidRow = await env.DB.prepare(
+        `SELECT paid_at FROM payroll_payments WHERE month = ?1`,
+      ).bind(prevM).first<{ paid_at: string }>();
+      staffPayroll = { month: prevM, cents: sum, paid_at: paidRow?.paid_at ?? null } as { month: string; cents: number; paid_at?: string | null };
     }
     return json({ expenses: results, upcoming, staff_payroll: staffPayroll });
   }
@@ -1030,6 +1057,40 @@ export async function handleStaff(
 
   /* ---- sales revenue (v1.4.75): dashboard figures, TikTok included ---- */
 
+  if (path === "/pnl" && method === "GET") {
+    // v1.4.101: month-by-month P&L — revenue (TikTok + PAID invoices, cash
+    // basis) against expenses (recorded expenses + payroll nets), profit line.
+    if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
+    const months: string[] = [];
+    const nowM = new Date(Date.now() + 8 * 3600 * 1000);
+    for (let i = 5; i >= 0; i--) {
+      months.push(new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+    }
+    const rows = [] as { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; profit_cents: number }[];
+    for (const m of months) {
+      const tt = await env.DB.prepare(
+        `SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records
+         WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+      ).bind(m).first<{ c: number }>();
+      const inv = await env.DB.prepare(
+        `SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents
+         WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = ?1`,
+      ).bind(m).first<{ c: number }>();
+      const ex = await env.DB.prepare(
+        `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = ?1`,
+      ).bind(m).first<{ c: number }>();
+      // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
+      const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+      const pr = await env.DB.prepare(
+        `SELECT COALESCE(SUM(p.basic_cents + p.commission_cents + p.allowance_cents + COALESCE(p.ot_cents, 0) - p.deduction_cents), 0) AS c
+         FROM payroll_entries p WHERE p.month = ?1`,
+      ).bind(prevPm).first<{ c: number }>();
+      const revenue = (tt?.c ?? 0) + (inv?.c ?? 0);
+      const cost = (ex?.c ?? 0) + (pr?.c ?? 0);
+      rows.push({ month: m, tiktok_cents: tt?.c ?? 0, invoiced_cents: inv?.c ?? 0, expenses_cents: ex?.c ?? 0, payroll_cents: pr?.c ?? 0, profit_cents: revenue - cost });
+    }
+    return json({ months: rows });
+  }
   if (path === "/revenue" && method === "GET") {
     if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
@@ -1176,7 +1237,7 @@ export async function handleStaff(
     }
     if (method === "GET") {
       const { results } = await env.DB.prepare(
-        `SELECT * FROM customers ORDER BY company LIMIT 300`,
+        `SELECT * FROM customers WHERE company != 'Walk-in Customer' ORDER BY company LIMIT 300`,
       ).all();
       return json({ customers: results });
     }
@@ -1219,7 +1280,7 @@ export async function handleStaff(
     const t = url.searchParams.get("type");
     const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
     const { results } = await env.DB.prepare(
-      `SELECT d.*, c.company, sp.name AS salesperson_name FROM sales_documents d
+      `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${filter}
        ORDER BY d.created_at DESC LIMIT 200`,
@@ -1365,6 +1426,28 @@ export async function handleStaff(
     }
     await audit(env, user.id, "doc.update_status", "sales_documents", id);
     return json({ ok: true });
+  }
+  const docConv = path.match(/^\/docs\/(\d+)\/convert$/);
+  if (docConv && method === "POST") {
+    // v1.4.101: one-click Quotation → Invoice — accepted quotes are never
+    // retyped. Same items/customer/salesperson, fresh INV number, audited.
+    if (!can(user, "finance")) return err("forbidden", "Finance access required to raise invoices", 403);
+    const qt = await env.DB.prepare(
+      `SELECT * FROM sales_documents WHERE id = ?1 AND doc_type = 'QT'`,
+    ).bind(docConv[1]).first<Record<string, unknown>>();
+    if (!qt) return err("not_found", "Quotation not found", 404);
+    const numberC = await docNumber(env, "INV");
+    const resC = await env.DB.prepare(
+      `INSERT INTO sales_documents
+       (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
+        notes, payment_status, salesperson_id, created_by)
+       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'unpaid', ?8, ?9) RETURNING id`,
+    ).bind(
+      numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0, qt.total_cents ?? 0,
+      qt.notes ?? null, qt.salesperson_id ?? user.id, user.id,
+    ).first<{ id: number }>();
+    await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
+    return json({ id: resC?.id, doc_number: numberC }, 201);
   }
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
@@ -1756,6 +1839,18 @@ export async function handleStaff(
       release: { available_from: await payslipAvailableFrom(month), released: releasedRow ?? null },
     });
   }
+  if (path === "/payroll/paid" && method === "POST") {
+    // v1.4.101: the Expenses "Payments due" card records that the payroll
+    // bank run for a month has been DONE.
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    const mP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    if (!mP) return err("invalid_input", "month (YYYY-MM) is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO payroll_payments (month, paid_by) VALUES (?1, ?2) ON CONFLICT(month) DO NOTHING`,
+    ).bind(mP, user.id).run();
+    await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
+    return json({ ok: true });
+  }
   if (path === "/payroll/release" && method === "POST") {
     // Early manual release for a month (e.g. the 5th falls badly and the
     // CEO decides to release before the automatic moment). One-way; audited.
@@ -1972,11 +2067,12 @@ export async function handleStaff(
       return err("invalid_input", "sku and name are required", 400);
     }
     const stock = typeof body.stock === "number" && body.stock >= 0 ? Math.floor(body.stock) : 0;
+    const priceC = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : 0; // v1.4.101
     try {
       await env.DB.prepare(
-        `INSERT INTO inventory_items (sku, name, stock, status, note, updated_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-      ).bind(body.sku, body.name, stock, stockStatus(stock), str(body.note, 500) ? body.note : null, user.id).run();
+        `INSERT INTO inventory_items (sku, name, stock, status, note, unit_price_cents, updated_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(body.sku, body.name, stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceC, user.id).run();
     } catch {
       return err("conflict", "An item with this SKU already exists", 409);
     }
@@ -1990,11 +2086,13 @@ export async function handleStaff(
       return err("invalid_input", "stock (>= 0) is required", 400);
     }
     const stock = Math.floor(body.stock);
+    const priceU = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : null; // v1.4.101
     await env.DB.prepare(
       `UPDATE inventory_items SET stock = ?1, status = ?2,
-         note = COALESCE(?3, note), updated_by = ?4, updated_at = datetime('now')
-       WHERE id = ?5`,
-    ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, user.id, invMatch[1]).run();
+         note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
+         updated_by = ?5, updated_at = datetime('now')
+       WHERE id = ?6`,
+    ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
     await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
     return json({ ok: true });
   }

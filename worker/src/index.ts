@@ -775,6 +775,32 @@ export default {
       await runBackup(env, null);
       return;
     }
+    if (event.cron === "0 1 * * *") {
+      // v1.4.101: 09:00 MYT — birthday announcements so the team can prepare
+      // the celebration. Notifies every active staff member.
+      try {
+        const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(5, 10); // MM-DD MYT
+        const { results: bdays } = await env.DB.prepare(
+          `SELECT id, name FROM users WHERE is_active = 1 AND birthday IS NOT NULL
+           AND substr(birthday, 6, 5) = ?1 AND role NOT IN ('customer')`,
+        ).bind(today).all<{ id: number; name: string }>();
+        if (bdays.length > 0) {
+          const { results: staff } = await env.DB.prepare(
+            `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer')`,
+          ).all<{ id: number }>();
+          for (const b of bdays) {
+            for (const st of staff) {
+              await env.DB.prepare(
+                `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'birthday', ?2, ?3)`,
+              ).bind(st.id, `🎂 Today is ${b.name}'s birthday — wish them well!`, `birthday:${b.id}`).run();
+            }
+          }
+        }
+      } catch (e) {
+        await logError(env, "birthday_cron", e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
     const res = await runTikTokSync(env, null);
     if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
       await logError(env, "tiktok_cron", res.message);

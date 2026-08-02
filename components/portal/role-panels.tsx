@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 
@@ -169,7 +170,7 @@ export function HrPanel() {
               )}
               {rows.map((r, i) => (
                 <tr key={i} className="border-border border-b last:border-0">
-                  <td className={`${td} font-medium`}>{r.name}</td>
+                  <td className={`${td} font-medium`}>{properName(r.name)}</td>
                   <td className={`${td} text-muted-foreground`}>{r.email}</td>
                   <td className={td}>{r.type.replace(/_/g, " ")}</td>
                   <td className={td}>{dmy(r.myt_time ?? "")}</td>
@@ -264,6 +265,7 @@ interface InvItem {
   name: string;
   stock: number;
   status: string;
+  unit_price_cents?: number; // v1.4.101
   updated_by_name?: string;
 }
 interface PostRec {
@@ -415,7 +417,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
-  const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0 });
+  const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "" });
   const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "" });
   const [postLines, setPostLines] = useState<{ inventory_item_id: number; qty: number }[]>([]);
   const [postMsg, setPostMsg] = useState("");
@@ -463,12 +465,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
           <input className={`${inputClass} max-w-56`} placeholder="Item name" value={invDraft.name}
             onChange={(e) => setInvDraft((d) => ({ ...d, name: e.target.value }))} />
-          <input type="number" min={0} className={`${inputClass} max-w-24`} value={invDraft.stock}
+          <input type="number" min={0} className={`${inputClass} max-w-24`} title="Opening stock" value={invDraft.stock}
             onChange={(e) => setInvDraft((d) => ({ ...d, stock: Number(e.target.value) }))} />
+          <input type="number" min={0} step="0.01" className={`${inputClass} max-w-32`} placeholder="Price/unit (RM)" value={invDraft.unit_price}
+            onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
           <button type="button" className={btnClass}
             onClick={async () => {
-              await api(`/inventory`, { method: "POST", body: JSON.stringify(invDraft) });
-              setInvDraft({ sku: "", name: "", stock: 0 });
+              await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
+              setInvDraft({ sku: "", name: "", stock: 0, unit_price: "" });
               void load();
             }}>
             Add item
@@ -479,6 +483,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>SKU</th><th className={th}>Item</th>
+                <th className={th}>Price/unit</th>
                 <th className={th}>Stock</th><th className={th}>Status</th><th className={th}></th>
               </tr>
             </thead>
@@ -487,6 +492,17 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 <tr key={it.id} className="border-border border-b last:border-0">
                   <td className={`${td} font-mono text-xs`}>{it.sku}</td>
                   <td className={`${td} font-medium`}>{it.name}</td>
+                  <td className={td}>
+                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-xs"
+                      title="Price per unit (RM) — saves on change"
+                      defaultValue={it.unit_price_cents ? (it.unit_price_cents / 100).toFixed(2) : ""}
+                      onBlur={async (e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.unit_price_cents ?? 0)) return;
+                        await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock, unit_price: v }) });
+                        void load();
+                      }} />
+                  </td>
                   <td className={td}>{it.stock}</td>
                   <td className={td}><Badge value={it.status} /></td>
                   <td className={td}>
@@ -852,6 +868,53 @@ interface Overview {
   inventory_status?: { status: string; n: number }[];
 }
 
+interface PnlRow { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; profit_cents: number }
+
+/** v1.4.101: month-by-month P&L — the number the CEO wants each month.
+    Revenue is cash basis (TikTok + PAID invoices); costs = recorded expenses
+    + the payroll cycle paid during the month (entry totals). */
+function PnlCard() {
+  const [rows, setRows] = useState<PnlRow[]>([]);
+  useEffect(() => {
+    void api<{ months: PnlRow[] }>(`/pnl`).then((r) => { if (r.ok && r.data) setRows(r.data.months); });
+  }, []);
+  if (rows.length === 0) return null;
+  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const mLabel = (m: string) => m.split("-").reverse().join("-");
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📊 Profit &amp; Loss — last 6 months</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Revenue on a payment-received basis (TikTok + paid invoices) against
+        expenses + the payroll cycle paid in the month. Payroll here uses the
+        entry totals; the Expenses tab shows the exact net figure.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-border border-b">
+              <th className={th}>Month</th><th className={`${th} text-right`}>TikTok</th><th className={`${th} text-right`}>Invoiced</th>
+              <th className={`${th} text-right`}>Expenses</th><th className={`${th} text-right`}>Payroll</th><th className={`${th} text-right`}>Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.month} className="border-border border-b last:border-0">
+                <td className={`${td} font-medium`}>{mLabel(r.month)}</td>
+                <td className={`${td} text-right`}>{rm(r.tiktok_cents)}</td>
+                <td className={`${td} text-right`}>{rm(r.invoiced_cents)}</td>
+                <td className={`${td} text-right`}>{rm(r.expenses_cents)}</td>
+                <td className={`${td} text-right`}>{rm(r.payroll_cents)}</td>
+                <td className={`${td} text-right font-semibold ${r.profit_cents >= 0 ? "text-green-700" : "text-red-600"}`}>{rm(r.profit_cents)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function OverviewPanel() {
   const [data, setData] = useState<Overview | null>(null);
 
@@ -872,6 +935,7 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      <PnlCard />
       <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
         {stat("Clocked in today", data.clocked_in_today)}
         {stat("Pending leave requests", data.pending_leave)}
@@ -973,7 +1037,7 @@ export function OverviewPanel() {
                 )}
                 {(data.task_by_staff ?? []).map((r) => (
                   <tr key={r.name} className="border-border border-b last:border-0">
-                    <td className={td}>{r.name} <span className="text-muted-foreground text-xs">· {r.role.replace(/_/g, " ")}</span></td>
+                    <td className={td}>{properName(r.name)} <span className="text-muted-foreground text-xs">· {r.role.replace(/_/g, " ")}</span></td>
                     <td className={`${td} font-medium`}>{r.open_tasks}</td>
                     <td className={`${td} text-muted-foreground`}>{r.done_tasks}</td>
                   </tr>
@@ -1062,7 +1126,7 @@ export function BirthdaysPanel() {
         {sorted.map((u) => (
           <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <span className="text-sm font-medium">
-              {u.name} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
+              {properName(u.name)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
             </span>
             <span className="flex items-center gap-2">
               <input
@@ -1172,7 +1236,7 @@ export function AttendanceAdminPanel() {
         <select className={inputClass} style={{ maxWidth: "14rem" }} value={add.user_id}
           onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
           <option value={0}>Select staff…</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
         </select>
         </label>
         <select className={inputClass} style={{ maxWidth: "8rem" }} value={add.type}
@@ -1197,7 +1261,7 @@ export function AttendanceAdminPanel() {
           title="Show one staff member's records only"
           onChange={(e) => setFilterId(Number(e.target.value))}>
           <option value={0}>Find staff: everyone</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
         </select>
         <input type="month" className={inputClass} style={{ maxWidth: "10rem" }} value={month}
           onChange={(e) => setMonth(e.target.value)} />
@@ -1237,7 +1301,7 @@ export function AttendanceAdminPanel() {
               );
             })().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
-                <td className={td}>{r.name}</td>
+                <td className={td}>{properName(r.name)}</td>
                 <td className={td}>{r.type === "clock_in" ? "In" : "Out"}</td>
                 <td className={td}>
                   <input
@@ -1299,6 +1363,7 @@ interface Claim {
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
+  paid_at?: string | null; // v1.4.101: CEO marked the claim as paid
   created_at: string;
 }
 
@@ -1474,12 +1539,16 @@ export function ClaimsPanel() {
     <div key={c.id} className="border-border rounded-lg border px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
-          {c.claimant && <span className="font-medium">{c.claimant} · </span>}
+          {c.claimant && <span className="font-medium">{properName(c.claimant)} · </span>}
           <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
           {claimItems(c).length > 1
             ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} items</span>
             : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>}{" "}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{c.status}</span>
+          {(c as Claim & { paid_at?: string | null }).paid_at && (
+            <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+              title="Payment released by the CEO">💸 PAID {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
+          )}
         </p>
         <p className="text-muted-foreground text-xs">
           {dmy(c.claim_date)}{" · "}
@@ -1508,8 +1577,17 @@ export function ClaimsPanel() {
               onClick={() => printClaimForm(c)}>
               Print claim form
             </button>
-            {c.decided_by_name && <> · decided by {c.decided_by_name}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
+            {c.decided_by_name && <> · decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
           </p>
+          {canDecide && c.status === "approved" && !c.paid_at && (
+            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+              onClick={async () => {
+                const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
+                if (res.ok) { showToast("Saved", "Claim marked PAID — claimant notified"); void load(); }
+              }}>
+              💸 Mark paid (money released)
+            </button>
+          )}
         </>
       )}
       {actions && (
@@ -1633,7 +1711,7 @@ export function ExpensesPanel() {
   const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean } | null>(null);
   // v1.4.91: the previous month's payroll total (net, same formula as the
   // payslips) — paid during this month, so it belongs in this month's total.
-  const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number } | null>(null);
+  const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number; paid_at?: string | null } | null>(null);
   // Inline edit for typo fixes (staff payroll excluded — computed in Payroll).
   const [editId, setEditId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
@@ -1731,7 +1809,7 @@ export function ExpensesPanel() {
             Commit each payment before its due date. Recurring expenses from
             earlier months appear here until recorded for this month.
           </p>
-          <div className="mt-3 space-y-2">
+<div className="mt-3 space-y-2">
             {payrollDue && (
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>
@@ -1742,12 +1820,27 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) — figures from the Payroll tab
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · figures from the Payroll tab
                   </p>
                 </div>
-                {payrollDue.released
-                  ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">RELEASED</span>
-                  : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>}
+                <span className="flex items-center gap-1.5">
+                  {staffPayroll?.paid_at
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+                        title={`Payment recorded ${dmy(staffPayroll.paid_at.slice(0, 10))}`}>💸 PAID</span>
+                    : (
+                      <>
+                        {payrollDue.released
+                          ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">RELEASED</span>
+                          : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>}
+                        <button type="button" className="bg-primary text-primary-foreground inline-flex h-7 items-center rounded-lg px-2.5 text-xs font-medium"
+                          title="Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed"
+                          onClick={async () => {
+                            const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
+                            if (res.ok) { showToast("Saved", "Payroll payment recorded"); void load(); }
+                          }}>Mark paid</button>
+                      </>
+                    )}
+                </span>
               </div>
             )}
             {upcoming.map((r) => {
@@ -1814,6 +1907,35 @@ export function ExpensesPanel() {
       )}
 
       <div className={card}>
+        {(() => {
+          // v1.4.101: payments COMPLETED this month — what was actually
+          // released: paid expenses + the payroll run once marked paid.
+          const done = rows.filter((r) => r.paid_at);
+          const payrollDone = staffPayroll?.paid_at ? staffPayroll : null;
+          if (done.length === 0 && !payrollDone) return null;
+          const doneTotal = done.reduce((a, r) => a + r.amount_cents, 0) + (payrollDone?.cents ?? 0);
+          return (
+            <div className="border-border mb-4 rounded-lg border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold">✅ Payments completed — {month.split("-").reverse().join("-")}</p>
+                <p className="text-sm font-semibold">{rmc(doneTotal)}</p>
+              </div>
+              <div className="mt-2 space-y-1">
+                {payrollDone && (
+                  <p className="text-muted-foreground text-xs">
+                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> · Staff payroll ({payrollDone.month.split("-").reverse().join("-")}) · released {dmy(payrollDone.paid_at!.slice(0, 10))}
+                  </p>
+                )}
+                {done.map((r) => (
+                  <p key={`done-${r.id}`} className="text-muted-foreground text-xs">
+                    <span className="text-foreground font-medium">{rmc(r.amount_cents)}</span> · <span className="capitalize">{r.category}</span>
+                    {r.vendor ? ` · ${r.vendor}` : ""}{r.description ? ` · ${r.description}` : ""} · paid {dmy(r.paid_at!.slice(0, 10))}
+                  </p>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>
           <div className="text-right">

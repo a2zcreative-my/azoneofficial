@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.101] — 2026-08-02 — The big one: full address · News · sales clarity · client money management · staff lifecycle · claim payments · payments completed · inventory pricing · birthdays everywhere · tab re-sort · Users tab · P&L (migration **0037**)
+
+### Company address (portal / admin / account / documents)
+- The full registered address — **34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor** — now prints on the QT/DO/INV header and the new Statement of Account. (The public site's structured data already carried it; the payslip/claim-form footers keep the compact one-line form)
+
+### Tabs
+- **Re-sorted to the CEO's order**: Dashboard → News → HR → Staff Details → Attendance → Leave → *(Tasks — kept after Leave; task-only roles depend on it)* → Claims → Payroll → Expenses → Sales → Inventory → Birthdays → Overview → Profile → **Users**
+- **Announcements is now "News"** everywhere it displays (dashboard card, publish form, nav) 
+- **New Users tab** (super_admin / CEO / COO): read-only list of every staff account — proper-case name, email, role chip, employment status (with end/re-join dates), active/disabled — account management itself stays in /admin
+
+### Sales
+- **Walk-in mystery solved**: "🚶 Walk-in / general buyer" (dropdown) and "Walk-in Customer" (customer list) were the *same shared record* — the list row is now hidden server-side, leaving only the dropdown option. One concept, one place
+- **Sales person captures your login**: the default now reads "**Alif — me (auto from login)**" — it always recorded the logged-in creator; the label finally says so. All salesperson displays (dropdown, list, printed doc) use **first names**
+- **Item description suggests from Inventory**: typing opens live suggestions (name · SKU · price); picking one **auto-fills the unit price** from inventory; free typing still works for items not stocked yet
+- **Client money management**: **SOA button** per customer prints a branded Statement of Account (invoice list, paid/outstanding status, balance band, bank details); **⏳ aging card** buckets unpaid invoices 1–30/31–60/61–90/90+ days with a **WhatsApp reminder** link pre-written with the invoice number, amount and account number; **→ Invoice** button on quotations converts one-click (same items/customer/salesperson, fresh INV number, audited `doc.convert_qt_inv`)
+
+### HR / Staff Details / Payroll
+- **Names display in Proper Case across the tabs** (payroll, corrections, team report, birthdays, staff lists, claims, dropdowns) via a shared helper that keeps *bin/binti/a/l/a/p* lowercase — formal printed documents (payslip, claim form, badge, signer block) deliberately stay uppercase
+- **Staff Details creation form hidden** behind "+ New staff record — show details" (HR/CEO/COO click to reveal; minimalist by request)
+- **Employment status** gains **Resigned** and **Terminated** (the DB already accepted them), plus two new dated fields (migration 0037): **Effective end date** and **Re-joined on**. Payroll follows the lifecycle: the person is processed **through the month of the effective date** (final salary via days worked, as the formula already does), disappears for the gap, and **returns from the re-join month**. Status chips on the staff list show "resigned · 15-09-2026" / "re-joined 01-11-2026"
+
+### Claims
+- After approval, the CEO can press **💸 Mark paid (money released)** — the claim shows a green **PAID + date** chip to the claimant (who is bell-notified), on top of the approved status. Audited `claim.paid`
+
+### Expenses
+- **Staff payroll gets its own Mark paid** button on the 💳 Payments-due line — pressing it clears the DUE pill (audited `payroll.paid`) and the payment moves to a new **✅ Payments completed** section listing everything released this month (payroll with its month + date, each paid expense with category/vendor/date) and the completed total
+
+### Inventory
+- **Price per unit (RM)** column (migration 0037: `unit_price_cents`): set it on creation or edit it inline in the table — it feeds the Sales item suggestions
+
+### Birthdays
+- Staff birthdays now appear on the **dashboard events calendar** (🎂 pink markers, legend entry, tap-day chip) with a **"🎂 Coming up"** strip for the next 30 days — and a new **09:00 MYT daily cron** bell-notifies every staff member on the day itself, so the team can prepare the celebration
+
+### Overview
+- **📊 P&L card** — last 6 months, month by month: TikTok + paid invoices (cash basis) against expenses + the payroll cycle paid in the month, with a green/red profit column. (Note: the P&L payroll column uses entry totals; the Expenses tab remains the exact net figure)
+
+### Standardization
+- Save popups: the portal already uses the animated SaveToast family everywhere; **/account now joins it** (enquiry confirmation). /admin keeps its inline confirmations for now — a full admin toast sweep is queued as its own pass. Mobile app-view (bottom nav + sticky app bar) was verified present on /portal, /admin and /account since v1.4.55
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0037**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.100] — 2026-08-02 — Documents list rows standardized
 
 ### Changed

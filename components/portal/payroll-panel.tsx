@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { properName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
@@ -42,6 +43,8 @@ interface StaffRow {
   id: number;
   name: string;
   full_name?: string | null;
+  left_on?: string | null;      // v1.4.101: resignation/termination effective date
+  rejoined_on?: string | null;  // v1.4.101: payroll resumes from this month
   ic_number?: string | null;
   role: string;
   employee_id?: string | null;
@@ -344,8 +347,20 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;
     setBase(bmap);
     setBaseDraft(bmap);
+    // v1.4.101: staff lifecycle — a resigned/terminated person is processed
+    // up to and including the month of the effective date (final salary uses
+    // days worked), disappears for the gap, and returns from the re-join
+    // month if they come back.
+    const monthEnd = `${month}-31`;
+    const monthStart = `${month}-01`;
+    const inMonth = (x: StaffRow) => {
+      const leftOut = x.left_on && x.left_on < monthStart;      // gone before this month
+      const backIn = x.rejoined_on && x.rejoined_on <= monthEnd; // already re-joined
+      if (leftOut && !backIn) return false;
+      return true;
+    };
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
-      (x) => x.role !== "customer" && x.role !== "super_admin",
+      (x) => x.role !== "customer" && x.role !== "super_admin" && inMonth(x),
     );
     const RANK: Record<string, number> = {
       ceo: 1, coo: 2, cco: 3, hr_admin: 4, sales_marketing: 5,
@@ -525,7 +540,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {staff.map((u) => (
               <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{u.name}</span>
+                <span className="min-w-0 truncate">{properName(u.name)}</span>
                 <span className="flex items-center gap-1 whitespace-nowrap">
                   RM
                   <input
@@ -585,7 +600,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               return (
                 <tr key={u.id} className="border-border border-b last:border-0">
                   <td className="px-2 py-1.5">
-                    <span className="font-medium">{u.name}</span>{" "}
+                    <span className="font-medium">{properName(u.name)}</span>{" "}
                     <span className="text-muted-foreground text-xs">{u.position ?? u.role}</span>
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
