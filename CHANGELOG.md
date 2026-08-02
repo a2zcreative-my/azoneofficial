@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.86] — 2026-08-02 — My payslip: future months no longer selectable
+
+### Fixed
+- The month picker on **My payslip** allowed choosing months in advance (September while it's August) and then showed a lock card for a payslip that cannot exist yet — an incorrect flow, as the CEO flagged. The picker is now capped at the **current month** (`max`), floored at the person's **joining month** (`min`), and the value is clamped in code as well, since some browsers render `max` but still allow typing past it. Past months behave exactly as before: visible once released, 🔒 otherwise
+
+### Deploy
+- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
+
+
 ## [1.4.85] — 2026-08-02 — Overtime in Payroll
 
 ### Added

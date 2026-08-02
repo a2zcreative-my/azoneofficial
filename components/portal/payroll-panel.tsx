@@ -695,7 +695,10 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
  * the payroll processors (CEO/COO). No entry yet → clearly says so.
  */
 export function MyPayslip() {
-  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
+  // v1.4.86: future months are not selectable — no payslip can exist for a
+  // month that hasn't happened, so offering them was an incorrect flow.
+  const nowMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+  const [month, setMonth] = useState(nowMonth);
   const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
   const [joinedOn, setJoinedOn] = useState<string | null>(null);
@@ -743,7 +746,15 @@ export function MyPayslip() {
           type="month"
           className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
           value={month}
-          onChange={(e) => setMonth(e.target.value)}
+          min={joinedOn ? joinedOn.slice(0, 7) : undefined}
+          max={nowMonth}
+          onChange={(e) => {
+            // Some browsers render max but still allow typing past it —
+            // clamp so a future month can never be requested.
+            const v = e.target.value;
+            if (!v) return;
+            setMonth(v > nowMonth ? nowMonth : v);
+          }}
         />
       </div>
       {lockedUntil ? (
