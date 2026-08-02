@@ -381,11 +381,19 @@ function UpcomingEventsCard({ role }: { role: string }) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const canManage = EVENTS_MANAGE_ROLES.includes(role);
 
+  // v1.4.81: Johor public holidays render on the calendar too.
+  const [holidays, setHolidays] = useState<{ holiday_date: string; name: string; kind: string }[]>([]);
+
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
     if (res.ok && res.data) setEvents(res.data.events);
   }, []);
   useEffect(() => { void loadEvents(); }, [loadEvents]);
+  useEffect(() => {
+    void api<{ holidays: { holiday_date: string; name: string; kind: string }[] }>(
+      `/staff/holidays?year=${calMonth.slice(0, 4)}`,
+    ).then((r) => { if (r.ok && r.data) setHolidays(r.data.holidays); });
+  }, [calMonth]);
 
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const upcoming = events.filter((e) => e.event_date >= todayISO);
@@ -471,6 +479,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       {view === "calendar" && (
         <EventsCalendar
           events={events}
+          holidays={holidays}
           month={calMonth}
           onMonth={setCalMonth}
           selected={selectedDay}
@@ -520,8 +529,9 @@ const EVENT_COLORS: Record<string, string> = {
 /** Month calendar — professional on desktop AND phones: 7-column grid,
     today ringed, category-coloured markers (titles on desktop, dots on
     mobile), tap a day for its agenda below. Weeks start Sunday (MY). */
-function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage, onRemove }: {
+function EventsCalendar({ events, holidays, month, onMonth, selected, onSelect, canManage, onRemove }: {
   events: CompanyEvent[];
+  holidays: { holiday_date: string; name: string; kind: string }[];
   month: string;
   onMonth: (m: string) => void;
   selected: string | null;
@@ -537,6 +547,7 @@ function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage,
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const iso = (d: number) => `${month}-${String(d).padStart(2, "0")}`;
   const byDay = (d: string) => events.filter((e) => e.event_date === d);
+  const holidayOf = (d: string) => holidays.find((h) => h.holiday_date === d);
   const shift = (delta: number) => {
     onSelect(null);
     onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
@@ -560,6 +571,7 @@ function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage,
           if (d === null) return <div key={`x${i}`} className="border-border bg-secondary/20 min-h-12 border-r border-b last:border-r-0 md:min-h-20" />;
           const dISO = iso(d);
           const evs = byDay(dISO);
+          const hol = holidayOf(dISO);
           const isToday = dISO === today;
           const isSel = dISO === selected;
           return (
@@ -569,7 +581,15 @@ function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage,
               onClick={() => onSelect(isSel ? null : dISO)}
               className={`border-border relative min-h-12 border-r border-b p-1 text-left align-top transition-colors last:border-r-0 md:min-h-20 md:p-1.5 ${isSel ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
             >
-              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ? "bg-primary text-primary-foreground font-bold" : "font-medium"}`}>{d}</span>
+              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ? "bg-primary text-primary-foreground font-bold" : hol ? "font-bold text-red-600" : "font-medium"}`}>{d}</span>
+              {hol && (
+                <>
+                  <span className="mt-0.5 flex md:hidden"><span className="h-1.5 w-1.5 rounded-full bg-red-500" /></span>
+                  <span className="mt-0.5 hidden truncate rounded bg-red-50 px-1 py-0.5 text-[10px] leading-tight font-medium text-red-700 md:block" title={hol.name}>
+                    {hol.name}
+                  </span>
+                </>
+              )}
               {/* Mobile: dots. Desktop: title snippets. */}
               {evs.length > 0 && (
                 <>
@@ -595,12 +615,20 @@ function EventsCalendar({ events, month, onMonth, selected, onSelect, canManage,
         {Object.entries(EVENT_COLORS).map(([k, cls]) => (
           <span key={k} className="inline-flex items-center gap-1 capitalize"><span className={`h-2 w-2 rounded-full ${cls}`} />{k}</span>
         ))}
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Public holiday</span>
       </div>
       {selected && (
         <div className="border-border mt-3 rounded-lg border p-3">
-          <p className="text-sm font-semibold">{dmy(selected)}</p>
+          <p className="text-sm font-semibold">
+            {dmy(selected)}
+            {holidayOf(selected) && (
+              <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                🏖 {holidayOf(selected)!.name}
+              </span>
+            )}
+          </p>
           {dayEvents.length === 0 ? (
-            <p className="text-muted-foreground mt-1 text-sm">No events this day.</p>
+            <p className="text-muted-foreground mt-1 text-sm">{holidayOf(selected) ? "Public holiday — no company events." : "No events this day."}</p>
           ) : (
             dayEvents.map((ev) => (
               <div key={ev.id} className="mt-2 flex flex-wrap items-start justify-between gap-2">
@@ -635,8 +663,13 @@ function Attendance({ user }: { user: User }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [records, setRecords] = useState<{ type: string; created_at: string; name?: string }[]>([]);
   const [reportMode, setReportMode] = useState(false);
-  // v1.4.74: A–Z / Z–A sorting for the team report view.
-  const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
+  // v1.4.80: click a column header to sort; click again to reverse.
+  const [sortKey, setSortKey] = useState<"name" | "type" | "time" | null>(null);
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const clickSort = (k: "name" | "type" | "time") => {
+    if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortKey(k); setSortDir(1); }
+  };
   // v1.4.78: report can focus on one staff member.
   const [filterName, setFilterName] = useState("");
   const canReport = MANAGE_ROLES.includes(user.role);
@@ -671,14 +704,7 @@ function Attendance({ user }: { user: User }) {
                 ))}
               </select>
             )}
-            {reportMode && canReport && records.length > 0 && (
-              <select className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={sortBy} title="Sort records"
-                onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
-                <option value="time">Sort: Time (default)</option>
-                <option value="az">Sort: Name A–Z</option>
-                <option value="za">Sort: Name Z–A</option>
-              </select>
-            )}
+
             <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} />
             {canReport && (
               <button type="button" className={btnGhost} onClick={() => setReportMode((v) => !v)}>
@@ -763,20 +789,25 @@ function Attendance({ user }: { user: User }) {
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
                 <tr className="border-border border-b">
-                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Staff</th>
-                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Type</th>
-                  <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Time (MYT)</th>
+                  {([["name", "Staff"], ["type", "Type"], ["time", "Time (MYT)"]] as const).map(([k, label]) => (
+                    <th key={k}
+                      className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none hover:underline"
+                      title="Click to sort — click again to reverse"
+                      onClick={() => clickSort(k)}>
+                      {label}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {(() => {
                   const visible = filterName ? records.filter((r) => r.name === filterName) : records;
-                  return sortBy === "time"
-                    ? visible
-                    : [...visible].sort((a, b) => {
-                        const cmp = (a.name ?? "").localeCompare(b.name ?? "");
-                        return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
-                      });
+                  if (!sortKey) return visible;
+                  const val = (r: (typeof records)[number]) =>
+                    sortKey === "name" ? (r.name ?? "") : sortKey === "type" ? r.type : r.created_at;
+                  return [...visible].sort(
+                    (a, b) => (val(a).localeCompare(val(b)) || a.created_at.localeCompare(b.created_at)) * sortDir,
+                  );
                 })().map((r, i) => (
                   <tr key={i} className="border-border border-b last:border-0">
                     <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.name ?? "—"}</td>

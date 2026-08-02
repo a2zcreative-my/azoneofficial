@@ -260,6 +260,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [attDays, setAttDays] = useState<Record<number, number>>({});
   // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
   const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
+  // v1.4.80: staff payslip release state for this month.
+  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string } | null } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
@@ -268,7 +270,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
-      api<{ entries: (Entry & { name: string })[] }>(`/payroll?month=${month}`),
+      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
@@ -294,6 +296,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const map: Record<number, Entry> = {};
     for (const e of p.data?.entries ?? []) map[e.user_id] = e;
     setEntries(map);
+    setRelease(p.data?.release ?? null);
   }, [month]);
   useEffect(() => {
     void load();
@@ -389,6 +392,37 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      {release && (
+        <p className="mt-2 text-xs">
+          {release.released ? (
+            <span className="font-medium text-green-700">
+              Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
+            </span>
+          ) : (
+            <>
+              <span className="text-muted-foreground">
+                Staff can view {monthDMY(month)} payslips from{" "}
+                <span className="font-medium">{release.available_from.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from.split(" ")[1]} MYT</span>
+                {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
+              </span>{" "}
+              <button
+                type="button"
+                className="font-medium underline"
+                title="Release this month's payslips to staff now, before the automatic date"
+                onClick={async () => {
+                  const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
+                  setMsg(res.ok ? "Payslips released to staff." : "Release failed");
+                  window.setTimeout(() => setMsg(""), 3000);
+                  void load();
+                }}
+              >
+                Release now
+              </button>
+            </>
+          )}
+        </p>
+      )}
 
       {showBase && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -558,13 +592,19 @@ export function MyPayslip() {
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
   const [joinedOn, setJoinedOn] = useState<string | null>(null);
 
+  // v1.4.80: a month's payslip unlocks on the 5th of the following month at
+  // 10:00 MYT (next working day if that's a weekend/holiday), unless payroll
+  // released it early.
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+
   useEffect(() => {
-    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null }>(
+    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null; locked?: boolean; available_from?: string }>(
       `/payroll/self?month=${month}`,
     ).then((r) => {
       setEntry(r.data?.entry ?? null);
       setExtras(r.data?.extras ?? null);
       setJoinedOn(r.data?.joined_on ?? null);
+      setLockedUntil(r.data?.locked ? (r.data.available_from ?? null) : null);
     });
   }, [month]);
 
@@ -593,7 +633,21 @@ export function MyPayslip() {
           onChange={(e) => setMonth(e.target.value)}
         />
       </div>
-      {beforeJoining ? (
+      {lockedUntil ? (
+        <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+          <p className="text-sm">
+            🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
+            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
+          </p>
+          <button
+            type="button"
+            disabled
+            className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
+          >
+            Print payslip
+          </button>
+        </div>
+      ) : beforeJoining ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-muted-foreground text-sm">
             You joined AZ ONE OFFICIAL on {joinedOn!.split("-").reverse().join("-")} — no payslip exists for this month.

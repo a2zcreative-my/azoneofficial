@@ -1118,10 +1118,17 @@ export function AttendanceAdminPanel() {
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
-  // v1.4.74: sort the corrections table — newest first (default) or by name.
-  const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
+  // v1.4.80: click a column HEADER to sort (▲ asc / ▼ desc); click again to
+  // flip. Default = the API's chronological order.
+  const [sortKey, setSortKey] = useState<"name" | "type" | "time" | "mark" | null>(null);
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
   // v1.4.78: find one specific staff member instead of scanning the full list.
   const [filterId, setFilterId] = useState(0);
+  const clickSort = (k: "name" | "type" | "time" | "mark") => {
+    if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortKey(k); setSortDir(1); }
+  };
+  const markOf = (r: AttRecord) => (r.manual_by ? "manual" : r.amended_by ? "amended" : "punch");
 
   const load = useCallback(async () => {
     const [r, u] = await Promise.all([
@@ -1190,12 +1197,6 @@ export function AttendanceAdminPanel() {
           <option value={0}>Find staff: everyone</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
-        <select className={inputClass} style={{ maxWidth: "11rem" }} value={sortBy}
-          title="Sort records" onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
-          <option value="time">Sort: Time (default)</option>
-          <option value="az">Sort: Name A–Z</option>
-          <option value="za">Sort: Name Z–A</option>
-        </select>
         <input type="month" className={inputClass} style={{ maxWidth: "10rem" }} value={month}
           onChange={(e) => setMonth(e.target.value)} />
       </div>
@@ -1205,10 +1206,13 @@ export function AttendanceAdminPanel() {
         <table className="w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
-              <th className={th}>Staff</th>
-              <th className={th}>Type</th>
-              <th className={th}>Time (MYT)</th>
-              <th className={th}>Mark</th>
+              {([["name", "Staff"], ["type", "Type"], ["time", "Time (MYT)"], ["mark", "Mark"]] as const).map(([k, label]) => (
+                <th key={k} className={`${th} cursor-pointer select-none hover:underline`}
+                  title="Click to sort — click again to reverse"
+                  onClick={() => clickSort(k)}>
+                  {label}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+                </th>
+              ))}
               <th className={th}></th>
             </tr>
           </thead>
@@ -1221,12 +1225,14 @@ export function AttendanceAdminPanel() {
             )}
             {(() => {
               const visible = filterId === 0 ? rows : rows.filter((r) => r.user_id === filterId);
-              return sortBy === "time"
-                ? visible
-                : [...visible].sort((a, b) => {
-                  const cmp = (a.name ?? "").localeCompare(b.name ?? "");
-                  return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
-                });
+              if (!sortKey) return visible;
+              const val = (r: AttRecord) =>
+                sortKey === "name" ? (r.name ?? "") :
+                sortKey === "type" ? r.type :
+                sortKey === "mark" ? markOf(r) : r.created_at;
+              return [...visible].sort(
+                (a, b) => (val(a).localeCompare(val(b)) || a.created_at.localeCompare(b.created_at)) * sortDir,
+              );
             })().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{r.name}</td>

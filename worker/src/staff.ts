@@ -1105,16 +1105,42 @@ export async function handleStaff(
       return err("invalid_input", "holiday_date (YYYY-MM-DD) and name are required", 400);
     }
     const kinds = ["public", "company", "replacement"];
+    const kind = kinds.includes(body.kind as string) ? (body.kind as string) : "public";
     try {
       await env.DB.prepare(
         `INSERT INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, ?3, ?4)`,
-      ).bind(body.holiday_date, body.name,
-             kinds.includes(body.kind as string) ? body.kind : "public", user.id).run();
+      ).bind(body.holiday_date, body.name, kind, user.id).run();
     } catch {
       return err("conflict", "A holiday already exists on that date", 409);
     }
     await audit(env, user.id, "holiday.create");
-    return json({ ok: true }, 201);
+    // v1.4.81 company policy: a PUBLIC holiday landing on Saturday or Sunday
+    // is auto-replaced on Monday — or the next free working day when Monday
+    // is itself a holiday. (Manual replacements remain possible via
+    // kind = replacement; delete the auto row to follow the state gazette,
+    // which replaces Sundays only.)
+    let replacement: string | null = null;
+    const dow = new Date(body.holiday_date + "T00:00:00Z").getUTCDay();
+    if (kind === "public" && (dow === 0 || dow === 6)) {
+      const d = new Date(body.holiday_date + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + (dow === 6 ? 2 : 1)); // → Monday
+      for (let i = 0; i < 14; i++) {
+        const iso = d.toISOString().slice(0, 10);
+        const wd = d.getUTCDay();
+        const taken = wd === 0 || wd === 6
+          ? { x: 1 }
+          : await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1`).bind(iso).first();
+        if (!taken) { replacement = iso; break; }
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      if (replacement) {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, 'replacement', ?3)`,
+        ).bind(replacement, `${body.name as string} (Replacement)`, user.id).run();
+        await audit(env, user.id, "holiday.create", "holidays", replacement, { auto_replacement_for: body.holiday_date });
+      }
+    }
+    return json({ ok: true, replacement }, 201);
   }
   const holMatch = path.match(/^\/holidays\/(\d+)$/);
   if (holMatch && method === "DELETE") {
@@ -1264,6 +1290,26 @@ export async function handleStaff(
   /** Payslip side-data (v1.4.41): the month's working days, public holidays,
       approved leave, and remaining annual/medical balances — the OTHERS and
       BALANCE sections of the Malaysian payslip layout. */
+  /** v1.4.80: when a payroll month's slips become visible to staff —
+      the 5th of the FOLLOWING month, 10:00 MYT, shifted forward past
+      weekends and public holidays (never earlier). Returns "YYYY-MM-DD 10:00"
+      in MYT wall time. */
+  const payslipAvailableFrom = async (month: string): Promise<string> => {
+    const y = Number(month.slice(0, 4));
+    const m = Number(month.slice(5, 7)); // 1-based payroll month
+    const d = new Date(Date.UTC(y, m, 5)); // 5th of the NEXT month
+    for (let i = 0; i < 14; i++) {
+      const iso = d.toISOString().slice(0, 10);
+      const dow = d.getUTCDay();
+      const hol = dow !== 0 && dow !== 6
+        ? await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1`).bind(iso).first()
+        : null;
+      if (dow !== 0 && dow !== 6 && !hol) break;
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return `${d.toISOString().slice(0, 10)} 10:00`;
+  };
+
   const payslipExtras = async (uid: number, month: string) => {
     const wd = await env.DB.prepare(
       `SELECT COUNT(DISTINCT date(created_at, '+8 hours')) AS n FROM attendance_records
@@ -1332,7 +1378,21 @@ export async function handleStaff(
   // Every staff member can view (and print) their OWN payslip — never edit.
   if (path === "/payroll/self" && method === "GET") {
     const url0 = new URL(request.url);
-    const m0 = url0.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const m0 = url0.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    // v1.4.80: staff see the slip only from the release moment (5th of the
+    // next month, 10:00 MYT, next working day if that's a holiday/weekend) —
+    // or once a processor releases the month manually. Processors bypass:
+    // they set the figures, hiding them from themselves protects nothing.
+    if (!PAYROLL_PROC.includes(user.role)) {
+      const availableFrom = await payslipAvailableFrom(m0);
+      const released = await env.DB.prepare(
+        `SELECT released_at FROM payslip_releases WHERE month = ?1`,
+      ).bind(m0).first<{ released_at: string }>();
+      const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+      if (!released && nowMyt < availableFrom) {
+        return json({ month: m0, entry: null, extras: null, locked: true, available_from: availableFrom });
+      }
+    }
     const entry = await env.DB.prepare(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
               u.employment_status, u.bank_name, u.bank_account, u.joined_on, u.ic_number
@@ -1363,7 +1423,26 @@ export async function handleStaff(
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 ORDER BY u.name`,
     ).bind(month).all();
-    return json({ month, entries: results });
+    const releasedRow = await env.DB.prepare(
+      `SELECT released_at, released_by FROM payslip_releases WHERE month = ?1`,
+    ).bind(month).first();
+    return json({
+      month, entries: results,
+      release: { available_from: await payslipAvailableFrom(month), released: releasedRow ?? null },
+    });
+  }
+  if (path === "/payroll/release" && method === "POST") {
+    // Early manual release for a month (e.g. the 5th falls badly and the
+    // CEO decides to release before the automatic moment). One-way; audited.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const mR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    if (!mR) return err("invalid_input", "month (YYYY-MM) is required", 400);
+    await env.DB.prepare(
+      `INSERT INTO payslip_releases (month, released_by) VALUES (?1, ?2)
+       ON CONFLICT(month) DO NOTHING`,
+    ).bind(mR, user.id).run();
+    await audit(env, user.id, "payroll.release", "payslip_releases", mR);
+    return json({ ok: true });
   }
   if (path === "/payroll/base" && method === "GET") {
     // v1.4.78: fixed basic salaries — the source Payroll auto-fills from.

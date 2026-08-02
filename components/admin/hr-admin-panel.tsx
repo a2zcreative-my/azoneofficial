@@ -85,7 +85,12 @@ export function HrAdminPanel() {
       <div className={card}>
         <p className="text-sm font-semibold">Public holidays &amp; company calendar</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Used so leave day-counting and attendance don&apos;t treat a holiday as a working day.
+          Used so leave day-counting, attendance and payroll don&apos;t treat a
+          holiday as a working day — and shown in red on everyone&apos;s events
+          calendar. Adding a public holiday on a Saturday/Sunday auto-creates
+          its Monday replacement (next free working day if Monday is taken);
+          pick kind &quot;replacement&quot; to add one manually, or Remove an
+          auto row you don&apos;t want.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <input type="date" className={`${input} max-w-40`} value={holDraft.holiday_date}

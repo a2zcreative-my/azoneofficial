@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.81] — 2026-08-02 — Johor public holidays on the events calendar · auto-replacement rule
+
+### Added
+- **Johor 2026 public holidays seeded** (migration **0029**) from the official state gazette (johor.gov.my, circular 10 Dec 2025): all 18 gazetted days — Thaipusam through Hari Krismas — plus replacement days per **company policy: a holiday on Saturday or Sunday is replaced on Monday, or the next free working day when Monday is itself a holiday** (2026 replacements: 02-02 Thaipusam, 24-03 + 25-03 Hari Raya Puasa I & II, 02-06 Wesak, 09-11 Deepavali). Honest note: the official state rule replaces **Sundays only** (Saturdays are not replaced by the gazette) — the company rule as specified is more generous; delete a Saturday replacement row in HR → holidays to follow the gazette instead
+- **Calendar shows holidays**: red date number, red name chip on desktop / red dot on phones, "Public holiday" in the legend, and the tap-day agenda shows 🏖 with the holiday's name. Everyone sees them — awareness solved
+- **Auto-replacement on create**: adding a public holiday that lands on Sat/Sun now auto-creates "<name> (Replacement)" on the computed day, audit-logged. **Manual creation already existed** (as asked to check): HR → "Public holidays & company calendar" has had an Add form with kind = replacement since v1.4.16 — it now sits alongside the automatic rule, and Remove deletes any row
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0029**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.80] — 2026-08-02 — Click-to-sort table headers · payslip release control (5th, 10:00 MYT)
+
+### Changed
+- **Sorting moved into the table headers** on the attendance corrections table (Staff · Type · Time (MYT) · Mark) and the Team report (Staff · Type · Time): click a header to sort ▲, click again to reverse ▼; combines with the Find-staff filter; the separate Sort dropdowns are gone. Default remains chronological until a header is clicked
+
+### Added
+- **Payslip release control** (migration **0028**, `payslip_releases`): staff can view a month's payslip only from the **5th of the following month at 10:00 MYT** (July payroll → visible 05-08-2026 10:00). If the 5th lands on a **weekend or public holiday, the release shifts FORWARD to the next working day** — never earlier, per the requirement that staff must not learn salaries early. For those cases (or any early release the CEO chooses), Payroll shows the month's release status and a **"Release now"** action (payroll processors only, one-way, audited `payroll.release`). Before release, "My payslip" shows a 🔒 lock card with the exact availability date-time; payroll processors bypass the lock (they set the figures). Months already past their release moment stay visible as normal
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0028**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.79] — 2026-08-02 — Unpaid leave shows as an explicit payslip deduction · emergency leave confirmed paid
 
 ### Changed
