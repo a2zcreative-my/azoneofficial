@@ -1632,19 +1632,22 @@ function Sales({ user }: { user: User }) {
         {!docsError && docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
         <div className="max-h-96 overflow-y-auto">
         {docs.map((d) => (
-          <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-            <span>
+          <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b py-2 text-sm last:border-0">
+            {/* v1.4.100: standardized row — info left (grows), one aligned
+                controls group right: chip · status · Edit · PDF, all h-7. */}
+            <span className="min-w-0 flex-1 basis-64">
               <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
-              <span className="text-muted-foreground"> · {dmy(d.created_at)}{d.salesperson_name ? ` · sales: ${d.salesperson_name}` : ""}</span>
+              <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.salesperson_name ? ` · sales: ${d.salesperson_name}` : ""}</span>
             </span>
-            {d.doc_type === "INV" && (d as SalesDoc & { payment_status?: string; payment_ref?: string | null; paid_at?: string | null }).payment_status === "paid" && (
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
-                title={`Payment received${(d as SalesDoc & { paid_at?: string | null }).paid_at ? " " + dmy((d as SalesDoc & { paid_at?: string | null }).paid_at!) : ""}${(d as SalesDoc & { payment_ref?: string | null }).payment_ref ? " · Ref " + (d as SalesDoc & { payment_ref?: string | null }).payment_ref : ""}`}>
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {d.doc_type === "INV" && d.payment_status === "paid" && (
+              <span className="inline-flex h-7 items-center rounded-full bg-green-100 px-2.5 text-xs font-semibold whitespace-nowrap text-green-700"
+                title={`Payment received${d.paid_at ? " " + dmy(d.paid_at.slice(0, 10)) : ""}${d.payment_ref ? " · Ref " + d.payment_ref : ""}`}>
                 PAID · bank transfer
               </span>
             )}
             {d.doc_type === "INV" && canInvoice && (
-              <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs" value={d.payment_status ?? "unpaid"}
+              <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.payment_status ?? "unpaid"}
                 title="Mark paid when the bank transfer lands — revenue counts payments received"
                 onChange={(e) => {
                   const v = e.target.value;
@@ -1659,12 +1662,12 @@ function Sales({ user }: { user: User }) {
               </select>
             )}
             {d.doc_type === "DO" && (
-              <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs" value={d.delivery_status ?? "pending"} onChange={(e) => void setStatus(d, e.target.value)}>
+              <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.delivery_status ?? "pending"} onChange={(e) => void setStatus(d, e.target.value)}>
                 {["pending", "delivered"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
               </select>
             )}
-            {d.doc_type === "QT" && <span className="text-muted-foreground text-xs">Quotation</span>}
-            <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
+            {d.doc_type === "QT" && <span className="text-muted-foreground inline-flex h-7 items-center text-xs">Quotation</span>}
+            <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
               title="Fix a typo — loads the document into the form; the number never changes"
               onClick={async () => {
                 const r = await fetch(`/api/v1/staff/docs/${d.id}`, { credentials: "include" });
@@ -1682,8 +1685,9 @@ function Sales({ user }: { user: User }) {
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}>Edit</button>
-            <button type="button" className="border-border ml-1 rounded-lg border px-2 py-1 text-xs hover:bg-secondary"
+            <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
               onClick={() => void printDoc(d.id)}>PDF</button>
+            </span>
           </div>
         ))}
         </div>

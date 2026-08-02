@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.100] — 2026-08-02 — Documents list rows standardized
+
+### Changed
+- The Documents rows are re-laid: document info (number · customer · amount · date · sales person) on the left, growing to fill the row, and a single right-aligned **controls group** — PAID chip · status dropdown · Edit · PDF — every element the **same 28px height**, same rounding, consistent spacing, vertically centred. The chip no longer floats at a different height than the dropdown or the buttons, and on narrow screens the whole controls group wraps together as one unit instead of scattering
+- The list date also drops the stray "00:00" (dates only), matching the printed documents
+
+### Deploy
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
+
+
 ## [1.4.99] — 2026-08-02 — Official signature PNGs · signer name + position under the Authorised signature
 
 ### Changed
