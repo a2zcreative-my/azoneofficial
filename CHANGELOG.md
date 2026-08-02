@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.96] — 2026-08-02 — Delete item lines · the "Insufficient" invoice error fixed (CEO now in finance)
+
+### Fixed — the "Insufficient rights" error, root cause
+- The worker's **finance permission (invoice creation + mark-paid) omitted the CEO** while the form offered him the Invoice option — so the CEO himself was the one being refused. `finance` now includes **ceo** (super_admin, admin, hr_admin, coo, cco, ceo). The same mismatch showed Invoice to sales_marketing who would also be refused — the option is now hidden for them so the UI and the worker agree
+- **Creating sales on their behalf — the intended flow**: sales & marketing staff create Quotations and Delivery Orders themselves; **Invoices are created by finance roles (you, COO, CCO, HR) with the "Sales person" dropdown attributing the sale** to whoever actually sold — exactly the on-their-behalf mechanism, and the documents list + printed doc credit them
+
+### Added
+- **✕ delete on sales item lines**: accidentally added lines can be removed (the ✕ appears whenever there's more than one line; the last line can't be deleted — a document needs at least one item)
+- **Claims already had it** (as asked to check): each claim item row has carried a ✕ since the multi-item form shipped in v1.4.95, visible whenever there's more than one row
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration — then retry the same Tudung invoice as CEO; it will create, auto-open the PDF, and credit Zolkefli as sales person
+
+
 ## [1.4.95] — 2026-08-02 — Monthly KPI cycle (last month's result stays visible) · multi-item claims, minimalist
 
 ### Changed — KPI as a monthly cycle

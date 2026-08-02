@@ -1408,7 +1408,10 @@ function Sales({ user }: { user: User }) {
   const [docDate, setDocDate] = useState("");
   const [paidDate, setPaidDate] = useState("");
   const [editingDoc, setEditingDoc] = useState<{ id: number; doc_number: string } | null>(null);
-  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role);
+  // v1.4.96: aligned with the worker's finance permission — sales_marketing
+  // creates QT/DO; invoices are created by finance roles ON THEIR BEHALF via
+  // the Sales person dropdown (that's the attribution mechanism).
+  const canInvoice = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"].includes(user.role);
 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
@@ -1547,11 +1550,11 @@ function Sales({ user }: { user: User }) {
                 {staffList.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.role.replace("_", " ")}</option>)}
               </select>
             </label>
-            <div className="text-muted-foreground grid grid-cols-[1fr_70px_110px] gap-2 text-xs">
-              <span>Item / service description</span><span>Qty</span><span>Unit price (RM)</span>
+            <div className="text-muted-foreground grid grid-cols-[1fr_70px_110px_auto] gap-2 text-xs">
+              <span>Item / service description</span><span>Qty</span><span>Unit price (RM)</span><span />
             </div>
             {doc.items.map((item, i) => (
-              <div key={i} className="grid grid-cols-[1fr_70px_110px] gap-2">
+              <div key={i} className="grid grid-cols-[1fr_70px_110px_auto] items-center gap-2">
                 <input className={inputClass} placeholder="e.g. Tudung Bawal Premium" value={item.name}
                   onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, name: e.target.value } : x) }))} />
                 <input type="number" min={1} className={inputClass} value={item.qty}
@@ -1559,6 +1562,10 @@ function Sales({ user }: { user: User }) {
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
                   value={item.unit_price_cents ? (item.unit_price_cents / 100).toString() : ""}
                   onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, unit_price_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) } : x) }))} />
+                {doc.items.length > 1
+                  ? <button type="button" className="text-destructive text-xs underline" title="Remove this line"
+                      onClick={() => setDoc((d) => ({ ...d, items: d.items.filter((_, xi) => xi !== i) }))}>✕</button>
+                  : <span className="w-4" />}
               </div>
             ))}
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>

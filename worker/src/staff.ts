@@ -45,7 +45,9 @@ const PERMS: Record<string, readonly Role[]> = {
   // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   // Invoice finance status changes.
-  finance: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // v1.4.96: ceo added — the CEO was hitting "Insufficient rights" creating
+  // invoices because finance omitted him while the UI offered the option.
+  finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"],
   // HR task reports (daily / weekly / monthly).
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
   // Inventory, postage tracking, marketing materials — sales_marketing only
