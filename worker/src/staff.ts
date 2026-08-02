@@ -1366,11 +1366,43 @@ export async function handleStaff(
         ).bind(m).first<{ c: number }>();
       } catch { /* pre-0037 DB — claims column set incomplete */ }
       // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
+      // v1.4.129 (CEO): the figure is the NET payroll — same source and staff
+      // scope as the Expenses card (stored net_cents; formula fallback only
+      // for rows saved before migration 0041), so P&L, Expenses and the
+      // Payroll tab all quote one number.
       const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
-      const pr = await env.DB.prepare(
-        `SELECT COALESCE(SUM(p.basic_cents + p.commission_cents + p.allowance_cents + COALESCE(p.ot_cents, 0) - p.deduction_cents), 0) AS c
-         FROM payroll_entries p WHERE p.month = ?1`,
-      ).bind(prevPm).first<{ c: number }>();
+      let prC = 0;
+      try {
+        const { results: prs } = await env.DB.prepare(
+          `SELECT p.basic_cents, p.commission_cents, p.allowance_cents,
+                  COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents, p.net_cents,
+                  p.user_id, p.worked_days, p.month_working_days, u.base_salary_cents
+           FROM payroll_entries p JOIN users u ON u.id = p.user_id
+           WHERE p.month = ?1 AND u.is_active = 1
+             AND u.role NOT IN ('customer', 'super_admin')
+             AND NOT (u.left_on IS NOT NULL AND u.left_on < ?2
+                      AND (u.rejoined_on IS NULL OR u.rejoined_on > ?3))`,
+        ).bind(prevPm, `${prevPm}-01`, `${prevPm}-31`).all<{ basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; user_id: number; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
+        const { results: ulsP } = await env.DB.prepare(
+          `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
+           WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
+        ).bind(prevPm).all<{ user_id: number; days: number }>();
+        const ulMapP = new Map(ulsP.map((r) => [r.user_id, r.days]));
+        for (const e of prs) {
+          if (e.net_cents !== null && e.net_cents !== undefined) { prC += e.net_cents; continue; }
+          const ul = ulMapP.get(e.user_id) ?? 0;
+          const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
+          let adj = 0;
+          if (e.worked_days !== null && e.worked_days !== undefined && e.month_working_days && e.month_working_days > 0) {
+            const adjustable = Math.max(0, Math.max(0, e.month_working_days - e.worked_days) - ul);
+            adj = Math.round((e.basic_cents * adjustable) / e.month_working_days);
+          }
+          prC += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+        }
+      } catch (e) {
+        await logError(env, "pnl_payroll", e instanceof Error ? e.message : String(e));
+      }
+      const pr = { c: prC };
       const revenue = (tt?.c ?? 0) + (inv?.c ?? 0);
       const cost = (ex?.c ?? 0) + (pr?.c ?? 0) + (clm?.c ?? 0);
       rows.push({ month: m, tiktok_cents: tt?.c ?? 0, invoiced_cents: inv?.c ?? 0, expenses_cents: ex?.c ?? 0, payroll_cents: pr?.c ?? 0, claims_cents: clm?.c ?? 0, profit_cents: revenue - cost });

@@ -886,16 +886,16 @@ function PnlCard() {
       <p className="text-sm font-semibold">📊 Profit &amp; Loss — last 6 months</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Revenue on a payment-received basis (TikTok + paid invoices) against
-        expenses + the payroll cycle paid in the month + approved staff claims
-        dated in the month. Payroll here uses the entry totals; the Expenses
-        tab shows the exact net figure.
+        expenses + the NET payroll cycle paid in the month + approved staff
+        claims dated in the month. Net payroll is the same figure as the
+        Expenses card and the Payroll tab total — one number everywhere.
       </p>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-border border-b">
               <th className={th}>Month</th><th className={`${th} text-right`}>TikTok</th><th className={`${th} text-right`}>Invoiced</th>
-              <th className={`${th} text-right`}>Expenses</th><th className={`${th} text-right`}>Payroll</th><th className={`${th} text-right`}>Claims</th><th className={`${th} text-right`}>Profit</th>
+              <th className={`${th} text-right`}>Expenses</th><th className={`${th} text-right`}>Net payroll</th><th className={`${th} text-right`}>Claims</th><th className={`${th} text-right`}>Profit</th>
             </tr>
           </thead>
           <tbody>

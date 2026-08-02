@@ -276,7 +276,10 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const fingerprint = (id: number) => {
     const e = entry(id);
     const d = workedDays[id];
-    return JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, typeof d === "number" && !Number.isNaN(d) ? d : null, e.note ?? null]);
+    // v1.4.128: monthDays included — a working-days change (e.g. a holiday
+    // calendar correction) marks EVERY row dirty so Save all re-saves it.
+    const hasD = typeof d === "number" && !Number.isNaN(d);
+    return JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, hasD ? d : null, hasD ? monthDays : null, e.note ?? null]);
   };
   const [workedDays, setWorkedDays] = useState<Record<number, number>>({});
 
@@ -405,7 +408,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     for (const u of list) {
       const e = map[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
       const d = savedDays[u.id];
-      snap[u.id] = JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, d ?? null, e.note ?? null]);
+      // v1.4.128: the SAVED month_working_days anchors the snapshot — if the
+      // calendar changed since this row was saved, it must count as dirty.
+      snap[u.id] = JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, d ?? null, (e as Entry & { month_working_days?: number | null }).month_working_days ?? null, e.note ?? null]);
     }
     pristineRef.current = snap;
   }, [month]);

@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.129] — 2026-08-02 — P&L payroll column = NET payroll
+
+### Changed
+- The P&L's Payroll column previously used the **entry totals** (basic + commission + allowance + OT − manual deduction, WITHOUT the unpaid-leave and incomplete-month deductions) — which is why August showed RM 13,997.72 while the real net was RM 5,345.54. Per the CEO: confusing, gone
+- The column is now **"Net payroll"** and pulls the **same figure as the Expenses card**: stored per-entry nets (net_cents from migration 0041; formula fallback for older rows), same staff scope, same cash-basis month attribution (month m−1's cycle paid in m). **P&L, Expenses, and the Payroll tab total now quote one number**
+- Caption updated accordingly; failures degrade and log (`pnl_payroll`) rather than blanking the card
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0041 assumed applied)
+
+
+## [1.4.128] — 2026-08-02 — THE tally bug, found by the Breakdown: Save all skipped calendar-affected rows
+
+### Root cause (proven by the CEO's Breakdown screenshot)
+- The Breakdown showed all six staff names — **no ghost entry** — but three rows (Izzudin RM 895.45, Nursyazwani RM 954.55, Zulsyam RM 859.09) differed from the Payroll tab by **exactly the 22-vs-23 working-days delta**: their saved rows still carried 22 days from before the Hari Hol correction
+- Why Save all didn't fix them: the **no-change fingerprint didn't include the month's working days**. Rows the CEO hadn't otherwise edited (unlike Zolkefli's allowance and Nasuha's OT, which re-saved at 23) fingerprinted as "unchanged", so **Save all skipped them** — permanently preserving the stale 22, which only Expenses (reading saved data) revealed
+
+### Fixed
+- The fingerprint now includes the month's working days, and the pristine snapshot anchors on each row's **saved** month_working_days — so any holiday-calendar change marks every affected row dirty and **Save all re-saves all of them** (storing the corrected net_cents too). Full-month rows (no days entered) are mirrored correctly and don't false-flag
+
+### After deploying
+- Payroll 07-2026 → **Save all** → expect "6 entries saved" → Expenses payroll line reads **RM 5,345.54**, Breakdown shows all rows without ⚠, matching the tab line by line
+
+### Deploy
+- `pnpm build` → hard refresh → Payroll: **Save all** (migrations 0040+0041 + worker deploy assumed from v1.4.124/126)
+
+
 ## [1.4.127] — 2026-08-02 — Claim form: aligned signature grid · every printed time in Malaysia time
 
 ### Fixed
