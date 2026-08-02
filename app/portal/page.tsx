@@ -637,6 +637,8 @@ function Attendance({ user }: { user: User }) {
   const [reportMode, setReportMode] = useState(false);
   // v1.4.74: A–Z / Z–A sorting for the team report view.
   const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
+  // v1.4.78: report can focus on one staff member.
+  const [filterName, setFilterName] = useState("");
   const canReport = MANAGE_ROLES.includes(user.role);
 
   useEffect(() => {
@@ -659,6 +661,16 @@ function Attendance({ user }: { user: User }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {reportMode && canReport && records.length > 0 && (
+              <select className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" value={filterName}
+                title="Show one staff member only"
+                onChange={(e) => setFilterName(e.target.value)}>
+                <option value="">Find staff: everyone</option>
+                {[...new Set(records.map((r) => r.name).filter(Boolean))].sort().map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            )}
             {reportMode && canReport && records.length > 0 && (
               <select className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={sortBy} title="Sort records"
                 onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
@@ -757,13 +769,15 @@ function Attendance({ user }: { user: User }) {
                 </tr>
               </thead>
               <tbody>
-                {(sortBy === "time"
-                  ? records
-                  : [...records].sort((a, b) => {
-                      const cmp = (a.name ?? "").localeCompare(b.name ?? "");
-                      return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
-                    })
-                ).map((r, i) => (
+                {(() => {
+                  const visible = filterName ? records.filter((r) => r.name === filterName) : records;
+                  return sortBy === "time"
+                    ? visible
+                    : [...visible].sort((a, b) => {
+                        const cmp = (a.name ?? "").localeCompare(b.name ?? "");
+                        return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
+                      });
+                })().map((r, i) => (
                   <tr key={i} className="border-border border-b last:border-0">
                     <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.name ?? "—"}</td>
                     <td className="px-2 py-1.5">

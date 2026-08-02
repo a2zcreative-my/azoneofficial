@@ -247,16 +247,25 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const [attDays, setAttDays] = useState<Record<number, number>>({});
+  // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
+  const [base, setBase] = useState<Record<number, number>>({});
+  const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
+  const [showBase, setShowBase] = useState(false);
 
   const load = useCallback(async () => {
-    const [u, p, a] = await Promise.all([
+    const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
       api<{ entries: (Entry & { name: string })[] }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
+      api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
     const dmap: Record<number, number> = {};
     for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
     setAttDays(dmap);
+    const bmap: Record<number, number> = {};
+    for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;
+    setBase(bmap);
+    setBaseDraft(bmap);
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
       (x) => x.role !== "customer" && x.role !== "super_admin",
     );
@@ -274,8 +283,10 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     void load();
   }, [load]);
 
+  // No saved entry for the month yet → Basic pre-fills from the fixed base
+  // salary, so processors never retype it. Saving writes the real entry.
   const entry = (id: number): Entry =>
-    entries[id] ?? { user_id: id, basic_cents: 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+    entries[id] ?? { user_id: id, basic_cents: base[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
 
   const setField = (id: number, key: keyof Entry, rmValue: string) => {
     const cents = Math.max(0, Math.round(Number(rmValue || 0) * 100));
@@ -327,6 +338,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="Fixed monthly basic per staff — auto-fills every month; adjust here on increment"
+            onClick={() => setShowBase((v) => !v)}
+          >
+            {showBase ? "Close base salaries" : "Base salaries"}
+          </button>
+          <button
+            type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
             title="Fill every days box with this month's clock-in day count from Attendance"
             onClick={autoFillDays}
           >
@@ -350,6 +369,52 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      {showBase && (
+        <div className="border-border mt-3 rounded-lg border p-3">
+          <p className="text-sm font-semibold">Base salaries (fixed monthly basic)</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Every new month&apos;s Basic auto-fills from these figures — no retyping.
+            When someone gets an increment, change it here and it applies from
+            the next unsaved month onwards; months already saved stay as saved.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {staff.map((u) => (
+              <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate">{u.name}</span>
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  RM
+                  <input
+                    type="number" min={0} step="0.01"
+                    className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
+                    value={baseDraft[u.id] ? (baseDraft[u.id]! / 100).toString() : ""}
+                    placeholder="0.00"
+                    onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
+                  />
+                </span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="bg-primary text-primary-foreground mt-3 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={async () => {
+              let n = 0;
+              for (const u of staff) {
+                if ((baseDraft[u.id] ?? 0) !== (base[u.id] ?? 0)) {
+                  const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: baseDraft[u.id] ?? 0 }) });
+                  if (res.ok) n++;
+                }
+              }
+              setMsg(n > 0 ? `Base salary updated for ${n} staff.` : "No changes to save.");
+              window.setTimeout(() => setMsg(""), 3500);
+              void load();
+            }}
+          >
+            Save base salaries
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">

@@ -1345,6 +1345,27 @@ export async function handleStaff(
     ).bind(month).all();
     return json({ month, entries: results });
   }
+  if (path === "/payroll/base" && method === "GET") {
+    // v1.4.78: fixed basic salaries — the source Payroll auto-fills from.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT id AS user_id, base_salary_cents FROM users
+       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1`,
+    ).all();
+    return json({ base: results });
+  }
+  if (path === "/payroll/base" && method === "POST") {
+    // Set / adjust one person's fixed basic (increments happen here).
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const uid = Number(body?.user_id);
+    const cents = Math.round(Number(body?.base_salary_cents));
+    if (!uid || !Number.isFinite(cents) || cents < 0 || cents > 100000000) {
+      return err("invalid_input", "user_id and a non-negative base_salary_cents are required", 400);
+    }
+    await env.DB.prepare(`UPDATE users SET base_salary_cents = ?1 WHERE id = ?2`).bind(cents, uid).run();
+    await audit(env, user.id, "payroll.base_update", "users", String(uid), { base_salary_cents: cents });
+    return json({ ok: true });
+  }
   if (path === "/payroll/attendance-days" && method === "GET") {
     // v1.4.77: auto-calculation source — how many distinct days each staff
     // member clocked in during the month (MYT dates). Payroll fills the

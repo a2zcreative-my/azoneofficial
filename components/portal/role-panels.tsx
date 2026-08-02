@@ -1120,6 +1120,8 @@ export function AttendanceAdminPanel() {
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
   // v1.4.74: sort the corrections table — newest first (default) or by name.
   const [sortBy, setSortBy] = useState<"time" | "az" | "za">("time");
+  // v1.4.78: find one specific staff member instead of scanning the full list.
+  const [filterId, setFilterId] = useState(0);
 
   const load = useCallback(async () => {
     const [r, u] = await Promise.all([
@@ -1182,7 +1184,13 @@ export function AttendanceAdminPanel() {
           }, "Record added.")}>
           Add
         </button>
-        <select className={inputClass} style={{ maxWidth: "11rem", marginLeft: "auto" }} value={sortBy}
+        <select className={inputClass} style={{ maxWidth: "13rem", marginLeft: "auto" }} value={filterId}
+          title="Show one staff member's records only"
+          onChange={(e) => setFilterId(Number(e.target.value))}>
+          <option value={0}>Find staff: everyone</option>
+          {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <select className={inputClass} style={{ maxWidth: "11rem" }} value={sortBy}
           title="Sort records" onChange={(e) => setSortBy(e.target.value as "time" | "az" | "za")}>
           <option value="time">Sort: Time (default)</option>
           <option value="az">Sort: Name A–Z</option>
@@ -1208,13 +1216,18 @@ export function AttendanceAdminPanel() {
             {rows.length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records this month.</td></tr>
             )}
-            {(sortBy === "time"
-              ? rows
-              : [...rows].sort((a, b) => {
+            {rows.length > 0 && filterId !== 0 && rows.filter((r) => r.user_id === filterId).length === 0 && (
+              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records for this staff member this month.</td></tr>
+            )}
+            {(() => {
+              const visible = filterId === 0 ? rows : rows.filter((r) => r.user_id === filterId);
+              return sortBy === "time"
+                ? visible
+                : [...visible].sort((a, b) => {
                   const cmp = (a.name ?? "").localeCompare(b.name ?? "");
                   return (sortBy === "az" ? cmp : -cmp) || a.created_at.localeCompare(b.created_at);
-                })
-            ).map((r) => (
+                });
+            })().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{r.name}</td>
                 <td className={td}>{r.type === "clock_in" ? "In" : "Out"}</td>

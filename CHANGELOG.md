@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.78] — 2026-08-02 — Fixed base salaries (no more monthly retyping) · staff finder on attendance
+
+### Added
+- **Base salaries** (migration **0027**: `users.base_salary_cents`): each staff member now has a fixed monthly basic. Every new payroll month **auto-fills Basic from it** — nothing to retype. A **"Base salaries"** button in Payroll opens the editor (one RM figure per person, Save writes only what changed, audited `payroll.base_update`). **Increments happen there**: change the figure once and it applies from the next unsaved month onward — months already saved keep exactly what was saved (history never rewrites itself). Any single month can still be overridden by editing Basic in the table as before (prorating, unpaid days, etc.)
+- **"Find staff" filter** on both attendance views: the corrections & back-entry table gains a staff dropdown (from the same list as Add record) showing one person's punches only, with a clear "no records this month" line; the Team report gains the same filter built from the month's names. Both combine with the existing A–Z sort — pick a person, see their whole month in seconds
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0027**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then open Payroll → Base salaries and enter each person's fixed basic once
+
+
 ## [1.4.77] — 2026-08-02 — Payroll days auto-calculated from clock-ins · Attendance redesigned · Details toggle right-aligned
 
 ### Added
