@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.115] — 2026-08-02 — THE receipt bug, found and fixed
+
+### Fixed (root cause of every failed receipt upload)
+- `handleStaff` JSON-parses every POST body **except** the binary `/photo` route. The receipt route ends `/receipt`, so `request.json()` ran on the **binary image** first — the parse error was swallowed, but the read **consumed the request stream**, so the R2 upload received a disturbed/empty body and failed **every single time**, for every file, at any size. The `/receipt` route is now excluded from JSON pre-parsing exactly like `/photo`, and the handler explicitly refuses an empty body
+- This was never a size problem and never a migration problem — my earlier diagnoses were wrong on this point, and the size popup/limits from v1.4.110 remain as genuine safeguards, but the upload itself was broken at the stream level since the claims module shipped. It works now: choose the file (via the form, Edit, or 📎 Attach receipt) and it lands in R2, ticks the ☑ checkbox, and prints on the form
+
+### Deploy
+- `npx wrangler deploy` → hard refresh (worker-only fix; run migrations 0037+0038 first if not yet applied — they're still required for the expenses/claims features)
+
+
 ## [1.4.114] — 2026-08-02 — Why the tab looked empty: unapplied migrations. Hardened + one-tap receipt attach
 
 ### Root cause (both complaints, one cause)

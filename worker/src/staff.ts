@@ -263,8 +263,11 @@ export async function handleStaff(
   const method = request.method;
   // The photo route carries a binary body — JSON-parsing it would consume the
   // stream, so it is excluded here and reads request.body directly.
+  // v1.4.115: /receipt carries a binary body exactly like /photo — JSON-parsing
+  // it consumed the stream, which is why every claim receipt upload failed
+  // (the R2 put received a disturbed body). Both binary routes are excluded.
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -1029,6 +1032,7 @@ export async function handleStaff(
     if (lenR > 8 * 1024 * 1024) {
       return err("too_large", "Receipt too large — maximum 8 MB. Tip: send the photo to yourself on WhatsApp, save it back from the chat (WhatsApp compresses it), then upload that copy.", 413);
     }
+    if (!request.body) return err("invalid_input", "Receipt body required", 400);
     const key = `claims/${clMatch[1]}-${Date.now()}`;
     await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
     await env.DB.prepare(`UPDATE claims SET receipt_key = ?1 WHERE id = ?2`).bind(key, clMatch[1]).run();
