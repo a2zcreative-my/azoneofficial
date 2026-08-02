@@ -941,17 +941,46 @@ export async function handleStaff(
        WHERE order_ref LIKE 'TT-%' AND status != 'returned'
          AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
     ).bind(m).first<{ cents: number; orders: number }>();
+    // v1.4.90: invoiced revenue counts on a PAYMENT-RECEIVED basis — paid
+    // invoices, in the month the payment landed (bank transfer etc.). Billed
+    // but unpaid invoices are shown separately as outstanding.
     const invoiced = (m: string) => env.DB.prepare(
       `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
-       FROM sales_documents WHERE doc_type = 'INV'
-         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'
+         AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = ?1`,
     ).bind(m).first<{ cents: number; docs: number }>();
-    const [tThis, tLast, iThis, iLast] = await Promise.all([tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth)]);
+    const outstanding = env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status != 'paid'`,
+    ).first<{ cents: number; docs: number }>();
+    const target = env.DB.prepare(
+      `SELECT target_cents FROM sales_targets WHERE month = ?1`,
+    ).bind(month).first<{ target_cents: number }>();
+    const [tThis, tLast, iThis, iLast, out, tgt] = await Promise.all([
+      tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding, target,
+    ]);
     return json({
       month, last_month: lastMonth,
       tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
       invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
+      outstanding: { cents: out?.cents ?? 0, docs: out?.docs ?? 0 },
+      target_cents: tgt?.target_cents ?? null,
     });
+  }
+  if (path === "/revenue/target" && method === "POST") {
+    // v1.4.90: monthly sales KPI target — leadership only.
+    if (!["super_admin", "admin", "ceo", "coo"].includes(user.role)) {
+      return err("forbidden", "Only the CEO/COO set sales targets", 403);
+    }
+    const mT = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    const cT = Math.round(Number(body?.target_cents));
+    if (!mT || !Number.isFinite(cT) || cT < 0) return err("invalid_input", "month (YYYY-MM) and target_cents required", 400);
+    await env.DB.prepare(
+      `INSERT INTO sales_targets (month, target_cents, set_by) VALUES (?1, ?2, ?3)
+       ON CONFLICT(month) DO UPDATE SET target_cents = ?2, set_by = ?3`,
+    ).bind(mT, cT, user.id).run();
+    await audit(env, user.id, "revenue.target_set", "sales_targets", mT, { target_cents: cT });
+    return json({ ok: true });
   }
 
   /* ---- tasks ---- */
@@ -1150,8 +1179,22 @@ export async function handleStaff(
       if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
       const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
       if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
-      await env.DB.prepare(`UPDATE sales_documents SET payment_status = ?1 WHERE id = ?2`)
-        .bind(body!.payment_status, id).run();
+      // v1.4.90: paid = payment received — record method (bank transfer),
+      // optional reference, and the moment. Revenue counts from paid_at.
+      if (body!.payment_status === "paid") {
+        const methods = ["bank_transfer", "cash", "cheque", "other"];
+        const methodP = typeof body!.payment_method === "string" && methods.includes(body!.payment_method)
+          ? (body!.payment_method as string) : "bank_transfer";
+        const refP = typeof body!.payment_ref === "string" ? body!.payment_ref.slice(0, 120) : null;
+        await env.DB.prepare(
+          `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2,
+           paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?3`,
+        ).bind(methodP, refP, id).run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE sales_documents SET payment_status = ?1, payment_method = NULL, payment_ref = NULL, paid_at = NULL WHERE id = ?2`,
+        ).bind(body!.payment_status, id).run();
+      }
     } else if (doc.doc_type === "DO") {
       if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
       const ok = typeof body?.delivery_status === "string" && ["pending", "delivered"].includes(body.delivery_status);

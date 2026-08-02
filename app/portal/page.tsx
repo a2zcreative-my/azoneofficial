@@ -293,7 +293,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
       </div>
 
-      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
+      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
 
       <UpcomingEventsCard role={user.role} />
     </div>
@@ -308,16 +308,19 @@ interface RevenueData {
   month: string;
   last_month: string;
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
-  invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };
+  invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };  outstanding?: { cents: number; docs: number };
+  target_cents?: number | null;
 }
 
 /** Sales revenue at a glance — TikTok order amounts (captured by the sync)
     plus invoices issued, this month vs last. */
-function SalesRevenueCard() {
+function SalesRevenueCard({ role }: { role?: string }) {
   const [rev, setRev] = useState<RevenueData | null>(null);
-  useEffect(() => {
+  const loadRev = useCallback(() => {
     void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
   }, []);
+  useEffect(() => { loadRev(); }, [loadRev]);
+  const canTarget = ["super_admin", "admin", "ceo", "coo"].includes(role ?? "");
   if (!rev) return null;
   const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const total = rev.tiktok.this_cents + rev.invoiced.this_cents;
@@ -334,13 +337,46 @@ function SalesRevenueCard() {
     <div className={card}>
       <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        TikTok figures come from synced order amounts (returned orders excluded);
-        invoiced figures from INV documents in the Sales module.
+        TikTok figures from synced order amounts (returned orders excluded).
+        Invoiced figures count PAYMENTS RECEIVED (paid invoices, e.g. bank
+        transfer, in the month the payment landed) — comparable with Expenses.
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
-        {box("Invoiced", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} invoices · last month ${rm(rev.invoiced.last_cents)}`)}
+        {box("Invoiced (paid)", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`)}
         {box("Total", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
+      </div>
+      <div className="border-border mt-3 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold tracking-wide uppercase">🎯 Monthly sales target (KPI)</p>
+          {canTarget && (
+            <button type="button" className="text-xs underline"
+              onClick={async () => {
+                const v = window.prompt(`Sales target for ${rev.month} (RM):`, rev.target_cents ? String(rev.target_cents / 100) : "");
+                if (v === null || !Number(v)) return;
+                await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(Number(v) * 100) }) });
+                loadRev();
+              }}>
+              {rev.target_cents ? "Edit target" : "Set target"}
+            </button>
+          )}
+        </div>
+        {rev.target_cents ? (() => {
+          const pct = Math.min(100, Math.round((total / rev.target_cents) * 100));
+          return (
+            <>
+              <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-secondary">
+                <div className={`h-full rounded-full ${pct >= 100 ? "bg-green-600" : "bg-[#C9A227]"}`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                <span className="text-foreground font-semibold">{pct}%</span> of {rm(rev.target_cents)} achieved
+                {" "}({rm(total)}{pct >= 100 ? " — 🎉 target hit!" : ` · ${rm(Math.max(0, rev.target_cents - total))} to go`})
+              </p>
+            </>
+          );
+        })() : (
+          <p className="text-muted-foreground mt-1 text-xs">No target set for this month yet.</p>
+        )}
       </div>
     </div>
   );
@@ -1148,55 +1184,160 @@ interface DocItem { name: string; qty: number; unit_price_cents: number }
 
 /** Fetch a full document and open a branded, print-ready PDF window. */
 async function printDoc(id: number) {
+  // v1.4.90: branded AZOO template for QT / DO / INV — navy + gold, doc-type
+  // specific blocks (validity & acceptance for QT, received-in-good-order for
+  // DO, payment details + PAID stamp for INV). Mobile-friendly: responsive
+  // viewport for on-phone viewing, strict A4 when printed / saved to PDF.
   const res = await fetch(`/api/v1/staff/docs/${id}`, { credentials: "include" });
   if (!res.ok) return;
   const { doc } = (await res.json()) as { doc: DocFull };
   const items: { name: string; qty: number; unit_price_cents: number }[] = (() => {
     try { return JSON.parse(doc.items); } catch { return []; }
   })();
-  const rm = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const title = { QT: "QUOTATION", DO: "DELIVERY ORDER", INV: "INVOICE" }[doc.doc_type] ?? doc.doc_type;
-  const rows = items.map((it) =>
-    `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${it.name}</td>
-     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${it.qty}</td>
-     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rm(it.unit_price_cents)}</td>
-     <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rm(it.qty * it.unit_price_cents)}</td></tr>`).join("");
-  const w = window.open("", "_blank", "width=800,height=1000");
+  const subtotal = items.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
+  const taxAmt = Math.round((subtotal - (doc.discount_cents ?? 0)) * ((doc.tax_percent ?? 0) / 100));
+  const rows = items.map((it, i) =>
+    `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${it.name}</td>
+      <td class="c">${it.qty}</td>
+      <td class="r">${rm(it.unit_price_cents)}</td>
+      <td class="r">${rm(it.qty * it.unit_price_cents)}</td>
+    </tr>`).join("");
+  const isPaid = doc.doc_type === "INV" && doc.payment_status === "paid";
+  const metaRows = [
+    ["No.", doc.doc_number],
+    ["Date", dmy(doc.created_at)],
+    ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dmy(doc.valid_until)]] : []),
+    ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dmy(doc.due_date)]] : []),
+    ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
+  ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
+
+  const bottom = doc.doc_type === "INV"
+    ? `<div class="split">
+         <div class="pay">
+           <p class="bt">PAYMENT DETAILS</p>
+           <p>Method : <strong>Bank transfer</strong></p>
+           <p>Bank &nbsp;&nbsp;&nbsp;: MAYBANK</p>
+           <p>Name &nbsp;&nbsp;: AZ ONE OFFICIAL</p>
+           <p class="tiny">Please send the transfer receipt via WhatsApp +60 12-383 4821 with the invoice number as reference.</p>
+           ${isPaid ? `<p class="paidline">✔ PAID${doc.paid_at ? " · " + dmy(doc.paid_at) : ""}${doc.payment_ref ? " · Ref: " + doc.payment_ref : ""}</p>` : ""}
+         </div>
+         <div class="sig"><div class="line"></div>Authorised signature<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+       </div>`
+    : doc.doc_type === "DO"
+      ? `<div class="split">
+           <div class="sig"><div class="line"></div>Delivered by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+           <div class="sig"><div class="line"></div>Received in good order<br/><span class="tiny">Name / Company chop &amp; date</span></div>
+         </div>`
+      : `<div class="split">
+           <div class="pay">
+             <p class="bt">TERMS</p>
+             <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dmy(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
+           </div>
+           <div class="split2">
+             <div class="sig"><div class="line"></div>Prepared by<br/><span class="tiny">AZ ONE OFFICIAL</span></div>
+             <div class="sig"><div class="line"></div>Accepted by<br/><span class="tiny">Signature, company chop &amp; date</span></div>
+           </div>
+         </div>`;
+
+  const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${doc.doc_number}</title>
-  <style>@page{size:A4;margin:16mm}body{font-family:Arial,Helvetica,sans-serif;color:#1a2946;font-size:12px}
-  .hd{display:flex;justify-content:space-between;border-bottom:2px solid #1a2946;padding-bottom:10px}
-  .brand{font-size:15px;font-weight:800}.brand small{display:block;font-size:8px;letter-spacing:.3em;color:#b8912f}
-  .doc{text-align:right}.doc h2{margin:0;font-size:18px;letter-spacing:.05em}
-  table{width:100%;border-collapse:collapse;margin-top:16px}
-  th{background:#1a2946;color:#fff;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase}
-  .tot{margin-top:10px;width:100%;text-align:right}.tot td{padding:3px 8px}
-  .party{margin-top:16px;color:#5b6472}.foot{margin-top:28px;font-size:9px;color:#8a93a6;border-top:1px solid #eee;padding-top:8px}</style>
-  </head><body onload="window.print()">
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${doc.doc_number}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
+    .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
+    .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }
+    .brand small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    .brand .addr { font-size: 9.5px; color: #5b6472; font-weight: 400; letter-spacing: 0; margin-top: 6px; line-height: 1.5; }
+    .docbox { text-align: right; min-width: 200px; }
+    .docbox h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: .12em; color: #1a2946; }
+    .meta { border-collapse: collapse; margin-left: auto; }
+    .meta td { padding: 2px 0 2px 12px; font-size: 11px; text-align: right; }
+    .meta .mk { color: #8a93a6; text-transform: uppercase; font-size: 9px; letter-spacing: .08em; }
+    .meta .mv { font-weight: 700; }
+    .parties { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .party { flex: 1; min-width: 220px; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 6px; padding: 10px 12px; }
+    .party .bt { margin: 0 0 4px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
+    .party p { margin: 2px 0; }
+    .party .co { font-weight: 800; font-size: 13px; }
+    table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    .items th { background: #1a2946; color: #fff; padding: 7px 9px; text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
+    .items th.c, .items td.c { text-align: center; width: 8%; }
+    .items th.r, .items td.r { text-align: right; }
+    .items td { padding: 7px 9px; border-bottom: 1px solid #e8ebf1; }
+    .items tr:nth-child(even) td { background: #fafbfd; }
+    .totwrap { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .tot { width: 260px; border-collapse: collapse; }
+    .tot td { padding: 4px 10px; font-size: 12px; }
+    .tot td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; font-size: 14px; padding: 8px 10px; }
+    .tot tr.grand td:first-child { border-radius: 6px 0 0 6px; } .tot tr.grand td:last-child { border-radius: 0 6px 6px 0; }
+    .split { display: flex; gap: 16px; margin-top: 26px; justify-content: space-between; flex-wrap: wrap; align-items: flex-end; }
+    .split2 { display: flex; gap: 16px; flex: 1; justify-content: flex-end; flex-wrap: wrap; }
+    .pay { background: #f6f7fa; border-radius: 6px; padding: 10px 12px; max-width: 320px; }
+    .pay p { margin: 2px 0; }
+    .pay .bt { font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
+    .paidline { color: #15803d; font-weight: 800; margin-top: 6px !important; }
+    .sig { text-align: center; min-width: 180px; font-size: 10.5px; }
+    .sig .line { border-bottom: 1px solid #1a2946; height: 44px; margin-bottom: 5px; }
+    .tiny { font-size: 9px; color: #8a93a6; }
+    .foot { margin-top: 26px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
+    .notes { margin-top: 12px; font-size: 11px; color: #5b6472; white-space: pre-wrap; }
+    .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d; color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
+    @media print { body { padding: 0; } }
+  </style></head><body onload="window.print()">
+  ${isPaid ? '<div class="stamp">PAID</div>' : ""}
+  <div class="goldbar"></div>
   <div class="hd">
-    <div class="brand">AZ ONE OFFICIAL<small>LIVE COMMERCE AGENCY</small></div>
-    <div class="doc"><h2>${title}</h2><div>${doc.doc_number}</div>
-      <div style="color:#5b6472">${dmy(doc.created_at)}</div></div>
+    <div class="brand">AZ ONE OFFICIAL
+      <small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
+      <div class="addr">Live Commerce Agency · SSM 202603168673 (JM1046169-H)<br/>
+      Setia Tropika, Johor Bahru, Johor, Malaysia<br/>
+      admin@azoneofficial.com · WhatsApp +60 12-383 4821</div>
+    </div>
+    <div class="docbox"><h2>${title}</h2><table class="meta">${metaRows}</table></div>
   </div>
-  <div class="party"><strong>To:</strong> ${doc.company}${doc.contact_person ? " · " + doc.contact_person : ""}<br/>
-    ${doc.address ?? ""}${doc.customer_phone ? "<br/>" + doc.customer_phone : ""}</div>
-  <table><thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Amount</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="4" style="padding:8px;color:#999">No line items</td></tr>'}</tbody></table>
-  <table class="tot">
-    ${doc.discount_cents ? `<tr><td>Discount</td><td>- ${rm(doc.discount_cents)}</td></tr>` : ""}
-    ${doc.tax_percent ? `<tr><td>Tax</td><td>${doc.tax_percent}%</td></tr>` : ""}
-    <tr><td style="font-weight:800;font-size:14px">TOTAL</td><td style="font-weight:800;font-size:14px">${rm(doc.total_cents)}</td></tr>
+  <div class="parties">
+    <div class="party">
+      <p class="bt">${doc.doc_type === "DO" ? "DELIVER TO" : "BILL TO"}</p>
+      <p class="co">${doc.company}</p>
+      ${doc.contact_person ? `<p>${doc.contact_person}</p>` : ""}
+      ${doc.address ? `<p>${doc.address}</p>` : ""}
+      ${doc.customer_phone ? `<p>${doc.customer_phone}</p>` : ""}
+      ${doc.customer_email ? `<p>${doc.customer_email}</p>` : ""}
+    </div>
+  </div>
+  <table class="items">
+    <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" style="padding:10px;color:#999">No line items</td></tr>'}</tbody>
   </table>
-  ${doc.notes ? `<p class="party">${doc.notes}</p>` : ""}
-  <div class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · azoneofficial.com · WhatsApp +60 12-383 4821${doc.doc_type === "INV" && doc.due_date ? " · Due: " + doc.due_date : ""}</div>
+  <div class="totwrap"><table class="tot">
+    <tr><td>Subtotal</td><td>${rm(subtotal)}</td></tr>
+    ${doc.discount_cents ? `<tr><td>Discount</td><td>− ${rm(doc.discount_cents)}</td></tr>` : ""}
+    ${doc.tax_percent ? `<tr><td>Tax (${doc.tax_percent}%)</td><td>${rm(taxAmt)}</td></tr>` : ""}
+    <tr class="grand"><td>TOTAL</td><td>${rm(doc.total_cents)}</td></tr>
+  </table></div>
+  ${doc.notes ? `<p class="notes">${doc.notes}</p>` : ""}
+  ${bottom}
+  <div class="foot">AZ ONE OFFICIAL · Empowering Brands Through Live Commerce and Digital Connections · azoneofficial.com<br/>
+  This is a computer-generated document; no signature is required unless indicated above.</div>
   </body></html>`);
   w.document.close();
 }
 
 interface DocFull {
   doc_type: string; doc_number: string; company: string; contact_person?: string;
-  address?: string; customer_phone?: string; items: string; discount_cents: number;
-  tax_percent: number; total_cents: number; notes?: string; due_date?: string; created_at: string;
+  address?: string; customer_phone?: string; customer_email?: string; items: string; discount_cents: number;
+  tax_percent: number; total_cents: number; notes?: string; due_date?: string; valid_until?: string; created_at: string;
+  payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
 }
 
 function Sales({ user }: { user: User }) {
@@ -1228,8 +1369,12 @@ function Sales({ user }: { user: User }) {
     setDoc({ doc_type: "QT", customer_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0 });
     void load();
   };
-  const setStatus = async (d: SalesDoc, value: string) => {
-    const body = d.doc_type === "INV" ? { payment_status: value } : { delivery_status: value };
+  const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
+    const body = d.doc_type === "INV"
+      ? value === "paid"
+        ? { payment_status: "paid", payment_method: "bank_transfer", payment_ref: paymentRef || undefined }
+        : { payment_status: value }
+      : { delivery_status: value };
     await api(`/staff/docs/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
     void load();
   };
@@ -1315,8 +1460,24 @@ function Sales({ user }: { user: User }) {
               <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
               <span className="text-muted-foreground"> · {dmy(d.created_at)}</span>
             </span>
+            {d.doc_type === "INV" && (d as SalesDoc & { payment_status?: string; payment_ref?: string | null; paid_at?: string | null }).payment_status === "paid" && (
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+                title={`Payment received${(d as SalesDoc & { paid_at?: string | null }).paid_at ? " " + dmy((d as SalesDoc & { paid_at?: string | null }).paid_at!) : ""}${(d as SalesDoc & { payment_ref?: string | null }).payment_ref ? " · Ref " + (d as SalesDoc & { payment_ref?: string | null }).payment_ref : ""}`}>
+                PAID · bank transfer
+              </span>
+            )}
             {d.doc_type === "INV" && canInvoice && (
-              <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs" value={d.payment_status ?? "unpaid"} onChange={(e) => void setStatus(d, e.target.value)}>
+              <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs" value={d.payment_status ?? "unpaid"}
+                title="Mark paid when the bank transfer lands — revenue counts payments received"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "paid") {
+                    const ref = window.prompt("Payment received — bank transfer reference (optional):", "") ?? undefined;
+                    void setStatus(d, "paid", ref);
+                  } else {
+                    void setStatus(d, v);
+                  }
+                }}>
                 {["unpaid", "paid", "overdue"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
               </select>
             )}

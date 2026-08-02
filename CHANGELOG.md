@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.90] — 2026-08-02 — Invoice payments (bank transfer) · true sales figure + KPI target · branded QT/DO/INV templates
+
+### Added (migration **0034**: `payment_method`, `payment_ref`, `paid_at` on sales_documents + `sales_targets`)
+- **Payment received, recorded properly**: marking an invoice **paid** now asks for the bank-transfer reference (optional), stamps method = bank transfer + the payment moment, and shows a green **PAID · bank transfer** chip on the document (hover for date + reference). Reverting to unpaid clears all of it
+- **The correct sales figure**: the revenue card's Invoiced box now counts **payments received** — paid invoices, in the month the transfer landed — labelled "Invoiced (paid)", with **outstanding** (billed, unpaid) shown alongside. TikTok + paid invoices = a Total that is genuinely comparable with the Expenses tab, cash against cash
+- **KPI sales target**: CEO/COO set a monthly target on the revenue card ("Set target" → RM figure, audited); everyone with revenue access sees a gold progress bar — % achieved, RM to go, green + 🎉 at 100%
+- **Branded documents**: QT / DO / INV all print on a redesigned AZOO template — gold accent bar, navy header with tagline + SSM + Setia Tropika address + contact, doc meta box, gold-edged BILL TO / DELIVER TO card, striped item table with navy TOTAL band, and per-type blocks: **QT** validity + terms + Prepared/Accepted-by signature lines; **DO** Delivered-by / Received-in-good-order signatures; **INV** payment-details box (Bank transfer · MAYBANK · AZ ONE OFFICIAL, receipt-via-WhatsApp note) and a diagonal green **PAID** stamp once paid. Mobile-friendly: responsive on the phone screen, strict A4 when printed or saved to PDF — the PDF button works from the phone's share/print sheet
+- Note for the CEO: the invoice payment box prints the bank + account name but **no account number yet** — send it over and it goes on the template
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0034**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
 ## [1.4.89] — 2026-08-02 — Payroll & payslip calendars follow the payroll cycle
 
 ### Changed
