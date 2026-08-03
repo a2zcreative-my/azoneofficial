@@ -2586,18 +2586,18 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>cancel</button>
             </span>
           ) : c.payee_user_id === userId ? (
-            <p className="mt-1 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-950/30 dark:text-green-300">
+            <p className="mt-1 rounded-lg border border-green-300 bg-green-100 px-2 py-1 text-xs font-semibold text-green-900">
               💰 This claim was raised on your behalf by {properName(c.claimant_full || c.claimant || "")} — the payment comes to YOU once the CEO approves. Follow the status chip above.
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
             </p>
           ) : c.payee_name ? (
-            <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+            <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
               title="Internal remark for the CEO (payment) and HR (records) — not printed on the claim form">
               💰 Pay this claim to: {properName(c.payee_full || c.payee_name)}
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
             </p>
           ) : canPayee && (
-            <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+            <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
               title="No separate payee set — the payment goes to whoever submitted the claim">
               💰 Pay to: {properName(c.claimant_full || c.claimant || "")} (the submitter — no separate payee)
               <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>✎ set payee</button>

@@ -464,6 +464,10 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { s
     ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
     ra?.state ??
     ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
+    // v1.4.179: district level, then ANY named area level — still an area,
+    // never the street address (privacy rule unchanged).
+    ra?.district_info?.find((d) => /district|daerah/i.test(d.address_level_name ?? ""))?.address_name ??
+    ra?.district_info?.find((d) => (d.address_name ?? "").trim() !== "")?.address_name ??
     null
   )?.slice(0, 80) ?? null;
   return { items: groupLineItems(order?.line_items ?? []), city };
@@ -778,6 +782,12 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
       ra?.state ??
       ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
+      // v1.4.179 (CEO: "why there is a missing location?"): some orders carry
+      // neither a flat city nor a state — fall through to the district level,
+      // then to ANY named area level TikTok sent. Still an area, never the
+      // street address (privacy rule unchanged).
+      ra?.district_info?.find((d) => /district|daerah/i.test(d.address_level_name ?? ""))?.address_name ??
+      ra?.district_info?.find((d) => (d.address_name ?? "").trim() !== "")?.address_name ??
       null
     )?.slice(0, 80) ?? null;
     // v1.4.75: order amount in cents for the revenue dashboard. TikTok sends

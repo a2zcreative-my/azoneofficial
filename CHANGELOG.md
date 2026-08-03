@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.179] — 2026-08-03 — Weekend OT all day · deeper order-location fallbacks
+
+### Added (per the CEO: "for OT there should be appear on Weekend … except of executive")
+- **Weekend OT**: Saturdays and Sundays (MYT) are rest days — any work IS overtime. OT in / OT out are now available ALL DAY on weekends, with no prior clock-in required (there is no normal shift to extend). Weekdays keep the original rule: window from 18:00 MYT after a clocked-in day. Executives (CEO/COO/CCO + admin tier) and part-time staff remain excluded on every day. Dashboard shows the OT buttons all day on weekends with a helper note: "Weekend: the whole day counts as overtime — no normal clock-in needed."
+
+### Fixed ("why there is a missing location?")
+- Some TikTok orders carry neither a flat `city` nor a `state` in their recipient data — those rows showed no 📍 at all. The extraction now falls further: district level (daerah), then ANY named area level TikTok sent. Still an area only, never the street address (privacy rule unchanged). Applies to both the sync and webhook paths; the sync's refresh pass backfills existing orders on the next "Sync from TikTok", so the missing 📍 on TT-…450950 should fill itself if TikTok provides any area level for it.
+
+## [1.4.178] — 2026-08-03 — Readable callouts: monitor strips + payee banners
+
+### Fixed (CEO's screenshot: "the color cant be seen")
+- The monitor's amber/blue callout strips (and the claims payee banners) used pastel `-50` backgrounds with `dark:` variants. On a device with system dark mode active, the dark variants fired over the light card — dark translucent background + pale text = unreadable mud. Restyled to the same treatment as the chips in the card (which read perfectly in the same screenshot): solid `-100` background, `-900` text, visible border, semibold — one look on every device and theme. Applies to: "⚠ Not clocked in", "⏳ Past 18:00 with no clock-out yet", and the 💰 payee banners (amber pay-to, green pays-to-you) in Claims.
+
 ## [1.4.177] — 2026-08-03 — HOTFIX: attendance monitor showed everyone as not clocked in
 
 ### Fixed (CEO's screenshot: monitor claimed nobody clocked in despite real punches today)

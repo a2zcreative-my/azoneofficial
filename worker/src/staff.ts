@@ -634,23 +634,31 @@ export async function handleStaff(
     if (me?.employment_status === "part_time") {
       return err("not_eligible", "Part-time staff are not eligible for OT punches.", 403);
     }
-    // Time gate: OT window opens at 18:00 MYT.
+    /* v1.4.179 (CEO: "for OT there should be appear on Weekend … except of
+       executive"): WEEKENDS (Sat/Sun MYT) are rest days — any work IS
+       overtime, so OT punches are open ALL DAY and need no prior clock-in
+       (there is no normal shift to extend). WEEKDAYS keep the original
+       rule: window from 18:00 MYT, after a clocked-in working day. The
+       executive/part-time exclusions above apply on every day. */
     const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const isWeekendOT = [0, 6].includes(mytNow.getUTCDay());
     const nowMins = mytNow.getUTCHours() * 60 + mytNow.getUTCMinutes();
-    if (nowMins < 18 * 60) {
-      return err("too_early", "Overtime punches open at 18:00 MYT, after the normal shift ends.", 400);
+    if (!isWeekendOT && nowMins < 18 * 60) {
+      return err("too_early", "Overtime punches open at 18:00 MYT, after the normal shift ends. (Weekends: OT is open all day.)", 400);
     }
     const todayMYT = mytNow.toISOString().slice(0, 10);
-    // Must have clocked in today — OT extends a worked day.
-    const dayIn = await env.DB.prepare(
-      `SELECT id FROM attendance_records
-       WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
-    ).bind(user.id, todayMYT).first<{ id: number }>();
-    if (!dayIn) {
-      return json(
-        { error: { code: "no_clock_in", message: "No clock-in recorded today — overtime can only follow a worked day." } },
-        400,
-      );
+    if (!isWeekendOT) {
+      // Weekday OT extends a worked day — must have clocked in today.
+      const dayIn = await env.DB.prepare(
+        `SELECT id FROM attendance_records
+         WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
+      ).bind(user.id, todayMYT).first<{ id: number }>();
+      if (!dayIn) {
+        return json(
+          { error: { code: "no_clock_in", message: "No clock-in recorded today — weekday overtime can only follow a worked day." } },
+          400,
+        );
+      }
     }
     try {
       if (body.type === "ot_out") {

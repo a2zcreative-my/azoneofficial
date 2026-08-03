@@ -298,10 +298,13 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const hasOut = today.some((r) => r.type === "clock_out");
   const hasOtIn = todayOt.some((r) => r.type === "ot_in");
   const hasOtOut = todayOt.some((r) => r.type === "ot_out");
-  // OT buttons: eligible staff only (not part-time live hosts), from 18:00 MYT.
-  // Also kept visible after a punch exists so a recorded OT day never "loses"
-  // its buttons to a clock edge case.
-  const showOt = otEligible && (nowMins >= 18 * 60 || todayOt.length > 0);
+  // OT buttons: eligible staff only (not part-time live hosts), from 18:00 MYT
+  // on weekdays. v1.4.179 (CEO): WEEKENDS are rest days — any work is OT, so
+  // the buttons show ALL DAY on Sat/Sun (executives stay excluded via
+  // ot_eligible). Also kept visible after a punch exists so a recorded OT day
+  // never "loses" its buttons to a clock edge case.
+  const isWeekendMYT = [0, 6].includes(new Date(Date.now() + 8 * 3600 * 1000).getUTCDay());
+  const showOt = otEligible && (isWeekendMYT || nowMins >= 18 * 60 || todayOt.length > 0);
 
   return (
     <div className="space-y-3 md:space-y-6">
@@ -336,7 +339,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
         {showOt && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            Working overtime today? OT in / OT out only with your Section HOD&apos;s approval — tap OT in when it starts and OT out when you finish.
+            Working overtime today? OT in / OT out only with your Section HOD&apos;s approval — tap OT in when it starts and OT out when you finish.{isWeekendMYT ? " Weekend: the whole day counts as overtime — no normal clock-in needed." : ""}
           </p>
         )}
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
@@ -1020,12 +1023,12 @@ function Attendance({ user }: { user: User }) {
               {isWeekend ? " Weekend — missing punches are normal." : ""}
             </p>
             {notIn.length > 0 && !isWeekend && (
-              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <p className="mt-2 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
                 ⚠ Not clocked in: {notIn.map((s) => firstName(s.name)).join(", ")}
               </p>
             )}
             {stillIn.length > 0 && afterShift && (
-              <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+              <p className="mt-2 rounded-lg border border-blue-300 bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-900">
                 ⏳ Past 18:00 with no clock-out yet: {stillIn.map((s) => firstName(s.name)).join(", ")}
               </p>
             )}
