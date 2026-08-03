@@ -606,10 +606,21 @@ export async function handleStaff(
   if (path === "/leave" && method === "GET") {
     const url = new URL(request.url);
     const all = url.searchParams.get("all") === "1" && can(user, "hr_manage");
+    // v1.4.134: identities + per-day sequence for the printable Leave
+    // Application Form (mirrors the claim form's data needs).
+    const LSEL = `SELECT l.*,
+        (SELECT COUNT(*) FROM leave_requests l2 WHERE date(l2.created_at) = date(l.created_at) AND l2.id <= l.id) AS day_seq,
+        u.name AS user_name, u.full_name AS user_full, u.position AS user_position, u.department AS user_department, u.role AS applicant_role,
+        hu.name AS hr_by_name, pu.name AS preapp_by_name, pu.full_name AS preapp_by_full, pu.role AS preapp_by_role,
+        fu.name AS final_by_name, fu.full_name AS final_by_full
+      FROM leave_requests l JOIN users u ON u.id = l.user_id
+      LEFT JOIN users hu ON hu.id = l.hr_by
+      LEFT JOIN users pu ON pu.id = l.preapp_by
+      LEFT JOIN users fu ON fu.id = l.final_by`;
     const { results } = await env.DB.prepare(
       all
-        ? `SELECT l.*, u.name AS user_name, u.role AS applicant_role FROM leave_requests l JOIN users u ON u.id = l.user_id ORDER BY l.created_at DESC LIMIT 200`
-        : `SELECT * FROM leave_requests WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 100`,
+        ? `${LSEL} ORDER BY l.created_at DESC LIMIT 200`
+        : `${LSEL} WHERE l.user_id = ?1 ORDER BY l.created_at DESC LIMIT 100`,
     ).bind(...(all ? [] : [user.id])).all();
     return json({ leave: results });
   }
@@ -855,7 +866,8 @@ export async function handleStaff(
                   (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS day_seq,
                   u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
                   u.department AS claimant_department, u.role AS claimant_role,
-                  d.name AS decided_by_name, d.full_name AS decided_by_full, hb.name AS hr_reviewed_by_name, pb.name AS pre_approved_by_name FROM claims c
+                  d.name AS decided_by_name, d.full_name AS decided_by_full, hb.name AS hr_reviewed_by_name,
+                  pb.name AS pre_approved_by_name, pb.full_name AS pre_approved_by_full, pb.role AS pre_approved_by_role FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
            LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by`;
     const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
@@ -962,6 +974,21 @@ export async function handleStaff(
       wasRejected ? "Resubmitted after rejection" : "Updated claim");
     await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
     return json({ ok: true, resubmitted: wasRejected });
+  }
+  const claimDel = path.match(/^\/claims\/(\d+)\/delete$/);
+  if (claimDel && method === "POST") {
+    // v1.4.133: the claimant can DELETE their own claim while it is still
+    // pending or rejected (not valid / submitted by mistake). Approved and
+    // paid claims are records — never deletable.
+    const rowD = await env.DB.prepare(`SELECT user_id, status, paid_at, receipt_key FROM claims WHERE id = ?1`)
+      .bind(claimDel[1]).first<{ user_id: number; status: string; paid_at: string | null; receipt_key: string | null }>();
+    if (!rowD) return err("not_found", "Claim not found", 404);
+    if (rowD.user_id !== user.id) return err("forbidden", "Not your claim", 403);
+    if (rowD.status === "approved" || rowD.paid_at) return err("invalid_state", "An approved or paid claim is a permanent record and cannot be deleted", 400);
+    if (rowD.receipt_key) { try { await env.MEDIA.delete(rowD.receipt_key); } catch { /* best effort */ } }
+    await env.DB.prepare(`DELETE FROM claims WHERE id = ?1`).bind(claimDel[1]).run();
+    await audit(env, user.id, "claim.delete", "claims", claimDel[1]!, { status: rowD.status });
+    return json({ ok: true });
   }
   const claimProof = path.match(/^\/claims\/(\d+)\/payment-proof$/);
   if (claimProof && method === "POST") {
@@ -1089,11 +1116,22 @@ export async function handleStaff(
   }
   if (clMatch && clMatch[2] === "/receipt" && method === "GET") {
     if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
-    const row = await env.DB.prepare(`SELECT user_id, status, receipt_key FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string; receipt_key: string | null }>();
+    const row = await env.DB.prepare(
+      `SELECT c.user_id, c.status, c.receipt_key, u.role AS claimant_role
+       FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
+    ).bind(clMatch[1]).first<{ user_id: number; status: string; receipt_key: string | null; claimant_role: string | null }>();
     if (!row?.receipt_key) return err("not_found", "No receipt attached", 404);
-    // v1.4.121: HR reads approved claims' receipts for compilation (read-only).
-    const hrHistory = user.role === "hr_admin" && row.status === "approved";
-    if (row.user_id !== user.id && !can(user, "claims_decide") && !hrHistory) return err("forbidden", "Not your claim", 403);
+    // v1.4.133: receipt visibility mirrors claim-list visibility — anyone who
+    // can see the claim (chain reviewers included) can open its receipt.
+    // Fixes the CCO's raw "Not your claim" 403 when opening a receipt link.
+    const STAFF_CHAIN_ROLES = ["marketing", "sales_marketing", "editor", "live_host"];
+    const canView =
+      row.user_id === user.id ||
+      can(user, "claims_decide") ||
+      (user.role === "hr_admin" && (row.status === "approved" || STAFF_CHAIN_ROLES.includes(row.claimant_role ?? ""))) ||
+      (["coo", "admin"].includes(user.role) && STAFF_CHAIN_ROLES.includes(row.claimant_role ?? "")) ||
+      (user.role === "cco" && row.claimant_role === "hr_admin");
+    if (!canView) return err("forbidden", "Not your claim", 403);
     const obj = await env.MEDIA.get(row.receipt_key);
     if (!obj) return err("not_found", "Receipt file missing", 404);
     return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });

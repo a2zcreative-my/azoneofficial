@@ -2,6 +2,61 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.136] — 2026-08-03 — Official signatures installed: CCO, HR Admin, Sales & Marketing
+
+### Added (assets)
+- The three uploaded company-stamped signatures are processed (near-white background made transparent, matching the CEO/COO treatment) and installed:
+  - `public/signatures/cco-sign.png` — **live immediately**: the CCO's pre-approval signature now prints on claim forms and Leave Application Forms wherever the CCO pre-approved (the code has referenced this path since v1.4.133/134 with a graceful fallback — the file's arrival completes it)
+  - `public/signatures/hr-admin-sign.png` and `public/signatures/sales-marketing-sign.png` — stored ready under the same naming scheme, not yet wired to any printed document (the claim/leave forms have no HR signature cell, and sales documents currently carry CEO/COO authority only)
+
+### Deploy
+- `pnpm build` → hard refresh (static assets ship with the build)
+
+
+## [1.4.135] — 2026-08-03 — Subheads above every placeholder field
+
+### Changed
+- **Placeholder-only inputs now carry a small subhead label above the box**, so the field's purpose stays visible after typing (a placeholder disappears the moment text is entered — that's why forms felt confusing once half-filled). Placeholders now show the FORMAT or an example instead of repeating the label. Applied to:
+  - **Add a staff member** (Staff tab): all 14 fields labeled — Company email, Full name (as per NRIC), Role, Employee ID, Position, Department, Birth date, ID issued on, Blood type, NRIC, Bank, Bank account no., Temp password, Staff photo — with example placeholders (e.g. AZOOM001, 970209-01-5183, DD-MM-YYYY)
+  - **Record expense** (Expenses tab): Expense date, Category, Amount (RM), Vendor, Description
+  - **Submit a claim**: Purpose gains its subhead (item fields already carry labels — the column header row on desktop, per-field labels on mobile since v1.4.132)
+- One shared visual: 11px muted label, half-line gap, above the control — consistent across the portal
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.134] — 2026-08-03 — Attendance "still in" vs "missing" · printable Leave Application Form
+
+### Fixed (My attendance)
+- The Out column no longer lumps everything into "still in / missing": with a clock-in and no clock-out it reads **"still in"** (normal mid-day state); **"missing"** (amber) shows only when there is genuinely **no clock-in data** for the day
+
+### Added — Leave Application Form (AZOO-HR-LVE-001)
+- Every leave request now has a **"Print form"** link producing a branded A4 form in the same layout language as the claim form, driven by the same chain flow leave already follows (HR review → COO/CCO pre-approve → CEO final):
+  - Header: Document No **AZOO-HR-LVE-001**, Leave No **LVE-AZOO{DDMMYY}-{running no.}**, submission date/time in **MYT**, employee, department, position, leave type, period, days, reason
+  - **System status** line (approved green / rejected red / pending with the current stage) plus the chain notes ("HR reviewed by … · Pre-approved by …", MYT-stamped)
+  - **Three signature cells, same rules as claims:** Employee auto-filled (name, e-signature "(submitted in system)", submission date), pre-approver's full name + signature (COO's PNG; CCO's once `cco-sign.png` is uploaded) + pre-approval date, CEO full name + signature + date on final approval — all aligned on the shared baselines, footer pinned to the A4 bottom, one page
+- Server: the leave list now carries the chain actors' identities and a per-day sequence for the numbering
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.133] — 2026-08-03 — Claim delete · new categories · all three signature cells filled · CCO receipt access fixed
+
+### Added
+- **Delete on invalid claims:** the claimant can delete their own claim while it's **pending or rejected** ("Delete" with a confirm dialog; the receipt file is removed too, audited `claim.delete`). Approved/paid claims are permanent records — the server refuses their deletion outright
+- **Claim categories:** += **client meeting** and **stationery**
+- **Employee cell now fills itself:** Name, an e-signature (the claimant's name in script with *"(submitted in system)"*), and Date = the submission date/time in MYT — the printed form no longer has an empty employee block for a claim the system itself recorded
+- **COO/CCO pre-approval cell fills on pre-approval:** the pre-approver's **full name** (uppercase), their **signature** (COO's PNG; CCO's loads from /signatures/cco-sign.png once you upload it — hidden gracefully until then), and the **pre-approval date/time in MYT**. Pending-chain claims keep the blank manual cell
+
+### Fixed
+- **The raw `{"error":"forbidden","message":"Not your claim"}` page** (Izzudin/CCO opening a receipt link): receipt visibility now mirrors claim-list visibility — anyone who can see the claim in their list (chain reviewers included: HR for staff-chain, COO for staff-chain, CCO for HR's claims) can open its receipt, instead of only claimant + CEO + HR
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Optional: upload CCO signature PNG to `public/signatures/cco-sign.png` (transparent, like the CEO/COO ones) for the CCO's pre-approval signature to print
+
+
 ## [1.4.132] — 2026-08-03 — Claims tab: proper mobile "app" layout
 
 ### Fixed

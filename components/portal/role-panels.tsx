@@ -1363,6 +1363,9 @@ interface Claim {
   claimant_department?: string | null;
   decided_by_name?: string | null;
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
+  pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
+  pre_approved_by_role?: string | null;
+  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -1370,7 +1373,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-  pre_approved_at?: string | null;
+
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -1477,6 +1480,8 @@ async function printClaimForm(c: Claim) {
     .sig .nm { min-height: 26px; }        /* room for two-line names — same in every cell */
     .sig .sg { height: 52px; }            /* signature zone identical across cells */
     .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
+    .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
+    .esub { display: block; font-size: 8px; color: #8a93a6; }
     .receiptwrap { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
@@ -1518,8 +1523,14 @@ async function printClaimForm(c: Claim) {
       <td class="hd2">Chief Executive Officer (CEO)</td>
     </tr>
     <tr>
-      <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div><div class="sg">Signature:</div><div class="dt">Date:</div></div></td>
-      <td class="body"><div class="cw"><div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div></div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
+        <div class="sg">Signature: <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span></div>
+        <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
+      <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
+        ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
+           <div class="sg">Signature:<img src="/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/></div>
+           <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
+        : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
         <div class="sg">Signature:${c.status === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
@@ -1531,7 +1542,7 @@ async function printClaimForm(c: Claim) {
   w.document.close();
 }
 
-const CLAIM_CATEGORIES = ["travel", "meal", "accommodation", "equipment", "medical", "other"] as const;
+const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "accommodation", "equipment", "medical", "other"] as const;
 
 /** Expense claims — CEO, COO, CCO and HR submit; per the CEO's instruction
     EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
@@ -1733,6 +1744,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
             <>
+              <button type="button" className="text-destructive underline" title="Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records"
+                onClick={async () => {
+                  if (!window.confirm(`Delete claim ${claimNoOf(c)} (RM ${(c.amount_cents / 100).toFixed(2)})? This cannot be undone.`)) return;
+                  const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                  if (r.ok) { showToast("Saved", `Claim ${claimNoOf(c)} deleted`); void load(); }
+                  else showToast("No changes", r.data?.error?.message ?? "Delete failed", "notice");
+                }}>
+                Delete
+              </button>
+              {" · "}
               <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
                 onClick={() => {
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
@@ -1854,8 +1875,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           Expense claims from CEO, COO, CCO and HR — every claim is approved or
           rejected by the CEO, who is notified the moment you submit.
         </p>
-        <input className="border-input bg-background mt-3 h-9 w-full rounded-lg border px-2 text-sm" placeholder="Purpose (shown on the printed form, optional)"
-          value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+        <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Purpose (shown on the printed form, optional)</span>
+        <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. Office pantry restock"
+          value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
         <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
           <span>Date</span><span>Category</span><span>Description</span><span>Amount (RM)</span><span />
         </div>
@@ -2089,20 +2111,25 @@ export function ExpensesPanel() {
             onChange={(e) => setMonth(e.target.value)} />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Expense date</span>
           <input type="date" className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" title="Expense date"
-            value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} />
+            value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} /></label>
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Category</span>
           <select className="border-input bg-background h-9 max-w-40 rounded-lg border px-2 text-sm capitalize" value={draft.category}
             onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
             {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          </select></label>
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Amount (RM)</span>
           <input type="number" min={0} step="0.01" className="border-input bg-background h-9 max-w-36 rounded-lg border px-2 text-sm" placeholder="Amount (RM)"
-            value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
-          <input className="border-input bg-background h-9 max-w-52 flex-1 rounded-lg border px-2 text-sm" placeholder="Vendor (optional)"
-            value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} />
+            value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
+          <label className="block max-w-52 flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Vendor (optional)</span>
+          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. TNB, Shopee"
+            value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} /></label>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input className="border-input bg-background h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder="What was this for? (optional)"
-            value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="block min-w-0 flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Description (optional)</span>
+          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="What was this for?"
+            value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
           <label className="flex items-center gap-1.5 text-sm whitespace-nowrap" title="A recurring expense reappears every month as due until you record it">
             <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
             Monthly recurring

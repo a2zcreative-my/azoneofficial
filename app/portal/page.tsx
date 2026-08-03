@@ -89,7 +89,13 @@ function fmtRM(cents: number) {
 interface Notification { id: number; kind: string; message: string; is_read: number; created_at: string }
 interface Task { id: number; title: string; priority: string; deadline: string | null; status: string; progress: number; assignee?: string }
 interface Announcement { id: number; title: string; body: string; category: string; created_at: string; acked: number }
-interface LeaveReq { id: number; type: string; start_date: string; end_date: string; days: number; status: string; stage?: string; applicant_role?: string; user_id?: number; user_name?: string; review_comment?: string | null }
+interface LeaveReq { id: number; type: string; start_date: string; end_date: string; days: number; status: string; stage?: string; applicant_role?: string; user_id?: number; user_name?: string; review_comment?: string | null;
+  // v1.4.134: printable Leave Application Form fields
+  reason?: string | null; created_at?: string; day_seq?: number | null;
+  user_full?: string | null; user_position?: string | null; user_department?: string | null;
+  hr_by_name?: string | null; hr_at?: string | null;
+  preapp_by_name?: string | null; preapp_by_full?: string | null; preapp_by_role?: string | null; preapp_at?: string | null;
+  final_by_name?: string | null; final_by_full?: string | null; final_at?: string | null }
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -907,7 +913,7 @@ function Attendance({ user }: { user: User }) {
                           {firstIn ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{mytTime(firstIn)}</span> : <span className="text-muted-foreground text-xs">—</span>}
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
-                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : <span className="text-muted-foreground text-xs">still in / missing</span>}
+                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : firstIn ? <span className="text-muted-foreground text-xs">still in</span> : <span className="text-xs font-medium text-amber-700">missing</span>}
                         </td>
                         <td className="px-2 py-1.5 font-medium whitespace-nowrap">{hrs ?? "—"}</td>
                       </tr>
@@ -997,6 +1003,98 @@ function canActOnStage(role: string, stage: string, applicantRole: string): bool
   return false;
 }
 
+/* v1.4.134: printable Leave Application Form — AZOO-HR-LVE-001, same flow
+   and layout language as the claim form: employee e-signature + submission
+   date, pre-approver name/signature/date, CEO full name + signature + date
+   on approval, MYT everywhere, footer pinned to the A4 bottom, one page. */
+function printLeaveForm(l: LeaveReq, meName: string) {
+  const w = window.open("", "_blank", "width=900,height=950");
+  if (!w) return;
+  const myt = (iso: string | null | undefined): string => {
+    if (!iso) return "";
+    if (iso.length <= 10) return dmy(iso);
+    const d = new Date(new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z")).getTime() + 8 * 3600 * 1000);
+    if (Number.isNaN(d.getTime())) return dmy(iso);
+    const i = d.toISOString();
+    return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
+  };
+  const cA = l.created_at ?? "";
+  const dd = cA.slice(0, 10);
+  const lvNo = `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
+  const stage = l.stage ?? l.status;
+  const applicant = (l.user_full || l.user_name || meName || "").toUpperCase();
+  const statusLine =
+    stage === "approved" ? `APPROVED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.final_at ? " on " + myt(l.final_at) + " MYT" : ""}`
+    : stage === "rejected" ? `REJECTED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.review_comment ? " · Note: " + l.review_comment : ""}`
+    : stage === "cancelled" ? "CANCELLED BY APPLICANT"
+    : `PENDING — ${stage === "applied" ? "awaiting HR review" : stage === "hr_reviewed" ? "HR ✓ — awaiting pre-approval" : "pre-approved — awaiting CEO"}`;
+  const chainNotes = [
+    l.hr_by_name ? `HR reviewed by ${l.hr_by_name}${l.hr_at ? " on " + myt(l.hr_at) + " MYT" : ""}` : "",
+    l.preapp_by_name ? `Pre-approved by ${l.preapp_by_name}${l.preapp_at ? " on " + myt(l.preapp_at) + " MYT" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+  w.document.open();
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  <title>${lvNo} — Leave Application Form</title>
+  <style>
+    @page { size: A4; margin: 9mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
+           display: flex; flex-direction: column; min-height: 274mm; }
+    h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
+    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 7px; }
+    table { width: 100%; border-collapse: collapse; }
+    .meta td { border: 1px solid #1a2946; padding: 4px 8px; }
+    .meta .k { background: #f2f4f8; font-weight: 700; width: 18%; }
+    .meta .v { width: 32%; }
+    .status { margin: 10px 0 6px; font-weight: 700; color: ${stage === "approved" ? "#166534" : stage === "rejected" ? "#b00020" : "#1a2946"}; }
+    .chain { margin: 0 0 8px; font-size: 10px; color: #555; }
+    .sig th { border: 1px solid #1a2946; background: #f2f4f8; padding: 5px 8px; text-align: left; }
+    .sig td.body { border: 1px solid #1a2946; padding: 6px 8px; height: 108px; vertical-align: top; }
+    .cw { display: flex; flex-direction: column; height: 100%; }
+    .nm { min-height: 26px; }
+    .sg { height: 52px; }
+    .dt { margin-top: auto; }
+    .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
+    .esub { display: block; font-size: 8px; color: #8a93a6; }
+    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; }
+  </style></head><body>
+  <div class="goldbar"></div>
+  <h1>AZ ONE OFFICIAL<small>LIVE · CONNECT · GROW</small></h1>
+  <h2>Leave Application Form</h2>
+  <table class="meta">
+    <tr><td class="k">Document No.</td><td class="v">AZOO-HR-LVE-001</td><td class="k">Version</td><td class="v">001</td></tr>
+    <tr><td class="k">Leave No.</td><td class="v">${lvNo}</td><td class="k">Date</td><td class="v">${myt(cA)}${cA.length > 10 ? " MYT" : ""}</td></tr>
+    <tr><td class="k">Employee</td><td class="v">${applicant}</td><td class="k">Department</td><td class="v">${(l.user_department ?? "").toUpperCase()}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${(l.user_position ?? "").toUpperCase()}</td><td class="k">Leave type</td><td class="v" style="text-transform:uppercase">${l.type}</td></tr>
+    <tr><td class="k">Period</td><td class="v">${dmy(l.start_date)} → ${dmy(l.end_date)}</td><td class="k">Days</td><td class="v">${l.days}</td></tr>
+    <tr><td class="k">Reason</td><td class="v" colspan="3">${l.reason ?? ""}</td></tr>
+  </table>
+  <p class="status">System status: ${statusLine}</p>
+  ${chainNotes ? `<p class="chain">${chainNotes}</p>` : ""}
+  <table class="sig">
+    <tr><th style="width:33%">Employee</th><th style="width:34%">Administrative or<br/>Head of Department (COO / CCO)</th><th style="width:33%">Chief Executive Officer (CEO)</th></tr>
+    <tr>
+      <td class="body"><div class="cw"><div class="nm">Name: ${applicant}</div>
+        <div class="sg">Signature: <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span></div>
+        <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
+      <td class="body"><div class="cw">${l.preapp_by_full || l.preapp_by_name
+        ? `<div class="nm">Name: ${(l.preapp_by_full || l.preapp_by_name || "").toUpperCase()}</div>
+           <div class="sg">Signature:<img src="/signatures/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/></div>
+           <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
+        : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : ""}</div>
+        <div class="sg">Signature:${stage === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
+    </tr>
+  </table>
+  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${lvNo}; the in-system decision is authoritative.</p>
+  <script>window.onload = function () { window.print(); };</script>
+  </body></html>`);
+  w.document.close();
+}
+
 function Leave({ user }: { user: User }) {
   const [balances, setBalances] = useState<Record<string, { entitled: number; used: number; accrued?: number }>>({});
   const [mine, setMine] = useState<LeaveReq[]>([]);
@@ -1081,9 +1179,12 @@ function Leave({ user }: { user: User }) {
                 <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
                 {l.review_comment ? <span className="text-muted-foreground"> · &quot;{l.review_comment}&quot;</span> : null}
               </span>
-              {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
-                <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
-              )}
+              <span className="flex shrink-0 items-center gap-2">
+                <button type="button" className="text-xs underline" title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
+                {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
+                  <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
+                )}
+              </span>
             </div>
           ))}
           </div>

@@ -12,7 +12,7 @@
  *    and phone number. Blood type is retired from both the form and the card.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -34,8 +34,19 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
-const input =
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+
+/** v1.4.135: subhead label above a placeholder field — the field's purpose
+    stays visible after the placeholder disappears. */
+function Sub({ t, children }: { t: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
+      {children}
+    </label>
+  );
+}
+
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
@@ -382,48 +393,78 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           staff can&apos;t self-register — create the account here with a
           temporary password and hand it over. They change it on first sign-in.
         </p>
+        {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
+            so the field's purpose stays visible after typing. */}
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
-            onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
-          <input className={input} placeholder="Full name" value={newStaff.name}
-            onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
-          <select className={input} value={newStaff.role}
-            onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
-            {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
-              <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
-            ))}
-          </select>
-          <input className={input} placeholder="Employee ID (optional)" value={newStaff.employee_id}
-            onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
-          <input className={input} placeholder="Position (optional)" value={newStaff.position}
-            onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
-          <input className={input} placeholder="Department (optional)" value={newStaff.department}
-            onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
-          <input className={input} placeholder="Birth date DD-MM-YYYY (optional)" value={newStaff.birthday}
-            onChange={(e) => setNewStaff((d) => ({ ...d, birthday: e.target.value }))} />
-          <input className={input} placeholder="ID issued DD-MM-YYYY (optional)" value={newStaff.id_issued_on}
-            onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
-          <input className={input} placeholder="Blood type (optional)" value={newStaff.blood_type}
-            onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
-          <input className={input} placeholder="NRIC e.g. 970209-01-5183 (optional)" value={newStaff.ic_number}
-            onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
-          <select className={input} value={newStaff.bank_name}
-            onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
-            <option value="">Bank (optional — Maybank is company primary)</option>
-            {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-          <input className={input} placeholder="Bank account no. (optional)" value={newStaff.bank_account}
-            onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
-          <PasswordInput className={input} placeholder="Temp password (10+ chars)" value={newStaff.password}
-            onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
-          <label className={`${input} flex cursor-pointer items-center justify-between`}>
-            <span className={newPhoto ? "" : "text-muted-foreground"}>
-              {newPhoto ? newPhoto.name : "Staff photo (optional)"}
-            </span>
-            <span className="text-muted-foreground text-xs underline">Browse</span>
-            <input type="file" accept="image/*" className="hidden"
-              onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
-          </label>
+          <Sub t="Company email">
+            <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
+              onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
+          </Sub>
+          <Sub t="Full name (as per NRIC)">
+            <input className={input} placeholder="Full name" value={newStaff.name}
+              onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
+          </Sub>
+          <Sub t="Role">
+            <select className={input} value={newStaff.role}
+              onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
+              {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
+                <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          </Sub>
+          <Sub t="Employee ID (optional)">
+            <input className={input} placeholder="e.g. AZOOM001" value={newStaff.employee_id}
+              onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
+          </Sub>
+          <Sub t="Position (optional)">
+            <input className={input} placeholder="e.g. Marketing Executive" value={newStaff.position}
+              onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
+          </Sub>
+          <Sub t="Department (optional)">
+            <input className={input} placeholder="e.g. Management" value={newStaff.department}
+              onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
+          </Sub>
+          <Sub t="Birth date (optional)">
+            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.birthday}
+              onChange={(e) => setNewStaff((d) => ({ ...d, birthday: e.target.value }))} />
+          </Sub>
+          <Sub t="ID issued on (optional)">
+            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.id_issued_on}
+              onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
+          </Sub>
+          <Sub t="Blood type (optional)">
+            <input className={input} placeholder="e.g. O+" value={newStaff.blood_type}
+              onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
+          </Sub>
+          <Sub t="NRIC (optional)">
+            <input className={input} placeholder="e.g. 970209-01-5183" value={newStaff.ic_number}
+              onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
+          </Sub>
+          <Sub t="Bank (optional)">
+            <select className={input} value={newStaff.bank_name}
+              onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
+              <option value="">— Maybank is company primary —</option>
+              {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </Sub>
+          <Sub t="Bank account no. (optional)">
+            <input className={input} placeholder="numbers only" value={newStaff.bank_account}
+              onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
+          </Sub>
+          <Sub t="Temp password (10+ chars)">
+            <PasswordInput className={input} placeholder="They change it on first sign-in" value={newStaff.password}
+              onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
+          </Sub>
+          <Sub t="Staff photo (optional)">
+            <label className={`${input} flex cursor-pointer items-center justify-between`}>
+              <span className={newPhoto ? "" : "text-muted-foreground"}>
+                {newPhoto ? newPhoto.name : "Choose an image"}
+              </span>
+              <span className="text-muted-foreground text-xs underline">Browse</span>
+              <input type="file" accept="image/*" className="hidden"
+                onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
+            </label>
+          </Sub>
         </div>
         {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ? "text-green-700" : "text-destructive"}`}>{createMsg.text}</p>}
         {existing && (
