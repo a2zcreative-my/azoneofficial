@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.186] — 2026-08-03 — Mobile view audit: date-input overflow killed, Expenses + Attendance corrections rebuilt for phones
+
+### Fixed (per the CEO's four phone screenshots: "All this was not aligned with the correct mobile apps view. I need you to audit all the tabs")
+- **Root cause across all four screenshots: iOS Safari date/datetime/month/time inputs have an intrinsic minimum width** — inside the phone's 2-column grid they refuse to shrink, overflowing the card edge (Leave End date, Tasks Deadline) or clipping (Attendance rows). Global guard in styles/globals.css: those input types are now `min-width: 0; max-width: 100%; appearance: none` — they can never overflow their container again, on ANY tab, current or future. Leave and Tasks needed nothing else (their markup was already the v1.4.154 standard).
+- **Expenses form (phones)**: the Description input was squeezed to a sliver sharing one line with Monthly recurring + Due day. Phone layout now follows the v1.4.154 grid — Description full-width on its own row, recurring/due-day a clean row, Record expense full-width; desktop's single inline row unchanged.
+- **Attendance — corrections & back-entry**: the ADD RECORD + filter controls predated the v1.4.154 standard (inline maxWidth styles escaped the class sweep) and wrapped raggedly. Rebuilt to the standard: phones get staff select full-width, then Clock in|Date, Time|Add, and full-width Find-staff + month rows; desktop keeps the capped inline row via sm:max-w.
+- **Audit result**: swept all portal/account/admin form rows — zero inline maxWidth styles remain, every multi-field form row is on the phone-grid/desktop-flex standard, and the one intentional exception (Marketing "Material needed" input + Request button) is verified mobile-correct. Frontend-only.
+
 ## [1.4.185] — 2026-08-03 — NRIC placeholder masked
 
 ### Fixed (per the CEO: "NRIC place holder should not put my NRIC number there! it is supposed to be XXXXXX-XX-XXXX")

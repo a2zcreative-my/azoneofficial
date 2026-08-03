@@ -165,3 +165,19 @@ html {
   overflow-y: scroll;      /* fallback: the gutter always exists */
   scrollbar-gutter: stable; /* modern browsers: reserved cleanly  */
 }
+
+/* v1.4.186 (CEO mobile audit): iOS Safari date/datetime/month/time inputs
+   have an INTRINSIC minimum width and refuse to shrink inside flex/grid
+   columns — they were overflowing card edges on phones (Leave end date,
+   Tasks deadline, Attendance back-entry rows). Cap them to their container
+   everywhere; width itself still comes from each form's classes. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="time"] {
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: transparent;
+}

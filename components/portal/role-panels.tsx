@@ -1947,26 +1947,29 @@ export function AttendanceAdminPanel() {
         marked and audit-logged.
       </p>
 
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="block">
-          <span className="text-muted-foreground mb-0.5 block text-[11px] font-semibold tracking-wide uppercase">Add record</span>
-        <select className={inputClass} style={{ maxWidth: "14rem" }} value={add.user_id}
+      {/* v1.4.186 mobile audit: this row predated the v1.4.154 width
+          standard (inline maxWidth styles escaped the class sweep) and
+          wrapped raggedly on phones. Phones now use the standard 2-up
+          full-width grid — staff select spanning, type|date, time|Add,
+          then the filter row; desktop keeps the capped inline row. */}
+      <span className="text-muted-foreground mt-3 block text-[11px] font-semibold tracking-wide uppercase">Add record</span>
+      <div className="mt-1 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+        <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={add.user_id}
           onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
           <option value={0}>Select staff…</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
         </select>
-        </label>
-        <select className={inputClass} style={{ maxWidth: "8rem" }} value={add.type}
+        <select className={`${inputClass} w-full sm:max-w-32`} value={add.type}
           onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
           <option value="clock_in">Clock in</option>
           <option value="clock_out">Clock out</option>
         </select>
-        <input type="date" className={inputClass} style={{ maxWidth: "10rem" }} value={add.date}
+        <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={add.date}
           onChange={(e) => setAdd((d) => ({ ...d, date: e.target.value }))} />
-        <input type="time" className={inputClass} style={{ maxWidth: "7rem" }} value={add.time}
+        <input type="time" className={`${inputClass} w-full min-w-0 sm:max-w-28`} value={add.time}
           onChange={(e) => setAdd((d) => ({ ...d, time: e.target.value }))} />
         <button type="button"
-          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50"
+          className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
           disabled={!add.user_id || !add.date || !add.time}
           onClick={() => void act(`/attendance/manual`, {
             method: "POST",
@@ -1974,13 +1977,13 @@ export function AttendanceAdminPanel() {
           }, "Record added.")}>
           Add
         </button>
-        <select className={inputClass} style={{ maxWidth: "13rem", marginLeft: "auto" }} value={filterId}
+        <select className={`${inputClass} col-span-2 w-full sm:ml-auto sm:max-w-52`} value={filterId}
           title="Show one staff member's records only"
           onChange={(e) => setFilterId(Number(e.target.value))}>
           <option value={0}>Find staff: everyone</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
         </select>
-        <input type="month" className={inputClass} style={{ maxWidth: "10rem" }} value={month}
+        <input type="month" className={`${inputClass} col-span-2 w-full min-w-0 sm:max-w-40`} value={month}
           onChange={(e) => setMonth(e.target.value)} />
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
@@ -3003,20 +3006,25 @@ export function ExpensesPanel() {
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. TNB, Shopee"
             value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} /></label>
         </div>
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <label className="block min-w-0 flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Description (optional)</span>
+        {/* v1.4.186 mobile audit: on phones the description was squeezed to a
+            sliver sharing one line with recurring + due day. Phone layout is
+            now the v1.4.154 grid — description full-width on its own row,
+            recurring/due-day a clean row, button full-width centred; from sm:
+            the original single inline row returns. */}
+        <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+          <label className="col-span-2 block min-w-0 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Description (optional)</span>
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="What was this for?"
             value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
-          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap" title="A recurring expense reappears every month as due until you record it">
+          <label className="flex h-9 items-center gap-1.5 text-sm whitespace-nowrap" title="A recurring expense reappears every month as due until you record it">
             <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
             Monthly recurring
           </label>
-          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap" title="Day of the month the payment must be made by">
+          <label className="flex h-9 items-center justify-end gap-1.5 text-sm whitespace-nowrap sm:justify-start" title="Day of the month the payment must be made by">
             Due day
             <input type="number" min={1} max={31} className="border-input bg-background h-9 w-16 rounded-lg border px-2 text-sm" placeholder="—"
               value={draft.due_day} onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value }))} />
           </label>
-          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+          <button type="button" className="bg-primary text-primary-foreground col-span-2 inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:col-span-1"
             onClick={() => void addExpense()}>Record expense</button>
         </div>
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
