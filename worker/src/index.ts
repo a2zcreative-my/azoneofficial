@@ -34,6 +34,7 @@ interface SessionUser {
   email: string;
   name: string;
   role: Role;
+  photo_key?: string | null; // v1.4.141: portal header avatar (badge photo)
 }
 
 /* ---------------- crypto: PBKDF2-SHA256 (WebCrypto-native) ---------------- */
@@ -425,7 +426,7 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
   if (!raw) return null;
   const token = await sha256Hex(raw);
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role
+    `SELECT u.id, u.email, u.name, u.role, u.photo_key
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ?1 AND s.expires_at > datetime('now') AND u.is_active = 1`,
   )

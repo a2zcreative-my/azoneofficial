@@ -2200,7 +2200,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]?.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

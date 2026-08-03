@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.141] — 2026-08-03 — App-style profile avatar in the portal header
+
+### Added (per the CEO's request: badge photo beside the welcome, nice on web and mobile)
+- The staff member's **badge-card photo** now renders as a circular, gold-ringed **avatar in the portal header** — sized like a native app profile chip (40px, 44px on desktop):
+  - **Desktop:** avatar sits beside "STAFF PORTAL / Welcome, {name}"
+  - **Mobile:** avatar sits beside the screen title in the sticky app-style header — the same placement messaging apps use, so it reads instantly as "my profile"
+  - **No photo yet?** A branded fallback: the person's initial in a navy circle with the same gold ring, so the header never looks broken while HR hasn't uploaded a photo
+- Plumbing: the session lookup now carries `photo_key`, so `/auth/me` gives the header what it needs; the image itself serves through the existing authenticated media route (staff-only for private/ keys) — no new endpoints, no extra requests beyond one cached image
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.140] — 2026-08-03 — Attendance: "still in" styled as a chip
+
+### Fixed
+- "still in" no longer sits as plain outline text next to the styled time chips — it's now a **blue pill badge**, matching the visual language of the IN (green) and OUT (grey) time chips; "missing" likewise becomes an **amber pill**. The whole attendance row now reads as one consistent set of badges
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.139] — 2026-08-03 — Subheads completed across the remaining tabs · rows aligned
 
 ### Changed

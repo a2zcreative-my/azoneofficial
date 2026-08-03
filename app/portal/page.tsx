@@ -28,7 +28,7 @@ import { StaffDirectory } from "@/components/staff/staff-directory";
 
 const API = "/api/v1";
 
-interface User { id: number; email: string; name: string; role: string }
+interface User { id: number; email: string; name: string; role: string; photo_key?: string | null }
 
 async function api<T>(path: string, init?: RequestInit) {
   try {
@@ -913,7 +913,7 @@ function Attendance({ user }: { user: User }) {
                           {firstIn ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{mytTime(firstIn)}</span> : <span className="text-muted-foreground text-xs">—</span>}
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
-                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : firstIn ? <span className="text-muted-foreground text-xs">still in</span> : <span className="text-xs font-medium text-amber-700">missing</span>}
+                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : firstIn ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">still in</span> : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">missing</span>}
                         </td>
                         <td className="px-2 py-1.5 font-medium whitespace-nowrap">{hrs ?? "—"}</td>
                       </tr>
@@ -2266,13 +2266,30 @@ export default function PortalPage() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
-        <div>
-          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
-          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            Welcome, {user.name.split(" ")[0]}
-          </h1>
-          {/* On phones the header reads like an app screen title. */}
-          <h1 className="text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
+        <div className="flex min-w-0 items-center gap-3">
+          {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
+              gold-ringed, next to the welcome on desktop and the screen title
+              on mobile. Falls back to the initial when no photo is set. */}
+          {user.photo_key ? (
+            <img
+              src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`}
+              alt=""
+              className="ring-gold h-10 w-10 shrink-0 rounded-full object-cover ring-2 md:h-11 md:w-11"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          ) : (
+            <span className="bg-primary text-primary-foreground ring-gold flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2 md:h-11 md:w-11">
+              {user.name.trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
+            <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
+              Welcome, {user.name.split(" ")[0]}
+            </h1>
+            {/* On phones the header reads like an app screen title. */}
+            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
