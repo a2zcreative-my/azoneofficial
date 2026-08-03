@@ -347,6 +347,61 @@ export async function handleStaff(
     }
   }
 
+  /* v1.4.156/157 — role & employment-status changes: Google sign-ups always
+     land as `customer` (self-registration can never mint anything else), and
+     ONLY the super_admin may change roles — per the CEO (v1.4.157): keeping
+     promotion out of every business account means a compromised Google or
+     staff sign-in can never escalate itself or anyone else. Rules:
+       - super_admin ONLY (admin and ceo deliberately excluded)
+       - admin-tier accounts (super_admin/admin) can never be touched here,
+         and those roles can never be assigned here
+       - you cannot change your own role
+       - DOMAIN POLICY nuance: personal-email (Google) accounts may hold
+         staff roles ONLY as part_time — permanent staff still require an
+         @COMPANY_DOMAIN account created through staff onboarding
+     Takes effect immediately: getSessionUser reads the role per request. */
+  const roleMatch = path.match(/^\/users\/(\d+)\/role$/);
+  if (roleMatch && method === "POST") {
+    if (user.role !== "super_admin") {
+      return err("forbidden", "Only the system super admin can change account roles — this keeps sign-ups from ever escalating themselves", 403);
+    }
+    const ASSIGNABLE = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+    const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
+    const newRole = typeof body?.role === "string" ? body.role : "";
+    const newStatus = typeof body?.employment_status === "string" && body.employment_status !== "" ? body.employment_status : null;
+    if (!ASSIGNABLE.includes(newRole)) {
+      return err("invalid_input", `role must be one of: ${ASSIGNABLE.join(", ")}`, 400);
+    }
+    if (newStatus && !EMP_STATUSES.includes(newStatus)) {
+      return err("invalid_input", `employment_status must be one of: ${EMP_STATUSES.join(", ")}`, 400);
+    }
+    const id = Number(roleMatch[1]!);
+    if (id === user.id) return err("self_change", "You can't change your own role — ask another authorised account.", 400);
+    const target = await env.DB.prepare(`SELECT id, email, role, employment_status FROM users WHERE id = ?1`)
+      .bind(id).first<{ id: number; email: string; role: string; employment_status: string | null }>();
+    if (!target) return err("not_found", "User not found", 404);
+    if (["super_admin", "admin"].includes(target.role)) {
+      return err("forbidden", "Admin-tier accounts are managed in /admin only", 403);
+    }
+    const isCompanyEmail = target.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
+    let status = newStatus;
+    if (newRole !== "customer" && !isCompanyEmail) {
+      // Personal-email promotion → part-time only.
+      if (status && status !== "part_time") {
+        return err("domain_policy", `Personal-email accounts can only hold part-time roles — permanent staff need an @${env.COMPANY_DOMAIN} account`, 400);
+      }
+      status = "part_time";
+    }
+    await env.DB.prepare(
+      `UPDATE users SET role = ?1, employment_status = COALESCE(?2, employment_status) WHERE id = ?3`,
+    ).bind(newRole, status, id).run();
+    await audit(env, user.id, "staff.role_change", "users", String(id), {
+      from: target.role, to: newRole,
+      employment_status: status ?? target.employment_status ?? "unchanged",
+    });
+    return json({ ok: true, role: newRole, employment_status: status ?? target.employment_status });
+  }
+
   const photoMatch = path.match(/^\/users\/(\d+)\/photo$/);
   if (photoMatch && method === "POST") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
@@ -561,11 +616,16 @@ export async function handleStaff(
     if (!body || typeof body.type !== "string" || !otTypes.includes(body.type)) {
       return err("invalid_input", `type must be one of: ${otTypes.join(", ")}`, 400);
     }
-    // Eligibility: live_host role and part_time status are excluded.
-    const me = await env.DB.prepare(`SELECT status FROM users WHERE id = ?1`)
-      .bind(user.id).first<{ status: string | null }>();
-    if (user.role === "live_host" || me?.status === "part_time") {
-      return err("not_eligible", "Part-time staff (live hosts) are not eligible for OT punches.", 403);
+    // v1.4.156 — two changes here:
+    // (1) BUG FIX: v1.4.155 queried a non-existent `status` column; the real
+    //     column is `employment_status` — the route would have thrown.
+    // (2) CEO's clarified rule: OT eligibility follows EMPLOYMENT STATUS, not
+    //     role. Permanent live hosts DO work overtime; part-time staff
+    //     (part-time live hosts, part-time designers) are not eligible.
+    const me = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ employment_status: string | null }>();
+    if (me?.employment_status === "part_time") {
+      return err("not_eligible", "Part-time staff are not eligible for OT punches.", 403);
     }
     // Time gate: OT window opens at 18:00 MYT.
     const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
@@ -661,10 +721,12 @@ export async function handleStaff(
       ot = o.results;
     } catch { /* table not migrated yet — return empty */ }
     // Eligibility flag drives whether the dashboard shows the OT buttons at
-    // all — the requesting user's own role + employment status.
-    const meRow = await env.DB.prepare(`SELECT status FROM users WHERE id = ?1`)
-      .bind(user.id).first<{ status: string | null }>();
-    const ot_eligible = user.role !== "live_host" && meRow?.status !== "part_time";
+    // all. v1.4.156: by employment_status (v1.4.155 queried a non-existent
+    // `status` column), and by STATUS ONLY — permanent live hosts are
+    // eligible; part-time anything is not.
+    const meRow = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ employment_status: string | null }>();
+    const ot_eligible = meRow?.employment_status !== "part_time";
     return json({ month, records: results, ot, ot_eligible });
   }
 
@@ -1599,12 +1661,31 @@ export async function handleStaff(
     // construction; last month's KPI result stays on the card for the team,
     // and next month's target can be set before month-end.
     const nextMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 7);
-    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext] = await Promise.all([
+    // v1.4.156 (CEO: "show today sales to motivate my Sales team") — same
+    // bases as the monthly figures, scoped to today in Malaysia time.
+    const todayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const tiktokToday = env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents, COUNT(*) AS orders
+       FROM postage_records
+       WHERE order_ref LIKE 'TT-%' AND status != 'returned'
+         AND date(created_at, '+8 hours') = ?1`,
+    ).bind(todayMYT).first<{ cents: number; orders: number }>();
+    const invoicedToday = env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'
+         AND date(COALESCE(paid_at, created_at), '+8 hours') = ?1`,
+    ).bind(todayMYT).first<{ cents: number; docs: number }>();
+    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
-      targetOf(month), targetOf(lastMonth), targetOf(nextMonth),
+      targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokToday, invoicedToday,
     ]);
     return json({
       month, last_month: lastMonth, next_month: nextMonth,
+      today: {
+        date: todayMYT,
+        tiktok_cents: tToday?.cents ?? 0, tiktok_orders: tToday?.orders ?? 0,
+        invoiced_cents: iToday?.cents ?? 0, invoiced_docs: iToday?.docs ?? 0,
+      },
       tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
       invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
       outstanding: { cents: out?.cents ?? 0, docs: out?.docs ?? 0 },

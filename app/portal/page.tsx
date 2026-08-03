@@ -426,6 +426,7 @@ const REVENUE_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marke
 interface RevenueData {
   month: string;
   last_month: string;
+  today?: { date: string; tiktok_cents: number; tiktok_orders: number; invoiced_cents: number; invoiced_docs: number };
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
   invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };  outstanding?: { cents: number; docs: number };
   target_cents?: number | null;
@@ -468,7 +469,23 @@ function SalesRevenueCard({ role }: { role?: string }) {
         Invoiced figures count PAYMENTS RECEIVED (paid invoices, e.g. bank
         transfer, in the month the payment landed) — comparable with Expenses.
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
+          today leads the grid with the brand-gold accent. */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {rev.today && (() => {
+          const todayTotal = rev.today.tiktok_cents + rev.today.invoiced_cents;
+          return (
+            <div className="rounded-lg border-2 border-[#C9A227] bg-[#C9A227]/5 p-3">
+              <p className="text-xs font-semibold tracking-wide text-[#8a6f1a] uppercase dark:text-[#C9A227]">🔥 Today · {rev.today.date.split("-").reverse().join("-")}</p>
+              <p className="mt-1 text-xl font-semibold">{rm(todayTotal)}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {rev.today.tiktok_orders} TikTok order{rev.today.tiktok_orders === 1 ? "" : "s"}
+                {rev.today.invoiced_cents > 0 ? ` · invoiced ${rm(rev.today.invoiced_cents)}` : ""}
+                {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
+              </p>
+            </div>
+          );
+        })()}
         {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
         {box("Invoiced (paid)", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`)}
         {box("Total", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
@@ -2227,30 +2244,84 @@ function mytStamp2(iso: string): string {
   return `${p(m.getUTCDate())}-${p(m.getUTCMonth() + 1)}-${m.getUTCFullYear()} ${p(m.getUTCHours())}:${p(m.getUTCMinutes())} MYT`;
 }
 
-function UsersPanel() {
+function UsersPanel({ role }: { role: string }) {
   const [rows, setRows] = useState<{ id: number; name: string; full_name?: string | null; email: string; role: string; employment_status?: string | null; is_active: number; left_on?: string | null; rejoined_on?: string | null; totp_enabled?: number }[]>([]);
   const [msg, setMsg] = useState("");
   // v1.4.153: user log (recent sign-ins + account events) for monitoring
   const [events, setEvents] = useState<{ action: string; created_at: string; name?: string | null; email?: string | null }[]>([]);
-  useEffect(() => {
+  // v1.4.157 (CEO): role changes are SUPER_ADMIN ONLY — Google sign-ups
+  // always land as customer, and keeping promotion out of every business
+  // account (including the CEO's) means a breached sign-in can't escalate.
+  const canEdit = role === "super_admin";
+  const ROLE_OPTIONS = ["customer", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "ceo"];
+  const EMP_OPTIONS = ["permanent", "contract", "part_time", "probation"];
+  const [editId, setEditId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<{ role: string; employment_status: string }>({ role: "live_host", employment_status: "part_time" });
+  const { show: showToast, node: toastNode } = useSaveToast();
+  const load = useCallback(() => {
     void api<{ users?: typeof rows; staff?: typeof rows }>(`/staff/users`).then((r) => {
-      if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => u.role !== "customer"));
+      if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => !["super_admin", "admin"].includes(u.role)));
       else setMsg("Could not load user accounts — check access.");
     });
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
     });
   }, []);
+  useEffect(() => { load(); }, [load]);
+  const saveRole = async (u: { id: number; name: string; email: string }) => {
+    const res = await api<{ role?: string; employment_status?: string; error?: { message?: string } }>(`/staff/users/${u.id}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role: draft.role, employment_status: draft.employment_status }),
+    });
+    if (res.ok) {
+      showToast("Saved", `${firstName(u.name)} → ${draft.role.replace(/_/g, " ")} (${(res.data?.employment_status ?? draft.employment_status).replace(/_/g, " ")})`);
+      setEditId(null);
+      load();
+    } else {
+      showToast("Not saved", res.data?.error?.message ?? "Role change failed", "notice");
+    }
+  };
+  const roleEditor = (u: { id: number; name: string; email: string; role: string; employment_status?: string | null }) => (
+    <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 rounded-lg bg-secondary/40 p-2 sm:flex sm:flex-wrap">
+      <label className="block">
+        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Role</span>
+        <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto"
+          value={draft.role} onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
+          {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Employment status</span>
+        <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto"
+          value={draft.employment_status} onChange={(e) => setDraft((d) => ({ ...d, employment_status: e.target.value }))}>
+          {EMP_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+        </select>
+      </label>
+      <button type="button" className="bg-primary text-primary-foreground col-span-1 inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium"
+        onClick={() => void saveRole(u)}>Save</button>
+      <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>Cancel</button>
+      {!u.email.toLowerCase().endsWith("@azoneofficial.com") && draft.role !== "customer" && (
+        <p className="text-muted-foreground col-span-2 w-full text-[11px]">
+          Personal-email (Google) account — staff roles are saved as <span className="font-medium">part time</span>; permanent staff need an @azoneofficial.com account.
+        </p>
+      )}
+    </div>
+  );
+  const staffRows = rows.filter((u) => u.role !== "customer");
+  const customerRows = rows.filter((u) => u.role === "customer");
   return (
     <div className={card}>
+      {toastNode}
       <p className="text-sm font-semibold">User accounts</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Every staff account, its role and status — read-only here; account
-        management (passwords, roles, deactivation) stays in /admin.
+        Every staff account, its role and status.
+        {canEdit
+          ? " Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin."
+          : " Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role."}
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       <div className="mt-3 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
-        {rows.map((u) => (
+        {staffRows.map((u) => (
           <div key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
             <span className="min-w-0">
               <span className="font-medium">{properName(u.full_name || u.name)}</span>
@@ -2267,15 +2338,54 @@ function UsersPanel() {
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.totp_enabled ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-800"}`}>
                 {u.totp_enabled ? "2FA ✓" : "2FA not set"}
               </span>
+              {canEdit && editId !== u.id && (
+                <button type="button" className="text-xs underline"
+                  onClick={() => { setEditId(u.id); setDraft({ role: u.role, employment_status: u.employment_status && ["permanent", "contract", "part_time", "probation"].includes(u.employment_status) ? u.employment_status : "permanent" }); }}>
+                  ✎ Change role
+                </button>
+              )}
             </span>
+            {editId === u.id && roleEditor(u)}
           </div>
         ))}
       </div>
-      {rows.some((u) => !u.totp_enabled && u.is_active) && (
+      {staffRows.some((u) => !u.totp_enabled && u.is_active) && (
         <p className="mt-2 text-xs font-medium text-amber-700">
-          ⚠ {rows.filter((u) => !u.totp_enabled && u.is_active).length} active account(s) without 2FA — worth chasing: {rows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
+          ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length} active account(s) without 2FA — worth chasing: {staffRows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
         </p>
       )}
+
+      {/* v1.4.156: Google sign-ups land here as customers — the CEO promotes
+          them into part-time roles (e.g. part-time live host) from this list. */}
+      <div className="border-border mt-4 border-t pt-3">
+        <p className="text-sm font-semibold">Customer accounts — Google &amp; self sign-ups</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {canEdit
+            ? "Promote an account here when someone joins the team — personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account."
+            : "Google and self sign-ups always land here as customers with zero staff access. Promotions are done by the system super admin only."}
+        </p>
+        <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
+          {customerRows.length === 0 && <p className="text-muted-foreground text-sm">No customer accounts yet.</p>}
+          {customerRows.map((u) => (
+            <div key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="font-medium">{properName(u.full_name || u.name)}</span>
+                <span className="text-muted-foreground"> · {u.email}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-xs ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{u.is_active ? "active" : "disabled"}</span>
+                {canEdit && editId !== u.id && (
+                  <button type="button" className="text-xs underline"
+                    onClick={() => { setEditId(u.id); setDraft({ role: "live_host", employment_status: "part_time" }); }}>
+                    ✎ Promote
+                  </button>
+                )}
+              </span>
+              {editId === u.id && roleEditor(u)}
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="border-border mt-4 border-t pt-3">
         <p className="text-sm font-semibold">User log — recent sign-ins &amp; account events</p>
@@ -2703,7 +2813,7 @@ export default function PortalPage() {
         {tab === "Inventory" && <InventoryPanel role={user.role} />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
-        {tab === "Users" && <UsersPanel />}
+        {tab === "Users" && <UsersPanel role={user.role} />}
         {tab === "Profile" && (
           <div className="space-y-4 md:space-y-6">
             <Profile />

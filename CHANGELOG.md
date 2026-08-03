@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.157] — 2026-08-03 — Role changes locked to super_admin only (security)
+
+### Changed (per the CEO: "avoid any Google account breaching my system")
+- **`POST /users/:id/role` is now SUPER_ADMIN ONLY** — `admin` and `ceo` removed from the v1.4.156 allowlist. Google sign-ups always land as `customer` with zero staff access (unchanged since v1.4.42's domain policy), and with promotion held outside every business account, a compromised Google or staff sign-in can never escalate itself or anyone else. The refusal message says so.
+- **Users tab** — ✎ Change role / ✎ Promote render for super_admin only; the CEO's view is read-only again, with copy explaining the security reasoning. All other v1.4.156 guards stand: admin-tier accounts untouchable/unassignable, no self-change, personal emails part-time only, audited `staff.role_change`.
+
+## [1.4.156] — 2026-08-03 — MYT timestamps on TikTok Orders · Today's sales · role changes from Users tab · OT rule by employment status
+
+### Fixed
+- **v1.4.155 bug (own goal, caught before it bit)** — the OT route and attendance GET queried a non-existent `users.status` column; the real column is `employment_status`. Deployed as-was, this would have 500'd the OT punch AND broken the Dashboard's attendance load. Both corrected.
+- **TikTok Orders card showed UTC** — "last webhook" and each order's timestamp are DB UTC and were rendered raw (8 hours behind). New `dmyMYT()` shifts full timestamps to Malaysia time; the webhook line now says "… MYT" explicitly.
+
+### Changed (per the CEO)
+- **OT eligibility now follows EMPLOYMENT STATUS, not role** — permanent live hosts DO work overtime; `part_time` staff of any role (part-time live hosts, part-time designers) are not eligible. Server + `ot_eligible` flag both updated.
+
+### Added (per the CEO)
+- **Sales revenue → "🔥 Today" box** — gold-accented, leads the grid: today's TikTok orders + payments received (MYT day scope, same bases as the monthly figures), with a motivational line for the sales team. Grid is now 2-up on tablets / 4-up on desktop.
+- **Role & employment-status changes from the Users tab** — new `POST /users/:id/role` (super_admin/admin/ceo): assign any staff role or demote to customer, set employment status; admin-tier accounts untouchable; no self-change; audited `staff.role_change`; takes effect on the target's next request. **Domain-policy nuance:** personal-email (Google) accounts may hold staff roles **as part_time only** — enforced server-side; permanent staff still require an @azoneofficial.com account.
+- **Users tab UI** — "✎ Change role" on staff rows (CEO + super_admin; COO stays read-only) with role + employment-status selects, plus a new **"Customer accounts — Google & self sign-ups"** section with one-tap **✎ Promote** (defaults to part-time live host).
+
 ## [1.4.155] — 2026-08-03 — Overtime OT in / OT out on the Dashboard + Inventory alignment fixes
 
 ### Added (per the CEO: OT punches after 6pm, HOD approval reminder, hidden from part-time live hosts)

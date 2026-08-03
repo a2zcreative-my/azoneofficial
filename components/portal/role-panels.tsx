@@ -68,6 +68,19 @@ function dmy(iso: string | null | undefined): string {
   return date + time;
 }
 
+/** v1.4.156: DB timestamps are UTC — full timestamps shown in the UI must be
+    shifted to Malaysia time (+8) before formatting. Date-only values are
+    already business dates and pass through untouched. (The TikTok Orders card
+    showed webhook/order times 8 hours behind — the CEO spotted it.) */
+function dmyMYT(iso: string | null | undefined): string {
+  if (!iso) return "";
+  if (iso.length <= 10) return dmy(iso);
+  const d = new Date(new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z")).getTime() + 8 * 3600 * 1000);
+  if (Number.isNaN(d.getTime())) return dmy(iso);
+  const i = d.toISOString();
+  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
+}
+
 const th = "px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase text-muted-foreground";
 const td = "px-3 py-2 text-sm";
 
@@ -373,7 +386,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
               : !ttStatus?.authorized
                 ? "Not authorized yet — activate the shop/order scopes, publish the app in Partner Center, then authorize the shop. Sync pulls existing orders once live."
                 : ttStatus.last_event_at
-                  ? `Connected · last webhook ${dmy(ttStatus.last_event_at)}${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
+                  ? `Connected · last webhook ${dmyMYT(ttStatus.last_event_at)} MYT${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
                   : "Connected · auto-sync runs every 30 minutes; Sync pulls now."}
           </p>
         </div>
@@ -414,7 +427,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
           <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span className="min-w-0">
               <span className="font-medium">{o.order_ref}</span>
-              <span className="text-muted-foreground"> · {dmy(o.created_at)}</span>
+              <span className="text-muted-foreground"> · {dmyMYT(o.created_at)}</span>
               {o.buyer_city && <span className="text-muted-foreground"> · 📍 {o.buyer_city}</span>}
               {o.items_label ? (
                 <span className="block text-xs font-medium">{o.items_label}</span>
