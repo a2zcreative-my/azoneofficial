@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.153] — 2026-08-03 — CEO posts news · Users tab gains a user log + 2FA monitoring
+
+### Fixed (CEO: "why I dont have access to update the news? I am CEO!")
+- The `team_manage` permission list — which gates posting announcements and assigning team tasks — **never included the CEO** (an old oversight from the rank rework). Fixed on both worker and UI: the CEO now sees the compose form on the News tab and can post announcements (with the usual bell notification to all staff) and assign tasks
+
+### Added (per the CEO: user log + 2FA awareness for monitoring)
+- **User log on the Users tab:** "User log — recent sign-ins & account events" beneath the accounts list — the last 60 authentication events from the audit trail (password sign-ins, 2FA sign-ins, Google sign-ins, 2FA challenges, backup-code use, 2FA enabled/disabled), each with the person, a colour-coded action chip, and the MYT timestamp. Same readers as the tab (super_admin/CEO/COO); the full audit stays in /admin
+- **2FA monitoring:** every account row now carries a **"2FA ✓" (green) or "2FA not set" (amber)** chip — only the presence of 2FA is exposed, never any secret — plus an amber summary line counting active accounts still unprotected and naming who to chase
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
+## [1.4.152] — 2026-08-03 — Inventory tab: buttons flush with inputs · empty white space reclaimed
+
+### Fixed (per the CEO's screenshot)
+- **Button alignment:** the Add-item and Record-return buttons are now exactly the same height as the input boxes on desktop, so their bottoms sit truly flush with the field row — no more floating slightly above the line
+- **Empty white space:**
+  - When the inventory has **no items yet**, the bare table header followed by a blank block is replaced by a single compact line ("No items yet — add your first above…") — the card ends where its content ends
+  - The Postage / Marketing pair no longer stretch to match each other's height — each card now **hugs its own content**, so the mostly-empty Marketing card stops padding the page with white
+  - Table spacing tightened one step
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.151] — 2026-08-03 — Notification chime: race fix (no sound was ever playing)
 
 ### Fixed (CEO reported: no notification tone on web or mobile — a real v1.4.144 bug)

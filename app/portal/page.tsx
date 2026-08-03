@@ -82,7 +82,7 @@ function mytDateOf(iso: string): string {
   });
 }
 
-const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco"];
+const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"]; // v1.4.153: CEO posts news too
 const SALES_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"];
 
 function fmtRM(cents: number) {
@@ -2118,13 +2118,27 @@ function Profile() {
 
 /* ================= Users (v1.4.101 — super_admin / CEO / COO) ================= */
 
+/** v1.4.153: audit timestamps arrive as UTC "YYYY-MM-DD HH:MM:SS" — show MYT. */
+function mytStamp2(iso: string): string {
+  const d = new Date(iso.replace(" ", "T") + (iso.includes("Z") ? "" : "Z"));
+  if (Number.isNaN(d.getTime())) return iso;
+  const m = new Date(d.getTime() + 8 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(m.getUTCDate())}-${p(m.getUTCMonth() + 1)}-${m.getUTCFullYear()} ${p(m.getUTCHours())}:${p(m.getUTCMinutes())} MYT`;
+}
+
 function UsersPanel() {
-  const [rows, setRows] = useState<{ id: number; name: string; full_name?: string | null; email: string; role: string; employment_status?: string | null; is_active: number; left_on?: string | null; rejoined_on?: string | null }[]>([]);
+  const [rows, setRows] = useState<{ id: number; name: string; full_name?: string | null; email: string; role: string; employment_status?: string | null; is_active: number; left_on?: string | null; rejoined_on?: string | null; totp_enabled?: number }[]>([]);
   const [msg, setMsg] = useState("");
+  // v1.4.153: user log (recent sign-ins + account events) for monitoring
+  const [events, setEvents] = useState<{ action: string; created_at: string; name?: string | null; email?: string | null }[]>([]);
   useEffect(() => {
     void api<{ users?: typeof rows; staff?: typeof rows }>(`/staff/users`).then((r) => {
       if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => u.role !== "customer"));
       else setMsg("Could not load user accounts — check access.");
+    });
+    void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
+      if (r.ok && r.data) setEvents(r.data.events);
     });
   }, []);
   return (
@@ -2149,9 +2163,40 @@ function UsersPanel() {
                 {u.left_on ? ` · until ${dmy(u.left_on)}` : ""}{u.rejoined_on ? ` · rejoined ${dmy(u.rejoined_on)}` : ""}
               </span>
               <span className={`rounded-full px-2 py-0.5 text-xs ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{u.is_active ? "active" : "disabled"}</span>
+              {/* v1.4.153: 2FA monitoring — amber flags accounts still unprotected */}
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.totp_enabled ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-800"}`}>
+                {u.totp_enabled ? "2FA ✓" : "2FA not set"}
+              </span>
             </span>
           </div>
         ))}
+      </div>
+      {rows.some((u) => !u.totp_enabled && u.is_active) && (
+        <p className="mt-2 text-xs font-medium text-amber-700">
+          ⚠ {rows.filter((u) => !u.totp_enabled && u.is_active).length} active account(s) without 2FA — worth chasing: {rows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
+        </p>
+      )}
+
+      <div className="border-border mt-4 border-t pt-3">
+        <p className="text-sm font-semibold">User log — recent sign-ins &amp; account events</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.</p>
+        <div className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-1">
+          {events.length === 0 && <p className="text-muted-foreground text-sm">No events recorded yet.</p>}
+          {events.map((e, i) => (
+            <div key={i} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1 text-xs last:border-0">
+              <span className="min-w-0">
+                <span className="font-medium">{properName(e.name ?? "")}</span>
+                <span className="text-muted-foreground"> · {e.email ?? ""}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 ${e.action.includes("2fa_enabled") ? "bg-green-100 text-green-700" : e.action.includes("2fa") ? "bg-blue-100 text-blue-800" : e.action.includes("password") ? "bg-amber-100 text-amber-800" : "bg-secondary"}`}>
+                  {e.action.replace("auth.", "").replace(/_/g, " ")}
+                </span>
+                <span className="text-muted-foreground">{mytStamp2(e.created_at)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

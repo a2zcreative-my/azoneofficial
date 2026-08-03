@@ -28,8 +28,9 @@ const PERMS: Record<string, readonly Role[]> = {
   // CCO read. Their read access flows through exec_view; the leave approval
   // chain (COO/CCO pre-approve) is a workflow role and stays unchanged.
   hr_manage: ["super_admin", "admin", "hr_admin", "ceo"],
-  // Post announcements & create/assign tasks.
-  team_manage: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  // Post announcements & create/assign tasks. v1.4.153: CEO included — the
+  // boss was locked out of his own noticeboard ("I am CEO!").
+  team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   // Company events (training / classes / meetings) — v1.4.73. CEO included:
   // the boss schedules trainings. Everyone can VIEW; these roles manage.
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
@@ -391,6 +392,21 @@ export async function handleStaff(
     ).all();
     return json({ staff: results });
   }
+  if (path === "/users/activity" && method === "GET") {
+    // v1.4.153: user log for the Users tab — recent sign-ins and account
+    // events from the audit trail. Same readers as the Users tab (exec_view /
+    // hr_manage); shows auth + account actions only, not the full audit.
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "HR access required", 403);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT a.action, a.created_at, u.name, u.email
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.action IN ('auth.login', 'auth.login_2fa', 'auth.login_google', 'auth.2fa_challenge', 'auth.2fa_backup_used', 'auth.2fa_enabled', 'auth.2fa_disabled')
+       ORDER BY a.created_at DESC LIMIT 60`,
+    ).all();
+    return json({ events: results });
+  }
   if (path === "/users" && method === "GET") {
     // hr_manage writes; exec_view (CEO) reads — the Birthdays tab and the
     // Overview need the staff list even for read-only executives.
@@ -398,7 +414,8 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on
+      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
+              CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
        FROM users ORDER BY name`,
     ).all();
     return json({ users: results, staff: results });

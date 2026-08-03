@@ -520,7 +520,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00" value={invDraft.unit_price}
               onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
           </SubR>
-          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:justify-start`}
+          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:h-[38px] sm:justify-start`}
             onClick={async () => {
               await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
               setInvDraft({ sku: "", name: "", stock: 0, unit_price: "" });
@@ -529,7 +529,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             Add item
           </button>
         </div>
-        <div className="mt-4 overflow-x-auto">
+        {items.length === 0 && (
+          <p className="text-muted-foreground mt-3 text-sm">No items yet — add your first above; TikTok orders will start moving its stock automatically.</p>
+        )}
+        {items.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[560px] border-collapse">
             <thead>
               <tr className="border-border border-b">
@@ -574,6 +578,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* v1.4.148: rejected stock back to the supplier, costing tracked for
@@ -630,7 +635,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             <input className={`${inputClass} sm:max-w-52`} placeholder="e.g. stitching defect, wrong colour" value={retDraft.reason}
               onChange={(e) => setRetDraft((d) => ({ ...d, reason: e.target.value }))} />
           </SubR>
-          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:justify-start`}
+          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:h-[38px] sm:justify-start`}
             onClick={async () => {
               setRetMsg("");
               const res = await api<{ error?: { message?: string } }>(`/inventory/returns`, {
@@ -736,7 +741,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid items-start gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Postage tracking — non-TikTok orders</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
