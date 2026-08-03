@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.151] — 2026-08-03 — Notification chime: race fix (no sound was ever playing)
+
+### Fixed (CEO reported: no notification tone on web or mobile — a real v1.4.144 bug)
+- **Root cause:** pressing 🔊 unlocked the audio context on finger-down, but unlocking is asynchronous — by the time the click handler tried to chime a few milliseconds later, the context still reported "suspended", and the safety guard silently swallowed the sound. The confirmation ding therefore never played on the first press, and depending on timing, poll-triggered chimes could be eaten the same way
+- **Fix:** the chime now creates the audio context itself if needed and **awaits the resume before playing**. Pressed from the 🔊 toggle (a user gesture) it always sounds; fired from a background poll it sounds whenever any earlier tap has unlocked audio — same browser policy, no race. Older-Safari fallback added for the audio engine constructor
+- **iPhone note (not a bug):** iOS mutes Web Audio when the **ringer switch is on silent** — the status bar in the CEO's own screenshot showed the mute icon. Flip the ringer on / volume up and the chime sounds on mobile too
+
+### Deploy
+- `pnpm build` → hard refresh, then tap 🔇→🔊 — the confirmation ding should now be audible immediately
+
+
+## [1.4.150] — 2026-08-03 — Inventory forms: app-standard widths on web and mobile
+
+### Fixed (per the CEO's screenshot: field widths inconsistent; must read as an app on both)
+- Both Inventory forms — the **add-item row** and the **Supplier-returns form** — now follow one width standard:
+  - **Phones:** a clean **2-up grid** with full-width fields (Item and Reason span the full row since they hold long text) and a **full-width action button** — the same app pattern as Quick actions and the Claims item cards. No more ragged wrapping or half-truncated fields
+  - **Desktop:** the tidy inline row stays, with standardized column widths — the SKU box is wider so "must match TikTok" reads in full
+- The subhead helper now accepts layout spans, so any future form row can reuse this exact pattern
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.149] — 2026-08-03 — Supplier returns: replacement outcome
 
 ### Added (CEO asked: what if the supplier does a replacement instead?)

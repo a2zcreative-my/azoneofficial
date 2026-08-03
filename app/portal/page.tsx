@@ -2234,10 +2234,12 @@ export default function PortalPage() {
   const audioRef = useRef<AudioContext | null>(null);
   const unreadRef = useRef<number | null>(null); // null = first load (no chime)
   useEffect(() => {
+    // Unlock on the first gesture so POLL-triggered chimes are allowed later.
     const unlock = () => {
       if (!audioRef.current) {
         try {
-          audioRef.current = new AudioContext();
+          const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (AC) audioRef.current = new AC();
         } catch { /* very old browser — chime simply stays off */ }
       }
       void audioRef.current?.resume();
@@ -2245,9 +2247,25 @@ export default function PortalPage() {
     window.addEventListener("pointerdown", unlock, { once: true });
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
-  const chime = useCallback(() => {
-    const ctx = audioRef.current;
-    if (!ctx || ctx.state !== "running") return;
+  const chime = useCallback(async () => {
+    // v1.4.151 FIX: the first 🔊 press raced the unlock — resume() is async,
+    // so ctx.state was still "suspended" when the click handler chimed, and
+    // the guard swallowed the sound. Now the chime itself creates the context
+    // if needed and AWAITS resume before checking. Called from a gesture
+    // (the toggle) this always resumes; called from a background poll it
+    // resumes only if a gesture already unlocked audio — same policy, no race.
+    let ctx = audioRef.current;
+    if (!ctx) {
+      try {
+        const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AC) { ctx = new AC(); audioRef.current = ctx; }
+      } catch { return; }
+    }
+    if (!ctx) return;
+    if (ctx.state !== "running") {
+      try { await ctx.resume(); } catch { return; }
+    }
+    if (ctx.state !== "running") return;
     const note = (freq: number, at: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -2274,7 +2292,7 @@ export default function PortalPage() {
         // never on mark-as-read shrinkage.
         if (unreadRef.current !== null && nowUnread > unreadRef.current &&
             localStorage.getItem("azone-notif-sound") !== "off") {
-          chime();
+          void chime();
         }
         unreadRef.current = nowUnread;
         setNotifs(list);
@@ -2360,7 +2378,7 @@ export default function PortalPage() {
               const next = !sound;
               setSound(next);
               localStorage.setItem("azone-notif-sound", next ? "on" : "off");
-              if (next) chime(); // audible confirmation (also a gesture, so audio is unlocked)
+              if (next) void chime(); // audible confirmation (gesture context — always plays now)
             }}
           >
             {sound ? "🔊" : "🔇"}

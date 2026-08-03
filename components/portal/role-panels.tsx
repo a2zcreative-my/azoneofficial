@@ -43,9 +43,9 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 /** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
-function SubR({ t, children }: { t: string; children: ReactNode }) {
+function SubR({ t, children, className = "" }: { t: string; children: ReactNode; className?: string }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
       {children}
     </label>
@@ -501,24 +501,26 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           Status recomputes on every movement (0 = out of stock · ≤5 = low).
         </p>
         {invMsg && <p className="text-destructive mt-1 text-xs font-medium">{invMsg}</p>}
-        <div className="mt-3 flex flex-wrap items-end gap-2">
+        {/* v1.4.150: app-standard widths — a 2-up grid on phones (full-width
+            fields, full-width button), the tidy inline row from sm: up. */}
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
           <SubR t="SKU">
-            <input className={`${inputClass} max-w-32`} placeholder="must match TikTok" value={invDraft.sku}
+            <input className={`${inputClass} sm:max-w-40`} placeholder="must match TikTok" value={invDraft.sku}
               onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
           </SubR>
           <SubR t="Item name">
-            <input className={`${inputClass} max-w-56`} placeholder="e.g. Tudung Sarah XL" value={invDraft.name}
+            <input className={`${inputClass} sm:max-w-56`} placeholder="e.g. Tudung Sarah XL" value={invDraft.name}
               onChange={(e) => setInvDraft((d) => ({ ...d, name: e.target.value }))} />
           </SubR>
           <SubR t="Opening stock">
-            <input type="number" min={0} className={`${inputClass} max-w-24`} title="Opening stock" value={invDraft.stock}
+            <input type="number" min={0} className={`${inputClass} sm:max-w-24`} title="Opening stock" value={invDraft.stock}
               onChange={(e) => setInvDraft((d) => ({ ...d, stock: Number(e.target.value) }))} />
           </SubR>
           <SubR t="Price/unit (RM)">
-            <input type="number" min={0} step="0.01" className={`${inputClass} max-w-32`} placeholder="0.00" value={invDraft.unit_price}
+            <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00" value={invDraft.unit_price}
               onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
           </SubR>
-          <button type="button" className={btnClass}
+          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:justify-start`}
             onClick={async () => {
               await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
               setInvDraft({ sku: "", name: "", stock: 0, unit_price: "" });
@@ -596,9 +598,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           </div>
         )}
         {retMsg && <p className="text-destructive mt-1.5 text-xs font-medium">{retMsg}</p>}
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <SubR t="Item">
-            <select className={`${inputClass} max-w-56`} value={retDraft.item_id}
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
+          <SubR t="Item" className="col-span-2 sm:col-span-1">
+            <select className={`${inputClass} sm:max-w-64`} value={retDraft.item_id}
               onChange={(e) => {
                 const id = Number(e.target.value);
                 const it = items.find((x) => x.id === id);
@@ -609,26 +611,26 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </select>
           </SubR>
           <SubR t="Qty rejected">
-            <input type="number" min={1} className={`${inputClass} max-w-24`} value={retDraft.qty}
+            <input type="number" min={1} className={`${inputClass} sm:max-w-24`} value={retDraft.qty}
               onChange={(e) => setRetDraft((d) => ({ ...d, qty: Number(e.target.value) }))} />
           </SubR>
           <SubR t="Unit cost (RM)">
-            <input type="number" min={0} step="0.01" className={`${inputClass} max-w-28`} placeholder="0.00" value={retDraft.unit_cost}
+            <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-28`} placeholder="0.00" value={retDraft.unit_cost}
               onChange={(e) => setRetDraft((d) => ({ ...d, unit_cost: e.target.value }))} />
           </SubR>
           <SubR t="Supplier">
-            <input className={`${inputClass} max-w-44`} placeholder="e.g. Tekstil Maju Sdn Bhd" value={retDraft.supplier}
+            <input className={`${inputClass} sm:max-w-44`} placeholder="e.g. Tekstil Maju Sdn Bhd" value={retDraft.supplier}
               onChange={(e) => setRetDraft((d) => ({ ...d, supplier: e.target.value }))} />
           </SubR>
           <SubR t="Return date">
-            <input type="date" className={`${inputClass} max-w-40`} value={retDraft.return_date}
+            <input type="date" className={`${inputClass} sm:max-w-40`} value={retDraft.return_date}
               onChange={(e) => setRetDraft((d) => ({ ...d, return_date: e.target.value }))} />
           </SubR>
-          <SubR t="Reason (defect etc.)">
-            <input className={`${inputClass} max-w-52`} placeholder="e.g. stitching defect, wrong colour" value={retDraft.reason}
+          <SubR t="Reason (defect etc.)" className="col-span-2 sm:col-span-1">
+            <input className={`${inputClass} sm:max-w-52`} placeholder="e.g. stitching defect, wrong colour" value={retDraft.reason}
               onChange={(e) => setRetDraft((d) => ({ ...d, reason: e.target.value }))} />
           </SubR>
-          <button type="button" className={btnClass}
+          <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:justify-start`}
             onClick={async () => {
               setRetMsg("");
               const res = await api<{ error?: { message?: string } }>(`/inventory/returns`, {
@@ -2425,7 +2427,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]?.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
