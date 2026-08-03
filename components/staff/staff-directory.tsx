@@ -46,7 +46,6 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
-
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
