@@ -34,8 +34,8 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
-const input =
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -47,7 +47,6 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
-const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
   ic_number?: string | null;
@@ -253,7 +252,7 @@ const RECORD_FIELDS: [keyof Staff, string][] = [
     explanations moved to hover titles so labels stay short. */
 const FIELD_PLACEHOLDERS: Partial<Record<keyof Staff, string>> = {
   full_name: "e.g. MOHD ALIF FARHAN BIN NAZARUDIN",
-  ic_number: "YYMMDD-PB-#### · e.g. 970209-01-5183",
+  ic_number: "XXXXXX-XX-XXXX",
   phone: "+60 12-345 6789",
   employee_id: "e.g. AZOOM001",
   position: "e.g. Chief Executive Officer",
@@ -267,7 +266,7 @@ const FIELD_PLACEHOLDERS: Partial<Record<keyof Staff, string>> = {
   bank_account: "numbers only · e.g. 551100338444",
 };
 const FIELD_TITLES: Partial<Record<keyof Staff, string>> = {
-  ic_number: "Malaysian NRIC: YYMMDD-PB-#### (birth date, place-of-birth code, serial)",
+  ic_number: "Malaysian NRIC in the format XXXXXX-XX-XXXX",
   left_on: "Effective resignation/termination date — payroll runs up to and including this date",
   rejoined_on: "Re-join date — payroll resumes from this month",
   bank_account: "Digits only, no dashes or spaces — prints on the payslip",
@@ -440,7 +439,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
           </Sub>
           <Sub t="NRIC (optional)">
-            <input className={input} placeholder="e.g. 970209-01-5183" value={newStaff.ic_number}
+            <input className={input} placeholder="XXXXXX-XX-XXXX" value={newStaff.ic_number}
               onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
           </Sub>
           <Sub t="Bank (optional)">

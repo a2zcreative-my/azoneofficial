@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.185] — 2026-08-03 — NRIC placeholder masked
+
+### Fixed (per the CEO: "NRIC place holder should not put my NRIC number there! it is supposed to be XXXXXX-XX-XXXX")
+- The IC number field's example text used a real-looking NRIC ("e.g. 970209-01-5183") in BOTH the add-staff form and the staff-details editor — an actual number must never appear as reference text. All three occurrences (add form placeholder, details placeholder, tooltip) now show the masked format only: **XXXXXX-XX-XXXX**. Swept the codebase — no real-looking NRIC examples remain anywhere. Frontend-only.
+
 ## [1.4.184] — 2026-08-03 — Photo upload gets its save popup
 
 ### Fixed (per the CEO: "no popup successful when upload staff Photo")
