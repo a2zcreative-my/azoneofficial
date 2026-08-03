@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.155] — 2026-08-03 — Overtime OT in / OT out on the Dashboard + Inventory alignment fixes
+
+### Added (per the CEO: OT punches after 6pm, HOD approval reminder, hidden from part-time live hosts)
+- **Migration 0044** — `ot_records` table (no FKs; `type` = `ot_in`/`ot_out`), separate from `attendance_records` (its CHECK constraint would need a table rebuild for new types).
+- **Worker `POST /attendance/ot`** — opens **18:00 MYT** onward; requires today's clock-in ("overtime can only follow a worked day"); OT out requires OT in; one of each per day (409 confirms the recorded time); **live_host role and `part_time` status refused 403** — eligibility enforced server-side, not just hidden.
+- **Worker `GET /attendance`** now also returns `ot` rows (guarded pre-migration) and `ot_eligible` for the requesting user.
+- **Dashboard Quick actions** — **OT in / OT out** buttons appear from 18:00 MYT (minute tick, no refresh needed) for eligible staff only, with an amber reminder: *"OT in / OT out only with your Section HOD's approval."* Success toast repeats the HOD condition; the Today line now includes `OT in 18:05 · OT out 20:10`.
+
+### Fixed
+- **Marketing materials** — Request button floated at label height and clipped the input's placeholder; row is now `items-end`, the field takes the remaining width, and the button matches the 38px input height.
+- **Postage (non-TikTok)** — "+ Add item line" link and the "Add record" button rendered jammed on one line (both inline-level in the stacked form); the link is now block-level on its own line.
+
 ## [1.4.154] — 2026-08-03 — Width standard enforced across all tabs (/portal, /admin, /account)
 
 ### Changed (per the CEO: standardize widths on every tab, web AND mobile, no exceptions)

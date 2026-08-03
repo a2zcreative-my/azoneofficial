@@ -157,15 +157,32 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
+  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
+  const [otEligible, setOtEligible] = useState(false);
   const [leave, setLeave] = useState<LeaveReq[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [busy, setBusy] = useState("");
+  // v1.4.155: minute tick so the OT buttons appear at 18:00 MYT without a
+  // manual refresh — the card is often left open on a phone all day.
+  const [nowMins, setNowMins] = useState(() => {
+    const m = new Date(Date.now() + 8 * 3600 * 1000);
+    return m.getUTCHours() * 60 + m.getUTCMinutes();
+  });
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const m = new Date(Date.now() + 8 * 3600 * 1000);
+      setNowMins(m.getUTCHours() * 60 + m.getUTCMinutes());
+    }, 60_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-    const a = await api<{ records: { type: string; created_at: string }[] }>(`/staff/attendance?month=${month}`);
+    const a = await api<{ records: { type: string; created_at: string }[]; ot?: { type: string; created_at: string }[]; ot_eligible?: boolean }>(`/staff/attendance?month=${month}`);
     setToday((a.data?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+    setTodayOt((a.data?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+    setOtEligible(a.data?.ot_eligible === true);
     const l = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setLeave((l.data?.leave ?? []).filter((x) => x.status === "pending"));
     const t = await api<{ tasks: Task[] }>(`/staff/tasks`);
@@ -229,8 +246,62 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
     void load();
   };
 
+  // v1.4.155: overtime punches. OT is pre-approved by the Section HOD — these
+  // buttons record the hours, they are not the approval itself, and the toast
+  // reminds the staff member of that every time.
+  const punchOt = async (type: string) => {
+    if (!today.some((r) => r.type === "clock_in")) {
+      setPunchToast({ title: "Clock in first", sub: "No clock-in recorded today — overtime can only follow a worked day.", variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 3600);
+      return;
+    }
+    if (type === "ot_out" && !todayOt.some((r) => r.type === "ot_in")) {
+      setPunchToast({ title: "OT in first", sub: "Tap OT in when overtime starts, then OT out when you finish.", variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 3600);
+      return;
+    }
+    setBusy(type);
+    setPunchError("");
+    const res = await api<{ at?: string; error?: { message?: string } }>(`/staff/attendance/ot`, {
+      method: "POST",
+      body: JSON.stringify({ type }),
+    });
+    setBusy("");
+    if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
+      setPunchToast({
+        title: type === "ot_in" ? "OT in already recorded" : "OT out already recorded",
+        sub: res.data?.error?.message?.replace(/^You already recorded OT (in|out) today at /, "Recorded at ") ?? "Recorded earlier today",
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 3200);
+      void load();
+      return;
+    }
+    if (res.ok && res.data?.at) {
+      setPunchToast({
+        title: type === "ot_in" ? "OT in recorded" : "OT out recorded",
+        sub: type === "ot_in"
+          ? `${res.data.at} MYT — only proceed if your Section HOD approved this overtime.`
+          : `${res.data.at} MYT — overtime completed. Thank you.`,
+      });
+      window.setTimeout(() => setPunchToast(null), 3200);
+    } else if (res.data?.error?.message) {
+      setPunchToast({ title: "Overtime", sub: res.data.error.message, variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 3600);
+    } else {
+      setPunchError("OT punch failed — try again.");
+    }
+    void load();
+  };
+
   const hasIn = today.some((r) => r.type === "clock_in");
   const hasOut = today.some((r) => r.type === "clock_out");
+  const hasOtIn = todayOt.some((r) => r.type === "ot_in");
+  const hasOtOut = todayOt.some((r) => r.type === "ot_out");
+  // OT buttons: eligible staff only (not part-time live hosts), from 18:00 MYT.
+  // Also kept visible after a punch exists so a recorded OT day never "loses"
+  // its buttons to a clock edge case.
+  const showOt = otEligible && (nowMins >= 18 * 60 || todayOt.length > 0);
 
   return (
     <div className="space-y-3 md:space-y-6">
@@ -249,13 +320,33 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           {SALES_ROLES.includes(user.role) && (
             <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Sales")}>Create quotation</button>
           )}
+          {showOt && (
+            <>
+              <button type="button"
+                className={`${hasOtIn ? btnGhost : btnClass} justify-center sm:justify-start`}
+                disabled={!!busy} onClick={() => void punchOt("ot_in")}>
+                {hasOtIn ? "OT in ✓" : "OT in"}
+              </button>
+              <button type="button" className={`${btnGhost} justify-center sm:justify-start`}
+                disabled={!!busy} onClick={() => void punchOt("ot_out")}>
+                {hasOtOut ? "OT out ✓" : "OT out"}
+              </button>
+            </>
+          )}
         </div>
+        {showOt && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            Working overtime today? OT in / OT out only with your Section HOD&apos;s approval — tap OT in when it starts and OT out when you finish.
+          </p>
+        )}
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
         {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} variant={punchToast.variant} />}
         <p className="text-muted-foreground mt-3 text-xs">
-          {today.length === 0
+          {today.length === 0 && todayOt.length === 0
             ? "No attendance recorded today."
-            : `Today: ${today.slice().reverse().map((r) => `${r.type.replace("_", " ")} ${mytTime(r.created_at)}`).join(" · ")}`}
+            : `Today: ${[...today.slice().reverse(), ...todayOt.slice().reverse()]
+                .map((r) => `${r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")} ${mytTime(r.created_at)}`)
+                .join(" · ")}`}
         </p>
       </div>
 

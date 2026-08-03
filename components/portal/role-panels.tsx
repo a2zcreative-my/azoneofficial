@@ -777,7 +777,10 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   onClick={() => setPostLines((ls) => ls.filter((_, i) => i !== idx))}>Remove</button>
               </div>
             ))}
-            <button type="button" className="text-xs underline"
+            {/* v1.4.155: block, not inline — as an inline button it shared its
+                line box with the inline-flex Add record button below, so the
+                link and the button rendered jammed together on one line. */}
+            <button type="button" className="block text-left text-xs underline"
               onClick={() => setPostLines((ls) => [...ls, { inventory_item_id: 0, qty: 1 }])}>
               + Add item line {postLines.length === 0 ? "(deducts stock automatically)" : ""}
             </button>
@@ -845,11 +848,15 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           <p className="text-muted-foreground mt-0.5 text-xs">
             Track what sales needs — request new material, mark it done when produced.
           </p>
-          <div className="mt-3 flex gap-2">
-            <SubR t="Material needed">
+          {/* v1.4.155: items-end + matched button height (38px input vs 36px
+              btn) so Request sits flush beside the field instead of floating
+              at label height; the input takes the remaining width so its
+              placeholder isn't clipped. */}
+          <div className="mt-3 flex items-end gap-2">
+            <SubR t="Material needed" className="min-w-0 flex-1">
             <input className={inputClass} placeholder="e.g. Raya campaign product cards" value={matDraft}
               onChange={(e) => setMatDraft(e.target.value)} /></SubR>
-            <button type="button" className={btnClass}
+            <button type="button" className={`${btnClass} h-[38px] whitespace-nowrap`}
               onClick={async () => {
                 if (!matDraft.trim()) return;
                 await api(`/materials`, { method: "POST", body: JSON.stringify({ title: matDraft }) });

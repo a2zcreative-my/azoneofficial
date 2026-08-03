@@ -549,6 +549,96 @@ export async function handleStaff(
     return json({ ok: true, flag }, 201);
   }
 
+  /* ---- overtime punches (v1.4.155) ----
+     OT in / OT out open at 18:00 MYT. Overtime must already be approved by the
+     staff member's Section HOD — the buttons record the hours, they are not the
+     approval. Part-time staff (the live hosts) are not eligible, enforced here
+     and hidden in the UI. Requires today's clock-in (you can't OT a day you
+     never worked), and OT out requires today's OT in. One of each per day. */
+
+  if (path === "/attendance/ot" && method === "POST") {
+    const otTypes = ["ot_in", "ot_out"];
+    if (!body || typeof body.type !== "string" || !otTypes.includes(body.type)) {
+      return err("invalid_input", `type must be one of: ${otTypes.join(", ")}`, 400);
+    }
+    // Eligibility: live_host role and part_time status are excluded.
+    const me = await env.DB.prepare(`SELECT status FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ status: string | null }>();
+    if (user.role === "live_host" || me?.status === "part_time") {
+      return err("not_eligible", "Part-time staff (live hosts) are not eligible for OT punches.", 403);
+    }
+    // Time gate: OT window opens at 18:00 MYT.
+    const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const nowMins = mytNow.getUTCHours() * 60 + mytNow.getUTCMinutes();
+    if (nowMins < 18 * 60) {
+      return err("too_early", "Overtime punches open at 18:00 MYT, after the normal shift ends.", 400);
+    }
+    const todayMYT = mytNow.toISOString().slice(0, 10);
+    // Must have clocked in today — OT extends a worked day.
+    const dayIn = await env.DB.prepare(
+      `SELECT id FROM attendance_records
+       WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
+    ).bind(user.id, todayMYT).first<{ id: number }>();
+    if (!dayIn) {
+      return json(
+        { error: { code: "no_clock_in", message: "No clock-in recorded today — overtime can only follow a worked day." } },
+        400,
+      );
+    }
+    try {
+      if (body.type === "ot_out") {
+        const otIn = await env.DB.prepare(
+          `SELECT id FROM ot_records
+           WHERE user_id = ?1 AND type = 'ot_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
+        ).bind(user.id, todayMYT).first<{ id: number }>();
+        if (!otIn) {
+          return json(
+            { error: { code: "no_ot_in", message: "You haven't recorded OT in — tap OT in when overtime starts, then OT out when you finish." } },
+            400,
+          );
+        }
+      }
+      // One OT in and one OT out per day, enforced server-side like clock punches.
+      const dup = await env.DB.prepare(
+        `SELECT id, created_at FROM ot_records
+         WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
+      ).bind(user.id, body.type, todayMYT).first<{ id: number; created_at: string }>();
+      if (dup) {
+        const at = new Date(new Date(dup.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000)
+          .toISOString().slice(11, 16);
+        return json(
+          {
+            error: {
+              code: "already_punched",
+              message: body.type === "ot_in"
+                ? `You already recorded OT in today at ${at} MYT.`
+                : `You already recorded OT out today at ${at} MYT.`,
+            },
+            already: true,
+            at,
+          },
+          409,
+        );
+      }
+      await env.DB.prepare(
+        `INSERT INTO ot_records (user_id, type, ip, user_agent)
+         VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(
+        user.id,
+        body.type,
+        request.headers.get("CF-Connecting-IP"),
+        (request.headers.get("User-Agent") ?? "").slice(0, 300),
+      ).run();
+    } catch (e) {
+      if (String(e).includes("no such table")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0044_overtime)", 500);
+      }
+      throw e;
+    }
+    const hhmm = mytNow.toISOString().slice(11, 16);
+    return json({ ok: true, at: hhmm }, 201);
+  }
+
   if (path === "/attendance" && method === "GET") {
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
@@ -559,7 +649,23 @@ export async function handleStaff(
        WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
        ORDER BY created_at DESC LIMIT 400`,
     ).bind(forUser, month).all();
-    return json({ month, records: results });
+    // v1.4.155: overtime punches ride along (own dashboard + HR views). Guarded
+    // so the endpoint keeps working before migration 0044 lands.
+    let ot: unknown[] = [];
+    try {
+      const o = await env.DB.prepare(
+        `SELECT type, created_at FROM ot_records
+         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+         ORDER BY created_at DESC LIMIT 100`,
+      ).bind(forUser, month).all();
+      ot = o.results;
+    } catch { /* table not migrated yet — return empty */ }
+    // Eligibility flag drives whether the dashboard shows the OT buttons at
+    // all — the requesting user's own role + employment status.
+    const meRow = await env.DB.prepare(`SELECT status FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ status: string | null }>();
+    const ot_eligible = user.role !== "live_host" && meRow?.status !== "part_time";
+    return json({ month, records: results, ot, ot_eligible });
   }
 
   if (path === "/attendance/report" && method === "GET") {
