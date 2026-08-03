@@ -2797,6 +2797,61 @@ export async function handleStaff(
     await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
     return json({ ok: true });
   }
+  /* v1.4.162 (CEO): fix a wrongly inserted item — edit SKU/name, or delete
+     the row entirely. Deletion is blocked once shipment history exists
+     (postage_items) or a supplier return references it: those records join
+     the item by id, so removing it would orphan real movements — the CEO
+     edits instead. */
+  const invEdit = path.match(/^\/inventory\/(\d+)\/edit$/);
+  if (invEdit && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const newSku = str(body?.sku, 60) ? (body!.sku as string).trim() : null;
+    const newName = str(body?.name, 200) ? (body!.name as string).trim() : null;
+    if (!newSku && !newName) return err("invalid_input", "Provide a sku and/or name to update", 400);
+    const target = await env.DB.prepare(`SELECT id, sku, name FROM inventory_items WHERE id = ?1`)
+      .bind(invEdit[1]).first<{ id: number; sku: string; name: string }>();
+    if (!target) return err("not_found", "Item not found", 404);
+    if (newSku) {
+      const clash = await env.DB.prepare(
+        `SELECT id FROM inventory_items WHERE lower(trim(sku)) = lower(?1) AND id != ?2 LIMIT 1`,
+      ).bind(newSku.toLowerCase(), target.id).first<{ id: number }>();
+      if (clash) return err("conflict", "Another item already uses this SKU", 409);
+    }
+    await env.DB.prepare(
+      `UPDATE inventory_items SET sku = COALESCE(?1, sku), name = COALESCE(?2, name),
+         updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+    ).bind(newSku, newName, user.id, target.id).run();
+    await audit(env, user.id, "inventory.edit", "inventory_items", String(target.id),
+      { from: { sku: target.sku, name: target.name }, to: { sku: newSku ?? target.sku, name: newName ?? target.name } });
+    return json({ ok: true });
+  }
+  const invDelete = path.match(/^\/inventory\/(\d+)\/delete$/);
+  if (invDelete && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const target = await env.DB.prepare(`SELECT id, sku, name, stock FROM inventory_items WHERE id = ?1`)
+      .bind(invDelete[1]).first<{ id: number; sku: string; name: string; stock: number }>();
+    if (!target) return err("not_found", "Item not found", 404);
+    const shipped = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM postage_items WHERE inventory_item_id = ?1`,
+    ).bind(target.id).first<{ n: number }>();
+    if ((shipped?.n ?? 0) > 0) {
+      return err("has_history", "This item has shipment history — its records reference it, so edit the SKU/name instead of deleting.", 409);
+    }
+    let returned = 0;
+    try {
+      const ret = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM supplier_returns WHERE item_id = ?1`,
+      ).bind(target.id).first<{ n: number }>();
+      returned = ret?.n ?? 0;
+    } catch { /* 0042 not applied — nothing referencing */ }
+    if (returned > 0) {
+      return err("has_history", "This item has supplier-return records — edit the SKU/name instead of deleting.", 409);
+    }
+    await env.DB.prepare(`DELETE FROM inventory_items WHERE id = ?1`).bind(target.id).run();
+    await audit(env, user.id, "inventory.delete", "inventory_items", String(target.id),
+      { sku: target.sku, name: target.name, stock: target.stock });
+    return json({ ok: true });
+  }
 
   /* ---- Sales & marketing: postage tracking ---- */
 

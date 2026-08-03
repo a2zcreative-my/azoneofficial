@@ -475,6 +475,10 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [replacingId, setReplacingId] = useState<number | null>(null); // v1.4.149
   const [replaceQty, setReplaceQty] = useState("");
   const { confirm: invConfirm, node: invConfirmNode } = useConfirm(); // v1.4.148
+  const { show: invToast, node: invToastNode } = useSaveToast(); // v1.4.162
+  // v1.4.162: fix a wrongly inserted item — inline SKU/name edit + delete.
+  const [invEditId, setInvEditId] = useState<number | null>(null);
+  const [invEditDraft, setInvEditDraft] = useState({ sku: "", name: "" });
 
   const adjust = async (id: number, delta: number) => {
     setInvMsg("");
@@ -505,6 +509,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   return (
     <div className="space-y-4 md:space-y-6">
       {invConfirmNode}
+      {invToastNode}
       <TikTokOrdersCard role={role} onChanged={() => void load()} />
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
@@ -547,19 +552,32 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         )}
         {items.length > 0 && (
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse">
+          <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>SKU</th><th className={th}>Item</th>
                 <th className={th}>Price/unit</th>
-                <th className={th}>Stock</th><th className={th}>Status</th><th className={th}></th>
+                <th className={th}>Stock</th><th className={th}>Status</th>
+                {/* v1.4.162: these two columns had no subheads (CEO spotted it) */}
+                <th className={th}>Manual in / out</th><th className={th}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => (
                 <tr key={it.id} className="border-border border-b last:border-0">
-                  <td className={`${td} font-mono text-xs`}>{it.sku}</td>
-                  <td className={`${td} font-medium`}>{it.name}</td>
+                  <td className={`${td} font-mono text-xs`}>
+                    {invEditId === it.id
+                      ? <input className="border-input bg-background w-24 rounded border px-1.5 py-0.5 font-mono text-xs" value={invEditDraft.sku}
+                          title="SKU — must match TikTok (or the item name will be used to match)"
+                          onChange={(e) => setInvEditDraft((d) => ({ ...d, sku: e.target.value }))} />
+                      : it.sku}
+                  </td>
+                  <td className={`${td} font-medium`}>
+                    {invEditId === it.id
+                      ? <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" value={invEditDraft.name}
+                          onChange={(e) => setInvEditDraft((d) => ({ ...d, name: e.target.value }))} />
+                      : it.name}
+                  </td>
                   <td className={td}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-xs"
                       title="Price per unit (RM) — saves on change"
@@ -584,6 +602,47 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
                         title="Stock out (manual deduction)"
                         onClick={() => void adjust(it.id, -(adjQty[it.id] ?? 1))}>Out −</button>
+                    </span>
+                  </td>
+                  <td className={td}>
+                    {/* v1.4.162: fix wrongly inserted items — branded confirm +
+                        save-toast, same standard as everywhere else. */}
+                    <span className="flex items-center gap-1.5">
+                      {invEditId === it.id ? (
+                        <>
+                          <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
+                            onClick={async () => {
+                              const sku = invEditDraft.sku.trim(); const name = invEditDraft.name.trim();
+                              if (!sku || !name) { invToast("No changes", "SKU and item name are both required", "notice"); return; }
+                              if (sku === it.sku && name === it.name) { invToast("No changes", "Nothing was edited", "notice"); setInvEditId(null); return; }
+                              const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/edit`, {
+                                method: "POST", body: JSON.stringify({ sku, name }),
+                              });
+                              if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
+                              invToast("Saved", `${sku} — ${name} updated`);
+                              setInvEditId(null);
+                              void load();
+                            }}>Save</button>
+                          <button type="button" className="text-xs underline" onClick={() => setInvEditId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="text-xs underline" title="Edit SKU / item name"
+                            onClick={() => { setInvEditId(it.id); setInvEditDraft({ sku: it.sku, name: it.name }); }}>Edit</button>
+                          <button type="button" className="text-destructive text-xs underline" title="Delete a wrongly inserted item"
+                            onClick={async () => {
+                              if (!(await invConfirm({
+                                title: "Delete this item?",
+                                message: `${it.sku} — ${it.name} (${it.stock} in stock) will be removed from the stock list. Items with shipment or supplier-return history can't be deleted — edit those instead.`,
+                                confirmLabel: "Delete item", variant: "danger",
+                              }))) return;
+                              const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                              if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
+                              invToast("Deleted", `${it.sku} — ${it.name} removed`);
+                              void load();
+                            }}>Delete</button>
+                        </>
+                      )}
                     </span>
                   </td>
                 </tr>
@@ -2454,7 +2513,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) - sum of SAVED payslip nets - after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

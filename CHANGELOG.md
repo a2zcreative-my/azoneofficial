@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.163] — 2026-08-03 — News + Events forms brought to the Dashboard card standard
+
+### Fixed (per the CEO: "head section is not same as Dashboard/Overview compared to News — all the tabs follow as Dashboard")
+- **Publish news** was the last card with placeholder-only fields and no description under its title — it predated the subhead standard and only became CEO-visible in v1.4.153, so every sweep missed it. Now standard: muted description line ("Posted to every staff member — appears on their Dashboard and in this feed until they press Acknowledge"), **Sub labels** on Title / Body / Category, category select width-capped (sm:max-w-44), better placeholder examples.
+- **Events form** — the v1.4.154 sweep added Sub labels to Category/Date/Start/End but missed **Event title, Location, Details**; all three now carry subheads with example placeholders.
+- Full-page sweep re-run: the only remaining unlabeled placeholder inputs are the Sales line-item cells, which correctly share column headers (table-inline exemption). Every form card in /portal now matches the Dashboard pattern: bold title → muted description → subheaded fields.
+
+## [1.4.162] — 2026-08-03 — Inventory: SKU-or-name TikTok matching · Edit/Delete items · missing subheads
+
+### Fixed (per the CEO: "seem like there is a missing of subhead")
+- The last two Inventory table columns had no headers — now **"Manual in / out"** over the qty + In+/Out− controls and **"Actions"** over the new Edit/Delete.
+
+### Added (per the CEO)
+- **TikTok stock matching by item description OR SKU** — the sync/webhook now resolves each TikTok line in three passes: (1) SKU, now case-insensitive + trimmed (was strict exact-match); (2) exact item-name match against the TikTok variant (sku_name) or full product name; (3) unique-contains — the inventory name appearing inside the TikTok product/variant name, but ONLY when exactly one item qualifies, so an ambiguous name can never move the wrong stock (names <3 chars never contains-match). Order notes say "matched by item name: …" when the fallback fired; unmatched lines now read "not in inventory (SKU or name)".
+- **Edit / Delete on inventory rows** ("wrongly insert" fix) — Edit turns SKU + name into inline inputs (Save/Cancel, SKU-uniqueness 409, audited `inventory.edit` with before/after); Delete goes through the **standardized branded danger confirm** (v1.4.142 dialog) + save-toast. Deletion is **blocked with a clear message once the item has shipment (postage_items) or supplier-return history** — those records reference it, so history-bearing items get edited, not deleted; audited `inventory.delete` with a snapshot.
+
+## [1.4.161] — 2026-08-03 — Users tab compacted (minimalist rows, mobile-friendly)
+
+### Changed (per the CEO: "minimalist the card box since it is too long to scroll; mobile apps view also nice")
+- **Staff + customer lists** — stacked bordered card boxes replaced with one hairline-divided box of **single-line rows** (py-1.5); name + email truncate so a phone row stays one line; the ✎ edit action shrinks to an icon.
+- **Exception-only chips** — role always shows; "permanent", "active", and "2FA ✓" no longer render (they're the normal state). Chips now appear only for the exceptions: non-permanent status (part time / contract / probation / resigned / terminated, with left/rejoined dates moved into a hover title), red **disabled**, amber **2FA ✗**. Six healthy staff rows went from four chips each to one.
+- **Desktop**: staff and customer lists sit **side-by-side (lg:grid-cols-2)**, cutting the page height roughly in half; they stack normally on phones.
+- **User log** — rows tightened (11px, hairline dividers, smaller action chips) and the scroll boxes shortened (staff max-h-80, customers/log max-h-56) so each section scrolls internally instead of stretching the page.
+
 ## [1.4.160] — 2026-08-03 — Delivery/postage fee on QT + INV (Malaysian flow) · KPI colour tiers + progress bar
 
 ### Added (per the CEO)

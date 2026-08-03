@@ -712,8 +712,9 @@ function UpcomingEventsCard({ role }: { role: string }) {
       </div>
       {canManage && showForm && (
         <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
-          <input className={inputClass} placeholder="Event title (e.g. TikTok Live hosting training)" value={draft.title}
-            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+          <Sub t="Event title">
+          <input className={inputClass} placeholder="e.g. TikTok Live hosting training" value={draft.title}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} /></Sub>
           {/* v1.4.154: standard widths — 2-up grid on phones, capped row from sm: */}
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Sub t="Category">
@@ -735,10 +736,12 @@ function UpcomingEventsCard({ role }: { role: string }) {
                 onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
             </Sub>
           </div>
-          <input className={inputClass} placeholder="Location (optional)" value={draft.location}
-            onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} />
-          <textarea className={`${inputClass} min-h-16`} placeholder="Details (optional)" value={draft.details}
-            onChange={(e) => setDraft((d) => ({ ...d, details: e.target.value }))} />
+          <Sub t="Location (optional)">
+          <input className={inputClass} placeholder="e.g. HQ meeting room / Google Meet" value={draft.location}
+            onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} /></Sub>
+          <Sub t="Details (optional)">
+          <textarea className={`${inputClass} min-h-16`} placeholder="Agenda, links, what to prepare" value={draft.details}
+            onChange={(e) => setDraft((d) => ({ ...d, details: e.target.value }))} /></Sub>
           {msg && <p className="text-destructive text-xs font-medium">{msg}</p>}
           <button type="button" className={btnClass} onClick={() => void createEvent()}>Save event — notifies all staff</button>
         </div>
@@ -1514,12 +1517,25 @@ function Announcements({ user }: { user: User }) {
       {canPost && (
         <div className={card}>
           <p className="text-sm font-semibold">Publish news</p>
+          {/* v1.4.163 (CEO: "head section is not same as Dashboard"): this
+              form predated the subhead standard — description + Sub labels
+              added so it matches every other card. */}
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Posted to every staff member — it appears on their Dashboard and in
+            this feed until they press Acknowledge.
+          </p>
           <div className="mt-3 space-y-3">
-            <input className={inputClass} placeholder="Title" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-            <textarea className={inputClass} rows={3} placeholder="Body" value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
-            <select className={inputClass} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-              {["news", "meeting", "holiday", "kpi", "training"].map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <Sub t="Title">
+              <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+            </Sub>
+            <Sub t="Body">
+              <textarea className={inputClass} rows={3} placeholder="The full announcement text" value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
+            </Sub>
+            <Sub t="Category">
+              <select className={`${inputClass} sm:max-w-44`} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
+                {["news", "meeting", "holiday", "kpi", "training"].map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Sub>
             <button type="button" className={btnClass} onClick={() => void post()}>Publish</button>
           </div>
         </div>
@@ -2362,28 +2378,36 @@ function UsersPanel({ role }: { role: string }) {
           : " Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role."}
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
-      <div className="mt-3 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
+      {/* v1.4.161: staff + customer lists sit side-by-side on desktop to cut
+          the scroll in half; they stack normally on phones. */}
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+      <div>
+      {/* v1.4.161 (CEO: "minimalist the card box — too long to scroll"):
+          one bordered box with hairline-divided single-line rows instead of
+          stacked card boxes; chips show EXCEPTIONS only (non-permanent
+          status, disabled, 2FA missing) — role always shows. Everything
+          truncates so a phone row stays one line. */}
+      <div className="border-border divide-border mt-3 max-h-80 divide-y overflow-y-auto rounded-lg border">
         {staffRows.map((u) => (
-          <div key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
-            <span className="min-w-0">
+          <div key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm">
+            <span className="min-w-0 flex-1 truncate">
               <span className="font-medium">{properName(u.full_name || u.name)}</span>
-              <span className="text-muted-foreground"> · {u.email}</span>
+              <span className="text-muted-foreground text-xs"> · {u.email}</span>
             </span>
-            <span className="flex shrink-0 items-center gap-1.5">
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{u.role.replace(/_/g, " ")}</span>
-              <span className={`rounded-full px-2 py-0.5 text-xs capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}>
-                {(u.employment_status ?? "permanent").replace(/_/g, " ")}
-                {u.left_on ? ` · until ${dmy(u.left_on)}` : ""}{u.rejoined_on ? ` · rejoined ${dmy(u.rejoined_on)}` : ""}
-              </span>
-              <span className={`rounded-full px-2 py-0.5 text-xs ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{u.is_active ? "active" : "disabled"}</span>
-              {/* v1.4.153: 2FA monitoring — amber flags accounts still unprotected */}
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.totp_enabled ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-800"}`}>
-                {u.totp_enabled ? "2FA ✓" : "2FA not set"}
-              </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <span className="bg-secondary rounded-full px-1.5 py-px text-[10px] capitalize">{u.role.replace(/_/g, " ")}</span>
+              {(u.employment_status ?? "permanent") !== "permanent" && (
+                <span className={`rounded-full px-1.5 py-px text-[10px] capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}
+                  title={`${u.left_on ? `until ${dmy(u.left_on)}` : ""}${u.rejoined_on ? ` · rejoined ${dmy(u.rejoined_on)}` : ""}`}>
+                  {(u.employment_status ?? "").replace(/_/g, " ")}
+                </span>
+              )}
+              {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">disabled</span>}
+              {!u.totp_enabled && <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800">2FA ✗</span>}
               {canEdit && editId !== u.id && (
-                <button type="button" className="text-xs underline"
+                <button type="button" className="text-[11px] underline"
                   onClick={() => { setEditId(u.id); setDraft({ role: u.role, employment_status: u.employment_status && ["permanent", "contract", "part_time", "probation"].includes(u.employment_status) ? u.employment_status : "permanent" }); }}>
-                  ✎ Change role
+                  ✎
                 </button>
               )}
             </span>
@@ -2396,28 +2420,29 @@ function UsersPanel({ role }: { role: string }) {
           ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length} active account(s) without 2FA — worth chasing: {staffRows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
         </p>
       )}
+      </div>
 
       {/* v1.4.156: Google sign-ups land here as customers — the CEO promotes
           them into part-time roles (e.g. part-time live host) from this list. */}
-      <div className="border-border mt-4 border-t pt-3">
+      <div className="border-border mt-4 border-t pt-3 lg:mt-0 lg:border-t-0 lg:pt-0">
         <p className="text-sm font-semibold">Customer accounts — Google &amp; self sign-ups</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {canEdit
             ? "Promote an account here when someone joins the team — personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account."
             : "Google and self sign-ups always land here as customers with zero staff access. Promotions are done by the system super admin only."}
         </p>
-        <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
-          {customerRows.length === 0 && <p className="text-muted-foreground text-sm">No customer accounts yet.</p>}
+        <div className="border-border divide-border mt-2 max-h-56 divide-y overflow-y-auto rounded-lg border">
+          {customerRows.length === 0 && <p className="text-muted-foreground px-3 py-2 text-sm">No customer accounts yet.</p>}
           {customerRows.map((u) => (
-            <div key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
-              <span className="min-w-0">
+            <div key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm">
+              <span className="min-w-0 flex-1 truncate">
                 <span className="font-medium">{properName(u.full_name || u.name)}</span>
-                <span className="text-muted-foreground"> · {u.email}</span>
+                <span className="text-muted-foreground text-xs"> · {u.email}</span>
               </span>
-              <span className="flex shrink-0 items-center gap-1.5">
-                <span className={`rounded-full px-2 py-0.5 text-xs ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{u.is_active ? "active" : "disabled"}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">disabled</span>}
                 {canEdit && editId !== u.id && (
-                  <button type="button" className="text-xs underline"
+                  <button type="button" className="text-[11px] underline"
                     onClick={() => { setEditId(u.id); setDraft({ role: "live_host", employment_status: "part_time" }); }}>
                     ✎ Promote
                   </button>
@@ -2429,19 +2454,21 @@ function UsersPanel({ role }: { role: string }) {
         </div>
       </div>
 
+      </div>
+
       <div className="border-border mt-4 border-t pt-3">
         <p className="text-sm font-semibold">User log — recent sign-ins &amp; account events</p>
         <p className="text-muted-foreground mt-0.5 text-xs">Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.</p>
-        <div className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-1">
+        <div className="mt-2 max-h-56 space-y-0 overflow-y-auto pr-1">
           {events.length === 0 && <p className="text-muted-foreground text-sm">No events recorded yet.</p>}
           {events.map((e, i) => (
-            <div key={i} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1 text-xs last:border-0">
-              <span className="min-w-0">
+            <div key={i} className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1 text-[11px] last:border-0">
+              <span className="min-w-0 flex-1 truncate">
                 <span className="font-medium">{properName(e.name ?? "")}</span>
                 <span className="text-muted-foreground"> · {e.email ?? ""}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 ${e.action.includes("2fa_enabled") ? "bg-green-100 text-green-700" : e.action.includes("2fa") ? "bg-blue-100 text-blue-800" : e.action.includes("password") ? "bg-amber-100 text-amber-800" : "bg-secondary"}`}>
+                <span className={`rounded-full px-1.5 py-px text-[10px] ${e.action.includes("2fa_enabled") ? "bg-green-100 text-green-700" : e.action.includes("2fa") ? "bg-blue-100 text-blue-800" : e.action.includes("password") ? "bg-amber-100 text-amber-800" : "bg-secondary"}`}>
                   {e.action.replace("auth.", "").replace(/_/g, " ")}
                 </span>
                 <span className="text-muted-foreground">{mytStamp2(e.created_at)}</span>

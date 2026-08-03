@@ -324,13 +324,54 @@ async function tiktokSignedFetch(
 }
 
 /** Group TikTok line items (one row per unit) into SKU + quantity. */
-function groupLineItems(items: { seller_sku?: string; sku_id?: string }[]): { sku: string; qty: number }[] {
-  const merged = new Map<string, number>();
+function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string }[]): { sku: string; name: string; variant: string; qty: number }[] {
+  // v1.4.162: carry the TikTok names too — matching now falls back to the
+  // item description when the SKU doesn't line up with inventory.
+  const merged = new Map<string, { sku: string; name: string; variant: string; qty: number }>();
   for (const li of items) {
     const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
-    if (sku) merged.set(sku, (merged.get(sku) ?? 0) + 1);
+    const variant = (li.sku_name ?? "").trim();
+    const name = [li.product_name, li.sku_name].filter(Boolean).join(" ").trim();
+    const key = (sku || name).toLowerCase();
+    if (!key) continue;
+    const cur = merged.get(key);
+    if (cur) cur.qty += 1;
+    else merged.set(key, { sku, name, variant, qty: 1 });
   }
-  return [...merged.entries()].map(([sku, qty]) => ({ sku, qty }));
+  return [...merged.values()];
+}
+
+/** v1.4.162 (CEO: "sync with TikTok order based on item desc or SKU"):
+    resolve a TikTok line to an inventory item —
+      1) SKU, case-insensitive + trimmed (was exact-match only)
+      2) exact item-name match against the variant (sku_name) or full name
+      3) unique-contains: the inventory item's name appears inside the TikTok
+         product/variant name AND only ONE inventory item qualifies — a
+         multi-hit never deducts, so an ambiguous name can't move the wrong
+         stock. Names shorter than 3 chars never contains-match. */
+async function matchInventoryItem(env: Env, sku: string, name: string, variant: string):
+    Promise<{ id: number; stock: number; name: string; via: "sku" | "name" } | null> {
+  if (sku) {
+    const bySku = await env.DB.prepare(
+      `SELECT id, stock, name FROM inventory_items WHERE lower(trim(sku)) = lower(trim(?1)) LIMIT 1`,
+    ).bind(sku).first<{ id: number; stock: number; name: string }>();
+    if (bySku) return { ...bySku, via: "sku" };
+  }
+  for (const cand of [variant, name]) {
+    if (!cand) continue;
+    const exact = await env.DB.prepare(
+      `SELECT id, stock, name FROM inventory_items WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1`,
+    ).bind(cand).first<{ id: number; stock: number; name: string }>();
+    if (exact) return { ...exact, via: "name" };
+  }
+  if (name) {
+    const contains = await env.DB.prepare(
+      `SELECT id, stock, name FROM inventory_items
+       WHERE length(trim(name)) >= 3 AND instr(lower(?1), lower(trim(name))) > 0 LIMIT 2`,
+    ).bind(name).all<{ id: number; stock: number; name: string }>();
+    if (contains.results.length === 1) return { ...contains.results[0]!, via: "name" };
+  }
+  return null;
 }
 
 /** The token response does NOT include the shop identifier. Order APIs
@@ -375,7 +416,7 @@ async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail:
 async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { sku: string; qty: number }[]; city: string | null }> {
   const data = (await tiktokSignedFetch(env, "/order/202309/orders", { ids: orderId })) as {
     data?: { orders?: {
-      line_items?: { seller_sku?: string; sku_id?: string }[];
+      line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string }[];
       recipient_address?: {
         city?: string; state?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
@@ -725,17 +766,19 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const resolved: { id: number; qty: number }[] = [];
     const unknown: string[] = [];
     const shortages: string[] = [];
+    const nameMatched: string[] = [];
     for (const l of lines) {
-      const item = await env.DB.prepare(
-        `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
-      ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
-      if (!item) { unknown.push(`${l.qty}× ${l.sku}`); continue; }
+      // v1.4.162: SKU first, item-name fallback (see matchInventoryItem)
+      const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
+      if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
+      if (item.via === "name") nameMatched.push(item.name);
       if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
       resolved.push({ id: item.id, qty: l.qty });
     }
     const canDeduct = shortages.length === 0 && resolved.length > 0;
     const notes = ["TikTok order (synced)"];
-    if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
+    if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
+    if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
     if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
     const rec = await env.DB.prepare(
       `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
@@ -987,18 +1030,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const resolved: { id: number; qty: number }[] = [];
       const unknown: string[] = [];
       const shortages: string[] = [];
+      const nameMatched: string[] = [];
       for (const l of lines) {
-        const item = await env.DB.prepare(
-          `SELECT id, stock, name FROM inventory_items WHERE sku = ?1`,
-        ).bind(l.sku).first<{ id: number; stock: number; name: string }>();
-        if (!item) { unknown.push(`${l.qty}× ${l.sku}`); continue; }
+        // v1.4.162: SKU first, item-name fallback (see matchInventoryItem)
+        const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
+        if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
+        if (item.via === "name") nameMatched.push(item.name);
         if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
         resolved.push({ id: item.id, qty: l.qty });
       }
       const canDeduct = shortages.length === 0 && resolved.length > 0;
       const notes = ["TikTok order (auto)"];
       if (lines.length === 0) notes.push("items not retrieved — authorize the app to enable stock movement");
-      if (unknown.length) notes.push(`SKUs not in inventory: ${unknown.join(", ")}`);
+      if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
+      if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
       if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
 
       const rec = await env.DB.prepare(
