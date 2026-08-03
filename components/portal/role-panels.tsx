@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { properName } from "@/lib/names";
+import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -294,9 +294,10 @@ interface InvItem {
   updated_by_name?: string;
 }
 interface ManualOut { // v1.4.170 — traceability row for a manual stock out
-  id: number; sku: string; item_name: string; qty: number;
+  id: number; item_id: number; sku: string; item_name: string; qty: number;
   unit_sale_cents?: number | null; remark: string;
   created_at: string; created_by_name?: string | null;
+  out_date?: string | null; reverted?: number | null; // v1.4.172
 }
 
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
@@ -503,7 +504,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // traceability list.
   const [invSort, setInvSort] = useState<"sku" | "az" | "za">("sku");
   const [ttSort, setTtSort] = useState<"hot" | "sku" | "az" | "za">("hot");
-  const [outModal, setOutModal] = useState<{ item_id: number; qty: string; price: string; remark: string } | null>(null);
+  // edit_id null = new stock out; set = editing that traceability row.
+  const [outModal, setOutModal] = useState<{ edit_id: number | null; item_id: number; qty: string; price: string; remark: string; out_date: string } | null>(null);
+  const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
@@ -519,6 +522,21 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
     if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales`);
     else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs — logged with your remark`);
+    void load();
+    return true;
+  };
+  // v1.4.172: create-path wrapper adding the backdatable out date.
+  const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string) => {
+    setInvMsg("");
+    const sale = price.trim() !== "" ? Number(price) : undefined;
+    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean }>(`/inventory/${id}/adjust`, {
+      method: "POST",
+      body: JSON.stringify({ delta: -qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(outDate ? { out_date: outDate } : {}) }),
+    });
+    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${sale!.toFixed(2)} — counted in total sales`);
+    else invToast("Stock out recorded", `${qty} pcs — logged with your remark`);
     void load();
     return true;
   };
@@ -567,14 +585,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
       {outModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOutModal(null)}>
           <div className="bg-background w-full max-w-md rounded-xl border p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-semibold">Manual stock out</p>
+            <p className="text-sm font-semibold">{outModal.edit_id ? "Edit manual stock out" : "Manual stock out"}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               The remark is required — every manual out is logged with who,
-              when and why. Fill Sold @ only when this out is a sale.
+              when and why. Fill Sold @ only when this out is a sale
+              {outModal.edit_id ? "; clearing it removes the sale from the totals. A qty change moves stock by the difference." : "."}
             </p>
             <div className="mt-3 space-y-2">
               <SubR t="SKU · Item">
-                <select className={inputClass} value={outModal.item_id}
+                <select className={inputClass} value={outModal.item_id} disabled={!!outModal.edit_id}
+                  title={outModal.edit_id ? "The item can't change on an existing record — delete and re-record instead" : undefined}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, item_id: Number(e.target.value) }))}>
                   {[...items].sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" })).map((it) => (
                     <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
@@ -592,6 +612,12 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
                 </SubR>
               </div>
+              {/* v1.4.172 (CEO): the DATE the stock went out — backdatable;
+                  sales totals follow this date. */}
+              <SubR t="Date of stock out">
+                <input type="date" className={`${inputClass} sm:max-w-44`} value={outModal.out_date}
+                  onChange={(e) => setOutModal((m) => m && ({ ...m, out_date: e.target.value }))} />
+              </SubR>
               <SubR t="Remark — reason for stock out *">
                 <textarea className={inputClass} rows={2} placeholder="e.g. Damaged in storage / sample for client / sold at event"
                   value={outModal.remark}
@@ -603,10 +629,26 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     const qtyN = Math.floor(Number(outModal.qty));
                     if (!qtyN || qtyN <= 0) { invToast("Not saved", "Quantity must be at least 1", "notice"); return; }
                     if (!outModal.remark.trim()) { invToast("Not saved", "The remark (reason) is required for traceability", "notice"); return; }
-                    const ok = await adjust(outModal.item_id, -qtyN, outModal.price, outModal.remark.trim());
-                    if (ok) setOutModal(null);
+                    if (!outModal.edit_id) {
+                      const ok = await adjust2(outModal.item_id, qtyN, outModal.price, outModal.remark.trim(), outModal.out_date);
+                      if (ok) setOutModal(null);
+                      return;
+                    }
+                    // v1.4.172: edit an existing record — server moves stock
+                    // by the qty difference and keeps the sale totals in step.
+                    const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${outModal.edit_id}/edit`, {
+                      method: "POST",
+                      body: JSON.stringify({
+                        qty: qtyN, sale_price: outModal.price.trim() === "" ? "" : Number(outModal.price),
+                        remark: outModal.remark.trim(), out_date: outModal.out_date || undefined,
+                      }),
+                    });
+                    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
+                    invToast("Saved", "Stock-out record updated — stock and sales totals adjusted");
+                    setOutModal(null);
+                    void load();
                   }}>
-                  Record stock out
+                  {outModal.edit_id ? "Save changes" : "Record stock out"}
                 </button>
                 <button type="button" className="text-xs underline" onClick={() => setOutModal(null)}>Cancel</button>
               </div>
@@ -730,7 +772,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           qty, optional Sold @, MANDATORY remark. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
                         title="Stock out — opens the form (remark required for traceability)"
-                        onClick={() => setOutModal({ item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", remark: "" })}>Out −</button>
+                        onClick={() => setOutModal({ edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", remark: "", out_date: todayMYT() })}>Out −</button>
                     </span>
                   </td>
                   <td className={td}>
@@ -896,19 +938,61 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         ) : (
           <div className="mt-3 max-h-72 space-y-0 overflow-y-auto pr-1">
             {manualOuts.map((o) => (
-              <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="text-muted-foreground text-xs">{dmyMYT(o.created_at)}</span>
+              <div key={o.id} className={`border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
+                <span className={`min-w-0 flex-1 truncate ${o.reverted ? "line-through" : ""}`}>
+                  {/* v1.4.172: out DATE leads (backdatable); recording time on hover */}
+                  <span className="text-muted-foreground text-xs" title={`Recorded ${dmyMYT(o.created_at)}`}>{o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)}</span>
                   <span className="font-mono text-xs"> · {o.sku}</span>
                   <span className="font-medium"> — {o.item_name}</span>
                   <span> · {o.qty} pcs</span>
                   <span className="text-muted-foreground text-xs"> · {o.remark}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
-                  {o.unit_sale_cents != null
+                  {o.reverted ? (
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">↩ reverted — stock restored</span>
+                  ) : o.unit_sale_cents != null
                     ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {(o.unit_sale_cents / 100).toFixed(2)}</span>
                     : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">correction</span>}
                   {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]}</span>}
+                  {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
+                      the audit trail) / Delete (wrong record: stock back +
+                      sale removed + row gone). */}
+                  {!o.reverted && (
+                    <>
+                      <button type="button" className="text-xs underline" title="Edit qty / Sold @ / remark / date — stock and sales totals follow"
+                        onClick={() => setOutModal({
+                          edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
+                          price: o.unit_sale_cents != null ? (o.unit_sale_cents / 100).toFixed(2) : "",
+                          remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
+                        })}>Edit</button>
+                      <button type="button" className="text-xs underline" title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
+                        onClick={async () => {
+                          if (!(await invConfirm({
+                            title: "Revert this stock out?",
+                            message: `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? ` and the RM ${((o.unit_sale_cents * o.qty) / 100).toFixed(2)} sale is removed from the totals` : ""}. The record stays here marked ↩ reverted.`,
+                            confirmLabel: "Revert",
+                          }))) return;
+                          const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/revert`, { method: "POST", body: JSON.stringify({}) });
+                          if (!res.ok) { invToast("Not reverted", res.data?.error?.message ?? "Revert failed", "notice"); return; }
+                          invToast("Reverted", `${o.qty} × ${o.sku} back in stock`);
+                          void load();
+                        }}>↩ Revert</button>
+                    </>
+                  )}
+                  <button type="button" className="text-destructive text-xs underline" title="Wrong record: stock restored (unless already reverted), any sale removed, row deleted"
+                    onClick={async () => {
+                      if (!(await invConfirm({
+                        title: "Delete this stock-out record?",
+                        message: o.reverted
+                          ? "The stock was already restored by the revert — only the record itself is removed."
+                          : `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? `, the sale is removed from the totals` : ""}, and the record is deleted. For a normal undo, use ↩ Revert instead — it keeps the trail.`,
+                        confirmLabel: "Delete record", variant: "danger",
+                      }))) return;
+                      const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                      if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
+                      invToast("Deleted", "Record removed");
+                      void load();
+                    }}>Delete</button>
                 </span>
               </div>
             ))}
@@ -1990,6 +2074,10 @@ interface Claim {
   status: string;
   claimant?: string | null;
   claimant_full?: string | null;
+  payee_user_id?: number | null;   // v1.4.173 — internal payment remark
+  payee_name?: string | null;
+  payee_full?: string | null;
+  payee_role?: string | null;      // v1.4.175 — drives conflict-waived stages
   claimant_position?: string | null;
   claimant_department?: string | null;
   decided_by_name?: string | null;
@@ -2208,12 +2296,28 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm(); // v1.4.142: branded dialog
+  /* v1.4.173 (CEO): the PAYEE remark — when HR raises a claim on behalf of
+     a staff member, pick who the payment actually goes to. Internal only:
+     CEO/admin tier pay by it, hr_admin keeps it for records; it is NEVER
+     printed on the claim form and other roles never receive the field. */
+  const canPayee = ["hr_admin", "ceo", "super_admin", "admin"].includes(role);
+  const [payeeId, setPayeeId] = useState(0);
+  const [staffOptions, setStaffOptions] = useState<{ id: number; name: string; role: string }[]>([]);
 
   const load = useCallback(async () => {
     const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
     if (res.ok && res.data) { setClaims(res.data.claims); setCanDecide(res.data.can_decide); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!canPayee) return;
+    void api<{ users: { id: number; name: string; role: string; is_active?: number }[] }>(`/users`).then((r) => {
+      if (r.ok && r.data?.users) {
+        setStaffOptions(r.data.users.filter((u) => u.role !== "customer" && !["super_admin", "admin"].includes(u.role) && u.is_active !== 0));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPayee]);
 
   const rmc = (c: number) => `RM ${(c / 100).toFixed(2)}`;
 
@@ -2225,6 +2329,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     const payloadC = {
       purpose: purpose || undefined,
       items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: Number(i.amount) })),
+      // v1.4.173: 0 on edit explicitly clears the remark; undefined on create = none
+      ...(canPayee ? { payee_user_id: editingClaim ? payeeId : (payeeId > 0 ? payeeId : undefined) } : {}),
     };
     if (editingClaim) {
       const resE = await api<{ ok?: boolean; resubmitted?: boolean; error?: { message?: string } }>(`/claims/${editingClaim.id}/edit`, {
@@ -2245,7 +2351,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         }
       }
       showToast("Saved", resE.data?.resubmitted ? "Claim resubmitted — CEO notified for approval" : "Claim updated — still awaiting CEO approval");
-      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null);
+      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0);
       void load();
       return;
     }
@@ -2268,7 +2374,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (!up.ok) showToast("No changes", `Claim submitted, but the receipt failed to upload. ${RECEIPT_TOO_BIG} Then use Edit on your claim to attach it.`, "notice");
       }
     }
-    setPurpose(""); setItems([{ ...emptyItem }]);
+    setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
     setReceipt(null);
     showToast("Saved", "Claim submitted — the CEO has been notified");
     void load();
@@ -2280,13 +2386,34 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     if (action === "approve") {
       const cl = claims.find((x) => x.id === id);
       const ch = claimChainOf(cl?.claimant_role);
-      const incomplete = cl && cl.status === "pending" &&
-        ((ch === "staff" && (!cl.hr_reviewed_at || !cl.pre_approved_at)) || (ch === "hr" && !cl.pre_approved_at));
-      if (incomplete && !(await confirm({
-        title: "Approve past the incomplete chain?",
-        message: "The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.",
-        confirmLabel: "Approve as CEO",
-      }))) return;
+      /* v1.4.175: a missing stage whose approver IS the payee is WAIVED by
+         design (they are forbidden from acting) — that is the normal route
+         to the CEO, so no scary bypass dialog. Only genuinely skipped
+         stages still get the override confirm. */
+      const pr = cl?.payee_role ?? null;
+      const missingSkipped: string[] = [];
+      let anyWaived = false;
+      if (cl && cl.status === "pending") {
+        if (ch === "staff") {
+          if (!cl.hr_reviewed_at) (pr === "hr_admin" ? (anyWaived = true) : missingSkipped.push("HR review"));
+          if (!cl.pre_approved_at) (pr === "coo" ? (anyWaived = true) : missingSkipped.push("COO pre-approval"));
+        } else if (ch === "hr" && !cl.pre_approved_at) {
+          (pr === "cco" ? (anyWaived = true) : missingSkipped.push("CCO pre-approval"));
+        }
+      }
+      if (missingSkipped.length > 0) {
+        if (!(await confirm({
+          title: "Approve past the incomplete chain?",
+          message: "The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.",
+          confirmLabel: "Approve as CEO",
+        }))) return;
+      } else if (anyWaived) {
+        if (!(await confirm({
+          title: "Approve directly?",
+          message: "The pre-approver of this claim is its PAYEE, so their stage is waived (conflict of interest) — your direct decision is the designed route.\nThe waiver is recorded on the claim and in the audit log.",
+          confirmLabel: "Approve as CEO",
+        }))) return;
+      }
     }
     const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
     if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Decision failed", "notice"); return; }
@@ -2410,6 +2537,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
                 onClick={() => {
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
+                  setPayeeId(c.payee_user_id ?? 0); // v1.4.173
                   setPurpose(c.description ?? "");
                   setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString() })));
                   setReceipt(null);
@@ -2421,12 +2549,27 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </>
           )}
           <button type="button" className="underline" onClick={() => setExpanded((e) => e === c.id ? null : c.id)}>
-            Details {expanded === c.id ? "▴" : "▾"}
+            Details {expanded === c.id ? "▴" : "▾"}{c.payee_user_id === userId
+              ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title="This claim was raised on your behalf — the payment comes to you; track its status here">💰 pays to you</span>
+              : c.payee_name ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`Pay to ${properName(c.payee_full || c.payee_name)} — internal remark`}>💰 → {firstName(c.payee_name)}</span> : null}
           </button>
         </p>
       </div>
       {expanded === c.id && (
         <>
+          {/* v1.4.173/174: internal payment remark — the server sends the
+              field to the CEO/admin tier + hr_admin, AND to the payee on
+              their own rows; never on the printed form. */}
+          {c.payee_user_id === userId ? (
+            <p className="mt-1 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-950/30 dark:text-green-300">
+              💰 This claim was raised on your behalf by {properName(c.claimant_full || c.claimant || "")} — the payment comes to YOU once the CEO approves. Follow the status chip above.
+            </p>
+          ) : c.payee_name && (
+            <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              title="Internal remark for the CEO (payment) and HR (records) — not printed on the claim form">
+              💰 Pay this claim to: {properName(c.payee_full || c.payee_name)}
+            </p>
+          )}
           {c.description && <p className="text-muted-foreground mt-1 text-xs">Purpose: {c.description}</p>}
           <div className="mt-1 space-y-0.5">
             {claimItems(c).map((it, i) => (
@@ -2495,8 +2638,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             onClick={() => void decide(c.id, "reject")}>Reject</button>
         </div>
       )}
-      {/* v1.4.106 stage actions — HR review, COO/CCO pre-approval. No self-review. */}
-      {c.status === "pending" && c.user_id !== userId && (
+      {/* v1.4.106 stage actions — HR review, COO/CCO pre-approval. No self-review.
+          v1.4.175: no self-approval for the PAYEE either — instead of a dead
+          button that the server would refuse, the payee-reviewer sees why the
+          claim skips them. */}
+      {c.status === "pending" && c.user_id !== userId && c.payee_user_id === userId && ["hr_admin", "coo", "cco"].includes(role) && (
+        <p className="text-muted-foreground mt-2 text-xs">
+          ⚖ Your stage is waived on this claim — it pays to you, so the CEO decides it directly.
+        </p>
+      )}
+      {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
         <>
           {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
@@ -2522,7 +2673,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div className={card}>
         <p className="text-sm font-semibold">
           {editingClaim
-            ? <>Editing {editingClaim.no}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); }}>cancel</button></>
+            ? <>Editing {editingClaim.no}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); }}>cancel</button></>
             : "Submit a claim"}
         </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -2532,6 +2683,19 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Purpose (shown on the printed form, optional)</span>
         <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. Office pantry restock"
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
+        {/* v1.4.173 (CEO): who the payment actually goes to when this claim
+            is raised on behalf of someone. Internal remark — CEO pays by it,
+            HR keeps it for records; NEVER printed on the claim form. */}
+        {canPayee && (
+          <label className="mt-2 block sm:max-w-md">
+            <span className="text-muted-foreground mb-0.5 block text-[11px]">💰 Pay claim to (optional — only when raised on behalf of someone; remark for CEO &amp; HR, not printed on the form)</span>
+            <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payeeId}
+              onChange={(e) => setPayeeId(Number(e.target.value))}>
+              <option value={0}>— pay the submitter (normal claim) —</option>
+              {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.name)} · {u.role.replace(/_/g, " ")}</option>)}
+            </select>
+          </label>
+        )}
         <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
           <span>Date</span><span>Category</span><span>Description</span><span>Amount (RM)</span><span />
         </div>

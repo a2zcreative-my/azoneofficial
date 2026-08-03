@@ -979,14 +979,75 @@ function Attendance({ user }: { user: User }) {
   // v1.4.78: report can focus on one staff member.
   const [filterName, setFilterName] = useState("");
   const canReport = MANAGE_ROLES.includes(user.role);
+  // v1.4.173 (CEO): today's monitor — who has NOT clocked in / out.
+  const [monitor, setMonitor] = useState<{ date: string; staff: { id: number; name: string; role: string; employment_status?: string | null; in_at?: string | null; out_at?: string | null }[] } | null>(null);
 
   useEffect(() => {
     const path = reportMode && canReport ? `/staff/attendance/report?month=${month}` : `/staff/attendance?month=${month}`;
     void api<{ records: typeof records }>(path).then((r) => setRecords(r.data?.records ?? []));
   }, [month, reportMode, canReport]);
+  useEffect(() => {
+    if (!canReport) return;
+    const loadMon = () => void api<NonNullable<typeof monitor>>(`/staff/attendance/monitor`).then((r) => { if (r.ok && r.data) setMonitor(r.data); });
+    loadMon();
+    const t = setInterval(loadMon, 120000); // keeps the monitor live through the day
+    return () => clearInterval(t);
+  }, [canReport]);
 
   return (
     <div className="space-y-4">
+      {/* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or
+          clock out for me to aware"): today's snapshot, refreshed every two
+          minutes — missing punches called out on top, then a compact list. */}
+      {canReport && monitor && (() => {
+        const hm = (iso?: string | null) => {
+          if (!iso) return null;
+          const d = new Date(new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime() + 8 * 3600 * 1000);
+          return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+        };
+        const nowMYT = new Date(Date.now() + 8 * 3600 * 1000);
+        const isWeekend = [0, 6].includes(nowMYT.getUTCDay());
+        const afterShift = nowMYT.getUTCHours() >= 18;
+        const notIn = monitor.staff.filter((s) => !s.in_at);
+        const stillIn = monitor.staff.filter((s) => s.in_at && !s.out_at);
+        return (
+          <div className={card}>
+            <p className="text-sm font-semibold">👁 Today&apos;s attendance monitor — {monitor.date.split("-").reverse().join("-")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              Live snapshot of every active staff member&apos;s punches today (refreshes every 2 minutes).
+              {isWeekend ? " Weekend — missing punches are normal." : ""}
+            </p>
+            {notIn.length > 0 && !isWeekend && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                ⚠ Not clocked in: {notIn.map((s) => firstName(s.name)).join(", ")}
+              </p>
+            )}
+            {stillIn.length > 0 && afterShift && (
+              <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+                ⏳ Past 18:00 with no clock-out yet: {stillIn.map((s) => firstName(s.name)).join(", ")}
+              </p>
+            )}
+            <div className="border-border divide-border mt-3 max-h-64 divide-y overflow-y-auto rounded-lg border">
+              {[...monitor.staff].sort((a, b) => Number(!!a.in_at) - Number(!!b.in_at) || a.name.localeCompare(b.name)).map((st) => (
+                <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{properName(st.name)}</span>
+                    <span className="text-muted-foreground text-xs capitalize"> · {st.role.replace(/_/g, " ")}{st.employment_status === "part_time" ? " (part-time)" : ""}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    {st.in_at
+                      ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">In {hm(st.in_at)}</span>
+                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">⚠ not clocked in</span>}
+                    {st.in_at && (st.out_at
+                      ? <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">Out {hm(st.out_at)}</span>
+                      : <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}`}>{afterShift ? "⏳ no clock-out" : "still in"}</span>)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

@@ -2,6 +2,37 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.175] — 2026-08-03 — Conflicted stage auto-waived: payee-blocked claims route straight to the CEO
+
+### Added (per the CEO: "how to counter this?" — the CCO-payee case must not depend on remembering the override)
+- **Waived, not bypassed** — when a chain stage's approver IS the payee (HR review paying hr_admin; COO/CCO pre-approval paying the COO/CCO), that stage counts as **waived by design** on CEO approval: no "bypass" wording; the decision note reads "CCO pre-approval waived — approver is the payee (conflict of interest)" and the audit records `conflict_waived` separately from `chain_override`. Genuinely skipped stages still get the full override treatment.
+- **Notification reroutes** — a new/edited/resubmitted claim whose first stage is conflicted notifies the CEO directly: "(pre-approver is the payee — for your direct decision)" instead of pinging someone forbidden from acting.
+- **CEO dialog softened** — approving a waived-only claim shows "Approve directly? … your direct decision is the designed route" instead of the scary incomplete-chain bypass warning (which remains for real skips, including mixed cases).
+- **No dead-end buttons** — a conflicted HR/COO/CCO reviewer sees "⚖ Your stage is waived on this claim — it pays to you, so the CEO decides it directly" instead of a button the server would refuse. `payee_role` added to the claims payload (same visibility rules; stripped with the other payee fields).
+
+## [1.4.174] — 2026-08-03 — Payee visibility: the person being paid always sees the claim
+
+### Fixed (per the CEO: "if the payee is COO or CCO how? or on behalf of the staff how? they need to view what the claim status is")
+- **The payee always sees the claim raised in their name** — every claims-list scope gains "or I am the payee", so a staff member, the COO, or the CCO whose claim HR submitted on their behalf can open Claims and track it: pending → approved → 💚 PAID. Previously a staff payee couldn't see the claim at all, and a COO/CCO payee had the payee info stripped from their own claim.
+- **Payee-facing UI** — on their own rows the payee gets a green "💰 pays to you" chip beside Details and, expanded, a green banner: "This claim was raised on your behalf by {claimant} — the payment comes to YOU once the CEO approves." Everyone else's visibility is unchanged: CEO/admin tier/hr_admin see the amber remark; other roles still never receive the field on rows that aren't theirs.
+- **No-self-review extended to the payee** — HR can't review and the COO/CCO can't pre-approve a claim that PAYS themselves (conflict of interest); those go to the next stage or the CEO's direct decision (override exists since v1.4.107). Pre-0051 tolerant.
+
+## [1.4.173] — 2026-08-03 — Attendance monitor (missing punches) · claim payee remark
+
+### Added (per the CEO)
+- **👁 Today's attendance monitor** on the Attendance tab (Team-report viewers): live snapshot of every active staff member's punches today, refreshed every 2 minutes — amber "⚠ Not clocked in: …" callout, "⏳ Past 18:00 with no clock-out yet: …" after shift end, then a compact list (missing punches sorted to the top, In/Out times MYT, part-time labelled, weekend note). New `GET /attendance/monitor` (hr_manage + exec_view, same as the Team report).
+- **Claim payee remark (migration 0051 `claims.payee_user_id`)** — for claims raised on behalf of someone (hr_admin's case): a "💰 Pay claim to" picker on the submit form (visible to hr_admin/CEO/admin tier only). Strictly an INTERNAL remark: **never printed on the AZOO-HR-CLM-001 form**; the server only sends the field to the CEO/admin tier + hr_admin (stripped for COO/CCO reviewers and ordinary claimants); shown as an amber "💰 Pay this claim to: …" line in Details plus a "💰 → Name" chip on the row so the CEO pays the right person at a glance. Carried through claim edit (clearable); audited on create.
+
+## [1.4.172] — 2026-08-03 — Manual stock-out lifecycle: Revert · Edit · Delete · backdatable out date
+
+### Added (per the CEO: "option to revert back into the inventory or sold if manual stock sales; add date of when manual out; Edit or Delete button also")
+- **Migration 0050**: `manual_stockouts` += `out_date` (backdatable), `reverted` flag, `sale_id` link; `manual_sales` += `out_date`. Revenue totals now attribute manual sales by the out date.
+- **Date of stock out** in the modal (default today MYT, backdatable) — shown leading each traceability row; recording timestamp on hover.
+- **↩ Revert** — stock goes back on the shelf, a linked sale is removed from the totals, and the ROW STAYS marked "↩ reverted — stock restored" (struck through) — the audit trail survives the undo. Reverted rows can't be edited or re-reverted.
+- **Edit** — reopens the same modal on the record: qty (stock moves by the difference, refused if the shelf lacks it), Sold @ (clearing it removes the sale; adding it creates one), remark, out date — the linked `manual_sales` row is updated/created/deleted in step so Total sales never drifts. Item itself is locked (delete + re-record for that).
+- **Delete** — for wrong records: stock restored (unless already reverted), sale removed, row deleted; branded danger confirm explains that ↩ Revert is the trail-keeping undo. All three actions audited (`inventory.manual_out_edit/revert/delete`, before/after or snapshot).
+- Legacy rows recorded before 0050 (no sale link) resolve their sale by exact field match — including today's four UITM rows.
+
 ## [1.4.171] — 2026-08-03 — TOTAL row on the TikTok stock-out card
 
 ### Added (per the CEO: "I want to have a total of This month, All time, Avg sold @, Sold value (month), Left in stock")

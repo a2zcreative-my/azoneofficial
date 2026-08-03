@@ -740,6 +740,30 @@ export async function handleStaff(
     return json({ month, records: results, ot, ot_eligible });
   }
 
+  if (path === "/attendance/monitor" && method === "GET") {
+    /* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or clock
+       out for me to aware"): today's snapshot per active staff member —
+       first clock-in and last clock-out (MYT). The UI sorts the missing
+       ones to the top. Same readers as the Team report. */
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+      return err("forbidden", "HR access required", 403);
+    }
+    const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.name, u.role, u.employment_status,
+              (SELECT MIN(a.created_at) FROM attendance_records a
+                WHERE a.user_id = u.id AND a.type = 'in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
+              (SELECT MAX(a.created_at) FROM attendance_records a
+                WHERE a.user_id = u.id AND a.type = 'out' AND date(a.created_at, '+8 hours') = ?1) AS out_at
+       FROM users u
+       WHERE u.is_active = 1
+         AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')
+         AND COALESCE(u.employment_status, 'permanent') NOT IN ('resigned','terminated')
+       ORDER BY u.name`,
+    ).bind(todayM).all();
+    return json({ date: todayM, staff: results });
+  }
+
   if (path === "/attendance/report" && method === "GET") {
     // HR + CEO manage; COO/CCO (exec_view) read.
     if (!can(user, "hr_manage") && !can(user, "exec_view")) {
@@ -1045,11 +1069,16 @@ export async function handleStaff(
     ).bind(...roles).all<{ id: number }>();
     for (const r of results) if (r.id !== excludeId) await notify(env, r.id, "claim", message, ref);
   };
-  const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string) => {
+  /* v1.4.175 (CEO: "how to counter this?"): a chain stage whose approver IS
+     the payee is WAIVED BY DESIGN — the notification routes straight to the
+     CEO instead of pinging someone who is forbidden from acting, and the CEO
+     is told why. payeeRole is the payee's role (null = no payee). */
+  const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string, payeeRole?: string | null) => {
     const chain = claimChain(claimantRole);
     const msg = `${prefix}: ${claimantName} — RM ${(cents / 100).toFixed(2)}`;
-    if (chain === "staff") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
-    else if (chain === "hr") await notifyRoles(["cco"], 0, `${msg} (pre-approval needed)`, `claim:${claimId}`);
+    if (chain === "staff" && payeeRole !== "hr_admin") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
+    else if (chain === "hr" && payeeRole !== "cco") await notifyRoles(["cco"], 0, `${msg} (pre-approval needed)`, `claim:${claimId}`);
+    else if (chain === "staff" || chain === "hr") await notifyRoles(["ceo"], 0, `${msg} (pre-approver is the payee — for your direct decision)`, `claim:${claimId}`);
     else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
   };
   if (path === "/claims" && method === "GET") {
@@ -1057,26 +1086,57 @@ export async function handleStaff(
     // Deciders see everyone's claims (the approval queue); submitters their own.
     const all = can(user, "claims_decide");
     // v1.4.106: reviewers see the claims their stage covers, plus their own.
-    const SEL = `SELECT c.*,
+    // v1.4.173: py = the payee (who to actually PAY) — internal remark for
+    // the CEO/admin tier + hr_admin only; stripped for everyone else below
+    // and never printed on the claim form.
+    const PAYEE_JOIN = ` LEFT JOIN users py ON py.id = c.payee_user_id`;
+    const mkSel = (withPayee: boolean) => `SELECT c.*,
                   (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS day_seq,
                   u.name AS claimant, u.full_name AS claimant_full, u.position AS claimant_position,
                   u.department AS claimant_department, u.role AS claimant_role,
                   d.name AS decided_by_name, d.full_name AS decided_by_full, hb.name AS hr_reviewed_by_name,
-                  pb.name AS pre_approved_by_name, pb.full_name AS pre_approved_by_full, pb.role AS pre_approved_by_role FROM claims c
+                  pb.name AS pre_approved_by_name, pb.full_name AS pre_approved_by_full, pb.role AS pre_approved_by_role${withPayee ? `,
+                  py.name AS payee_name, py.full_name AS payee_full, py.role AS payee_role` : ""} FROM claims c
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
-           LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by`;
+           LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by${withPayee ? PAYEE_JOIN : ""}`;
+    const SEL = mkSel(true);
     const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
-    const scope =
-      all ? ""
+    /* v1.4.174 (CEO: "if the payee is COO or CCO how? or on behalf of the
+       staff how? they need to view what the claim status is"): the PAYEE
+       always sees the claim raised in their name — every non-decider scope
+       gains OR c.payee_user_id = me, so the person being paid can track the
+       status (pending → approved → PAID) even though someone else submitted
+       it. mkScope(false) keeps a pre-0051 fallback without the column. */
+    const mkScope = (withPayee: boolean) => {
+      const P = withPayee ? " OR c.payee_user_id = ?1" : "";
+      return all ? ""
         // v1.4.121: HR keeps the full APPROVED history too (read-only, for
         // printing claim forms + payout proofs for compilation).
-        : user.role === "hr_admin" ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN} OR c.status = 'approved')`
-        : ["coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN})`
-          : user.role === "cco" ? ` WHERE (c.user_id = ?1 OR u.role = 'hr_admin')`
-            : ` WHERE c.user_id = ?1`;
-    const { results } = await env.DB.prepare(
-      `${SEL}${scope} ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`,
-    ).bind(...(all ? [] : [user.id])).all();
+        : user.role === "hr_admin" ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN} OR c.status = 'approved'${P})`
+        : ["coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN}${P})`
+          : user.role === "cco" ? ` WHERE (c.user_id = ?1 OR u.role = 'hr_admin'${P})`
+            : ` WHERE (c.user_id = ?1${P})`;
+    };
+    let results: unknown[];
+    try {
+      results = (await env.DB.prepare(
+        `${SEL}${mkScope(true)} ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`,
+      ).bind(...(all ? [] : [user.id])).all()).results;
+    } catch {
+      // pre-0051: same query without the payee join/columns/clause
+      results = (await env.DB.prepare(
+        `${mkSel(false)}${mkScope(false)} ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC LIMIT 200`,
+      ).bind(...(all ? [] : [user.id])).all()).results;
+    }
+    // v1.4.173/174: the payee remark stays a CEO/HR matter — EXCEPT on the
+    // payee's OWN rows: whoever the money goes to (a staff member, the COO,
+    // the CCO…) keeps the field on those rows so the banner and status make
+    // sense to them. Everyone else still never receives it.
+    if (!["super_admin", "admin", "ceo", "hr_admin"].includes(user.role)) {
+      for (const r of results as Record<string, unknown>[]) {
+        if (r.payee_user_id !== user.id) { delete r.payee_user_id; delete r.payee_name; delete r.payee_full; delete r.payee_role; }
+      }
+    }
     return json({ claims: results, can_decide: all });
   }
   const claimReview = path.match(/^\/claims\/(\d+)\/review$/);
@@ -1094,6 +1154,13 @@ export async function handleStaff(
     if (claimChain(cr.claimant_role) !== "staff") return err("invalid_state", "This claim does not need an HR review", 400);
     if (cr.hr_reviewed_at) return err("invalid_state", "Already reviewed by HR", 400);
     if (cr.user_id === user.id) return err("forbidden", "No self-review", 403);
+    // v1.4.174: the no-self-review principle covers the PAYEE too — whoever
+    // the money goes to doesn't review that claim; the next stage / CEO does.
+    try {
+      const pv = await env.DB.prepare(`SELECT payee_user_id FROM claims WHERE id = ?1`)
+        .bind(claimReview[1]).first<{ payee_user_id: number | null }>();
+      if (pv?.payee_user_id === user.id) return err("forbidden", "This claim pays to you — the next stage or the CEO handles it (no self-review)", 403);
+    } catch { /* pre-0051 — no payee column yet */ }
     await env.DB.prepare(
       `UPDATE claims SET hr_reviewed_by = ?1, hr_reviewed_at = datetime('now') WHERE id = ?2`,
     ).bind(user.id, claimReview[1]).run();
@@ -1111,6 +1178,13 @@ export async function handleStaff(
     ).bind(claimPre[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; claimant_name: string }>();
     if (!cp) return err("not_found", "Claim not found", 404);
     if (cp.status !== "pending") return err("invalid_state", "Already decided", 400);
+    // v1.4.174: a COO/CCO who is the PAYEE of this claim doesn't pre-approve
+    // it — conflict of interest; the CEO decides directly (override exists).
+    try {
+      const pvP = await env.DB.prepare(`SELECT payee_user_id FROM claims WHERE id = ?1`)
+        .bind(claimPre[1]).first<{ payee_user_id: number | null }>();
+      if (pvP?.payee_user_id === user.id) return err("forbidden", "This claim pays to you — the CEO decides it directly (no self-approval)", 403);
+    } catch { /* pre-0051 */ }
     const chainP = claimChain(cp.claimant_role);
     const adminTier = ["admin", "super_admin"].includes(user.role);
     if (chainP === "staff") {
@@ -1164,9 +1238,24 @@ export async function handleStaff(
        status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL,
        hr_reviewed_by = NULL, hr_reviewed_at = NULL, pre_approved_by = NULL, pre_approved_at = NULL WHERE id = ?6`,
     ).bind(parsedE[0]!.claim_date, parsedE[0]!.category, centsE, purposeE, JSON.stringify(parsedE), claimEdit[1]).run();
+    // v1.4.173: payee remark travels with the edit (undefined = unchanged; 0 clears).
+    if (typeof body?.payee_user_id === "number") {
+      try {
+        await env.DB.prepare(`UPDATE claims SET payee_user_id = ?1 WHERE id = ?2`)
+          .bind(body.payee_user_id > 0 ? body.payee_user_id : null, claimEdit[1]).run();
+      } catch { /* pre-0051 — ignore */ }
+    }
     // v1.4.106: an edit restarts the chain from stage one.
+    // v1.4.175: with the payee's role, so a conflicted stage reroutes to the CEO.
+    let payeeRoleE: string | null = null;
+    try {
+      const prE = await env.DB.prepare(
+        `SELECT py.role AS r FROM claims c LEFT JOIN users py ON py.id = c.payee_user_id WHERE c.id = ?1`,
+      ).bind(claimEdit[1]).first<{ r: string | null }>();
+      payeeRoleE = prE?.r ?? null;
+    } catch { /* pre-0051 */ }
     await notifyClaimFirstStage(user.role, user.name, claimEdit[1]!, centsE,
-      wasRejected ? "Resubmitted after rejection" : "Updated claim");
+      wasRejected ? "Resubmitted after rejection" : "Updated claim", payeeRoleE);
     await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
     return json({ ok: true, resubmitted: wasRejected });
   }
@@ -1265,13 +1354,36 @@ export async function handleStaff(
     }
     const purpose = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000)
       : typeof body?.description === "string" ? body.description.slice(0, 1000) : null;
-    const res = await env.DB.prepare(
-      `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
-    ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
+    /* v1.4.173 (CEO): the PAYEE — who the claim money actually goes to when
+       HR raises a claim on behalf of someone. Internal remark only: never
+       printed on the form; surfaced to the CEO/admin tier + hr_admin. */
+    let payeeId: number | null = null;
+    let payeeRole: string | null = null; // v1.4.175: drives conflict rerouting
+    if (typeof body?.payee_user_id === "number" && body.payee_user_id > 0) {
+      const pu = await env.DB.prepare(
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer')`,
+      ).bind(body.payee_user_id).first<{ id: number; role: string }>();
+      if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
+      payeeId = pu.id;
+      payeeRole = pu.role;
+    }
+    let res: { id: number } | null = null;
+    try {
+      res = await env.DB.prepare(
+        `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+      ).bind(user.id, claimDate, category, cents, purpose, itemsJson, payeeId).first<{ id: number }>();
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      if (payeeId !== null) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0051_claim_payee)", 500);
+      res = await env.DB.prepare(
+        `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+      ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
+    }
     // v1.4.106: tell the FIRST stage of this claimant's chain.
-    await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim");
-    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents });
+    await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim", payeeRole);
+    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, ...(payeeId ? { payee_user_id: payeeId } : {}) });
     return json({ id: res?.id }, 201);
   }
   const clMatch = path.match(/^\/claims\/(\d+)(\/receipt|\/decide)?$/);
@@ -1303,7 +1415,14 @@ export async function handleStaff(
         `UPDATE claims SET status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL,
          hr_reviewed_by = NULL, hr_reviewed_at = NULL, pre_approved_by = NULL, pre_approved_at = NULL WHERE id = ?1`,
       ).bind(clMatch[1]).run();
-      await notifyClaimFirstStage(user.role, user.name, clMatch[1]!, cRow?.amount_cents ?? 0, "Resubmitted with receipt");
+      let payeeRoleR: string | null = null;
+      try {
+        const prR = await env.DB.prepare(
+          `SELECT py.role AS r FROM claims c LEFT JOIN users py ON py.id = c.payee_user_id WHERE c.id = ?1`,
+        ).bind(clMatch[1]).first<{ r: string | null }>();
+        payeeRoleR = prR?.r ?? null;
+      } catch { /* pre-0051 */ }
+      await notifyClaimFirstStage(user.role, user.name, clMatch[1]!, cRow?.amount_cents ?? 0, "Resubmitted with receipt", payeeRoleR);
       await audit(env, user.id, "claim.resubmit", "claims", clMatch[1]!, { via: "receipt_attach" });
       resubmittedR = true;
     }
@@ -1348,29 +1467,45 @@ export async function handleStaff(
     // meta + a line on the claim's decision note) so the record shows it was
     // a deliberate override, not a skipped process.
     let chainOverride: string | null = null;
+    let conflictWaived: string | null = null;
     if (action === "approve") {
       const chainD = claimChain(row.claimant_role);
+      /* v1.4.175: a stage whose approver IS the payee is WAIVED — the guard
+         (v1.4.174) forbids them from acting, so their missing signature is
+         the DESIGNED route to the CEO, not a bypass. Only genuinely skipped
+         stages count as an override. Pre-0051 tolerant. */
+      let payeeRoleD: string | null = null;
+      try {
+        const pr = await env.DB.prepare(
+          `SELECT py.role AS r FROM claims c LEFT JOIN users py ON py.id = c.payee_user_id WHERE c.id = ?1`,
+        ).bind(clMatch[1]).first<{ r: string | null }>();
+        payeeRoleD = pr?.r ?? null;
+      } catch { /* pre-0051 */ }
       const skipped: string[] = [];
+      const waived: string[] = [];
       if (chainD === "staff") {
-        if (!row.hr_reviewed_at) skipped.push("HR review");
-        if (!row.pre_approved_at) skipped.push("COO pre-approval");
+        if (!row.hr_reviewed_at) (payeeRoleD === "hr_admin" ? waived : skipped).push("HR review");
+        if (!row.pre_approved_at) (payeeRoleD === "coo" ? waived : skipped).push("COO pre-approval");
       } else if (chainD === "hr" && !row.pre_approved_at) {
-        skipped.push("CCO pre-approval");
+        (payeeRoleD === "cco" ? waived : skipped).push("CCO pre-approval");
       }
       if (skipped.length > 0) chainOverride = skipped.join(" + ");
+      if (waived.length > 0) conflictWaived = waived.join(" + ");
     }
     const status = action === "approve" ? "approved" : "rejected";
     const noteBase = typeof body?.note === "string" && body.note ? body.note.slice(0, 400) : "";
-    const noteFinal = chainOverride
-      ? `${noteBase ? noteBase + " · " : ""}CEO direct approval (${chainOverride} bypassed)`
-      : (noteBase || null);
+    const parts = [noteBase];
+    if (chainOverride) parts.push(`CEO direct approval (${chainOverride} bypassed)`);
+    if (conflictWaived) parts.push(`${conflictWaived} waived — approver is the payee (conflict of interest)`);
+    const noteFinal = parts.filter(Boolean).join(" · ") || null;
     await env.DB.prepare(
       `UPDATE claims SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3 WHERE id = ?4`,
     ).bind(status, user.id, noteFinal, clMatch[1]).run();
     await notify(env, row.user_id, "claim",
       `Your claim of RM ${(row.amount_cents / 100).toFixed(2)} was ${status}${typeof body?.note === "string" && body.note ? ` — ${body.note.slice(0, 200)}` : ""}`,
       `claim:${clMatch[1]}`);
-    await audit(env, user.id, `claim.${action}`, "claims", clMatch[1], chainOverride ? { chain_override: chainOverride } : undefined);
+    await audit(env, user.id, `claim.${action}`, "claims", clMatch[1],
+      chainOverride || conflictWaived ? { ...(chainOverride ? { chain_override: chainOverride } : {}), ...(conflictWaived ? { conflict_waived: conflictWaived } : {}) } : undefined);
     return json({ ok: true });
   }
 
@@ -1677,12 +1812,22 @@ export async function handleStaff(
          AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
     ).bind(m).first<{ cents: number; orders: number }>();
     const manualSales = async (m: string) => {
+      // v1.4.172: attribute by the backdatable out_date when present.
       try {
         return await env.DB.prepare(
           `SELECT COALESCE(SUM(total_cents), 0) AS cents, COALESCE(SUM(qty), 0) AS units
-           FROM manual_sales WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+           FROM manual_sales
+           WHERE (CASE WHEN out_date IS NOT NULL THEN substr(out_date, 1, 7)
+                       ELSE strftime('%Y-%m', created_at, '+8 hours') END) = ?1`,
         ).bind(m).first<{ cents: number; units: number }>();
-      } catch { return { cents: 0, units: 0 }; }
+      } catch {
+        try {
+          return await env.DB.prepare(
+            `SELECT COALESCE(SUM(total_cents), 0) AS cents, COALESCE(SUM(qty), 0) AS units
+             FROM manual_sales WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+          ).bind(m).first<{ cents: number; units: number }>();
+        } catch { return { cents: 0, units: 0 }; }
+      }
     };
     const targetOf = (m: string) => env.DB.prepare(
       `SELECT target_cents FROM sales_targets WHERE month = ?1`,
@@ -1715,9 +1860,17 @@ export async function handleStaff(
       try {
         return await env.DB.prepare(
           `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
-           WHERE date(created_at, '+8 hours') = ?1`,
+           WHERE (CASE WHEN out_date IS NOT NULL THEN out_date
+                       ELSE date(created_at, '+8 hours') END) = ?1`,
         ).bind(todayMYT).first<{ cents: number }>();
-      } catch { return { cents: 0 }; }
+      } catch {
+        try {
+          return await env.DB.prepare(
+            `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
+             WHERE date(created_at, '+8 hours') = ?1`,
+          ).bind(todayMYT).first<{ cents: number }>();
+        } catch { return { cents: 0 }; }
+      }
     })();
     const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
@@ -2800,6 +2953,134 @@ export async function handleStaff(
     ).all();
     return json({ items: results });
   }
+  /* v1.4.172 (CEO): manual stock-out lifecycle. A shared sale-row locator —
+     prefers the sale_id link; legacy rows (pre-0050) fall back to an exact
+     field match. Revenue totals stay in step with every action. */
+  const findManualSaleId = async (row: { sale_id?: number | null; item_id: number; qty: number; unit_sale_cents?: number | null; created_at: string }): Promise<number | null> => {
+    if (row.sale_id) return row.sale_id;
+    if (row.unit_sale_cents == null) return null;
+    try {
+      const m = await env.DB.prepare(
+        `SELECT id FROM manual_sales WHERE item_id = ?1 AND qty = ?2 AND unit_sale_cents = ?3 AND created_at = ?4 LIMIT 1`,
+      ).bind(row.item_id, row.qty, row.unit_sale_cents, row.created_at).first<{ id: number }>();
+      return m?.id ?? null;
+    } catch { return null; }
+  };
+  const moMatch = path.match(/^\/inventory\/manual-outs\/(\d+)\/(edit|revert|delete)$/);
+  if (moMatch && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    let row: { id: number; item_id: number; qty: number; unit_sale_cents: number | null; remark: string; created_at: string; sale_id?: number | null; reverted?: number | null; out_date?: string | null } | null = null;
+    try {
+      row = await env.DB.prepare(`SELECT * FROM manual_stockouts WHERE id = ?1`).bind(moMatch[1]).first();
+    } catch { /* pre-0049 */ }
+    if (!row) return err("not_found", "Stock-out record not found", 404);
+    const action = moMatch[2];
+    const isReverted = (row.reverted ?? 0) === 1;
+    if (action === "revert") {
+      if (isReverted) return err("invalid_state", "Already reverted — the stock is back on the shelf", 400);
+      const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
+      if (!item) return err("not_found", "The inventory item behind this record no longer exists", 409);
+      const back = item.stock + row.qty;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(back, stockStatus(back), user.id, row.item_id).run();
+      const sid = await findManualSaleId(row);
+      if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      try {
+        await env.DB.prepare(`UPDATE manual_stockouts SET reverted = 1 WHERE id = ?1`).bind(row.id).run();
+      } catch {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0050_manual_out_lifecycle)", 500);
+      }
+      await audit(env, user.id, "inventory.manual_out_revert", "manual_stockouts", String(row.id),
+        { qty: row.qty, unit_sale_cents: row.unit_sale_cents, sale_removed: !!sid });
+      return json({ ok: true, stock: back });
+    }
+    if (action === "delete") {
+      // Delete = the record was WRONG. Stock goes back (unless already
+      // reverted) and any sale is removed — then the row disappears.
+      if (!isReverted) {
+        const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
+        if (item) {
+          const back = item.stock + row.qty;
+          await env.DB.prepare(
+            `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+          ).bind(back, stockStatus(back), user.id, row.item_id).run();
+        }
+        const sid = await findManualSaleId(row);
+        if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      }
+      await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(row.id).run();
+      await audit(env, user.id, "inventory.manual_out_delete", "manual_stockouts", String(row.id),
+        { qty: row.qty, unit_sale_cents: row.unit_sale_cents, remark: row.remark, was_reverted: isReverted });
+      return json({ ok: true });
+    }
+    // action === "edit"
+    if (isReverted) return err("invalid_state", "Reverted records can't be edited — record a fresh stock out instead", 400);
+    const newQty = typeof body?.qty === "number" && Math.floor(body.qty) > 0 ? Math.floor(body.qty) : null;
+    const priceGiven = body?.sale_price !== undefined; // "" clears the sale
+    const newSaleC = priceGiven && `${body!.sale_price}` !== "" && Number.isFinite(Number(body!.sale_price)) && Number(body!.sale_price) >= 0
+      ? Math.round(Number(body!.sale_price) * 100) : null;
+    const newRemark = str(body?.remark, 300) ? (body!.remark as string).trim() : null;
+    const newDate = str(body?.out_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.out_date as string) ? (body!.out_date as string) : null;
+    if (newQty === null && !priceGiven && !newRemark && !newDate) return err("invalid_input", "Nothing to update", 400);
+    if (newQty !== null && newQty !== row.qty) {
+      const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
+      if (!item) return err("not_found", "The inventory item behind this record no longer exists", 409);
+      const diff = newQty - row.qty; // positive = take MORE out
+      if (diff > 0 && item.stock < diff) {
+        return err("insufficient_stock", `Only ${item.stock} in stock — cannot raise the out by ${diff}`, 409);
+      }
+      const adj = item.stock - diff;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(adj, stockStatus(adj), user.id, row.item_id).run();
+    }
+    const qtyF = newQty ?? row.qty;
+    const saleF = priceGiven ? newSaleC : (row.unit_sale_cents ?? null);
+    const dateF = newDate ?? row.out_date ?? null;
+    // Sync the manual_sales row: update / create / remove to match saleF.
+    const sid = await findManualSaleId(row);
+    let sidF: number | null = sid;
+    if (saleF !== null) {
+      if (sid) {
+        await env.DB.prepare(
+          `UPDATE manual_sales SET qty = ?1, unit_sale_cents = ?2, total_cents = ?3 WHERE id = ?4`,
+        ).bind(qtyF, saleF, qtyF * saleF, sid).run();
+        if (dateF) { try { await env.DB.prepare(`UPDATE manual_sales SET out_date = ?1 WHERE id = ?2`).bind(dateF, sid).run(); } catch { /* pre-0050 */ } }
+      } else {
+        const snap = await env.DB.prepare(`SELECT sku, name FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ sku: string; name: string }>();
+        try {
+          const sr = await env.DB.prepare(
+            `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, out_date, created_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+          ).bind(row.item_id, snap?.sku ?? null, snap?.name ?? null, qtyF, saleF, qtyF * saleF, dateF, user.id).first<{ id: number }>();
+          sidF = sr?.id ?? null;
+        } catch {
+          const sr = await env.DB.prepare(
+            `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, created_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+          ).bind(row.item_id, snap?.sku ?? null, snap?.name ?? null, qtyF, saleF, qtyF * saleF, user.id).first<{ id: number }>();
+          sidF = sr?.id ?? null;
+        }
+      }
+    } else if (sid) {
+      await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      sidF = null;
+    }
+    try {
+      await env.DB.prepare(
+        `UPDATE manual_stockouts SET qty = ?1, unit_sale_cents = ?2, remark = COALESCE(?3, remark),
+           out_date = COALESCE(?4, out_date), sale_id = ?5 WHERE id = ?6`,
+      ).bind(qtyF, saleF, newRemark, newDate, sidF, row.id).run();
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0050_manual_out_lifecycle)", 500);
+    }
+    await audit(env, user.id, "inventory.manual_out_edit", "manual_stockouts", String(row.id), {
+      from: { qty: row.qty, unit_sale_cents: row.unit_sale_cents, out_date: row.out_date ?? null },
+      to: { qty: qtyF, unit_sale_cents: saleF, out_date: dateF },
+    });
+    return json({ ok: true });
+  }
   if (path === "/inventory/manual-outs" && method === "GET") {
     // v1.4.170: the traceability list — last 100 manual stock-outs with the
     // remark and who recorded them. Empty (not an error) before 0049.
@@ -3173,19 +3454,43 @@ export async function handleStaff(
     await env.DB.prepare(
       `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
     ).bind(newStock, stockStatus(newStock), user.id, invAdjust[1]).run();
+    // v1.4.172: the date the stock actually went out — backdatable from the
+    // modal; defaults to today MYT. Sales totals attribute by this date.
+    const outDate = str(body?.out_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.out_date as string)
+      ? (body!.out_date as string)
+      : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    let saleRowId: number | null = null;
     if (saleC !== null) {
       const qty = Math.abs(delta);
-      await env.DB.prepare(
-        `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      ).bind(Number(invAdjust[1]), item.sku, item.name, qty, saleC, qty * saleC, user.id).run();
+      try {
+        const sr = await env.DB.prepare(
+          `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, out_date, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+        ).bind(Number(invAdjust[1]), item.sku, item.name, qty, saleC, qty * saleC, outDate, user.id).first<{ id: number }>();
+        saleRowId = sr?.id ?? null;
+      } catch (e) {
+        if (!String(e).includes("no such column")) throw e;
+        const sr = await env.DB.prepare(
+          `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+        ).bind(Number(invAdjust[1]), item.sku, item.name, qty, saleC, qty * saleC, user.id).first<{ id: number }>();
+        saleRowId = sr?.id ?? null;
+      }
     }
     if (delta < 0) {
       // v1.4.170: the traceability trail — one row per manual out, with WHY.
-      await env.DB.prepare(
-        `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, user.id).run();
+      try {
+        await env.DB.prepare(
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, outDate, saleRowId, user.id).run();
+      } catch (e) {
+        if (!String(e).includes("no such column")) throw e;
+        await env.DB.prepare(
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, user.id).run();
+      }
     }
     await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1],
       saleC !== null ? { qty: Math.abs(delta), unit_sale_cents: saleC, total_cents: Math.abs(delta) * saleC, manual_sale: true, remark } : { qty: Math.abs(delta), remark });
