@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.187] — 2026-08-03 — Tab rows flush with card width
+
+### Fixed (per the CEO: "tabs width was not same with card width")
+- The desktop nav was a wrap of fixed w-32 pills — 8 pills + gaps never summed to the container width, so the row's right edge fell short of the card edge below. All three navs (/portal, /admin, /account) are now full-width GRIDS of equal columns filling the container exactly: 16 portal tabs = two perfect rows of 8, flush left AND right with the cards; /admin's visible tabs span one flush row; /account's two tabs form a flush segmented pair. Pills stay uniform (equal columns replace the fixed w-32); roles with fewer tabs get equally-divided flush rows. Frontend-only.
+
 ## [1.4.186] — 2026-08-03 — Mobile view audit: date-input overflow killed, Expenses + Attendance corrections rebuilt for phones
 
 ### Fixed (per the CEO's four phone screenshots: "All this was not aligned with the correct mobile apps view. I need you to audit all the tabs")

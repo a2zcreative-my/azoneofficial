@@ -879,22 +879,29 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <nav className="mt-6 hidden gap-2 md:flex md:flex-wrap" aria-label="Admin sections">
-        {TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role)).map((t) => (
+      {(() => {
+        /* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */
+        const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
+        return (
+      <nav className="mt-6 hidden gap-2 md:grid" aria-label="Admin sections"
+        style={{ gridTemplateColumns: `repeat(${Math.min(visibleTabs.length, 8)}, minmax(0, 1fr))` }}>
+        {visibleTabs.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={
               t === tab
-                ? "bg-primary text-primary-foreground inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {t}
           </button>
         ))}
       </nav>
+        );
+      })()}
 
       {/* App-style bottom navigation (v1.4.55) — phones only. */}
       {(() => {

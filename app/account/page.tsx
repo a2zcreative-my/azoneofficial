@@ -117,7 +117,8 @@ export default function AccountPage() {
         </button>
       </header>
 
-      <nav className="mt-6 hidden gap-2 md:flex" aria-label="Account sections">
+      {/* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */}
+      <nav className="mt-6 hidden grid-cols-2 gap-2 md:grid" aria-label="Account sections">
         {(["Account", "Enquiries"] as const).map((t) => (
           <button
             key={t}
@@ -125,8 +126,8 @@ export default function AccountPage() {
             onClick={() => setTab(t)}
             className={
               tab === t
-                ? "bg-primary text-primary-foreground inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {t === "Enquiries" ? "My Enquiries" : t}

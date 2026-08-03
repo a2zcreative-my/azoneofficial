@@ -2921,10 +2921,13 @@ export default function PortalPage() {
         </div>
       )}
 
-      {/* v1.4.159 (CEO): every tab pill is the SAME fixed width (w-32) as the
-          Dashboard pill — uniform app-style grid instead of text-sized pills.
-          Same standard applied in /admin and /account. */}
-      <nav className="mt-6 hidden gap-2 md:flex md:flex-wrap" aria-label="Portal sections">
+      {/* v1.4.159 (CEO): every tab pill the SAME width; v1.4.187 (CEO: "tabs
+          width was not same with card width"): the rows now form a full-width
+          GRID — equal columns filling the container exactly, so the pill rows
+          are flush with the card edges below (16 tabs = two perfect rows of
+          8). Same standard in /admin and /account. */}
+      <nav className="mt-6 hidden gap-2 md:grid" aria-label="Portal sections"
+        style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 8)}, minmax(0, 1fr))` }}>
         {tabs.map((t) => (
           <button
             key={t}
@@ -2932,8 +2935,8 @@ export default function PortalPage() {
             onClick={() => setTab(t)}
             className={
               t === tab
-                ? "bg-primary text-primary-foreground inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {tabLabel(t)}
