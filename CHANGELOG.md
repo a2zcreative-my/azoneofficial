@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.132] — 2026-08-03 — Claims tab: proper mobile "app" layout
+
+### Fixed
+- On phones the claim form used the same fixed five-column grid as desktop — the Description box crushed to a sliver and nothing fit, unlike the other tabs' app-style layouts. Each claim item now **stacks on mobile** inside a light card: **Date and Category side by side, Description full width, Amount below**, each with its own small label (the desktop column-header row hides on mobile since the fields label themselves), and "✕ Remove" as a proper labeled control. From tablet width up, the original five-column grid returns unchanged
+- The **Attach receipt** and **Submit claim** buttons go full-width on mobile, matching the app feel of the rest of the portal
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.131] — 2026-08-03 — One-click server-side repair: 🔧 Fix discrepancy now
 
 ### What the identical screenshot proved

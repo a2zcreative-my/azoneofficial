@@ -1856,24 +1856,42 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         </p>
         <input className="border-input bg-background mt-3 h-9 w-full rounded-lg border px-2 text-sm" placeholder="Purpose (shown on the printed form, optional)"
           value={purpose} onChange={(e) => setPurpose(e.target.value)} />
-        <div className="text-muted-foreground mt-2 grid grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] gap-2 text-xs">
+        <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
           <span>Date</span><span>Category</span><span>Description</span><span>Amount (RM)</span><span />
         </div>
         {items.map((it, i) => (
-          <div key={i} className="mt-1 grid grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] items-center gap-2">
-            <input type="date" className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+          <div key={i} className="border-border mt-2 grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:mt-1 sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] sm:rounded-none sm:border-0 sm:p-0">
+            <label className="text-muted-foreground block text-[11px] sm:hidden">Date
+              <input type="date" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm"
+                value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
+            </label>
+            <input type="date" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block"
               value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
-            <select className="border-input bg-background h-9 rounded-lg border px-2 text-sm capitalize" value={it.category}
+            <label className="text-muted-foreground block text-[11px] sm:hidden">Category
+              <select className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm capitalize" value={it.category}
+                onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
+                {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <select className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm capitalize sm:block" value={it.category}
               onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
               {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input className="border-input bg-background h-9 min-w-0 rounded-lg border px-2 text-sm" placeholder="e.g. Grab to client meeting"
+            <label className="text-muted-foreground col-span-2 block text-[11px] sm:hidden">Description
+              <input className="border-input bg-background mt-0.5 h-9 w-full min-w-0 rounded-lg border px-2 text-sm" placeholder="e.g. Grab to client meeting"
+                value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
+            </label>
+            <input className="border-input bg-background hidden h-9 min-w-0 rounded-lg border px-2 text-sm sm:block" placeholder="e.g. Grab to client meeting"
               value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
-            <input type="number" min={0} step="0.01" className="border-input bg-background h-9 rounded-lg border px-2 text-sm" placeholder="0.00"
+            <label className="text-muted-foreground block text-[11px] sm:hidden">Amount (RM)
+              <input type="number" min={0} step="0.01" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm" placeholder="0.00"
+                value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
+            </label>
+            <input type="number" min={0} step="0.01" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block" placeholder="0.00"
               value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
             {items.length > 1
-              ? <button type="button" className="text-destructive text-xs underline" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>✕</button>
-              : <span />}
+              ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>✕ Remove</button>
+              : <span className="hidden sm:block" />}
           </div>
         ))}
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -1882,8 +1900,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             Total: RM {(items.reduce((a, i) => a + (Number(i.amount) || 0), 0)).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label className="border-border inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm hover:bg-secondary">
+        <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <label className="border-border inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border px-3 text-sm hover:bg-secondary sm:justify-start">
             {receipt ? `Receipt: ${receipt.name}` : "Attach receipt (image/PDF)"}
             <input type="file" accept="image/*,application/pdf" className="hidden"
               onChange={(e) => {
@@ -1906,7 +1924,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setReceipt(f);
               }} />
           </label>
-          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:justify-start"
             onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? "Resubmit for approval" : "Update claim") : "Submit claim"}</button>
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
