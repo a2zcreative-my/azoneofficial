@@ -1893,7 +1893,13 @@ export async function handleStaff(
     const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents, 0);
     const discount = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxPct = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
-    const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100)));
+    // v1.4.160: delivery / postage fee — quoted on the QT, billed on the INV,
+    // never on a DO (Malaysian standard: the DO carries goods only, no
+    // charges). Added AFTER discount + tax: delivery is a pass-through
+    // charge, not part of the taxable goods value.
+    const deliveryFee = docType !== "DO" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
+      ? Math.round(body.delivery_cents) : 0;
+    const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100))) + deliveryFee;
 
     const number = await docNumber(env, docType);
     // v1.4.93: salesperson — any staff member; defaults to whoever created it.
@@ -1904,22 +1910,30 @@ export async function handleStaff(
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const docDate = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayMyt
       ? body.doc_date : null;
-    const res = await env.DB.prepare(
-      `INSERT INTO sales_documents
-       (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
-        notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(?15, datetime('now'))) RETURNING id`,
-    ).bind(
-      docType, number, customerId, JSON.stringify(items), discount, taxPct, total,
-      str(body.notes, 2000) ? body.notes : null,
-      docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
-      docType === "DO" ? "pending" : null,
-      docType === "INV" ? "unpaid" : null,
-      docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
-      salespersonId,
-      user.id,
-      docDate ? `${docDate} 00:00:00` : null,
-    ).first<{ id: number }>();
+    let res: { id: number } | null = null;
+    try {
+      res = await env.DB.prepare(
+        `INSERT INTO sales_documents
+         (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
+          notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(?16, datetime('now'))) RETURNING id`,
+      ).bind(
+        docType, number, customerId, JSON.stringify(items), discount, taxPct, deliveryFee, total,
+        str(body.notes, 2000) ? body.notes : null,
+        docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
+        docType === "DO" ? "pending" : null,
+        docType === "INV" ? "unpaid" : null,
+        docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
+        salespersonId,
+        user.id,
+        docDate ? `${docDate} 00:00:00` : null,
+      ).first<{ id: number }>();
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0045_delivery_fee)", 500);
+      }
+      throw e;
+    }
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
     if (docType === "INV" && body.paid_received === true && res?.id) {
@@ -2009,11 +2023,12 @@ export async function handleStaff(
     const numberC = await docNumber(env, "INV");
     const resC = await env.DB.prepare(
       `INSERT INTO sales_documents
-       (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents,
+       (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
         notes, payment_status, salesperson_id, created_by)
-       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'unpaid', ?8, ?9) RETURNING id`,
+       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10) RETURNING id`,
     ).bind(
-      numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0, qt.total_cents ?? 0,
+      numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
+      (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
       qt.notes ?? null, qt.salesperson_id ?? user.id, user.id,
     ).first<{ id: number }>();
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
@@ -2041,7 +2056,10 @@ export async function handleStaff(
     const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
     const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
-    const totalE = Math.max(0, Math.round((subE - discE) * (1 + taxE / 100)));
+    // v1.4.160: delivery fee editable like the rest; never on a DO.
+    const delE = docE.doc_type !== "DO" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
+      ? Math.round(body.delivery_cents) : 0;
+    const totalE = Math.max(0, Math.round((subE - discE) * (1 + taxE / 100))) + delE;
     let custE: number | null = typeof body.customer_id === "number" && body.customer_id > 0 ? body.customer_id : null;
     if (body.customer_id === 0) {
       const wi = await env.DB.prepare(`SELECT id FROM customers WHERE company = 'Walk-in Customer'`).first<{ id: number }>();
@@ -2051,11 +2069,18 @@ export async function handleStaff(
     const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const dateE = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayE
       ? `${body.doc_date} 00:00:00` : null;
-    await env.DB.prepare(
-      `UPDATE sales_documents SET items = ?1, discount_cents = ?2, tax_percent = ?3, total_cents = ?4,
-       customer_id = COALESCE(?5, customer_id), salesperson_id = COALESCE(?6, salesperson_id),
-       created_at = COALESCE(?7, created_at) WHERE id = ?8`,
-    ).bind(JSON.stringify(itemsE), discE, taxE, totalE, custE, spE, dateE, idE).run();
+    try {
+      await env.DB.prepare(
+        `UPDATE sales_documents SET items = ?1, discount_cents = ?2, tax_percent = ?3, delivery_cents = ?4, total_cents = ?5,
+         customer_id = COALESCE(?6, customer_id), salesperson_id = COALESCE(?7, salesperson_id),
+         created_at = COALESCE(?8, created_at) WHERE id = ?9`,
+      ).bind(JSON.stringify(itemsE), discE, taxE, delE, totalE, custE, spE, dateE, idE).run();
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0045_delivery_fee)", 500);
+      }
+      throw e;
+    }
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
     return json({ ok: true, total_cents: totalE });
   }

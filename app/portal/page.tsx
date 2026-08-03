@@ -527,15 +527,32 @@ function SalesRevenueCard({ role }: { role?: string }) {
         )}
         {rev.target_cents ? (() => {
           const pct = Math.min(100, Math.round((total / rev.target_cents) * 100));
+          // v1.4.160 (CEO: indicator colour to hit the target + a percentage
+          // progress bar): traffic-light tiers plus an on-pace check against
+          // how far through the month we are (MYT).
+          const nowM = new Date(Date.now() + 8 * 3600 * 1000);
+          const daysInMonth = new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() + 1, 0)).getUTCDate();
+          const expectedPct = Math.round((nowM.getUTCDate() / daysInMonth) * 100);
+          const barColor = pct >= 100 ? "bg-green-600" : pct >= 70 ? "bg-[#C9A227]" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+          const onPace = pct >= expectedPct;
           return (
             <>
-              <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-secondary">
-                <div className={`h-full rounded-full ${pct >= 100 ? "bg-green-600" : "bg-[#C9A227]"}`} style={{ width: `${pct}%` }} />
+              <div className="mt-2 relative h-5 w-full overflow-hidden rounded-full bg-secondary">
+                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.max(pct, 1)}%` }} />
+                <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
+                  style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
+                  {pct}%
+                </span>
               </div>
               <p className="text-muted-foreground mt-1 text-xs">
                 <span className="text-foreground font-semibold">{pct}%</span> of {rm(rev.target_cents)} achieved
                 {" "}({rm(total)}{pct >= 100 ? " — 🎉 target hit!" : ` · ${rm(Math.max(0, rev.target_cents - total))} to go`})
               </p>
+              {pct < 100 && (
+                <p className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${onPace ? "bg-green-100 text-green-800" : expectedPct - pct <= 15 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-700"}`}>
+                  {onPace ? "✅ On track" : "⚠ Behind pace"} — day {nowM.getUTCDate()}/{daysInMonth}: expected ~{expectedPct}% by today
+                </p>
+              )}
             </>
           );
         })() : (
@@ -1639,8 +1656,17 @@ async function printDoc(id: number) {
   const dOnly = (v: string) => dmy(v.slice(0, 10)); // printed docs show dates without times
   const subtotal = items.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
   const taxAmt = Math.round((subtotal - (doc.discount_cents ?? 0)) * ((doc.tax_percent ?? 0) / 100));
-  const rows = items.map((it, i) =>
-    `<tr>
+  // v1.4.160: Malaysian standard — the DELIVERY ORDER lists goods and
+  // quantities ONLY (no prices, no totals); it is proof of delivery, not a
+  // bill. QT/INV keep full pricing and gain the Delivery / postage row.
+  const isDO = doc.doc_type === "DO";
+  const rows = items.map((it, i) => isDO
+    ? `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${it.name}</td>
+      <td class="c">${it.qty}</td>
+    </tr>`
+    : `<tr>
       <td class="c">${i + 1}</td>
       <td>${it.name}</td>
       <td class="c">${it.qty}</td>
@@ -1773,15 +1799,16 @@ async function printDoc(id: number) {
     </div>
   </div>
   <table class="items">
-    <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="5" style="padding:10px;color:#999">No line items</td></tr>'}</tbody>
+    <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th>${isDO ? "" : '<th class="r">Unit price</th><th class="r">Amount</th>'}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="${isDO ? 3 : 5}" style="padding:10px;color:#999">No line items</td></tr>`}</tbody>
   </table>
-  <div class="totwrap"><table class="tot">
+  ${isDO ? "" : `<div class="totwrap"><table class="tot">
     <tr><td>Subtotal</td><td>${rm(subtotal)}</td></tr>
     ${doc.discount_cents ? `<tr><td>Discount</td><td>− ${rm(doc.discount_cents)}</td></tr>` : ""}
     ${doc.tax_percent ? `<tr><td>Tax (${doc.tax_percent}%)</td><td>${rm(taxAmt)}</td></tr>` : ""}
+    ${doc.delivery_cents ? `<tr><td>Delivery / postage</td><td>${rm(doc.delivery_cents)}</td></tr>` : ""}
     <tr class="grand"><td>TOTAL</td><td>${rm(doc.total_cents)}</td></tr>
-  </table></div>
+  </table></div>`}
   ${doc.notes ? `<p class="notes">${doc.notes}</p>` : ""}
   ${bottom}
   <div class="foot">AZ ONE OFFICIAL · Empowering Brands Through Live Commerce and Digital Connections · azoneofficial.com<br/>
@@ -1793,7 +1820,7 @@ async function printDoc(id: number) {
 interface DocFull {
   doc_type: string; doc_number: string; company: string; contact_person?: string;
   address?: string; customer_phone?: string; customer_email?: string; items: string; discount_cents: number;
-  tax_percent: number; total_cents: number; notes?: string; due_date?: string; valid_until?: string; created_at: string;
+  tax_percent: number; delivery_cents?: number; total_cents: number; notes?: string; due_date?: string; valid_until?: string; created_at: string;
   payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
   salesperson_name?: string | null;
   created_by_role?: string | null;
@@ -1809,8 +1836,8 @@ function Sales({ user }: { user: User }) {
   const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
   // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
   // salesperson_id: 0 = "me" (worker defaults to the creator).
-  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; paid_received: boolean }>({
-    doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false,
+  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean }>({
+    doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false,
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -1847,7 +1874,7 @@ function Sales({ user }: { user: User }) {
     void load();
   };
   const resetDocForm = () => {
-    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, paid_received: false });
+    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false });
     setDocDate(""); setPaidDate(""); setEditingDoc(null);
   };
 
@@ -1890,7 +1917,10 @@ function Sales({ user }: { user: User }) {
   };
 
   const subtotal = doc.items.reduce((s, i) => s + i.qty * i.unit_price_cents, 0);
-  const total = Math.max(0, Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100)));
+  // v1.4.160: delivery / postage fee — added after discount + tax (pass-through
+  // charge, not taxable goods value); never applies to a Delivery Order.
+  const total = Math.max(0, Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100)))
+    + (doc.doc_type === "DO" ? 0 : doc.delivery_cents);
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -2014,13 +2044,24 @@ function Sales({ user }: { user: User }) {
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>
               + Add line
             </button>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid grid-cols-2 gap-3 ${doc.doc_type !== "DO" ? "sm:grid-cols-3" : ""}`}>
               <label className="block">
                 <span className="text-muted-foreground mb-1 block text-xs">Discount (RM, optional)</span>
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
                   value={doc.discount_cents ? (doc.discount_cents / 100).toString() : ""}
                   onChange={(e) => setDoc((d) => ({ ...d, discount_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) }))} />
               </label>
+              {/* v1.4.160: delivery / postage fee — quoted on the QT, billed on
+                  the INV; a Delivery Order carries goods only (Malaysian
+                  standard), so the field hides for DO. */}
+              {doc.doc_type !== "DO" && (
+                <label className="block">
+                  <span className="text-muted-foreground mb-1 block text-xs">Delivery / postage (RM, optional)</span>
+                  <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
+                    value={doc.delivery_cents ? (doc.delivery_cents / 100).toString() : ""}
+                    onChange={(e) => setDoc((d) => ({ ...d, delivery_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) }))} />
+                </label>
+              )}
               <label className="block">
                 <span className="text-muted-foreground mb-1 block text-xs">Tax % (optional)</span>
                 <input type="number" min={0} step={0.5} className={inputClass} placeholder="0"
@@ -2145,7 +2186,8 @@ function Sales({ user }: { user: User }) {
                   doc_type: full.doc_type, customer_id: (full as { customer_id?: number }).customer_id ?? -1,
                   salesperson_id: (full as { salesperson_id?: number | null }).salesperson_id ?? 0,
                   items: its.length ? its : [{ name: "", qty: 1, unit_price_cents: 0 }],
-                  discount_cents: full.discount_cents ?? 0, tax_percent: full.tax_percent ?? 0, paid_received: false,
+                  discount_cents: full.discount_cents ?? 0, tax_percent: full.tax_percent ?? 0,
+                  delivery_cents: (full as { delivery_cents?: number }).delivery_cents ?? 0, paid_received: false,
                 });
                 setDocDate(full.created_at.slice(0, 10));
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });
@@ -2693,6 +2735,9 @@ export default function PortalPage() {
         </div>
       )}
 
+      {/* v1.4.159 (CEO): every tab pill is the SAME fixed width (w-32) as the
+          Dashboard pill — uniform app-style grid instead of text-sized pills.
+          Same standard applied in /admin and /account. */}
       <nav className="mt-6 hidden gap-2 md:flex md:flex-wrap" aria-label="Portal sections">
         {tabs.map((t) => (
           <button
@@ -2701,8 +2746,8 @@ export default function PortalPage() {
             onClick={() => setTab(t)}
             className={
               t === tab
-                ? "bg-primary text-primary-foreground shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium"
-                : "shrink-0 rounded-lg border border-border px-4 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {tabLabel(t)}

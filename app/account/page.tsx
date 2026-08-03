@@ -115,8 +115,8 @@ export default function AccountPage() {
             onClick={() => setTab(t)}
             className={
               tab === t
-                ? "bg-primary text-primary-foreground rounded-lg px-4 py-1.5 text-sm font-medium"
-                : "border-border rounded-lg border px-4 py-1.5 text-sm hover:bg-secondary"
+                ? "bg-primary text-primary-foreground inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-32 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
             }
           >
             {t === "Enquiries" ? "My Enquiries" : t}

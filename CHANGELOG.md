@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.160] — 2026-08-03 — Delivery/postage fee on QT + INV (Malaysian flow) · KPI colour tiers + progress bar
+
+### Added (per the CEO)
+- **Delivery / postage fee (migration 0045 `sales_documents.delivery_cents`)** — the Malaysian SME flow, exactly as asked: the **Quotation quotes it**, the **Invoice bills it**, and the **Delivery Order carries goods + quantities ONLY** (no prices, no charges — a DO is proof of delivery, not a bill). Form gains "Delivery / postage (RM, optional)" beside Discount/Tax (hidden for DO); fee is added **after discount + tax** (pass-through charge, not taxable goods value); QT→INV convert carries it; edit recomputes it; printed QT/INV totals show a "Delivery / postage" row.
+- **Printed DO now price-free** — items table trimmed to # / Description / Qty and the totals block removed, per standard Malaysian practice ("Received in good order" signature block unchanged).
+- **KPI bar upgraded** — taller progress bar with the **percentage printed on it**, traffic-light colour tiers (red <40% · amber <70% · gold <100% · green at target), and an **on-pace chip**: compares achieved % against how far through the month it is MYT ("✅ On track" / "⚠ Behind pace — day 3/31: expected ~10% by today").
+
+## [1.4.159] — 2026-08-03 — Uniform tab widths (Dashboard as the standard)
+
+### Changed (per the CEO: "All the tabs need to follow the standard width as Dashboard")
+- Desktop tab pills were text-sized — "HR" tiny, "Attendance" wide, every row ragged. Every pill is now a **fixed-width (w-32), centre-labelled block**, identical to the Dashboard pill, wrapping into a clean app-style grid. Applied to all three navs: **/portal, /admin, /account** (mobile was already uniform: bottom nav `flex-1`, More sheet `grid-cols-3`). Longest labels ("Testimonials", "My Enquiries") verified to fit.
+
 ## [1.4.158] — 2026-08-03 — OT hidden from executive roles (CEO/COO/CCO)
 
 ### Changed (per the CEO)
