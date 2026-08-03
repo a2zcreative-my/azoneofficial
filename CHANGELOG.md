@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.182] — 2026-08-03 — Tab layout pinned: no more sideways shift between tabs
+
+### Fixed (per the CEO: "each tabs header keep changing their location either wide or little bit smaller … standardize like a Dashboard")
+- The shift was the browser SCROLLBAR: long tabs (Dashboard, Sales…) always show it, short tabs (Profile…) don't — so the page content gains/loses ~15px and every header nudges sideways when switching tabs. All 16 tabs already share the same max-w-6xl container (verified); the width itself was moving. Fixed globally in styles/globals.css: `html { overflow-y: scroll; scrollbar-gutter: stable; }` — the scrollbar gutter is permanently reserved, so every tab renders at exactly the same width across /portal, /admin and /account. Frontend-only.
+
 ## [1.4.181] — 2026-08-03 — /account: Google password clarity · direct staff contact (WhatsApp + categorized enquiries → portal)
 
 ### Answered/fixed (per the CEO: "they can change their password? … does it require to change the password?")

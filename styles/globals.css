@@ -154,3 +154,14 @@
 @media (prefers-reduced-motion: reduce) {
   .screen-enter { animation: none; }
 }
+
+/* v1.4.182 (CEO: "each tabs header keep changing their location either wide
+   or little bit smaller … Make it standardize like a Dashboard"): the shift
+   was the browser SCROLLBAR appearing on long tabs (Dashboard) and vanishing
+   on short ones — the page gains/loses ~15px so every header nudges
+   sideways. Reserving the scrollbar gutter permanently pins the layout to
+   one width on every tab, across /portal, /admin and /account. */
+html {
+  overflow-y: scroll;      /* fallback: the gutter always exists */
+  scrollbar-gutter: stable; /* modern browsers: reserved cleanly  */
+}

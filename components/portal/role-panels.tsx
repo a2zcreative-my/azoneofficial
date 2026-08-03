@@ -2084,15 +2084,15 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-  hr_reviewed_by_name?: string | null;
   pre_approved_at?: string | null;
-  pre_approved_by_name?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
   paid_at?: string | null; // v1.4.101: CEO marked the claim as paid
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
+  hr_reviewed_by_name?: string | null;
+  pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
   created_at: string;
@@ -2163,9 +2163,9 @@ async function printClaimForm(c: Claim) {
       const ct = rr.headers.get("content-type") ?? "";
       if (rr.ok && ct.startsWith("image/")) {
         const blobUrl = URL.createObjectURL(await rr.blob());
-        receiptImg = `<div class=\"receiptbox\"><p class=\"bt\">RECEIPT (UPLOADED BY STAFF)</p><img src=\"${blobUrl}\" alt=\"Receipt\" /></div>`;
+        receiptImg = `<div class="receiptbox"><p class="bt">RECEIPT (UPLOADED BY STAFF)</p><img src="${blobUrl}" alt="Receipt" /></div>`;
       } else if (rr.ok) {
-        receiptNote = `<p class=\"tiny\" style=\"text-align:right;margin-top:10px\">Receipt attached as PDF in the system — printed separately.</p>`;
+        receiptNote = `<p class="tiny" style="text-align:right;margin-top:10px">Receipt attached as PDF in the system — printed separately.</p>`;
       }
     } catch { /* form still prints without the receipt */ }
   }
@@ -2175,8 +2175,8 @@ async function printClaimForm(c: Claim) {
       ? `REJECTED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}`
       : "PENDING SYSTEM APPROVAL";
   w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset=\"utf-8\">
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${claimNo} — Employee Claim Form</title>
   <style>
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
@@ -2206,7 +2206,7 @@ async function printClaimForm(c: Claim) {
     .sig .nm { min-height: 26px; }        /* room for two-line names — same in every cell */
     .sig .sg { height: 52px; }            /* signature zone identical across cells */
     .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
-    .esig { font-family: \"Brush Script MT\", \"Segoe Script\", cursive; font-size: 15px; }
+    .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
     .esub { display: block; font-size: 8px; color: #8a93a6; }
     /* v1.4.137: every printed signature occupies the SAME box regardless of
        the source image's dimensions — standardized like the CEO/COO look. */
@@ -2217,58 +2217,58 @@ async function printClaimForm(c: Claim) {
     .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
     .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     @media print { body { padding: 0; } }
-  </style></head><body onload=\"setTimeout(function(){window.print()}, 350)\">
-  <div class=\"goldbar\"></div>
+  </style></head><body onload="setTimeout(function(){window.print()}, 350)">
+  <div class="goldbar"></div>
   <h1>AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
   <h2>Employee Claim Form</h2>
-  <table class=\"meta\">
-    <tr><td class=\"k\">Document No.</td><td class=\"v\">AZOO-HR-CLM-001</td><td class=\"k\">Version</td><td class=\"v\">002</td></tr>
-    <tr><td class=\"k\">Claim No.</td><td class=\"v\">${claimNo}</td><td class=\"k\">Date</td><td class=\"v\">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
-    <tr><td class=\"k\">Employee</td><td class=\"v\">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class=\"k\">Department</td><td class=\"v\">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
-    <tr><td class=\"k\">Position</td><td class=\"v\">${(c.claimant_position ?? "").toUpperCase()}</td><td class=\"k\">Purpose</td><td class=\"v\">${c.description ?? ""}</td></tr>
-    <tr><td class=\"k\">Receipt</td><td class=\"v\" colspan=\"3\">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
+  <table class="meta">
+    <tr><td class="k">Document No.</td><td class="v">AZOO-HR-CLM-001</td><td class="k">Version</td><td class="v">002</td></tr>
+    <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
+    <tr><td class="k">Employee</td><td class="v">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class="k">Department</td><td class="v">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${(c.claimant_position ?? "").toUpperCase()}</td><td class="k">Purpose</td><td class="v">${c.description ?? ""}</td></tr>
+    <tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
   </table>
-  <p class=\"sect\">Claim Details</p>
-  <table class=\"det\">
-    <thead><tr><th style=\"width:18%\">Date</th><th style=\"width:20%\">Category</th><th>Description</th><th style=\"width:18%\">Amount (RM)</th></tr></thead>
+  <p class="sect">Claim Details</p>
+  <table class="det">
+    <thead><tr><th style="width:18%">Date</th><th style="width:20%">Category</th><th>Description</th><th style="width:18%">Amount (RM)</th></tr></thead>
     <tbody>
       ${(() => {
         let its: { claim_date: string; category: string; description?: string; amount_cents: number }[] = [];
         try { its = c.items ? JSON.parse(c.items) : []; } catch { its = []; }
         if (its.length === 0) its = [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
-        const rows = its.map((it) => `<tr><td>${dmy(it.claim_date)}</td><td style=\"text-transform:capitalize\">${it.category}</td><td>${it.description ?? ""}</td><td class=\"r\">${rmv(it.amount_cents)}</td></tr>`);
+        const rows = its.map((it) => `<tr><td>${dmy(it.claim_date)}</td><td style="text-transform:capitalize">${it.category}</td><td>${it.description ?? ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
         while (rows.length < 4) rows.push("<tr><td></td><td></td><td></td><td></td></tr>");
         return rows.join("");
       })()}
     </tbody>
   </table>
-  <p class=\"total\">Total Claimed: RM ${rmv(c.amount_cents)}</p>
-  <p class=\"decl\">Declaration: I certify the above expenses were incurred for official Company business.</p>
-  <p class=\"sys\">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}${chainLine ? " · " + chainLine : ""}</p>
-  <table class=\"sig\" style=\"margin-top:10px\">
+  <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
+  <p class="decl">Declaration: I certify the above expenses were incurred for official Company business.</p>
+  <p class="sys">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}${chainLine ? " · " + chainLine : ""}</p>
+  <table class="sig" style="margin-top:10px">
     <tr>
-      <td class=\"hd2\">Employee</td>
-      <td class=\"hd2\">Administrative or<br/>Head of Department (COO / CCO)</td>
-      <td class=\"hd2\">Chief Executive Officer (CEO)</td>
+      <td class="hd2">Employee</td>
+      <td class="hd2">Administrative or<br/>Head of Department (COO / CCO)</td>
+      <td class="hd2">Chief Executive Officer (CEO)</td>
     </tr>
     <tr>
-      <td class=\"body\"><div class=\"cw\"><div class=\"nm\">Name: ${(c.claimant_full || c.claimant || "")}</div>
-        <div class=\"sg\">Signature:${empSig
-          ? `<img class=\"sigimg\" src=\"/signatures/${empSig}\" alt=\"\" onerror=\"this.style.display='none'\"/><span class=\"esub\">(submitted in system)</span>`
-          : ` <span class=\"esig\">${(c.claimant_full || c.claimant || "")}</span><span class=\"esub\">(submitted in system)</span>`}</div>
-        <div class=\"dt\">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
-      <td class=\"body\"><div class=\"cw\">${c.pre_approved_by_full || c.pre_approved_by_name
-        ? `<div class=\"nm\">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
-           <div class=\"sg\">Signature:<img class=\"sigimg\" src=\"/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png\" alt=\"\" onerror=\"this.style.display='none'\"/></div>
-           <div class=\"dt\">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
-        : `<div class=\"nm\">Name:</div><div class=\"sg\">Signature:</div><div class=\"dt\">Date:</div>`}</div></td>
-      <td class=\"body\"><div class=\"cw\"><div class=\"nm\">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
-        <div class=\"sg\">Signature:${c.status === "approved" ? `<img class=\"sigimg\" src=\"/signatures/ceo-sign.png\" alt=\"\" onerror=\"this.style.display='none'\"/>` : ""}</div>
-        <div class=\"dt\">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
+        <div class="sg">Signature:${empSig
+          ? `<img class="sigimg" src="/signatures/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+          : ` <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
+        <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
+      <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
+        ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
+           <div class="sg">Signature:<img class="sigimg" src="/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
+           <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
+        : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
+        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/signatures/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
-  ${receiptImg ? `<div class=\"receiptwrap\">${receiptImg}</div>` : receiptNote}
-  <p class=\"foot\">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
+  ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
+  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
   </body></html>`);
   w.document.close();
 }
@@ -3041,7 +3041,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]?.split("-").reverse().join("-") ?? ""}, {payrollDue.by.split(" ")[1] ?? ""} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
