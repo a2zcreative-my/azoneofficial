@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.171] — 2026-08-03 — TOTAL row on the TikTok stock-out card
+
+### Added (per the CEO: "I want to have a total of This month, All time, Avg sold @, Sold value (month), Left in stock")
+- Bold **TOTAL** footer row on 📉 TikTok Live — stock out, summing every item: Out today (🔥 badge), This month, All time, **Avg sold @ weighted by units** (Σ price × qty ÷ Σ qty — not a simple average of row averages, so one 1-unit item can't skew it), Sold value (month), Left in stock. Sums always cover ALL items regardless of the active sort.
+
 ## [1.4.170] — 2026-08-03 — Sort controls · manual stock-out modal with mandatory remark · traceability card
 
 ### Added (per the CEO)

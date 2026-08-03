@@ -849,6 +849,32 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     <td className={`${td} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
                   </tr>
                 ))}
+                {/* v1.4.171 (CEO): TOTAL row — sums across every item; the
+                    Avg sold @ total is WEIGHTED by units (Σ price×qty ÷ Σ qty),
+                    not a simple average of the row averages. */}
+                {(() => {
+                  const sum = (f: (t: TtOut) => number) => ttOut.reduce((a, t) => a + f(t), 0);
+                  const today = sum((t) => t.today_qty);
+                  const month = sum((t) => t.month_qty);
+                  const all = sum((t) => t.total_qty);
+                  const monthVal = sum((t) => t.month_value_cents ?? 0);
+                  const stock = sum((t) => t.stock);
+                  const pricedUnits = sum((t) => (t.avg_sale_cents != null ? t.total_qty : 0));
+                  const pricedValue = sum((t) => (t.avg_sale_cents != null ? t.avg_sale_cents * t.total_qty : 0));
+                  const wAvg = pricedUnits > 0 ? pricedValue / pricedUnits : null;
+                  return (
+                    <tr className="border-border border-t-2 font-semibold">
+                      <td className={td} colSpan={2}>TOTAL</td>
+                      <td className={td}>{today > 0 ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">🔥 {today}</span> : "—"}</td>
+                      <td className={td}>{month}</td>
+                      <td className={td}>{all}</td>
+                      <td className={td} title="Weighted by units sold (Σ price × qty ÷ Σ qty)">{wAvg != null ? `RM ${(wAvg / 100).toFixed(2)}` : "—"}</td>
+                      <td className={td}>RM {(monthVal / 100).toFixed(2)}</td>
+                      <td className={td}>{stock}</td>
+                      <td className={td}></td>
+                    </tr>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
