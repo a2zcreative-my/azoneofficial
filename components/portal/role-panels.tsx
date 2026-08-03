@@ -770,7 +770,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
                   ))}
                 </select>
-                <input type="number" min={1} className={`${inputClass} max-w-20`} value={line.qty}
+                <input type="number" min={1} className={`${inputClass} sm:max-w-20`} value={line.qty}
                   title="Quantity shipped"
                   onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, qty: Math.max(1, Number(e.target.value)) } : l))} />
                 <button type="button" className="text-destructive text-xs underline"
@@ -2377,19 +2377,21 @@ export function ExpensesPanel() {
             value={month} max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)}
             onChange={(e) => setMonth(e.target.value)} />
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        {/* v1.4.154: standard widths — 2-up full-width grid on phones, capped
+            inline row from sm: (portal-wide pattern). */}
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Expense date</span>
-          <input type="date" className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" title="Expense date"
+          <input type="date" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-44" title="Expense date"
             value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} /></label>
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Category</span>
-          <select className="border-input bg-background h-9 max-w-40 rounded-lg border px-2 text-sm capitalize" value={draft.category}
+          <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm capitalize sm:max-w-40" value={draft.category}
             onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
             {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select></label>
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Amount (RM)</span>
-          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 max-w-36 rounded-lg border px-2 text-sm" placeholder="Amount (RM)"
+          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-36" placeholder="0.00"
             value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-          <label className="block max-w-52 flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Vendor (optional)</span>
+          <label className="block sm:max-w-52 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Vendor (optional)</span>
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. TNB, Shopee"
             value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} /></label>
         </div>
@@ -2621,15 +2623,15 @@ export function ExpensesPanel() {
           {rows.map((r) => editId === r.id ? (
             <div key={r.id} className="border-border rounded-lg border px-3 py-2">
               <div className="flex flex-wrap gap-2">
-                <input type="date" className="border-input bg-background h-8 max-w-40 rounded-lg border px-2 text-sm"
+                <input type="date" className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-40"
                   value={edit.expense_date} onChange={(e) => setEdit((d) => ({ ...d, expense_date: e.target.value }))} />
-                <select className="border-input bg-background h-8 max-w-36 rounded-lg border px-2 text-sm capitalize"
+                <select className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm capitalize sm:w-auto sm:max-w-36"
                   value={edit.category} onChange={(e) => setEdit((d) => ({ ...d, category: e.target.value }))}>
                   {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <input type="number" min={0} step="0.01" className="border-input bg-background h-8 max-w-32 rounded-lg border px-2 text-sm"
+                <input type="number" min={0} step="0.01" className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-32"
                   placeholder="Amount (RM)" value={edit.amount} onChange={(e) => setEdit((d) => ({ ...d, amount: e.target.value }))} />
-                <input className="border-input bg-background h-8 max-w-48 flex-1 rounded-lg border px-2 text-sm" placeholder="Vendor"
+                <input className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:max-w-48 sm:flex-1" placeholder="Vendor"
                   value={edit.vendor} onChange={(e) => setEdit((d) => ({ ...d, vendor: e.target.value }))} />
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">

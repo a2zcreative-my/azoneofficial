@@ -589,17 +589,26 @@ function UpcomingEventsCard({ role }: { role: string }) {
         <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
           <input className={inputClass} placeholder="Event title (e.g. TikTok Live hosting training)" value={draft.title}
             onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-          <div className="flex flex-wrap gap-2">
-            <select className={`${inputClass} max-w-40`} value={draft.category}
-              onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-              {EVENT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <input type="date" className={`${inputClass} max-w-44`} value={draft.event_date}
-              onChange={(e) => setDraft((d) => ({ ...d, event_date: e.target.value }))} />
-            <input type="time" className={`${inputClass} max-w-32`} value={draft.start_time} title="Start time (optional)"
-              onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} />
-            <input type="time" className={`${inputClass} max-w-32`} value={draft.end_time} title="End time (optional)"
-              onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
+          {/* v1.4.154: standard widths — 2-up grid on phones, capped row from sm: */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <Sub t="Category">
+              <select className={`${inputClass} sm:max-w-40`} value={draft.category}
+                onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
+                {EVENT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Sub>
+            <Sub t="Date">
+              <input type="date" className={`${inputClass} sm:max-w-44`} value={draft.event_date}
+                onChange={(e) => setDraft((d) => ({ ...d, event_date: e.target.value }))} />
+            </Sub>
+            <Sub t="Start (optional)">
+              <input type="time" className={`${inputClass} sm:max-w-32`} value={draft.start_time}
+                onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} />
+            </Sub>
+            <Sub t="End (optional)">
+              <input type="time" className={`${inputClass} sm:max-w-32`} value={draft.end_time}
+                onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
+            </Sub>
           </div>
           <input className={inputClass} placeholder="Location (optional)" value={draft.location}
             onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} />
@@ -851,7 +860,7 @@ function Attendance({ user }: { user: User }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {reportMode && canReport && records.length > 0 && (
-              <select className="border-input bg-background h-9 max-w-44 rounded-lg border px-2 text-sm" value={filterName}
+              <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-44" value={filterName}
                 title="Show one staff member only"
                 onChange={(e) => setFilterName(e.target.value)}>
                 <option value="">Find staff: everyone</option>

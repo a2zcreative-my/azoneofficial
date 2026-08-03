@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.154] — 2026-08-03 — Width standard enforced across all tabs (/portal, /admin, /account)
+
+### Changed (per the CEO: standardize widths on every tab, web AND mobile, no exceptions)
+- Full sweep of every form row across the three apps against the house standard — **phones: 2-up full-width grid; desktop: capped inline row** — and every violator brought in line:
+  - **Expenses — record form** (date / category / amount / vendor): was a wrapping row of fixed-width boxes that truncated on phones — now the standard grid; desktop widths standardized
+  - **Expenses — inline edit row**: same treatment for the compact per-row editor
+  - **Events — create form** (category / date / start / end): standardized AND given the portal-wide subhead labels it had been missed for
+  - **Attendance — team-report staff filter**: full-width on phones
+  - **Postage — item-line qty** box: full-width on phones
+  - **/admin — reset-password input**: was fixed 224px (clipped on narrow phones) — full-width on mobile
+- Verified clean already: /account forms (full-width inputs throughout), staff-create form (responsive grids), payroll processing, Sales, Claims, Leave, Tasks, Inventory (v1.4.150), Users, Birthdays. Compact **inside-table** controls (price/qty/working-days cells) are intentionally exempt — they live in scrollable tables, not form rows
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.153] — 2026-08-03 — CEO posts news · Users tab gains a user log + 2FA monitoring
 
 ### Fixed (CEO: "why I dont have access to update the news? I am CEO!")

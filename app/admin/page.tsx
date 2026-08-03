@@ -727,7 +727,7 @@ function UsersPanel({ me }: { me: User }) {
                 <div className="border-border mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
                   <PasswordInput
                     autoComplete="new-password"
-                    className="border-input bg-background w-56 rounded-lg border px-2 py-1.5 text-xs"
+                    className="border-input bg-background w-full rounded-lg border px-2 py-1.5 text-xs sm:w-56"
                     placeholder="New password (10+ characters)"
                     value={resetPw}
                     onChange={(e) => setResetPw(e.target.value)}
