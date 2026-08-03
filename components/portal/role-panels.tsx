@@ -290,6 +290,7 @@ interface InvItem {
   stock: number;
   status: string;
   unit_price_cents?: number; // v1.4.101
+  live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
   updated_by_name?: string;
 }
 interface SupplierReturn { // v1.4.148
@@ -474,6 +475,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [creditAmt, setCreditAmt] = useState("");
   const [replacingId, setReplacingId] = useState<number | null>(null); // v1.4.149
   const [replaceQty, setReplaceQty] = useState("");
+  // v1.4.164: edit an outstanding return (qty/cost/supplier/date/reason)
+  const [retEditId, setRetEditId] = useState<number | null>(null);
+  const [retEditDraft, setRetEditDraft] = useState({ qty: "", unit_cost: "", supplier: "", return_date: "", reason: "" });
   const { confirm: invConfirm, node: invConfirmNode } = useConfirm(); // v1.4.148
   const { show: invToast, node: invToastNode } = useSaveToast(); // v1.4.162
   // v1.4.162: fix a wrongly inserted item — inline SKU/name edit + delete.
@@ -552,11 +556,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         )}
         {items.length > 0 && (
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse">
+          <table className="w-full min-w-[780px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>SKU</th><th className={th}>Item</th>
                 <th className={th}>Price/unit</th>
+                {/* v1.4.164: rebate given during TikTok Live; net = price − rebate */}
+                <th className={th}>Live rebate</th>
+                <th className={th}>Net (live)</th>
                 <th className={th}>Stock</th><th className={th}>Status</th>
                 {/* v1.4.162: these two columns had no subheads (CEO spotted it) */}
                 <th className={th}>Manual in / out</th><th className={th}>Actions</th>
@@ -588,6 +595,22 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                         await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock, unit_price: v }) });
                         void load();
                       }} />
+                  </td>
+                  <td className={td}>
+                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-xs"
+                      title="Rebate announced during TikTok Live (RM per unit) — saves on change; net live price = price − rebate"
+                      defaultValue={it.live_rebate_cents ? (it.live_rebate_cents / 100).toFixed(2) : ""}
+                      onBlur={async (e) => {
+                        const v = e.target.value.trim() === "" ? 0 : Number(e.target.value);
+                        if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.live_rebate_cents ?? 0)) return;
+                        const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock, live_rebate: v }) });
+                        if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Rebate not saved", "notice"); return; }
+                        void load();
+                      }} />
+                  </td>
+                  <td className={`${td} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
+                    title="Effective price during TikTok Live = price/unit − live rebate">
+                    {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return (n / 100).toFixed(2); })()}
                   </td>
                   <td className={td}>{it.stock}</td>
                   <td className={td}><Badge value={it.status} /></td>
@@ -793,6 +816,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                         </button>
                       </>
                     )}
+                    {(r.replaced_qty ?? 0) === 0 && retEditId !== r.id && (
+                      <button type="button" className="text-xs underline" title="Fix a wrongly entered return — qty change moves stock by the difference"
+                        onClick={() => {
+                          setRetEditId(r.id);
+                          setRetEditDraft({
+                            qty: String(r.qty), unit_cost: (r.unit_cost_cents / 100).toFixed(2),
+                            supplier: r.supplier, return_date: r.return_date.slice(0, 10), reason: r.reason ?? "",
+                          });
+                        }}>Edit</button>
+                    )}
                     {(r.replaced_qty ?? 0) === 0 && <button type="button" className="text-destructive text-xs underline"
                       onClick={async () => {
                         if (!(await invConfirm({
@@ -808,6 +841,53 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   </>
                 )}
               </span>
+              {/* v1.4.164: inline editor for outstanding returns — standard
+                  subheaded fields + save-toast; qty change moves stock by the
+                  difference (server-enforced). */}
+              {retEditId === r.id && (
+                <div className="grid w-full grid-cols-2 items-end gap-2 rounded-lg bg-secondary/40 p-2 sm:flex sm:flex-wrap">
+                  <SubR t="Qty rejected">
+                    <input type="number" min={1} className={`${inputClass} sm:max-w-24`} value={retEditDraft.qty}
+                      onChange={(e) => setRetEditDraft((d) => ({ ...d, qty: e.target.value }))} />
+                  </SubR>
+                  <SubR t="Unit cost (RM)">
+                    <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-28`} value={retEditDraft.unit_cost}
+                      onChange={(e) => setRetEditDraft((d) => ({ ...d, unit_cost: e.target.value }))} />
+                  </SubR>
+                  <SubR t="Supplier">
+                    <input className={`${inputClass} sm:max-w-44`} value={retEditDraft.supplier}
+                      onChange={(e) => setRetEditDraft((d) => ({ ...d, supplier: e.target.value }))} />
+                  </SubR>
+                  <SubR t="Return date">
+                    <input type="date" className={`${inputClass} sm:max-w-40`} value={retEditDraft.return_date}
+                      onChange={(e) => setRetEditDraft((d) => ({ ...d, return_date: e.target.value }))} />
+                  </SubR>
+                  <SubR t="Reason" className="col-span-2 sm:max-w-52">
+                    <input className={inputClass} value={retEditDraft.reason}
+                      onChange={(e) => setRetEditDraft((d) => ({ ...d, reason: e.target.value }))} />
+                  </SubR>
+                  <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium"
+                    onClick={async () => {
+                      const qtyN = Math.floor(Number(retEditDraft.qty));
+                      const costN = Number(retEditDraft.unit_cost);
+                      if (!qtyN || qtyN <= 0 || !Number.isFinite(costN) || costN < 0 || !retEditDraft.supplier.trim() || !retEditDraft.return_date) {
+                        invToast("No changes", "Qty (>0), unit cost, supplier and date are required", "notice"); return;
+                      }
+                      const res = await api<{ error?: { message?: string } }>(`/inventory/returns/${r.id}/edit`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                          qty: qtyN, unit_cost: costN, supplier: retEditDraft.supplier.trim(),
+                          return_date: retEditDraft.return_date, reason: retEditDraft.reason.trim() || undefined,
+                        }),
+                      });
+                      if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
+                      invToast("Saved", `Return updated — ${qtyN} × RM ${costN.toFixed(2)}${qtyN !== r.qty ? " (stock adjusted by the difference)" : ""}`);
+                      setRetEditId(null);
+                      void load();
+                    }}>Save</button>
+                  <button type="button" className="text-xs underline" onClick={() => setRetEditId(null)}>Cancel</button>
+                </div>
+              )}
             </div>
           ))}
         </div>

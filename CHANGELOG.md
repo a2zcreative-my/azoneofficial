@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.164] — 2026-08-03 — Live rebate on inventory pricing · edit supplier returns
+
+### Added (per the CEO: "price per unit need to deduct of the rebate sales during live on TikTok" + "for this one also I should be able to edit/delete")
+- **Live rebate per item (migration 0046 `inventory_items.live_rebate_cents`)** — inline "Live rebate" input beside Price/unit and a computed **"Net (live)"** column (price − rebate, green when a rebate is set) showing the effective price announced during TikTok Live. Informational for pricing: actual TikTok revenue continues to come from the amounts buyers really paid (the order sync), so the P&L stays truthful. `PATCH /inventory/:id` accepts `live_rebate`; migration-tolerant (price edits keep working pre-0046, rebate edits name the migration).
+- **Supplier returns: Edit** (Delete existed since v1.4.148) — new `POST /inventory/returns/:id/edit`, outstanding rows only (credited/partially-replaced rows locked: money/goods already moved). Editable qty / unit cost / supplier / date / reason; **a qty change moves stock by the difference** — lowering puts pieces back on the shelf, raising boxes more (refused if the shelf lacks them); total recomputes; audited with before/after. UI: Edit link beside Delete opens a standard subheaded inline editor with save-toast.
+
 ## [1.4.163] — 2026-08-03 — News + Events forms brought to the Dashboard card standard
 
 ### Fixed (per the CEO: "head section is not same as Dashboard/Overview compared to News — all the tabs follow as Dashboard")

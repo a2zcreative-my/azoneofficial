@@ -2788,12 +2788,31 @@ export async function handleStaff(
     }
     const stock = Math.floor(body.stock);
     const priceU = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : null; // v1.4.101
-    await env.DB.prepare(
-      `UPDATE inventory_items SET stock = ?1, status = ?2,
-         note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
-         updated_by = ?5, updated_at = datetime('now')
-       WHERE id = ?6`,
-    ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
+    // v1.4.164: rebate given during TikTok Live — net live price = price − rebate.
+    const rebateU = typeof body.live_rebate === "number" && body.live_rebate >= 0 ? Math.round(body.live_rebate * 100) : null;
+    try {
+      if (rebateU !== null) {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET stock = ?1, status = ?2,
+             note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
+             live_rebate_cents = ?5,
+             updated_by = ?6, updated_at = datetime('now')
+           WHERE id = ?7`,
+        ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, rebateU, user.id, invMatch[1]).run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET stock = ?1, status = ?2,
+             note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
+             updated_by = ?5, updated_at = datetime('now')
+           WHERE id = ?6`,
+        ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
+      }
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0046_live_rebate)", 500);
+      }
+      throw e;
+    }
     await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
     return json({ ok: true });
   }
@@ -3077,6 +3096,55 @@ export async function handleStaff(
     ).bind(itemId, item.sku, item.name, qty, unitC, totalC, body.supplier, str(body.reason, 300) ? body.reason : null, body.return_date, user.id).first<{ id: number }>();
     await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id, { qty, total_cents: totalC });
     return json({ ok: true, id: res?.id, stock: newStock }, 201);
+  }
+  /* v1.4.164 (CEO): edit an OUTSTANDING supplier return — qty, unit cost,
+     supplier, date, reason. Settled or partially replaced rows are locked
+     (money/goods already moved). A qty change moves stock by the difference:
+     lowering the qty puts pieces back on the shelf; raising it boxes more
+     (refused if the shelf doesn't have them). Total recomputes. */
+  const retEdit = path.match(/^\/inventory\/returns\/(\d+)\/edit$/);
+  if (retEdit && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const row = await env.DB.prepare(`SELECT * FROM supplier_returns WHERE id = ?1`)
+      .bind(retEdit[1]).first<{ id: number; item_id: number; qty: number; unit_cost_cents: number; total_cents: number; supplier: string; reason: string | null; return_date: string; status: string; replaced_qty?: number | null }>();
+    if (!row) return err("not_found", "Return not found", 404);
+    if (row.status !== "outstanding" || (row.replaced_qty ?? 0) > 0) {
+      return err("invalid_state", "Credited or replaced returns are locked — the money/goods already moved. Record a fresh return instead.", 400);
+    }
+    const newQty = typeof body?.qty === "number" && Math.floor(body.qty) > 0 ? Math.floor(body.qty) : null;
+    const newUnit = typeof body?.unit_cost === "number" && body.unit_cost >= 0 ? Math.round(body.unit_cost * 100) : null;
+    const newSupplier = str(body?.supplier, 120) ? (body!.supplier as string) : null;
+    const newReason = str(body?.reason, 300) ? (body!.reason as string) : null;
+    const newDate = str(body?.return_date, 10) ? (body!.return_date as string) : null;
+    if (newQty === null && newUnit === null && !newSupplier && !newReason && !newDate) {
+      return err("invalid_input", "Nothing to update", 400);
+    }
+    if (newQty !== null && newQty !== row.qty) {
+      const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`)
+        .bind(row.item_id).first<{ stock: number }>();
+      if (!item) return err("not_found", "The inventory item behind this return no longer exists", 409);
+      const delta = newQty - row.qty; // positive = box MORE (deduct), negative = put back
+      if (delta > 0 && item.stock < delta) {
+        return err("insufficient_stock", `Only ${item.stock} in stock — cannot raise the return by ${delta}`, 409);
+      }
+      const adjStock = item.stock - delta;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(adjStock, stockStatus(adjStock), user.id, row.item_id).run();
+    }
+    const qtyF = newQty ?? row.qty;
+    const unitF = newUnit ?? row.unit_cost_cents;
+    const totalF = qtyF * unitF;
+    await env.DB.prepare(
+      `UPDATE supplier_returns SET qty = ?1, unit_cost_cents = ?2, total_cents = ?3,
+         supplier = COALESCE(?4, supplier), reason = COALESCE(?5, reason), return_date = COALESCE(?6, return_date)
+       WHERE id = ?7`,
+    ).bind(qtyF, unitF, totalF, newSupplier, newReason, newDate, row.id).run();
+    await audit(env, user.id, "inventory.supplier_return_edit", "supplier_returns", String(row.id), {
+      from: { qty: row.qty, unit_cost_cents: row.unit_cost_cents, total_cents: row.total_cents },
+      to: { qty: qtyF, unit_cost_cents: unitF, total_cents: totalF },
+    });
+    return json({ ok: true, total_cents: totalF });
   }
   const retCredit = path.match(/^\/inventory\/returns\/(\d+)\/credit$/);
   if (retCredit && method === "POST") {
