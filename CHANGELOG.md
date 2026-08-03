@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.146] — 2026-08-03 — Mobile fit: header on one row, tighter app rhythm
+
+### Fixed (per the CEO's phone screenshot: too much scrolling, awkward)
+- **The header no longer eats two rows on phones.** The avatar + screen title and all four controls (🔊, 🔔, theme, Sign out) now share **one compact row**: the controls shrink to app-sized buttons on mobile (back to full size on desktop), the avatar trims slightly, paddings tighten — roughly a full row of vertical space returned before any content
+- **Quick actions become a 2-up grid on phones** — equal-width, thumb-friendly buttons (Clocked in / Clock out on one line, Apply leave / Create quotation on the next) instead of the ragged wrap; desktop keeps its inline row
+- **Tighter mobile rhythm:** page top padding and card-to-card gaps reduced on phones only — the Dashboard now shows Quick actions, Pending leave, and My open tasks in the first viewport instead of forcing an immediate scroll
+- Desktop is untouched — every change is mobile-breakpoint scoped
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.145] — 2026-08-03 — One-click payroll payment: 💳 bulk payment file
 
 ### Added (CEO asked how to pay payroll in one click)

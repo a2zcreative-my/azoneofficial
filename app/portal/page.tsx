@@ -50,6 +50,11 @@ const btnClass =
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
+// v1.4.146: header controls — compact on phones so avatar + title + all four
+// controls share ONE row (the old full-size buttons wrapped to a second row
+// and pushed the whole screen down).
+const btnHdr =
+  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
 
 /**
  * Attendance timestamps are stored in UTC (datetime('now') in D1) — correct
@@ -228,19 +233,21 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   const hasOut = today.some((r) => r.type === "clock_out");
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="space-y-3 md:space-y-6">
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={btnClass} disabled={!!busy} onClick={() => void punch("clock_in")}>
+        {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
+            ragged wrapping; the desktop keeps its inline row. */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <button type="button" className={`${btnClass} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_in")}>
             {hasIn ? "Clocked in ✓" : "Clock in"}
           </button>
-          <button type="button" className={btnGhost} disabled={!!busy} onClick={() => void punch("clock_out")}>
+          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_out")}>
             {hasOut ? "Clocked out ✓" : "Clock out"}
           </button>
-          <button type="button" className={btnGhost} onClick={() => go("Leave")}>Apply leave</button>
+          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Leave")}>Apply leave</button>
           {SALES_ROLES.includes(user.role) && (
-            <button type="button" className={btnGhost} onClick={() => go("Sales")}>Create quotation</button>
+            <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Sales")}>Create quotation</button>
           )}
         </div>
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
@@ -2316,9 +2323,9 @@ export default function PortalPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
-        <div className="flex min-w-0 items-center gap-3">
+    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+        <div className="flex min-w-0 items-center gap-2 md:gap-3">
           {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
               on mobile. Falls back to the initial when no photo is set. */}
@@ -2326,11 +2333,11 @@ export default function PortalPage() {
             <img
               src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`}
               alt=""
-              className="ring-gold h-10 w-10 shrink-0 rounded-full object-cover ring-2 md:h-11 md:w-11"
+              className="ring-gold h-9 w-9 shrink-0 rounded-full object-cover ring-2 md:h-11 md:w-11"
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
           ) : (
-            <span className="bg-primary text-primary-foreground ring-gold flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2 md:h-11 md:w-11">
+            <span className="bg-primary text-primary-foreground ring-gold flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2 md:h-11 md:w-11">
               {user.name.trim().charAt(0).toUpperCase()}
             </span>
           )}
@@ -2343,10 +2350,10 @@ export default function PortalPage() {
             <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
           <button
             type="button"
-            className={btnGhost}
+            className={btnHdr}
             title={sound ? "Notification sound ON — tap to mute" : "Notification sound OFF — tap to unmute"}
             aria-label={sound ? "Mute notification sound" : "Unmute notification sound"}
             onClick={() => {
@@ -2360,7 +2367,7 @@ export default function PortalPage() {
           </button>
           <button
             type="button"
-            className={`${btnGhost} relative`}
+            className={`${btnHdr} relative`}
             aria-label={unread > 0 ? `Notifications — ${unread} unread` : "Notifications"}
             onClick={() => {
               setShowNotifs((v) => !v);
@@ -2374,12 +2381,12 @@ export default function PortalPage() {
               </span>
             )}
           </button>
-          <button type="button" className={btnGhost} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
+          <button type="button" className={btnHdr} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
             {dark ? "☀️" : "🌙"}
           </button>
           <button
             type="button"
-            className={btnGhost}
+            className={`${btnHdr} whitespace-nowrap`}
             onClick={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
           >
             Sign out
