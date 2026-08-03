@@ -753,15 +753,15 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
   }
   const orders = data.data?.orders ?? [];
-  let imported = 0, skipped = 0;
+  let imported = 0, skipped = 0, retried = 0; // retried: v1.4.168 backfilled deductions
   const problems: string[] = [];
   for (const o of orders) {
     const orderId = String(o.id ?? "").trim();
     if (!orderId) continue;
     const orderRef = `TT-${orderId.slice(0, 64)}`;
     const exists = await env.DB.prepare(
-      `SELECT id, tracking_no FROM postage_records WHERE order_ref = ?1`,
-    ).bind(orderRef).first<{ id: number; tracking_no: string | null }>();
+      `SELECT id, tracking_no, status, restocked FROM postage_records WHERE order_ref = ?1`,
+    ).bind(orderRef).first<{ id: number; tracking_no: string | null; status: string; restocked: number | null }>();
     const stNow = String(o.status ?? "").toLowerCase();
     const uiNow = stNow.includes("deliver") ? "delivered" : stNow.includes("ship") || stNow.includes("transit") ? "shipped" : "preparing";
     const trackNow =
@@ -785,14 +785,74 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const paidRaw = Number(o.payment?.total_amount);
     const amountNow = Number.isFinite(paidRaw) && paidRaw >= 0 ? Math.round(paidRaw * 100) : null;
     if (exists) {
-      // Already imported: keep its shipping status and tracking current —
-      // stock stays untouched (it moved on first import).
+      // Already imported: keep its shipping status and tracking current.
       await env.DB.prepare(
         `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(tracking_no, ?2),
            buyer_city = COALESCE(buyer_city, ?3),
            order_amount_cents = COALESCE(order_amount_cents, ?4),
            updated_at = datetime('now') WHERE id = ?5 AND status != 'returned'`,
       ).bind(uiNow, trackNow, cityNow, amountNow, exists.id).run();
+      /* v1.4.168 (CEO: 11 orders stuck on "No stock movement recorded"):
+         deduction used to run ONLY on first import — an order that arrived
+         before its inventory item existed (or whose SKU/name matched
+         nothing) never moved stock, even after the item was fixed. Every
+         sync now RETRIES the deduction for movement-less orders against
+         CURRENT inventory — so fixing a SKU/name or adding the item heals
+         past orders on the next sync (manual button or 30-min cron), with
+         the sold price captured and the rebate auto-synced as usual.
+         Returned/restocked orders are excluded; same all-or-nothing
+         shortage rule as first import. */
+      if (exists.status !== "returned" && !exists.restocked && uiNow !== "returned") {
+        const moved = await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM postage_items WHERE postage_id = ?1`,
+        ).bind(exists.id).first<{ n: number }>();
+        if ((moved?.n ?? 0) === 0) {
+          const rLines = groupLineItems(o.line_items ?? []);
+          const rResolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
+          const rUnknown: string[] = [];
+          const rShortages: string[] = [];
+          const rNameMatched: string[] = [];
+          for (const l of rLines) {
+            const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
+            if (!item) { rUnknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
+            if (item.via === "name") rNameMatched.push(item.name);
+            if (item.stock < l.qty) rShortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
+            rResolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
+          }
+          if (rShortages.length === 0 && rResolved.length > 0) {
+            for (const l of rResolved) {
+              const upd = await env.DB.prepare(
+                `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
+              ).bind(l.qty, l.id).run();
+              if (upd.meta.changes) {
+                await recordTiktokLine(env, exists.id, l.id, l.qty, l.unit_sale_cents);
+                await env.DB.prepare(
+                  `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+                ).bind(l.id).run();
+                await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: "tiktok_retry" });
+              }
+            }
+            const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
+            const stamp = `${String(mytNow.getUTCDate()).padStart(2, "0")}-${String(mytNow.getUTCMonth() + 1).padStart(2, "0")} ${String(mytNow.getUTCHours()).padStart(2, "0")}:${String(mytNow.getUTCMinutes()).padStart(2, "0")} MYT`;
+            const rNotes = ["TikTok order (synced)", `✔ stock deducted on retry ${stamp}`];
+            if (rNameMatched.length) rNotes.push(`matched by item name: ${rNameMatched.join(", ")}`);
+            if (rUnknown.length) rNotes.push(`not in inventory (SKU or name): ${rUnknown.join(", ")}`);
+            await env.DB.prepare(
+              `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
+            ).bind(rNotes.join(" · "), exists.id).run();
+            retried += 1;
+          } else if (rLines.length > 0) {
+            // Still can't deduct — refresh the reason so the CEO sees the
+            // CURRENT blocker (fixing one SKU updates the list next sync).
+            const rNotes = ["TikTok order (synced)"];
+            if (rUnknown.length) rNotes.push(`not in inventory (SKU or name): ${rUnknown.join(", ")}`);
+            if (rShortages.length) rNotes.push(`NOT deducted — ${rShortages.join("; ")}`);
+            await env.DB.prepare(
+              `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
+            ).bind(rNotes.join(" · "), exists.id).run();
+          }
+        }
+      }
       skipped += 1;
       continue;
     }
@@ -836,10 +896,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     if (unknown.length) problems.push(`${orderRef}: unmatched ${unknown.join(", ")}`);
     imported += 1;
   }
-  if (imported > 0 || actorId) {
-    await audit(env, actorId, "tiktok.sync", undefined, undefined, { imported, skipped, source: actorId ? "manual" : "cron" });
+  if (imported > 0 || retried > 0 || actorId) {
+    await audit(env, actorId, "tiktok.sync", undefined, undefined, { imported, skipped, retried, source: actorId ? "manual" : "cron" });
   }
-  return { ok: true, imported, skipped, total_from_tiktok: orders.length, problems };
+  return { ok: true, imported, skipped, retried, total_from_tiktok: orders.length, problems };
 }
 
 export default {

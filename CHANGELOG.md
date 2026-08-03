@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.168] — 2026-08-03 — Self-healing TikTok stock deduction (retry on every sync)
+
+### Fixed (per the CEO: orders show "No stock movement recorded", stock-out card empty — "ensure inventory counted correctly without discrepancies; total of sales must match sold prices and sold item")
+- **Root cause**: stock deduction only ever ran on an order's FIRST import. All 11 orders were imported before their inventory items existed / matched (SKU typos like "ELLFIA 006" vs "ELFIA006"), and the refresh pass only backfilled status/tracking — so they stayed movement-less forever, leaving the stock-out card empty and stock uncounted.
+- **Fix**: every sync (manual button and 30-min cron) now **retries the deduction for movement-less orders against CURRENT inventory** — same SKU-or-name matching, same all-or-nothing shortage rule, sold price captured, rebate auto-synced, audited as `inventory.out` source `tiktok_retry`. On success the order note becomes "✔ stock deducted on retry DD-MM HH:MM MYT"; while still blocked, the note refreshes to the CURRENT reason (fix one SKU → the unmatched list shrinks next sync). Returned/restocked orders excluded. Sync summary/audit now reports `retried` alongside imported/skipped.
+- Result: fix the item SKUs/names (or add missing items) → press **Sync from TikTok** → the backlog deducts retroactively, the 📉 stock-out card populates with quantities + sold prices, and stock, sold items, and sales totals all tally.
+
 ## [1.4.167] — 2026-08-03 — Users columns aligned · badge whitespace spread
 
 ### Fixed (per the CEO)
