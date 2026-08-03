@@ -293,6 +293,11 @@ interface InvItem {
   live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
   updated_by_name?: string;
 }
+interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
+  id: number; sku: string; name: string; stock: number;
+  today_qty: number; month_qty: number; total_qty: number; last_at: string | null;
+}
+
 interface SupplierReturn { // v1.4.148
   id: number;
   sku: string;
@@ -478,6 +483,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // v1.4.164: edit an outstanding return (qty/cost/supplier/date/reason)
   const [retEditId, setRetEditId] = useState<number | null>(null);
   const [retEditDraft, setRetEditDraft] = useState({ qty: "", unit_cost: "", supplier: "", return_date: "", reason: "" });
+  const [ttOut, setTtOut] = useState<TtOut[]>([]); // v1.4.165
   const { confirm: invConfirm, node: invConfirmNode } = useConfirm(); // v1.4.148
   const { show: invToast, node: invToastNode } = useSaveToast(); // v1.4.162
   // v1.4.162: fix a wrongly inserted item — inline SKU/name edit + delete.
@@ -495,16 +501,18 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   };
 
   const load = useCallback(async () => {
-    const [i, p, m, r] = await Promise.all([
+    const [i, p, m, r, t] = await Promise.all([
       api<{ items: InvItem[] }>(`/inventory`),
       api<{ records: PostRec[] }>(`/postage`),
       api<{ materials: Material[] }>(`/materials`),
       api<{ returns: SupplierReturn[]; totals: { total_cents: number; credited_cents: number; replaced_cents?: number; outstanding_cents: number } }>(`/inventory/returns`),
+      api<{ items: TtOut[] }>(`/inventory/tiktok-out`), // v1.4.165
     ]);
     if (i.data) setItems(i.data.items);
     if (p.data) setPostage(p.data.records);
     if (m.data) setMaterials(m.data.materials);
     if (r.data?.returns) { setReturns(r.data.returns); setRetTotals(r.data.totals); }
+    if (t.data?.items) setTtOut(t.data.items);
   }, []);
   useEffect(() => {
     void load();
@@ -673,6 +681,56 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </tbody>
           </table>
         </div>
+        )}
+      </div>
+
+      {/* v1.4.165 (CEO): which items went OUT through TikTok Live sales —
+          straight from the stock deductions the sync/webhook recorded on
+          TT- orders (returned orders excluded). Times are MYT. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">📉 TikTok Live — stock out</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Units deducted by TikTok orders, per item — so you can see what
+          moved during today&apos;s live and across the month. Counted from the
+          actual stock movements (returned orders excluded).
+        </p>
+        {ttOut.length === 0 ? (
+          <p className="text-muted-foreground mt-3 text-sm">
+            No TikTok stock movements yet — they appear here as soon as an
+            order deducts stock (SKU or item-name match).
+          </p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse">
+              <thead>
+                <tr className="border-border border-b">
+                  <th className={th}>SKU</th><th className={th}>Item</th>
+                  <th className={th}>Out today</th>
+                  <th className={th}>This month</th>
+                  <th className={th}>All time</th>
+                  <th className={th}>Left in stock</th>
+                  <th className={th}>Last order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ttOut.map((t) => (
+                  <tr key={t.id} className="border-border border-b last:border-0">
+                    <td className={`${td} font-mono text-xs`}>{t.sku}</td>
+                    <td className={`${td} font-medium`}>{t.name}</td>
+                    <td className={td}>
+                      {t.today_qty > 0
+                        ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">🔥 {t.today_qty}</span>
+                        : <span className="text-muted-foreground text-xs">—</span>}
+                    </td>
+                    <td className={td}>{t.month_qty}</td>
+                    <td className={td}>{t.total_qty}</td>
+                    <td className={td}>{t.stock}</td>
+                    <td className={`${td} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -2593,7 +2651,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) - sum of SAVED payslip nets - after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

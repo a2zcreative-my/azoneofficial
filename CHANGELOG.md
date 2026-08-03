@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.165] — 2026-08-03 — "TikTok Live — stock out" card on Inventory
+
+### Added (per the CEO: "how I will know which item are out during live sales in TikTok? this need to be added on the card box")
+- New **📉 TikTok Live — stock out** card between the stock table and Supplier returns: per-item units deducted by TikTok orders — **Out today** (green 🔥 badge when >0), **This month**, **All time**, **Left in stock**, and the **Last order** timestamp (MYT). Counted from the actual stock movements the sync/webhook recorded on TT- orders (postage_items joined to TT- postage records), returned orders excluded — so it agrees exactly with the stock column. Sorted hottest-today first. New `GET /inventory/tiktok-out` (inventory/exec_view). No migration.
+
 ## [1.4.164] — 2026-08-03 — Live rebate on inventory pricing · edit supplier returns
 
 ### Added (per the CEO: "price per unit need to deduct of the rebate sales during live on TikTok" + "for this one also I should be able to edit/delete")
