@@ -896,8 +896,8 @@ function Attendance({ user }: { user: User }) {
                 <thead>
                   <tr className="border-border border-b">
                     <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Date</th>
-                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">In</th>
-                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Out</th>
+                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">In</th>
+                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">Out</th>
                     <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Hours</th>
                   </tr>
                 </thead>
@@ -2152,8 +2152,9 @@ function UsersPanel() {
 
 // v1.4.101: order set by the CEO — Dashboard > News > HR > Staff Details >
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
-// Expenses > Sales > Inventory > Birthdays > Overview > Profile > Users.
-const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Birthdays", "Overview", "Profile", "Users"] as const;
+// Expenses > Sales > Inventory > Birthdays > Profile > Users
+// (v1.4.143: CEO's revised order — Overview right after Dashboard).
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Birthdays", "Profile", "Users"] as const;
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;

@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.143] — 2026-08-03 — Tab order revised · attendance headers aligned over the chips
+
+### Changed
+- **Tab order** revised to the CEO's new sequence — **Overview moves up to second place**, right after Dashboard: Dashboard → Overview → News → HR → Staff → Attendance → Leave → Tasks → Claims → Payroll → Expenses → Sales → Inventory → Birthdays → Profile → Users. Desktop pills, mobile bottom nav, and the More sheet all follow (they share one list)
+- **Attendance column headers aligned:** the IN and OUT headers sat a chip-padding to the left of the actual times (the time chips carry their own internal padding). Both headers are now indented to sit exactly over the chip text, so DATE/IN/OUT/HOURS all read flush with their column content
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
+## [1.4.142] — 2026-08-03 — Branded confirmation dialog replaces the browser popup
+
+### Changed (per the CEO: "make this form standardize with my other card popup box. I dont like this type")
+- The grey native browser `confirm()` box is gone from the portal. In its place: a **branded confirmation card** in the same visual family as the clock-in/save popups — card surface, rounded corners, gold accent bar, pop-in animation, dimmed backdrop, proper Cancel (ghost) and Confirm (navy) buttons. Tapping the backdrop cancels; the confirm button takes focus for Enter-key flow
+- Applied to both portal confirmations:
+  - **CEO chain-override approve** — "Approve past the incomplete chain?" with the audit-log note and an explicit "Approve as CEO" button
+  - **Delete claim** — danger styling (red confirm button), stating the amount and that the receipt is removed too
+- New shared component `components/ui/confirm-dialog.tsx` (`useConfirm()` hook, promise-based like the toasts) — any future confirmation uses the same card. The one remaining native confirm (admin Suspend, inside /admin) rides with the already-deferred /admin toast sweep
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.141] — 2026-08-03 — App-style profile avatar in the portal header
 
 ### Added (per the CEO's request: badge photo beside the welcome, nice on web and mobile)

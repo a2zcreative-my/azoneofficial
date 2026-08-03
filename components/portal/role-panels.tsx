@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const API = "/api/v1/staff";
 
@@ -1598,6 +1599,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const [receipt, setReceipt] = useState<File | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
+  const { confirm, node: confirmNode } = useConfirm(); // v1.4.142: branded dialog
 
   const load = useCallback(async () => {
     const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
@@ -1672,7 +1674,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       const ch = claimChainOf(cl?.claimant_role);
       const incomplete = cl && cl.status === "pending" &&
         ((ch === "staff" && (!cl.hr_reviewed_at || !cl.pre_approved_at)) || (ch === "hr" && !cl.pre_approved_at));
-      if (incomplete && !window.confirm("The approval chain has not finished for this claim. Approve anyway as CEO?\n\nThe bypass will be recorded on the claim and in the audit log.")) return;
+      if (incomplete && !(await confirm({
+        title: "Approve past the incomplete chain?",
+        message: "The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.",
+        confirmLabel: "Approve as CEO",
+      }))) return;
     }
     const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
     if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Decision failed", "notice"); return; }
@@ -1781,7 +1787,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <>
               <button type="button" className="text-destructive underline" title="Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records"
                 onClick={async () => {
-                  if (!window.confirm(`Delete claim ${claimNoOf(c)} (RM ${(c.amount_cents / 100).toFixed(2)})? This cannot be undone.`)) return;
+                  if (!(await confirm({
+                    title: `Delete claim ${claimNoOf(c)}?`,
+                    message: `RM ${(c.amount_cents / 100).toFixed(2)} — this cannot be undone. The attached receipt is removed too.`,
+                    confirmLabel: "Delete claim", variant: "danger",
+                  }))) return;
                   const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
                   if (r.ok) { showToast("Saved", `Claim ${claimNoOf(c)} deleted`); void load(); }
                   else showToast("No changes", r.data?.error?.message ?? "Delete failed", "notice");
@@ -1900,6 +1910,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   return (
     <div className="space-y-4 md:space-y-6">
       {toastNode}
+      {confirmNode}
       <div className={card}>
         <p className="text-sm font-semibold">
           {editingClaim
