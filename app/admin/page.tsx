@@ -549,6 +549,7 @@ interface AdminUser {
   email: string;
   name: string;
   role: string;
+  employment_status?: string | null; // v1.4.180 — drives live_host_part_time display
   is_active: number;
 }
 
@@ -561,7 +562,11 @@ function dmyMyt(iso: string): string {
 
 // customer included deliberately: demoting a personal-email account back to
 // customer is the cleanup path the domain policy (v1.4.42) depends on.
-const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
+/* v1.4.180 (CEO): live_host_part_time is a real option — role live_host with
+   employment_status part_time, assignable to ANY email (Google accounts
+   included). Other staff roles on personal emails are auto-forced part-time
+   by the server per the v1.4.156–157 policy. */
+const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
 
 function UsersPanel({ me }: { me: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -677,7 +682,7 @@ function UsersPanel({ me }: { me: User }) {
                 <span className="flex flex-wrap items-center gap-2">
                   <select
                     className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
-                    value={u.role}
+                    value={u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role}
                     disabled={u.id === me.id || locked}
                     onChange={(e) => void patch(u.id, { role: e.target.value })}
                   >

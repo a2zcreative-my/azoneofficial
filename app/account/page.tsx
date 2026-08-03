@@ -8,8 +8,17 @@ import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
-interface User { id: number; email: string; name: string; role: string }
-interface Enquiry { id: number; message: string; status: string; created_at: string }
+interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
+interface Enquiry { id: number; message: string; category?: string | null; status: string; created_at: string }
+/* v1.4.181: enquiry categories — mirror the server whitelist. */
+const ENQUIRY_CATS = [
+  ["general", "General question"],
+  ["package_pricing", "Package & pricing"],
+  ["live_commerce", "Live commerce services"],
+  ["order_delivery", "Order & delivery"],
+  ["collaboration", "Collaboration / work with us"],
+] as const;
+const CAT_LABEL = Object.fromEntries(ENQUIRY_CATS) as Record<string, string>;
 
 async function api<T>(path: string, init?: RequestInit) {
   try {
@@ -48,6 +57,7 @@ export default function AccountPage() {
   const [checked, setChecked] = useState(false);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [ask, setAsk] = useState("");
+  const [askCat, setAskCat] = useState("general"); // v1.4.181
   const [tab, setTab] = useState<"Account" | "Enquiries">("Account");
   const [sending, setSending] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -153,12 +163,29 @@ export default function AccountPage() {
           <p className="text-muted-foreground text-sm">{user.email}</p>
         </div>
         <div className={`${card} sm:col-span-2`}>
-          <p className="text-sm font-semibold">Change password</p>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Changing your password signs you out on every other device. Signed
-            in with Google? Your password lives with Google, not here.
-          </p>
-          <ChangePasswordForm />
+          {/* v1.4.181 (CEO: "they can change their password? … does it
+              require to change the password?"): Google sign-ins have NO
+              password on this account — nothing to change, so no form.
+              Their sign-in security lives in their Google Account. */}
+          {user.oauth ? (
+            <>
+              <p className="text-sm font-semibold">Password</p>
+              <p className="text-muted-foreground mt-1 text-sm">
+                You sign in with Google, so this account has no password —
+                there is nothing to change here. Your sign-in security
+                (password, 2-step verification) is managed in your Google
+                Account.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold">Change password</p>
+              <p className="text-muted-foreground mt-1 mb-3 text-xs">
+                Changing your password signs you out on every other device.
+              </p>
+              <ChangePasswordForm />
+            </>
+          )}
         </div>
         <div className={card}>
           <p className="text-sm font-semibold">ELFIA drops</p>
@@ -181,14 +208,38 @@ export default function AccountPage() {
 
       {tab === "Enquiries" && (
       <>
+      {/* v1.4.181 (CEO): a DIRECT line to staff — WhatsApp for instant
+          contact, categorized enquiries that bell-notify the team the
+          moment they land. */}
+      <div className={`${card} mt-4 md:mt-6`}>
+        <p className="text-sm font-semibold">💬 WhatsApp us — fastest reply</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Package questions, live commerce services, orders — talk to the AZ
+          ONE OFFICIAL team directly on WhatsApp.
+        </p>
+        <a
+          href="https://wa.me/60123834821?text=Hi%20AZ%20ONE%20OFFICIAL%2C%20I%20would%20like%20to%20ask%20about%20your%20services."
+          target="_blank" rel="noopener noreferrer"
+          className={`${btnClass} mt-3`}
+        >
+          Chat on WhatsApp (+60 12-383 4821)
+        </a>
+      </div>
+
       <div className={`${card} mt-4 md:mt-6`}>
         <p className="text-sm font-semibold">Ask AZ ONE OFFICIAL</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Send a question to our team — it reaches staff with your name and
-          email attached, and your thread shows below.
+          email attached, notifies them instantly, and your thread shows below.
         </p>
+        <label className="mt-3 block sm:max-w-72">
+          <span className="text-muted-foreground mb-0.5 block text-[11px]">What is this about?</span>
+          <select className={inputClass} value={askCat} onChange={(e) => setAskCat(e.target.value)}>
+            {ENQUIRY_CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
         <textarea
-          className={`${inputClass} mt-3`}
+          className={`${inputClass} mt-2`}
           rows={3}
           placeholder="What would you like to ask?"
           value={ask}
@@ -204,7 +255,7 @@ export default function AccountPage() {
               method: "POST",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: ask }),
+              body: JSON.stringify({ message: ask, category: askCat }),
             });
             setSending(false);
             if (r.ok) {
@@ -231,6 +282,7 @@ export default function AccountPage() {
             <div key={e.id} className="border-border border-b py-2 text-sm last:border-0">
               <p>{e.message}</p>
               <p className="text-muted-foreground mt-1 text-xs">
+                {e.category ? <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{CAT_LABEL[e.category] ?? e.category}</span> : null}
                 Status: {e.status} · {dmy(e.created_at)}
               </p>
             </div>

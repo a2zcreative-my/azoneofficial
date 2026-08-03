@@ -535,6 +535,9 @@ const ROLE_RANK: Record<Role, number> = {
  * the /admin page gate.
  */
 const CONTENT_ROLES: readonly Role[] = ["super_admin", "admin"];
+/* v1.4.181 (CEO: customers must reach staff for package/service enquiries):
+   the business team sees and works customer enquiries — not just /admin. */
+const ENQUIRY_ROLES: readonly Role[] = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
 
 function isContentTeam(user: SessionUser | null): user is SessionUser {
   return !!user && CONTENT_ROLES.includes(user.role);
@@ -1667,7 +1670,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/auth/me" && method === "GET") {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
-    return json({ user });
+    // v1.4.181: oauth = signs in with Google, has no password here. The
+    // change-password route already refuses such accounts; this flag lets
+    // the UI hide the pointless form instead of showing it with a footnote.
+    const ph = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ password_hash: string }>();
+    return json({ user: { ...user, oauth: ph?.password_hash.startsWith("oauth$") ?? false } });
   }
 
   /* ---- staff portal (all routes require auth) ---- */
@@ -1683,19 +1691,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/enquiries" && method === "GET") {
-    if (!isContentTeam(user)) {
-      return errorResponse("forbidden", "Marketing role or above required", 403);
+    if (!user || !ENQUIRY_ROLES.includes(user.role)) {
+      return errorResponse("forbidden", "Business team access required", 403);
     }
-    const { results } = await env.DB.prepare(
-      `SELECT id, name, company, phone, email, message, status, assigned_to, created_at
-       FROM enquiries ORDER BY created_at DESC LIMIT 100`,
-    ).all();
+    let results: unknown[];
+    try {
+      results = (await env.DB.prepare(
+        `SELECT id, name, company, phone, email, message, category, status, assigned_to, created_at
+         FROM enquiries ORDER BY created_at DESC LIMIT 100`,
+      ).all()).results;
+    } catch {
+      results = (await env.DB.prepare(
+        `SELECT id, name, company, phone, email, message, status, assigned_to, created_at
+         FROM enquiries ORDER BY created_at DESC LIMIT 100`,
+      ).all()).results;
+    }
     return json({ enquiries: results });
   }
 
   if (path.match(/^\/api\/v1\/enquiries\/\d+$/) && method === "PATCH") {
-    if (!isContentTeam(user)) {
-      return errorResponse("forbidden", "Marketing role or above required", 403);
+    if (!user || !ENQUIRY_ROLES.includes(user.role)) {
+      return errorResponse("forbidden", "Business team access required", 403);
     }
     const id = path.split("/").pop()!;
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -1788,17 +1804,54 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     // Tie the enquiry to the signed-in customer automatically — staff see who
     // asked without the customer re-typing their details.
-    await env.DB.prepare(
-      `INSERT INTO enquiries (name, company, phone, email, message)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
-    ).bind(
-      user.name,
-      isNonEmptyString(body.company, 200) ? body.company : null,
-      isNonEmptyString(body.phone, 40) ? body.phone : null,
-      user.email,
-      (body.message as string).trim(),
-    ).run();
-    await audit(env, user.id, "account.enquiry");
+    /* v1.4.181 (CEO): category so the team triages package/service questions
+       at a glance, and the business team is bell-notified THE MOMENT the
+       enquiry lands — a customer contacting AZ ONE gets a fast human. */
+    const cats = ["general", "package_pricing", "live_commerce", "order_delivery", "collaboration"];
+    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "general";
+    let enqId: number | null = null;
+    try {
+      const r1 = await env.DB.prepare(
+        `INSERT INTO enquiries (name, company, phone, email, message, category)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+      ).bind(
+        user.name,
+        isNonEmptyString(body.company, 200) ? body.company : null,
+        isNonEmptyString(body.phone, 40) ? body.phone : null,
+        user.email,
+        (body.message as string).trim(),
+        category,
+      ).first<{ id: number }>();
+      enqId = r1?.id ?? null;
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      const r1 = await env.DB.prepare(
+        `INSERT INTO enquiries (name, company, phone, email, message)
+         VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
+      ).bind(
+        user.name,
+        isNonEmptyString(body.company, 200) ? body.company : null,
+        isNonEmptyString(body.phone, 40) ? body.phone : null,
+        user.email,
+        (body.message as string).trim(),
+      ).first<{ id: number }>();
+      enqId = r1?.id ?? null;
+    }
+    try {
+      const catLabel: Record<string, string> = {
+        general: "general", package_pricing: "package & pricing", live_commerce: "live commerce services",
+        order_delivery: "order & delivery", collaboration: "collaboration",
+      };
+      const { results: staffRows } = await env.DB.prepare(
+        `SELECT id FROM users WHERE is_active = 1 AND role IN ('sales_marketing', 'marketing', 'ceo')`,
+      ).all<{ id: number }>();
+      for (const st of staffRows) {
+        await env.DB.prepare(
+          `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'enquiry', ?2, ?3)`,
+        ).bind(st.id, `New customer enquiry (${catLabel[category]}): ${user.name}`, `enquiry:${enqId ?? ""}`).run();
+      }
+    } catch { /* notifications are best-effort — the enquiry itself is saved */ }
+    await audit(env, user.id, "account.enquiry", "enquiries", enqId ? String(enqId) : undefined, { category });
     return json({ ok: true }, 201);
   }
 
@@ -1811,13 +1864,24 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       `SELECT password_hash, created_at FROM users WHERE id = ?1`,
     ).bind(user.id).first<{ password_hash: string; created_at: string }>();
     const verified = acct?.password_hash.startsWith("oauth$") ?? false;
-    const { results } = await env.DB.prepare(
-      verified
-        ? `SELECT id, message, status, created_at FROM enquiries
-           WHERE email = ?1 ORDER BY created_at DESC LIMIT 50`
-        : `SELECT id, message, status, created_at FROM enquiries
-           WHERE email = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 50`,
-    ).bind(...(verified ? [user.email] : [user.email, acct?.created_at ?? ""])).all();
+    let results: unknown[];
+    try {
+      results = (await env.DB.prepare(
+        verified
+          ? `SELECT id, message, category, status, created_at FROM enquiries
+             WHERE email = ?1 ORDER BY created_at DESC LIMIT 50`
+          : `SELECT id, message, category, status, created_at FROM enquiries
+             WHERE email = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 50`,
+      ).bind(...(verified ? [user.email] : [user.email, acct?.created_at ?? ""])).all()).results;
+    } catch {
+      results = (await env.DB.prepare(
+        verified
+          ? `SELECT id, message, status, created_at FROM enquiries
+             WHERE email = ?1 ORDER BY created_at DESC LIMIT 50`
+          : `SELECT id, message, status, created_at FROM enquiries
+             WHERE email = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 50`,
+      ).bind(...(verified ? [user.email] : [user.email, acct?.created_at ?? ""])).all()).results;
+    }
     return json({ enquiries: results });
   }
 
@@ -1990,7 +2054,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/users" && method === "GET") {
     if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const { results } = await env.DB.prepare(
-      `SELECT id, email, name, role, is_active, created_at FROM users ORDER BY id`,
+      `SELECT id, email, name, role, employment_status, is_active, created_at FROM users ORDER BY id`,
     ).all();
     return json({ users: results });
   }
@@ -1999,29 +2063,30 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+    const isPartTimeAliasC = body?.role === "live_host_part_time"; // v1.4.180
+    const roleWantedC = isPartTimeAliasC ? "live_host" : (typeof body?.role === "string" ? body.role : "");
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
       !isNonEmptyString(body.name, 120) ||
       !isNonEmptyString(body.password, 200) ||
       (body.password as string).length < 10 ||
-      typeof body.role !== "string" ||
-      !roles.includes(body.role)
+      !roles.includes(roleWantedC)
     ) {
       return errorResponse("invalid_input", "email, name, role, and a password of 10+ characters are required", 400);
     }
-    if (body.role === "super_admin" && !atLeast(user, "super_admin")) {
+    if (roleWantedC === "super_admin" && !atLeast(user, "super_admin")) {
       return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
     }
     const email = (body.email as string).toLowerCase().trim();
-    // Domain policy (v1.4.42): staff/admin roles require a company email.
-    if (body.role !== "customer" && !email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
-      return errorResponse(
-        "domain_policy",
-        `Staff and admin roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer`,
-        400,
-      );
+    // v1.4.180: domain policy aligned with the portal (v1.4.156–157) —
+    // personal emails CAN hold staff roles but only as part_time; permanent
+    // staff and admin-tier roles require a company email.
+    const companyMailC = email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
+    if (["super_admin", "admin"].includes(roleWantedC) && !companyMailC) {
+      return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
     }
+    const forcePartTimeC = isPartTimeAliasC || (roleWantedC !== "customer" && !companyMailC);
     // Check the email conflict explicitly, so a constraint failure elsewhere
     // (e.g. a role the database does not yet allow) is never mislabelled as
     // "email already exists".
@@ -2034,11 +2099,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, name, role) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+        forcePartTimeC
+          ? `INSERT INTO users (email, password_hash, name, role, employment_status) VALUES (?1, ?2, ?3, ?4, 'part_time') RETURNING id`
+          : `INSERT INTO users (email, password_hash, name, role) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
       )
-        .bind(email, hash, (body.name as string).trim(), body.role)
+        .bind(email, hash, (body.name as string).trim(), roleWantedC)
         .first<{ id: number }>();
-      await audit(env, user.id, "user.create", "users", String(res?.id), { role: body.role });
+      await audit(env, user.id, "user.create", "users", String(res?.id), { role: roleWantedC, ...(forcePartTimeC ? { employment_status: "part_time" } : {}) });
       return json({ id: res?.id }, 201);
     } catch (e) {
       // Most likely a CHECK constraint (role not yet allowed by the DB) —
@@ -2076,23 +2143,39 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
     const changed: string[] = [];
 
-    if (typeof body.role === "string" && roles.includes(body.role)) {
-      // Domain policy (v1.4.42): staff and admin roles belong to company
-      // emails only. Personal emails (gmail etc.) are customers — /account,
-      // never /portal or /admin. Demoting anyone TO customer is always fine.
-      if (body.role !== "customer") {
-        const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
-          .bind(id).first<{ email: string }>();
-        if (acct && !acct.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
-          return errorResponse(
-            "domain_policy",
-            `Staff and admin roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer`,
-            400,
-          );
+    /* v1.4.180 (CEO: "I cant manually assigned staff roles based on Google
+       account … there is no roles live_host_part_time in the list"): /admin
+       now follows the SAME policy as the portal route (v1.4.156–157):
+       — role changes are SUPER ADMIN only (CEO's security directive);
+       — "live_host_part_time" is an accepted alias = live_host + part_time;
+       — STAFF roles on personal emails are ALLOWED but employment_status is
+         FORCED to part_time (permanent needs @company email);
+       — admin-tier roles still hard-require a company email. */
+    if (typeof body.role === "string") {
+      const isPartTimeAlias = body.role === "live_host_part_time";
+      const roleWanted = isPartTimeAlias ? "live_host" : body.role;
+      if (roles.includes(roleWanted)) {
+        if (!atLeast(user, "super_admin")) {
+          return errorResponse("forbidden", "Role changes are reserved for the super admin (CEO security directive)", 403);
+        }
+        let forcePartTime = isPartTimeAlias;
+        if (roleWanted !== "customer") {
+          const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
+            .bind(id).first<{ email: string }>();
+          const companyMail = !!acct && acct.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
+          if (["super_admin", "admin"].includes(roleWanted) && !companyMail) {
+            return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
+          }
+          if (!companyMail) forcePartTime = true; // personal email → part-time staff
+        }
+        if (forcePartTime) {
+          await env.DB.prepare(`UPDATE users SET role = ?1, employment_status = 'part_time' WHERE id = ?2`).bind(roleWanted, id).run();
+          changed.push("role", "employment_status=part_time");
+        } else {
+          await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(roleWanted, id).run();
+          changed.push("role");
         }
       }
-      await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(body.role, id).run();
-      changed.push("role");
     }
     if (typeof body.is_active === "number") {
       if (String(user.id) === id && body.is_active === 0) {

@@ -1924,6 +1924,75 @@ interface DocFull {
   signer_position?: string | null;
 }
 
+/* v1.4.181 (CEO: customers must be able to reach staff for package/service
+   enquiries): the business team works those enquiries HERE, not only in
+   /admin — newest first, category chips, status select, one-tap WhatsApp /
+   email reply. */
+function CustomerEnquiriesCard() {
+  interface Enq { id: number; name: string; company?: string | null; phone?: string | null; email: string; message: string; category?: string | null; status: string; created_at: string }
+  const [enqs, setEnqs] = useState<Enq[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const CAT: Record<string, string> = {
+    general: "General", package_pricing: "Package & pricing", live_commerce: "Live commerce",
+    order_delivery: "Order & delivery", collaboration: "Collaboration",
+  };
+  const load = async () => {
+    try {
+      const r = await fetch("/api/v1/enquiries", { credentials: "include" });
+      if (r.ok) { const d = (await r.json()) as { enquiries?: Enq[] }; setEnqs(d.enquiries ?? []); }
+    } catch { /* card stays empty */ }
+    setLoaded(true);
+  };
+  useEffect(() => { void load(); }, []);
+  const setStatus = async (id: number, status: string) => {
+    await fetch(`/api/v1/enquiries/${id}`, {
+      method: "PATCH", credentials: "include",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+    });
+    void load();
+  };
+  if (!loaded) return null;
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📨 Customer enquiries</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Questions from /account customers — you are bell-notified when one
+        lands. Answer directly on WhatsApp or email, then set the status.
+      </p>
+      {enqs.length === 0 ? (
+        <p className="text-muted-foreground mt-3 text-sm">No enquiries yet.</p>
+      ) : (
+        <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
+          {enqs.map((e) => (
+            <div key={e.id} className="border-border border-b py-2 text-sm last:border-0">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium">{e.name}</span>
+                  {e.company ? <span className="text-muted-foreground text-xs"> · {e.company}</span> : null}
+                  {e.category ? <span className="bg-secondary ml-1.5 rounded-full px-2 py-0.5 text-[10px]">{CAT[e.category] ?? e.category}</span> : null}
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                  {e.phone && (
+                    <a className="underline" target="_blank" rel="noopener noreferrer"
+                      href={`https://wa.me/${e.phone.replace(/[^0-9]/g, "")}`}>WhatsApp</a>
+                  )}
+                  <a className="underline" href={`mailto:${e.email}`}>Email</a>
+                  <select className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]" value={e.status}
+                    onChange={(ev) => void setStatus(e.id, ev.target.value)}>
+                    {["new", "contacted", "qualified", "closed"].map((st) => <option key={st} value={st}>{st}</option>)}
+                  </select>
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">{e.message}</p>
+              <p className="text-muted-foreground mt-0.5 text-[10px]">{e.email} · {mytDateTime(e.created_at)} MYT</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
@@ -2962,7 +3031,7 @@ export default function PortalPage() {
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && SALES_ROLES.includes(user.role) && <Sales user={user} />}
+        {tab === "Sales" && SALES_ROLES.includes(user.role) && (<><Sales user={user} /><CustomerEnquiriesCard /></>)}
         {tab === "HR" && (
           <>
             <HrPanel />

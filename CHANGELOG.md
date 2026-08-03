@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.181] — 2026-08-03 — /account: Google password clarity · direct staff contact (WhatsApp + categorized enquiries → portal)
+
+### Answered/fixed (per the CEO: "they can change their password? … does it require to change the password?")
+- **Google customers have NO password here — nothing to change, and now nothing pointless shown.** The change-password server route already refused Google accounts (letting a hijacked session ADD a password would hand an attacker a permanent way in); the /account UI showed the form anyway with a footnote. `/auth/me` now returns an `oauth` flag and Google users see a clear info card instead: "You sign in with Google… your sign-in security is managed in your Google Account." Password accounts keep the form unchanged.
+
+### Added ("add feature for the customer to directly contact staff for package inquiry or anything on AZ ONE OFFICIAL service")
+- **💬 WhatsApp direct card** on /account Enquiries: one tap to the official +60 12-383 4821 with a prefilled greeting — the fastest human channel.
+- **Categorized enquiries (migration 0052 `enquiries.category`)** — the Ask form gains "What is this about?": General / Package & pricing / Live commerce services / Order & delivery / Collaboration. Category chips on the customer's own thread list.
+- **Staff are bell-notified INSTANTLY** — every new enquiry notifies active sales_marketing, marketing and the CEO ("New customer enquiry (package & pricing): Dini…"), so a customer never waits for someone to remember to check a list.
+- **📨 Customer enquiries card on the portal Sales tab** — enquiries were previously visible ONLY in /admin, which sales staff can't open. New `ENQUIRY_ROLES` (business team: ceo/coo/cco/sales_marketing/marketing/hr_admin + admin tier) can list and work them in /portal: name·company, category chip, message, one-tap WhatsApp (when the customer left a phone) / Email links, and the status select (new→contacted→qualified→closed).
+
+## [1.4.180] — 2026-08-03 — /admin role policy aligned: Google-account staff (auto part-time) + live_host_part_time option
+
+### Fixed (per the CEO: "I cant manually assigned staff roles based on Google account … there is no roles live_host_part_time in the list!")
+- **/admin was still enforcing the OLD v1.4.42 rule** (personal emails flatly refused for staff roles) — the v1.4.156–157 policy was only ever applied to the portal route. Both /admin routes (PATCH role change + user creation) now follow the same policy: a Google/personal-email account CAN be assigned a staff role, with `employment_status` FORCED to part_time; permanent staff and admin-tier roles still require an @azoneofficial.com email.
+- **`live_host_part_time` in the role list** — a real dropdown option (role change + create form): maps to role `live_host` + `employment_status` part_time, assignable to any email; accounts already in that state display as `live_host_part_time` in the dropdown (users list now returns employment_status).
+- **Role changes in /admin are now SUPER ADMIN only** — matching your v1.4.157 security directive (previously any admin could change roles there); other /admin actions (suspend, reset password, force logout) keep their existing admin-tier access. Audit records the forced part-time alongside the role.
+
 ## [1.4.179] — 2026-08-03 — Weekend OT all day · deeper order-location fallbacks
 
 ### Added (per the CEO: "for OT there should be appear on Weekend … except of executive")
