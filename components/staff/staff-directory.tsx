@@ -140,17 +140,20 @@ function BadgePreview({ s }: { s: Staff }) {
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
     html,body{margin:0;padding:0;background:transparent}
-    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:3.5mm 4mm 3mm;
+    /* v1.4.167 (CEO): content lowered + spacing spread so the card has no
+       big white block above the footer — logo sits lower, photo/name/rows
+       breathe more; the footer stays pinned by margin-top:auto. */
+    .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4.4mm 4mm 3mm;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;
       background:#fff;overflow:hidden;border:0.3mm solid #1a2946;
       display:flex;flex-direction:column;align-items:stretch}
-    .photo{width:20mm;height:24mm;margin:1.8mm auto 0;border:0.2mm solid #dfe3ec;
+    .photo{width:20mm;height:24mm;margin:3.2mm auto 0;border:0.2mm solid #dfe3ec;
       background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
     .photo img{width:100%;height:100%;object-fit:cover}
-    .tagline{margin-top:0.8mm;text-align:center;font-size:4.4px;font-weight:700;
+    .tagline{margin-top:1.4mm;text-align:center;font-size:4.4px;font-weight:700;
       letter-spacing:.3em;color:#b98a2e;text-transform:uppercase;flex:none}
-    .rows{margin-top:2.4mm;text-align:left}
-    .row{display:flex;align-items:baseline;padding:0.6mm 0}
+    .rows{margin-top:3.6mm;text-align:left}
+    .row{display:flex;align-items:baseline;padding:0.85mm 0}
     .row .k{flex:none;width:14.5mm;font-size:6.2px;font-weight:800;letter-spacing:.04em}
     .row .c{flex:none;width:2mm;font-size:7.2px;font-weight:600}
     .row .v{flex:1;font-size:7.2px;font-weight:600;line-height:1.25}

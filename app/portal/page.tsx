@@ -2372,22 +2372,28 @@ function UsersPanel({ role }: { role: string }) {
       {toastNode}
       <p className="text-sm font-semibold">User accounts</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Every staff account, its role and status.
         {canEdit
-          ? " Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin."
-          : " Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role."}
+          ? "Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin."
+          : "Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role."}
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       {/* v1.4.161: staff + customer lists sit side-by-side on desktop to cut
           the scroll in half; they stack normally on phones. */}
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
       <div>
+      {/* v1.4.167: both columns carry the same heading + one-line description
+          structure so the two list boxes top-align (the CEO's screenshot
+          showed the customer box starting lower). */}
+      <p className="mt-4 text-sm font-semibold lg:mt-0">Staff accounts</p>
+      <p className="text-muted-foreground mt-0.5 truncate text-xs">
+        Role always shows — chips flag exceptions only (part-time, disabled, missing 2FA).
+      </p>
       {/* v1.4.161 (CEO: "minimalist the card box — too long to scroll"):
           one bordered box with hairline-divided single-line rows instead of
           stacked card boxes; chips show EXCEPTIONS only (non-permanent
           status, disabled, 2FA missing) — role always shows. Everything
           truncates so a phone row stays one line. */}
-      <div className="border-border divide-border mt-3 max-h-80 divide-y overflow-y-auto rounded-lg border">
+      <div className="border-border divide-border mt-2 max-h-80 divide-y overflow-y-auto rounded-lg border">
         {staffRows.map((u) => (
           <div key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm">
             <span className="min-w-0 flex-1 truncate">
@@ -2426,12 +2432,15 @@ function UsersPanel({ role }: { role: string }) {
           them into part-time roles (e.g. part-time live host) from this list. */}
       <div className="border-border mt-4 border-t pt-3 lg:mt-0 lg:border-t-0 lg:pt-0">
         <p className="text-sm font-semibold">Customer accounts — Google &amp; self sign-ups</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+        <p className="text-muted-foreground mt-0.5 truncate text-xs"
+          title={canEdit
+            ? "Personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account."
+            : "Google and self sign-ups always land here as customers with zero staff access."}>
           {canEdit
-            ? "Promote an account here when someone joins the team — personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account."
-            : "Google and self sign-ups always land here as customers with zero staff access. Promotions are done by the system super admin only."}
+            ? "Promote here when someone joins — personal emails hold part-time roles only."
+            : "Sign-ups land here with zero staff access — promotions by the super admin only."}
         </p>
-        <div className="border-border divide-border mt-2 max-h-56 divide-y overflow-y-auto rounded-lg border">
+        <div className="border-border divide-border mt-2 max-h-80 divide-y overflow-y-auto rounded-lg border">
           {customerRows.length === 0 && <p className="text-muted-foreground px-3 py-2 text-sm">No customer accounts yet.</p>}
           {customerRows.map((u) => (
             <div key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm">

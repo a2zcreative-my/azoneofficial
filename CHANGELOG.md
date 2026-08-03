@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.167] — 2026-08-03 — Users columns aligned · badge whitespace spread
+
+### Fixed (per the CEO)
+- **Users tab column misalignment** — the customer column carried a heading + description while the staff column had none, so the two list boxes started at different heights. The staff column now has its own "Staff accounts" heading + one-line description mirroring the right; both descriptions truncate to a single line (full text on hover); both boxes share max-h-80 — tops AND bottoms align. Main card description trimmed since the columns now carry the detail.
+- **ID badge white gap** — content was top-packed, leaving a large white block above the pinned footer. Spacing spread downward (~7mm absorbed): card top padding 3.5→4.4mm, photo gap 1.8→3.2mm, tagline 0.8→1.4mm, rows offset 2.4→3.6mm, per-row padding 0.6→0.85mm. Verified against the worst realistic case (two-line name + full footer): ~2mm slack on the 85.6mm card, no clipping. Preview, single print, and the 3×3 sheet all share the one template so all three change together.
+
 ## [1.4.166] — 2026-08-03 — Rebate auto-computed from actual TikTok sold prices (no manual entry)
 
 ### Changed (per the CEO: "live rebate should not be manually insert — price RM 11.70, live sale RM 10.00 → rebate RM 1.70, auto updated and synced with the firm order; every inventory in-out correctly counted")
