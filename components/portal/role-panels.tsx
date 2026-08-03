@@ -2303,6 +2303,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const canPayee = ["hr_admin", "ceo", "super_admin", "admin"].includes(role);
   const [payeeId, setPayeeId] = useState(0);
   const [staffOptions, setStaffOptions] = useState<{ id: number; name: string; role: string }[]>([]);
+  // v1.4.176: inline payee editor on an existing claim (set/change/clear).
+  const [payeeEdit, setPayeeEdit] = useState<{ claimId: number; value: number } | null>(null);
 
   const load = useCallback(async () => {
     const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
@@ -2559,15 +2561,46 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <>
           {/* v1.4.173/174: internal payment remark — the server sends the
               field to the CEO/admin tier + hr_admin, AND to the payee on
-              their own rows; never on the printed form. */}
-          {c.payee_user_id === userId ? (
+              their own rows; never on the printed form.
+              v1.4.176 (CEO: "I want to know who is the payees and to insert
+              the payees"): the question is ALWAYS answered for CEO/HR — no
+              payee set = pay the submitter, said explicitly — and ✎ lets
+              them set/change it on any claim, incl. pre-payee approved ones. */}
+          {canPayee && payeeEdit?.claimId === c.id ? (
+            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+              <select className="border-input bg-background h-8 rounded-lg border px-2 text-xs" value={payeeEdit.value}
+                onChange={(e) => setPayeeEdit({ claimId: c.id, value: Number(e.target.value) })}>
+                <option value={0}>— pay the submitter ({properName(c.claimant_full || c.claimant || "")}) —</option>
+                {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.name)} · {u.role.replace(/_/g, " ")}</option>)}
+              </select>
+              <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+                onClick={async () => {
+                  const res = await api<{ ok?: boolean; unchanged?: boolean; error?: { message?: string } }>(`/claims/${c.id}/payee`, {
+                    method: "POST", body: JSON.stringify({ payee_user_id: payeeEdit.value }),
+                  });
+                  if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Could not save the payee", "notice"); return; }
+                  showToast(res.data?.unchanged ? "No changes" : "Saved", res.data?.unchanged ? "Payee is already set to that" : "Payee updated — recorded in the audit log");
+                  setPayeeEdit(null);
+                  void load();
+                }}>Save payee</button>
+              <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>cancel</button>
+            </span>
+          ) : c.payee_user_id === userId ? (
             <p className="mt-1 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-950/30 dark:text-green-300">
               💰 This claim was raised on your behalf by {properName(c.claimant_full || c.claimant || "")} — the payment comes to YOU once the CEO approves. Follow the status chip above.
+              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
             </p>
-          ) : c.payee_name && (
+          ) : c.payee_name ? (
             <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
               title="Internal remark for the CEO (payment) and HR (records) — not printed on the claim form">
               💰 Pay this claim to: {properName(c.payee_full || c.payee_name)}
+              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
+            </p>
+          ) : canPayee && (
+            <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              title="No separate payee set — the payment goes to whoever submitted the claim">
+              💰 Pay to: {properName(c.claimant_full || c.claimant || "")} (the submitter — no separate payee)
+              <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>✎ set payee</button>
             </p>
           )}
           {c.description && <p className="text-muted-foreground mt-1 text-xs">Purpose: {c.description}</p>}
@@ -3009,7 +3042,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) - sum of SAVED payslip nets - after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

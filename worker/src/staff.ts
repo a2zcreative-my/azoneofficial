@@ -1139,6 +1139,39 @@ export async function handleStaff(
     }
     return json({ claims: results, can_decide: all });
   }
+  const claimPayee = path.match(/^\/claims\/(\d+)\/payee$/);
+  if (claimPayee && method === "POST") {
+    /* v1.4.176 (CEO: "I want to know who is the payees and to insert the
+       payees"): set or change the payee on an EXISTING claim — including
+       ones approved before the payee feature existed. The payee is a
+       payment-routing remark, not claim content, so this never restarts
+       the chain; every change is audited with before → after. */
+    if (!["super_admin", "admin", "ceo", "hr_admin"].includes(user.role)) {
+      return err("forbidden", "Only the CEO, HR or the admin tier set the payee", 403);
+    }
+    const pid = typeof body?.payee_user_id === "number" ? Math.floor(body.payee_user_id) : NaN;
+    if (!Number.isFinite(pid) || pid < 0) return err("invalid_input", "payee_user_id required (0 = pay the submitter)", 400);
+    let cur: { id: number; payee_user_id?: number | null; status: string } | null = null;
+    try {
+      cur = await env.DB.prepare(`SELECT id, payee_user_id, status FROM claims WHERE id = ?1`).bind(claimPayee[1]).first();
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0051_claim_payee)", 500);
+    }
+    if (!cur) return err("not_found", "Claim not found", 404);
+    let newPayee: number | null = null;
+    if (pid > 0) {
+      const pu = await env.DB.prepare(
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer')`,
+      ).bind(pid).first<{ id: number }>();
+      if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
+      newPayee = pu.id;
+    }
+    if ((cur.payee_user_id ?? null) === newPayee) return json({ ok: true, unchanged: true });
+    await env.DB.prepare(`UPDATE claims SET payee_user_id = ?1 WHERE id = ?2`).bind(newPayee, claimPayee[1]).run();
+    await audit(env, user.id, "claim.payee_set", "claims", claimPayee[1],
+      { from: cur.payee_user_id ?? null, to: newPayee, claim_status: cur.status });
+    return json({ ok: true });
+  }
   const claimReview = path.match(/^\/claims\/(\d+)\/review$/);
   if (claimReview && method === "POST") {
     // v1.4.106 stage 1 (staff chain only): HR reviews, then the COO pre-approves.

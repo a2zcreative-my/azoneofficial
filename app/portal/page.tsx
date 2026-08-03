@@ -643,6 +643,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
   useEffect(() => {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadEvents = useCallback(async () => {
@@ -992,6 +993,7 @@ function Attendance({ user }: { user: User }) {
     loadMon();
     const t = setInterval(loadMon, 120000); // keeps the monitor live through the day
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReport]);
 
   return (
@@ -2398,6 +2400,7 @@ function UsersPanel({ role }: { role: string }) {
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { load(); }, [load]);
   const saveRole = async (u: { id: number; name: string; email: string }) => {

@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.176] — 2026-08-03 — Payee always answered · set/change payee on existing claims
+
+### Added (per the CEO: "I want to know who is the payees and to insert the payees")
+- **"Who gets paid?" is always answered** — for the CEO/admin tier/hr_admin, every claim's Details now shows a payment line even when no payee was chosen: "💰 Pay to: Nursyazwani (the submitter — no separate payee)". No more inferring from silence.
+- **✎ set/change payee on ANY existing claim** — new `POST /claims/:id/payee` (CEO/HR/admin tier only): an inline picker in Details sets, changes, or clears the payee on any claim regardless of status — including ones approved before the payee feature existed. The payee is payment routing, not claim content, so this never restarts the approval chain; every change is audited (`claim.payee_set`, before → after, claim status noted). The conflict-waiver logic (v1.4.174/175) reads the payee live, so a later-set payee still blocks the conflicted reviewer correctly.
+
 ## [1.4.175] — 2026-08-03 — Conflicted stage auto-waived: payee-blocked claims route straight to the CEO
 
 ### Added (per the CEO: "how to counter this?" — the CCO-payee case must not depend on remembering the override)
