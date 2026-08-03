@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.138] — 2026-08-03 — High-resolution signature scans installed
+
+### Changed (assets)
+- The CCO, HR Admin, and Sales & Marketing signatures are replaced with the **high-resolution scans** the CEO provided (591×389 / 737×399 / 737×460 after background removal and ink-trimming — versus the ~150px first versions), matching the CEO/COO source quality. Same processing pipeline: near-white → transparent, trimmed to ink
+- No code changes — the standardized 46px signature box from v1.4.137 now simply renders from crisp sources, so all five signatures print sharp and equally weighted on the claim form and the Leave Application Form
+
+### Deploy
+- `pnpm build` → hard refresh
+
+
+## [1.4.137] — 2026-08-03 — Signatures standardized · staff signatures on the Employee cell
+
+### Fixed (per the CEO's printout)
+- **All printed signatures now occupy the same standardized box** (46px tall, up to 150px wide, ink fitted left) — the CCO's signature no longer prints tiny next to the CEO's. Every signature source is also **trimmed to its ink** (transparent borders removed), so the five files render at comparable visual weight regardless of how each was scanned. Applied to the claim form and the Leave Application Form alike
+
+### Changed — Employee cell uses the staff member's real signature
+- When the claimant's/applicant's **role has an uploaded signature** (CEO, COO, CCO, HR Admin, Sales & Marketing), the Employee cell prints **that signature** with the "(submitted in system)" note — Nursyazwani's forms will carry the HR Admin stamp-signature rather than the script-font e-signature. Roles without an uploaded signature (editor, marketing, live host) keep the script e-signature fallback
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.136] — 2026-08-03 — Official signatures installed: CCO, HR Admin, Sales & Marketing
 
 ### Added (assets)

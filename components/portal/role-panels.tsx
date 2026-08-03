@@ -1408,6 +1408,14 @@ const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
 async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
+  // v1.4.137: one signature file per role — used for the EMPLOYEE cell too
+  // when the claimant's role has an uploaded signature; script e-sig is the
+  // fallback for roles without one.
+  const SIG_FILE: Record<string, string> = {
+    ceo: "ceo-sign.png", coo: "coo-sign.png", cco: "cco-sign.png",
+    hr_admin: "hr-admin-sign.png", sales_marketing: "sales-marketing-sign.png",
+  };
+  const empSig = SIG_FILE[c.claimant_role ?? ""] ?? null;
   // v1.4.127: DB timestamps are UTC — every printed time must be Malaysia
   // time (+8), matching the system-wide MYT convention.
   const mytStamp = (iso: string | null | undefined): string => {
@@ -1482,6 +1490,9 @@ async function printClaimForm(c: Claim) {
     .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
     .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
     .esub { display: block; font-size: 8px; color: #8a93a6; }
+    /* v1.4.137: every printed signature occupies the SAME box regardless of
+       the source image's dimensions — standardized like the CEO/COO look. */
+    .sigimg { height: 46px; max-width: 150px; object-fit: contain; object-position: left center; display: block; margin-top: 1px; }
     .receiptwrap { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
@@ -1524,15 +1535,17 @@ async function printClaimForm(c: Claim) {
     </tr>
     <tr>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
-        <div class="sg">Signature: <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span></div>
+        <div class="sg">Signature:${empSig
+          ? `<img class="sigimg" src="/signatures/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+          : ` <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
         <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
         ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img src="/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
         : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
-        <div class="sg">Signature:${c.status === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/signatures/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>

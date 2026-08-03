@@ -1023,6 +1023,11 @@ function printLeaveForm(l: LeaveReq, meName: string) {
   const lvNo = `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
   const stage = l.stage ?? l.status;
   const applicant = (l.user_full || l.user_name || meName || "").toUpperCase();
+  const SIG_FILE: Record<string, string> = {
+    ceo: "ceo-sign.png", coo: "coo-sign.png", cco: "cco-sign.png",
+    hr_admin: "hr-admin-sign.png", sales_marketing: "sales-marketing-sign.png",
+  };
+  const empSig = SIG_FILE[l.applicant_role ?? ""] ?? null;
   const statusLine =
     stage === "approved" ? `APPROVED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.final_at ? " on " + myt(l.final_at) + " MYT" : ""}`
     : stage === "rejected" ? `REJECTED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.review_comment ? " · Note: " + l.review_comment : ""}`
@@ -1058,6 +1063,7 @@ function printLeaveForm(l: LeaveReq, meName: string) {
     .dt { margin-top: auto; }
     .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
     .esub { display: block; font-size: 8px; color: #8a93a6; }
+    .sigimg { height: 46px; max-width: 150px; object-fit: contain; object-position: left center; display: block; margin-top: 1px; }
     .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; }
   </style></head><body>
   <div class="goldbar"></div>
@@ -1077,15 +1083,17 @@ function printLeaveForm(l: LeaveReq, meName: string) {
     <tr><th style="width:33%">Employee</th><th style="width:34%">Administrative or<br/>Head of Department (COO / CCO)</th><th style="width:33%">Chief Executive Officer (CEO)</th></tr>
     <tr>
       <td class="body"><div class="cw"><div class="nm">Name: ${applicant}</div>
-        <div class="sg">Signature: <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span></div>
+        <div class="sg">Signature:${empSig
+          ? `<img class="sigimg" src="/signatures/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+          : ` <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span>`}</div>
         <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${l.preapp_by_full || l.preapp_by_name
         ? `<div class="nm">Name: ${(l.preapp_by_full || l.preapp_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img src="/signatures/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/signatures/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
         : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : ""}</div>
-        <div class="sg">Signature:${stage === "approved" ? `<img src="/signatures/ceo-sign.png" alt="" style="height:42px;display:block;margin-top:1px" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/signatures/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
