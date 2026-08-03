@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.158] — 2026-08-03 — OT hidden from executive roles (CEO/COO/CCO)
+
+### Changed (per the CEO)
+- **OT in / OT out no longer appear for ceo, coo, or cco** (admin-tier system accounts likewise) — executives are not OT-paid staff. Enforced in both places: `POST /attendance/ot` refuses with "Executive roles (CEO/COO/CCO) are not eligible for OT punches." and the `ot_eligible` flag now excludes those roles, so the Dashboard buttons and the HOD note never render for them. Final eligibility rule: **a non-executive staff role whose employment status isn't part_time** — permanent/contract/probation editor, marketing, live_host, hr_admin, sales_marketing.
+
 ## [1.4.157] — 2026-08-03 — Role changes locked to super_admin only (security)
 
 ### Changed (per the CEO: "avoid any Google account breaching my system")

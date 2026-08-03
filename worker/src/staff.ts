@@ -622,6 +622,13 @@ export async function handleStaff(
     // (2) CEO's clarified rule: OT eligibility follows EMPLOYMENT STATUS, not
     //     role. Permanent live hosts DO work overtime; part-time staff
     //     (part-time live hosts, part-time designers) are not eligible.
+    // v1.4.158 (CEO): OT does not appear for ceo/coo/cco — executives are not
+    // OT-paid staff (admin tier likewise; they're system accounts). Combined
+    // with the part-time rule, OT eligibility is: a non-executive staff role
+    // whose employment_status isn't part_time.
+    if (["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
+      return err("not_eligible", "Executive roles (CEO/COO/CCO) are not eligible for OT punches.", 403);
+    }
     const me = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
       .bind(user.id).first<{ employment_status: string | null }>();
     if (me?.employment_status === "part_time") {
@@ -726,7 +733,10 @@ export async function handleStaff(
     // eligible; part-time anything is not.
     const meRow = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
       .bind(user.id).first<{ employment_status: string | null }>();
-    const ot_eligible = meRow?.employment_status !== "part_time";
+    // v1.4.158: executives (ceo/coo/cco) and admin-tier accounts never get
+    // the OT buttons, alongside the part-time exclusion.
+    const ot_eligible = !["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)
+      && meRow?.employment_status !== "part_time";
     return json({ month, records: results, ot, ot_eligible });
   }
 
