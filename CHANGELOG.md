@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.170] — 2026-08-03 — Sort controls · manual stock-out modal with mandatory remark · traceability card
+
+### Added (per the CEO)
+- **Sort controls on both stock tables** — "Sort: SKU 1→end / A→Z / Z→A" pills on **Inventory — live status & stock**, and the same plus the "🔥 Today" default on **📉 TikTok Live — stock out**. SKU sorting is natural-numeric (ELFIA001 → ELFIA002 → … → ELFIA012, not lexicographic).
+- **Manual stock-out MODAL (migration 0049 `manual_stockouts`)** — Out − now opens a proper form: **SKU · Item** picker (pre-selected from the row, SKU-sorted), **Quantity out**, optional **Sold @** (fills the Manual-sales channel as before), and a **MANDATORY Remark** — the server refuses an Out without a reason, so no stock ever leaves the shelf unexplained. Audit meta carries the remark too.
+- **New card 🛠 Manual stock out — traceability** — every manual out as a scrollable list: date (MYT) · SKU — item · qty · remark · "Sold @ RM x" green chip or "correction" chip · by whom. `GET /inventory/manual-outs` (last 100; empty before 0049, never an error).
+- **Cards minimalist/scrollable** — the main stock table now scrolls inside the card (max-h-96) like the other lists; the TikTok stock-out table capped at max-h-80; the inline "Sold @" input from v1.4.169 moved into the modal, so the table row is shorter again.
+
+## [1.4.169] — 2026-08-03 — Total sales across ALL channels (manual outs + non-TikTok orders + invoices + TikTok)
+
+### Added (per the CEO: "if there is any manual out without any rebate how do I know the total sales? Invoice also need to count beside of TikTok or any postage tracking — non-TikTok orders")
+- **Manual sale on Out − (migration 0048 `manual_sales`)** — the Manual in/out control gains an optional **"Sold @" (RM/unit)** input: filled, the Out is recorded as a SALE (snapshot sku/name/qty/price, audited, "Sale recorded" toast) and counts in total sales; empty, it stays a plain correction (damage/samples) deliberately **excluded** so corrections never inflate revenue.
+- **Non-TikTok shipments carry their value** — the manual postage form gains **"Order amount (RM)"** (Shopee/WhatsApp/direct orders); empty = RM 0 shipments like replacements stay out of the totals.
+- **Revenue card now sums FOUR channels**: TikTok (synced paid amounts) + Invoiced (payments received) + **Other shipments** + **Manual sales** — two new boxes, a renamed **"Total — all channels"** box, today's gold 🔥 box includes all four, and the **KPI target bar tracks the same all-channel total** (it previously tracked TikTok + invoices only). `/staff/revenue` response += `other`, `manual`, `today.other_cents`, `today.manual_cents`; tolerant of 0048 pending.
+
 ## [1.4.168] — 2026-08-03 — Self-healing TikTok stock deduction (retry on every sync)
 
 ### Fixed (per the CEO: orders show "No stock movement recorded", stock-out card empty — "ensure inventory counted correctly without discrepancies; total of sales must match sold prices and sold item")

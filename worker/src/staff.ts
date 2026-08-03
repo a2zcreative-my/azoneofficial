@@ -1664,6 +1664,26 @@ export async function handleStaff(
       `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
        FROM sales_documents WHERE doc_type = 'INV' AND payment_status != 'paid'`,
     ).first<{ cents: number; docs: number }>();
+    // v1.4.169 (CEO: "invoice also need to count it beside of TikTok or any
+    // Postage tracking — non-TikTok orders… everything count correctly"):
+    // two more channels join the totals — non-TikTok shipments (their order
+    // amount, from the new form field) and manual sales (an Out − with a
+    // sold price). Tolerant of migration 0048 not being applied yet.
+    const otherPostage = (m: string) => env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents,
+              SUM(CASE WHEN order_amount_cents IS NOT NULL THEN 1 ELSE 0 END) AS orders
+       FROM postage_records
+       WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned'
+         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+    ).bind(m).first<{ cents: number; orders: number }>();
+    const manualSales = async (m: string) => {
+      try {
+        return await env.DB.prepare(
+          `SELECT COALESCE(SUM(total_cents), 0) AS cents, COALESCE(SUM(qty), 0) AS units
+           FROM manual_sales WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+        ).bind(m).first<{ cents: number; units: number }>();
+      } catch { return { cents: 0, units: 0 }; }
+    };
     const targetOf = (m: string) => env.DB.prepare(
       `SELECT target_cents FROM sales_targets WHERE month = ?1`,
     ).bind(m).first<{ target_cents: number }>();
@@ -1685,9 +1705,24 @@ export async function handleStaff(
        FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'
          AND date(COALESCE(paid_at, created_at), '+8 hours') = ?1`,
     ).bind(todayMYT).first<{ cents: number; docs: number }>();
-    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday] = await Promise.all([
+    const otherToday = env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents
+       FROM postage_records
+       WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned'
+         AND date(created_at, '+8 hours') = ?1`,
+    ).bind(todayMYT).first<{ cents: number }>();
+    const manualToday = (async () => {
+      try {
+        return await env.DB.prepare(
+          `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
+           WHERE date(created_at, '+8 hours') = ?1`,
+        ).bind(todayMYT).first<{ cents: number }>();
+      } catch { return { cents: 0 }; }
+    })();
+    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
       targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokToday, invoicedToday,
+      otherPostage(month), otherPostage(lastMonth), manualSales(month), manualSales(lastMonth), otherToday, manualToday,
     ]);
     return json({
       month, last_month: lastMonth, next_month: nextMonth,
@@ -1695,10 +1730,13 @@ export async function handleStaff(
         date: todayMYT,
         tiktok_cents: tToday?.cents ?? 0, tiktok_orders: tToday?.orders ?? 0,
         invoiced_cents: iToday?.cents ?? 0, invoiced_docs: iToday?.docs ?? 0,
+        other_cents: oToday?.cents ?? 0, manual_cents: mToday?.cents ?? 0, // v1.4.169
       },
       tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
       invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
       outstanding: { cents: out?.cents ?? 0, docs: out?.docs ?? 0 },
+      other: { this_cents: oThis?.cents ?? 0, this_orders: oThis?.orders ?? 0, last_cents: oLast?.cents ?? 0, last_orders: oLast?.orders ?? 0 }, // v1.4.169
+      manual: { this_cents: mThis?.cents ?? 0, this_units: mThis?.units ?? 0, last_cents: mLast?.cents ?? 0, last_units: mLast?.units ?? 0 }, // v1.4.169
       target_cents: tgt?.target_cents ?? null,
       last_target_cents: tgtLast?.target_cents ?? null,
       next_target_cents: tgtNext?.target_cents ?? null,
@@ -2762,6 +2800,23 @@ export async function handleStaff(
     ).all();
     return json({ items: results });
   }
+  if (path === "/inventory/manual-outs" && method === "GET") {
+    // v1.4.170: the traceability list — last 100 manual stock-outs with the
+    // remark and who recorded them. Empty (not an error) before 0049.
+    if (!can(user, "inventory") && !can(user, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT m.*, u.name AS created_by_name FROM manual_stockouts m
+         LEFT JOIN users u ON u.id = m.created_by
+         ORDER BY m.created_at DESC LIMIT 100`,
+      ).all();
+      return json({ outs: results });
+    } catch {
+      return json({ outs: [] });
+    }
+  }
   if (path === "/inventory/tiktok-out" && method === "GET") {
     /* v1.4.165 (CEO: "how I will know which item are out during live sales in
        TikTok?") — per-item stock OUT that came from TikTok orders. Source of
@@ -2982,15 +3037,21 @@ export async function handleStaff(
     }
 
     // Create the order, then apply guarded deductions + line rows.
+    // v1.4.169 (CEO): non-TikTok orders carry their sales value too, so the
+    // revenue totals can count EVERY channel, not just TikTok + invoices.
+    const amtRaw = Number(body.order_amount);
+    const amtC = Number.isFinite(amtRaw) && amtRaw >= 0 && body.order_amount !== undefined && body.order_amount !== null && `${body.order_amount}` !== ""
+      ? Math.round(amtRaw * 100) : null;
     const rec = await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, updated_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+      `INSERT INTO postage_records (order_ref, courier, tracking_no, status, note, order_amount_cents, updated_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
     ).bind(
       body.order_ref,
       str(body.courier, 80) ? body.courier : null,
       str(body.tracking_no, 120) ? body.tracking_no : null,
       POSTAGE_STATUSES.includes(body.status as string) ? (body.status as string) : "preparing",
       str(body.note, 500) ? body.note : null,
+      amtC,
       user.id,
     ).first<{ id: number }>();
     for (const l of lines) {
@@ -3074,9 +3135,36 @@ export async function handleStaff(
     if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const delta = typeof body?.delta === "number" ? Math.trunc(body.delta) : 0;
     if (!delta) return err("invalid_input", "delta (non-zero integer) is required", 400);
+    /* v1.4.169 (CEO: "if there is any manual out without any rebate how do I
+       know the total sales?"): an optional sold price on a manual OUT makes
+       it a SALE — recorded in manual_sales and counted in the revenue
+       totals. Without a price it stays a plain correction (damage/samples)
+       and is deliberately excluded so corrections never inflate sales. */
+    const saleRaw = Number(body?.sale_price);
+    const saleC = delta < 0 && Number.isFinite(saleRaw) && saleRaw >= 0 && body?.sale_price !== undefined && body?.sale_price !== null && `${body?.sale_price}` !== ""
+      ? Math.round(saleRaw * 100) : null;
+    /* v1.4.170 (CEO: "Remark of the reason why stock out to traceability
+       purposes"): every manual OUT must say why — remark is MANDATORY and
+       logged to manual_stockouts, so no stock leaves the shelf unexplained. */
+    const remark = str(body?.remark, 300) ? (body!.remark as string).trim() : null;
+    if (delta < 0 && !remark) {
+      return err("invalid_input", "A remark (reason for the stock out) is required — for traceability", 400);
+    }
+    if (saleC !== null) {
+      const tbl = await env.DB.prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'manual_sales'`,
+      ).first<{ name: string }>();
+      if (!tbl) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0048_manual_sales)", 500);
+    }
+    if (delta < 0) {
+      const tbl2 = await env.DB.prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'manual_stockouts'`,
+      ).first<{ name: string }>();
+      if (!tbl2) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0049_manual_stockouts)", 500);
+    }
     const item = await env.DB.prepare(
-      `SELECT stock, name FROM inventory_items WHERE id = ?1`,
-    ).bind(invAdjust[1]).first<{ stock: number; name: string }>();
+      `SELECT stock, name, sku FROM inventory_items WHERE id = ?1`,
+    ).bind(invAdjust[1]).first<{ stock: number; name: string; sku: string }>();
     if (!item) return err("not_found", "Item not found", 404);
     const newStock = item.stock + delta;
     if (newStock < 0) {
@@ -3085,8 +3173,23 @@ export async function handleStaff(
     await env.DB.prepare(
       `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
     ).bind(newStock, stockStatus(newStock), user.id, invAdjust[1]).run();
-    await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1], { qty: Math.abs(delta) });
-    return json({ ok: true, stock: newStock, status: stockStatus(newStock) });
+    if (saleC !== null) {
+      const qty = Math.abs(delta);
+      await env.DB.prepare(
+        `INSERT INTO manual_sales (item_id, sku, item_name, qty, unit_sale_cents, total_cents, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(Number(invAdjust[1]), item.sku, item.name, qty, saleC, qty * saleC, user.id).run();
+    }
+    if (delta < 0) {
+      // v1.4.170: the traceability trail — one row per manual out, with WHY.
+      await env.DB.prepare(
+        `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, user.id).run();
+    }
+    await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1],
+      saleC !== null ? { qty: Math.abs(delta), unit_sale_cents: saleC, total_cents: Math.abs(delta) * saleC, manual_sale: true, remark } : { qty: Math.abs(delta), remark });
+    return json({ ok: true, stock: newStock, status: stockStatus(newStock), sale_recorded: saleC !== null });
   }
 
   /* ---- Supplier returns (v1.4.148): rejected stock back to the supplier,

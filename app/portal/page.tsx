@@ -426,7 +426,9 @@ const REVENUE_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marke
 interface RevenueData {
   month: string;
   last_month: string;
-  today?: { date: string; tiktok_cents: number; tiktok_orders: number; invoiced_cents: number; invoiced_docs: number };
+  today?: { date: string; tiktok_cents: number; tiktok_orders: number; invoiced_cents: number; invoiced_docs: number; other_cents?: number; manual_cents?: number };
+  other?: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };  // v1.4.169 non-TikTok shipments
+  manual?: { this_cents: number; this_units: number; last_cents: number; last_units: number };   // v1.4.169 manual sales
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
   invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };  outstanding?: { cents: number; docs: number };
   target_cents?: number | null;
@@ -450,8 +452,11 @@ function SalesRevenueCard({ role }: { role?: string }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   if (!rev) return null;
   const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const total = rev.tiktok.this_cents + rev.invoiced.this_cents;
-  const lastTotal = rev.tiktok.last_cents + rev.invoiced.last_cents;
+  // v1.4.169 (CEO: "everything count correctly and accurately"): total sales
+  // = TikTok + paid invoices + non-TikTok shipments + manual sales. The KPI
+  // progress below uses this same total, so the target tracks EVERY channel.
+  const total = rev.tiktok.this_cents + rev.invoiced.this_cents + (rev.other?.this_cents ?? 0) + (rev.manual?.this_cents ?? 0);
+  const lastTotal = rev.tiktok.last_cents + rev.invoiced.last_cents + (rev.other?.last_cents ?? 0) + (rev.manual?.last_cents ?? 0);
   const delta = lastTotal > 0 ? Math.round(((total - lastTotal) / lastTotal) * 100) : null;
   const box = (label: string, value: string, sub: string) => (
     <div className="border-border rounded-lg border p-3">
@@ -466,14 +471,17 @@ function SalesRevenueCard({ role }: { role?: string }) {
       <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         TikTok figures from synced order amounts (returned orders excluded).
-        Invoiced figures count PAYMENTS RECEIVED (paid invoices, e.g. bank
-        transfer, in the month the payment landed) — comparable with Expenses.
+        Invoiced figures count PAYMENTS RECEIVED (paid invoices, in the month
+        the payment landed) — comparable with Expenses. Since v1.4.169 the
+        Total also counts non-TikTok shipments (order amount on the postage
+        form) and manual sales (an Out − with a sold price) — every channel,
+        one number, and the KPI below tracks it.
       </p>
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
           today leads the grid with the brand-gold accent. */}
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {rev.today && (() => {
-          const todayTotal = rev.today.tiktok_cents + rev.today.invoiced_cents;
+          const todayTotal = rev.today.tiktok_cents + rev.today.invoiced_cents + (rev.today.other_cents ?? 0) + (rev.today.manual_cents ?? 0);
           return (
             <div className="rounded-lg border-2 border-[#C9A227] bg-[#C9A227]/5 p-3">
               <p className="text-xs font-semibold tracking-wide text-[#8a6f1a] uppercase dark:text-[#C9A227]">🔥 Today · {rev.today.date.split("-").reverse().join("-")}</p>
@@ -481,6 +489,8 @@ function SalesRevenueCard({ role }: { role?: string }) {
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {rev.today.tiktok_orders} TikTok order{rev.today.tiktok_orders === 1 ? "" : "s"}
                 {rev.today.invoiced_cents > 0 ? ` · invoiced ${rm(rev.today.invoiced_cents)}` : ""}
+                {(rev.today.other_cents ?? 0) > 0 ? ` · other shipments ${rm(rev.today.other_cents ?? 0)}` : ""}
+                {(rev.today.manual_cents ?? 0) > 0 ? ` · manual sales ${rm(rev.today.manual_cents ?? 0)}` : ""}
                 {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
               </p>
             </div>
@@ -488,7 +498,10 @@ function SalesRevenueCard({ role }: { role?: string }) {
         })()}
         {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
         {box("Invoiced (paid)", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`)}
-        {box("Total", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
+        {/* v1.4.169: the other two channels, so the Total is ALL sales */}
+        {box("Other shipments", rm(rev.other?.this_cents ?? 0), `${rev.other?.this_orders ?? 0} non-TikTok order${(rev.other?.this_orders ?? 0) === 1 ? "" : "s"} with amount · last month ${rm(rev.other?.last_cents ?? 0)}`)}
+        {box("Manual sales", rm(rev.manual?.this_cents ?? 0), `${rev.manual?.this_units ?? 0} unit${(rev.manual?.this_units ?? 0) === 1 ? "" : "s"} sold via Out − · last month ${rm(rev.manual?.last_cents ?? 0)}`)}
+        {box("Total — all channels", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
       </div>
       <div className="border-border mt-3 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

@@ -293,6 +293,12 @@ interface InvItem {
   live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
   updated_by_name?: string;
 }
+interface ManualOut { // v1.4.170 — traceability row for a manual stock out
+  id: number; sku: string; item_name: string; qty: number;
+  unit_sale_cents?: number | null; remark: string;
+  created_at: string; created_by_name?: string | null;
+}
+
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
   id: number; sku: string; name: string; stock: number;
   today_qty: number; month_qty: number; total_qty: number; last_at: string | null;
@@ -468,7 +474,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "" });
-  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "" });
+  const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "", order_amount: "" }); // v1.4.169 += amount
   const [postLines, setPostLines] = useState<{ inventory_item_id: number; qty: number }[]>([]);
   const [postMsg, setPostMsg] = useState("");
   const [matDraft, setMatDraft] = useState("");
@@ -492,30 +498,60 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // v1.4.162: fix a wrongly inserted item — inline SKU/name edit + delete.
   const [invEditId, setInvEditId] = useState<number | null>(null);
   const [invEditDraft, setInvEditDraft] = useState({ sku: "", name: "" });
+  // v1.4.170: sort controls (SKU natural / A→Z / Z→A) for both stock tables,
+  // the manual stock-out MODAL (item, qty, Sold @, mandatory remark), and the
+  // traceability list.
+  const [invSort, setInvSort] = useState<"sku" | "az" | "za">("sku");
+  const [ttSort, setTtSort] = useState<"hot" | "sku" | "az" | "za">("hot");
+  const [outModal, setOutModal] = useState<{ item_id: number; qty: string; price: string; remark: string } | null>(null);
+  const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
 
-  const adjust = async (id: number, delta: number) => {
+  // v1.4.169/170: an Out − goes through the modal — mandatory remark for
+  // traceability, optional Sold @ that records it as a SALE in the totals.
+  const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
     setInvMsg("");
-    const res = await api<{ error?: { message?: string } }>(`/inventory/${id}/adjust`, {
+    const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
+    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean }>(`/inventory/${id}/adjust`, {
       method: "POST",
-      body: JSON.stringify({ delta }),
+      body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
     });
-    if (!res.ok) setInvMsg(res.data?.error?.message ?? "Adjustment failed");
+    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales`);
+    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs — logged with your remark`);
     void load();
+    return true;
   };
+  // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
+  const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
+  const sortedItems = [...items].sort(invSort === "sku" ? bySku
+    : invSort === "az" ? (a, b) => a.name.localeCompare(b.name)
+    : (a, b) => b.name.localeCompare(a.name));
+  const sortedTtOut = ttSort === "hot" ? ttOut : [...ttOut].sort(ttSort === "sku" ? bySku
+    : ttSort === "az" ? (a, b) => a.name.localeCompare(b.name)
+    : (a, b) => b.name.localeCompare(a.name));
+  const sortBtn = (active: boolean, label: string, title: string, onClick: () => void) => (
+    <button type="button" title={title} onClick={onClick}
+      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${active ? "bg-primary text-primary-foreground" : "border-border hover:bg-secondary border"}`}>
+      {label}
+    </button>
+  );
 
   const load = useCallback(async () => {
-    const [i, p, m, r, t] = await Promise.all([
+    const [i, p, m, r, t, mo] = await Promise.all([
       api<{ items: InvItem[] }>(`/inventory`),
       api<{ records: PostRec[] }>(`/postage`),
       api<{ materials: Material[] }>(`/materials`),
       api<{ returns: SupplierReturn[]; totals: { total_cents: number; credited_cents: number; replaced_cents?: number; outstanding_cents: number } }>(`/inventory/returns`),
       api<{ items: TtOut[] }>(`/inventory/tiktok-out`), // v1.4.165
+      api<{ outs: ManualOut[] }>(`/inventory/manual-outs`), // v1.4.170
     ]);
     if (i.data) setItems(i.data.items);
     if (p.data) setPostage(p.data.records);
     if (m.data) setMaterials(m.data.materials);
     if (r.data?.returns) { setReturns(r.data.returns); setRetTotals(r.data.totals); }
     if (t.data?.items) setTtOut(t.data.items);
+    if (mo.data?.outs) setManualOuts(mo.data.outs);
   }, []);
   useEffect(() => {
     void load();
@@ -525,6 +561,59 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     <div className="space-y-4 md:space-y-6">
       {invConfirmNode}
       {invToastNode}
+      {/* v1.4.170 (CEO): manual stock-out MODAL — pick SKU/item, quantity,
+          optional Sold @ (makes it a sale in the totals), and a MANDATORY
+          remark for traceability. House card pattern + save-toast. */}
+      {outModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOutModal(null)}>
+          <div className="bg-background w-full max-w-md rounded-xl border p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold">Manual stock out</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              The remark is required — every manual out is logged with who,
+              when and why. Fill Sold @ only when this out is a sale.
+            </p>
+            <div className="mt-3 space-y-2">
+              <SubR t="SKU · Item">
+                <select className={inputClass} value={outModal.item_id}
+                  onChange={(e) => setOutModal((m) => m && ({ ...m, item_id: Number(e.target.value) }))}>
+                  {[...items].sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" })).map((it) => (
+                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
+                  ))}
+                </select>
+              </SubR>
+              <div className="grid grid-cols-2 gap-2">
+                <SubR t="Quantity out">
+                  <input type="number" min={1} className={inputClass} value={outModal.qty}
+                    onChange={(e) => setOutModal((m) => m && ({ ...m, qty: e.target.value }))} />
+                </SubR>
+                <SubR t="Sold @ (RM/unit, optional)">
+                  <input type="number" min={0} step="0.01" className={inputClass} placeholder="empty = correction"
+                    value={outModal.price}
+                    onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
+                </SubR>
+              </div>
+              <SubR t="Remark — reason for stock out *">
+                <textarea className={inputClass} rows={2} placeholder="e.g. Damaged in storage / sample for client / sold at event"
+                  value={outModal.remark}
+                  onChange={(e) => setOutModal((m) => m && ({ ...m, remark: e.target.value }))} />
+              </SubR>
+              <div className="flex items-center gap-2">
+                <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+                  onClick={async () => {
+                    const qtyN = Math.floor(Number(outModal.qty));
+                    if (!qtyN || qtyN <= 0) { invToast("Not saved", "Quantity must be at least 1", "notice"); return; }
+                    if (!outModal.remark.trim()) { invToast("Not saved", "The remark (reason) is required for traceability", "notice"); return; }
+                    const ok = await adjust(outModal.item_id, -qtyN, outModal.price, outModal.remark.trim());
+                    if (ok) setOutModal(null);
+                  }}>
+                  Record stock out
+                </button>
+                <button type="button" className="text-xs underline" onClick={() => setOutModal(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <TikTokOrdersCard role={role} onChanged={() => void load()} />
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
@@ -566,7 +655,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           <p className="text-muted-foreground mt-3 text-sm">No items yet — add your first above; TikTok orders will start moving its stock automatically.</p>
         )}
         {items.length > 0 && (
-        <div className="mt-3 overflow-x-auto">
+        <>
+        {/* v1.4.170 (CEO): sort by SKU number / A→Z / Z→A, and the table
+            scrolls inside the card like the other lists. */}
+        <div className="mt-3 flex items-center gap-1.5">
+          <span className="text-muted-foreground text-xs">Sort:</span>
+          {sortBtn(invSort === "sku", "SKU 1→end", "SKU in natural number order (ELFIA001 → ELFIA012)", () => setInvSort("sku"))}
+          {sortBtn(invSort === "az", "A→Z", "Item name ascending", () => setInvSort("az"))}
+          {sortBtn(invSort === "za", "Z→A", "Item name descending", () => setInvSort("za"))}
+        </div>
+        <div className="mt-2 max-h-96 overflow-x-auto overflow-y-auto pr-1">
           <table className="w-full min-w-[780px] border-collapse">
             <thead>
               <tr className="border-border border-b">
@@ -582,7 +680,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
+              {sortedItems.map((it) => (
                 <tr key={it.id} className="border-border border-b last:border-0">
                   <td className={`${td} font-mono text-xs`}>
                     {invEditId === it.id
@@ -628,9 +726,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
                         title="Stock in (restock)"
                         onClick={() => void adjust(it.id, adjQty[it.id] ?? 1)}>In +</button>
+                      {/* v1.4.170 (CEO): Out goes through the modal — item,
+                          qty, optional Sold @, MANDATORY remark. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
-                        title="Stock out (manual deduction)"
-                        onClick={() => void adjust(it.id, -(adjQty[it.id] ?? 1))}>Out −</button>
+                        title="Stock out — opens the form (remark required for traceability)"
+                        onClick={() => setOutModal({ item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", remark: "" })}>Out −</button>
                     </span>
                   </td>
                   <td className={td}>
@@ -679,6 +779,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </tbody>
           </table>
         </div>
+        </>
         )}
       </div>
 
@@ -700,7 +801,15 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             order deducts stock (SKU or item-name match).
           </p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
+          <>
+          <div className="mt-3 flex items-center gap-1.5">
+            <span className="text-muted-foreground text-xs">Sort:</span>
+            {sortBtn(ttSort === "hot", "🔥 Today", "Hottest today first (default)", () => setTtSort("hot"))}
+            {sortBtn(ttSort === "sku", "SKU 1→end", "SKU in natural number order", () => setTtSort("sku"))}
+            {sortBtn(ttSort === "az", "A→Z", "Item name ascending", () => setTtSort("az"))}
+            {sortBtn(ttSort === "za", "Z→A", "Item name descending", () => setTtSort("za"))}
+          </div>
+          <div className="mt-2 max-h-80 overflow-x-auto overflow-y-auto pr-1">
             <table className="w-full min-w-[560px] border-collapse">
               <thead>
                 <tr className="border-border border-b">
@@ -716,7 +825,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 </tr>
               </thead>
               <tbody>
-                {ttOut.map((t) => (
+                {sortedTtOut.map((t) => (
                   <tr key={t.id} className="border-border border-b last:border-0">
                     <td className={`${td} font-mono text-xs`}>{t.sku}</td>
                     <td className={`${td} font-medium`}>{t.name}</td>
@@ -742,6 +851,41 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 ))}
               </tbody>
             </table>
+          </div>
+          </>
+        )}
+      </div>
+
+      {/* v1.4.170 (CEO): the traceability card — every manual stock out with
+          the mandatory remark, who and when. Scrollable like the rest. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">🛠 Manual stock out — traceability</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Every manual Out − with its reason, recorded by whom and when. Rows
+          with a sold price also count in Total sales (Manual sales channel);
+          rows without are corrections — excluded from sales by design.
+        </p>
+        {manualOuts.length === 0 ? (
+          <p className="text-muted-foreground mt-3 text-sm">No manual stock outs yet — they appear here the moment one is recorded.</p>
+        ) : (
+          <div className="mt-3 max-h-72 space-y-0 overflow-y-auto pr-1">
+            {manualOuts.map((o) => (
+              <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-muted-foreground text-xs">{dmyMYT(o.created_at)}</span>
+                  <span className="font-mono text-xs"> · {o.sku}</span>
+                  <span className="font-medium"> — {o.item_name}</span>
+                  <span> · {o.qty} pcs</span>
+                  <span className="text-muted-foreground text-xs"> · {o.remark}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {o.unit_sale_cents != null
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {(o.unit_sale_cents / 100).toFixed(2)}</span>
+                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">correction</span>}
+                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]}</span>}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -982,6 +1126,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               <SubR t="Tracking no.">
               <input className={inputClass} placeholder="e.g. MY123456789" value={postDraft.tracking_no}
                 onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} /></SubR>
+              {/* v1.4.169: sales value of the non-TikTok order — counts in
+                  Total sales + KPI (leave empty for RM 0 shipments like
+                  replacements, which stay out of the totals) */}
+              <SubR t="Order amount (RM)">
+              <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00"
+                title="What the customer paid for this order — counted in Total sales. Leave empty for replacements / non-sales shipments."
+                value={postDraft.order_amount}
+                onChange={(e) => setPostDraft((d) => ({ ...d, order_amount: e.target.value }))} /></SubR>
             </div>
             {postLines.map((line, idx) => (
               <div key={idx} className="flex gap-2">
@@ -1018,12 +1170,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 setPostMsg("");
                 const res = await api<{ error?: { message?: string } }>(`/postage`, {
                   method: "POST",
-                  body: JSON.stringify({ ...postDraft, items: lines.length > 0 ? lines : undefined }),
+                  body: JSON.stringify({
+                    ...postDraft,
+                    order_amount: postDraft.order_amount.trim() === "" ? undefined : Number(postDraft.order_amount),
+                    items: lines.length > 0 ? lines : undefined,
+                  }),
                 });
                 if (!res.ok) {
                   setPostMsg(res.data?.error?.message ?? "Could not add record");
                 } else {
-                  setPostDraft({ order_ref: "", courier: "", tracking_no: "" });
+                  setPostDraft({ order_ref: "", courier: "", tracking_no: "", order_amount: "" });
                   setPostLines([]);
                 }
                 void load();
@@ -2663,7 +2819,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) - sum of SAVED payslip nets - after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
