@@ -2238,6 +2238,11 @@ export function ExpensesPanel() {
                         }}>
                         🔧 Fix discrepancy now (recompute on server)
                       </button>
+                      <a className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+                        title="Bulk payment CSV for bank upload — one approval pays everyone, then press Mark paid here"
+                        href={`/api/v1/staff/payroll/payment-file?month=${staffPayroll!.month}`} download>
+                        💳 Payment file
+                      </a>
                     </details>
                   )}
                 </div>

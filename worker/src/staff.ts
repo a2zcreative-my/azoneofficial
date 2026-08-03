@@ -2292,6 +2292,47 @@ export async function handleStaff(
     return json({ extras: await payslipExtras(uid, mD) });
   }
 
+  if (path === "/payroll/payment-file" && method === "GET") {
+    // v1.4.145: one-click payroll payment — a bulk payment CSV covering every
+    // saved entry with a positive net, ready for Maybank2u Biz (or any bank's)
+    // bulk upload. Columns are generic and easily remapped to the bank's
+    // template. PAYROLL_PROC only; audited.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const urlPF = new URL(request.url);
+    const monthPF = urlPF.searchParams.get("month");
+    if (!monthPF || !/^\d{4}-\d{2}$/.test(monthPF)) return err("invalid_input", "month (YYYY-MM) required", 400);
+    const { results: rows } = await env.DB.prepare(
+      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, p.net_cents,
+              p.basic_cents, p.commission_cents, p.allowance_cents,
+              COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id
+       WHERE p.month = ?1 AND u.is_active = 1
+         AND u.role NOT IN ('customer', 'super_admin')
+       ORDER BY u.name`,
+    ).bind(monthPF).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    const missing: string[] = [];
+    const lines = ["Employee name,Bank,Account number,Amount (RM),Payment reference"];
+    let totalC = 0;
+    const [yPF, mPF] = monthPF.split("-");
+    const ref = `AZOO SALARY ${mPF}-${yPF}`;
+    for (const r of rows) {
+      const net = r.net_cents ?? Math.max(0, r.basic_cents + r.commission_cents + r.allowance_cents + r.ot_cents - r.deduction_cents);
+      if (net <= 0) continue; // e.g. the CEO's own RM 0 row
+      if (!r.bank_name || !r.bank_account) { missing.push(r.full_name || r.name); continue; }
+      const nm = (r.full_name || r.name).toUpperCase().replace(/,/g, " ");
+      lines.push(`${nm},${r.bank_name.replace(/,/g, " ")},${r.bank_account},${(net / 100).toFixed(2)},${ref}`);
+      totalC += net;
+    }
+    lines.push(`TOTAL,,,${(totalC / 100).toFixed(2)},${lines.length - 1} payees`);
+    if (missing.length > 0) lines.push(`# MISSING BANK DETAILS (add in Staff Details, then re-download): ${missing.join("; ")}`);
+    await audit(env, user.id, "payroll.payment_file", "payroll", monthPF, { payees: lines.length - 2 - (missing.length > 0 ? 1 : 0), total_cents: totalC });
+    return new Response(lines.join("\r\n"), {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="azoo-payroll-${monthPF}.csv"`,
+      },
+    });
+  }
   if (path === "/payroll/recompute" && method === "POST") {
     // v1.4.131: one-click reconciliation. Recomputes the month's working days
     // from the holiday calendar and re-derives + STORES every entry's

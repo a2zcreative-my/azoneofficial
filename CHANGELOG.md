@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.145] — 2026-08-03 — One-click payroll payment: 💳 bulk payment file
+
+### Added (CEO asked how to pay payroll in one click)
+- **"💳 Payment file"** button in Payroll processing (beside Recompute nets) and in the Expenses payroll due card. One click downloads `azoo-payroll-YYYY-MM.csv` — every saved entry with a positive net, each row carrying **employee full name (uppercase), bank, account number, amount, and the reference "AZOO SALARY MM-YYYY"**, plus a TOTAL row for cross-checking against the Expenses figure before approving
+- **The flow:** press 💳 → upload the file to **Maybank2u Biz → Bulk Payment** → approve once → all staff paid in one transaction batch → press **Mark paid** on the Expenses card. Zero retyping of account numbers, zero one-by-one transfers
+- Safety details: RM 0 rows are skipped (e.g. the CEO's own row); staff **missing bank details** are listed at the bottom of the file instead of silently dropped ("add in Staff Details, then re-download"); generation is audited (`payroll.payment_file` with payee count + total)
+- **True API payouts** (money moves on the click itself, no bank portal) need a payout provider — Curlec or DuitNow corporate rails — which is a business onboarding with fees; the endpoint is designed so that step can slot in later without changing the flow
+
+### Deploy
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
+
+
 ## [1.4.144] — 2026-08-03 — Notification alert sound 🔊
 
 ### Added (CEO asked: can we add an alert notification sound? Yes)

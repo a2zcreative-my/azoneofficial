@@ -530,6 +530,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           >
             🔧 Recompute nets
           </button>
+          <a
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="One-click payment: downloads a bulk payment CSV (every saved entry with a positive net + bank details) for upload to Maybank2u Biz bulk payment — pay all staff in one approval"
+            href={`${API}/payroll/payment-file?month=${month}`}
+            download
+          >
+            💳 Payment file
+          </a>
           <button
             type="button"
             className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
