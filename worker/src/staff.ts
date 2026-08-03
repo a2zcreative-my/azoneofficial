@@ -2724,6 +2724,142 @@ export async function handleStaff(
     return json({ ok: true, stock: newStock, status: stockStatus(newStock) });
   }
 
+  /* ---- Supplier returns (v1.4.148): rejected stock back to the supplier,
+          costing tracked for the claim-back ---- */
+
+  if (path === "/inventory/returns" && method === "GET") {
+    if (!can(user, "inventory") && !can(user, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT r.*, u.name AS created_by_name FROM supplier_returns r
+         LEFT JOIN users u ON u.id = r.created_by
+         ORDER BY r.return_date DESC, r.id DESC LIMIT 200`,
+      ).all<{ total_cents: number; status: string; credited_cents: number | null; qty: number; unit_cost_cents: number; replaced_qty?: number | null }>();
+      let total = 0, credited = 0, replacedV = 0;
+      for (const r of results) {
+        total += r.total_cents;
+        if (r.status === "credited") credited += r.credited_cents ?? r.total_cents;
+        // v1.4.149: replacement resolves value in goods rather than money
+        replacedV += (r.replaced_qty ?? 0) * r.unit_cost_cents;
+      }
+      const outstanding = Math.max(0, total - credited - replacedV);
+      return json({ returns: results, totals: { total_cents: total, credited_cents: credited, replaced_cents: replacedV, outstanding_cents: outstanding } });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("no such table")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0042_supplier_returns)", 500);
+      }
+      throw e;
+    }
+  }
+  if (path === "/inventory/returns" && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const qty = typeof body?.qty === "number" ? Math.floor(body.qty) : 0;
+    const itemId = typeof body?.item_id === "number" ? body.item_id : 0;
+    if (!itemId || qty <= 0 || !str(body?.supplier, 120) || !str(body?.return_date, 10)) {
+      return err("invalid_input", "item_id, qty (>0), supplier and return_date are required", 400);
+    }
+    const item = await env.DB.prepare(
+      `SELECT sku, name, stock, unit_price_cents FROM inventory_items WHERE id = ?1`,
+    ).bind(itemId).first<{ sku: string; name: string; stock: number; unit_price_cents: number | null }>();
+    if (!item) return err("not_found", "Item not found", 404);
+    if (qty > item.stock) {
+      return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot return ${qty}`, 409);
+    }
+    const unitC = typeof body.unit_cost === "number" && body.unit_cost >= 0
+      ? Math.round(body.unit_cost * 100)
+      : (item.unit_price_cents ?? 0);
+    const totalC = unitC * qty;
+    // Stock leaves the shelf the moment it's boxed for the supplier.
+    const newStock = item.stock - qty;
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+    ).bind(newStock, stockStatus(newStock), user.id, itemId).run();
+    const res = await env.DB.prepare(
+      `INSERT INTO supplier_returns (item_id, sku, item_name, qty, unit_cost_cents, total_cents, supplier, reason, return_date, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+    ).bind(itemId, item.sku, item.name, qty, unitC, totalC, body.supplier, str(body.reason, 300) ? body.reason : null, body.return_date, user.id).first<{ id: number }>();
+    await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id, { qty, total_cents: totalC });
+    return json({ ok: true, id: res?.id, stock: newStock }, 201);
+  }
+  const retCredit = path.match(/^\/inventory\/returns\/(\d+)\/credit$/);
+  if (retCredit && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const row = await env.DB.prepare(`SELECT status, total_cents FROM supplier_returns WHERE id = ?1`)
+      .bind(retCredit[1]).first<{ status: string; total_cents: number }>();
+    if (!row) return err("not_found", "Return not found", 404);
+    if (row.status === "credited") return err("invalid_state", "Already marked credited", 400);
+    const credC = typeof body?.credited === "number" && body.credited >= 0
+      ? Math.round(body.credited * 100)
+      : row.total_cents;
+    await env.DB.prepare(
+      `UPDATE supplier_returns SET status = 'credited', credited_at = datetime('now'), credited_cents = ?1 WHERE id = ?2`,
+    ).bind(credC, retCredit[1]).run();
+    await audit(env, user.id, "inventory.supplier_return_credited", "supplier_returns", retCredit[1], { credited_cents: credC });
+    return json({ ok: true });
+  }
+  const retReplace = path.match(/^\/inventory\/returns\/(\d+)\/replace$/);
+  if (retReplace && method === "POST") {
+    // v1.4.149: the supplier sent replacement goods — stock walks back onto
+    // the shelf and the claim shrinks by the replaced value. Partial
+    // deliveries accumulate; the row closes as 'replaced' when complete.
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const row = await env.DB.prepare(
+      `SELECT status, item_id, qty, unit_cost_cents, COALESCE(replaced_qty, 0) AS replaced_qty FROM supplier_returns WHERE id = ?1`,
+    ).bind(retReplace[1]).first<{ status: string; item_id: number; qty: number; unit_cost_cents: number; replaced_qty: number }>();
+    if (!row) return err("not_found", "Return not found", 404);
+    if (row.status === "credited") return err("invalid_state", "Already resolved by credit", 400);
+    const remaining = row.qty - row.replaced_qty;
+    if (remaining <= 0) return err("invalid_state", "Already fully replaced", 400);
+    const q = typeof body?.qty === "number" && body.qty > 0 ? Math.floor(body.qty) : remaining;
+    if (q > remaining) {
+      return err("invalid_input", `Only ${remaining} of ${row.qty} still awaiting replacement`, 400);
+    }
+    const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`)
+      .bind(row.item_id).first<{ stock: number }>();
+    if (item) {
+      const back = item.stock + q;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(back, stockStatus(back), user.id, row.item_id).run();
+    }
+    const newReplaced = row.replaced_qty + q;
+    const done = newReplaced >= row.qty;
+    await env.DB.prepare(
+      `UPDATE supplier_returns SET replaced_qty = ?1, replaced_at = datetime('now'),
+         status = CASE WHEN ?2 THEN 'replaced' ELSE status END
+       WHERE id = ?3`,
+    ).bind(newReplaced, done ? 1 : 0, retReplace[1]).run();
+    await audit(env, user.id, "inventory.supplier_return_replaced", "supplier_returns", retReplace[1], { qty: q, complete: done });
+    return json({ ok: true, replaced_qty: newReplaced, complete: done });
+  }
+  const retDelete = path.match(/^\/inventory\/returns\/(\d+)\/delete$/);
+  if (retDelete && method === "POST") {
+    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const row = await env.DB.prepare(
+      `SELECT status, item_id, qty FROM supplier_returns WHERE id = ?1`,
+    ).bind(retDelete[1]).first<{ status: string; item_id: number; qty: number }>();
+    if (!row) return err("not_found", "Return not found", 404);
+    if (row.status === "credited") return err("invalid_state", "A credited return is a permanent record", 400);
+    const repl = await env.DB.prepare(`SELECT COALESCE(replaced_qty, 0) AS rq FROM supplier_returns WHERE id = ?1`)
+      .bind(retDelete[1]).first<{ rq: number }>();
+    if ((repl?.rq ?? 0) > 0) return err("invalid_state", "Replacement already received — this row is a permanent record", 400);
+    // Undo: the stock walks back onto the shelf.
+    const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`)
+      .bind(row.item_id).first<{ stock: number }>();
+    if (item) {
+      const back = item.stock + row.qty;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(back, stockStatus(back), user.id, row.item_id).run();
+    }
+    await env.DB.prepare(`DELETE FROM supplier_returns WHERE id = ?1`).bind(retDelete[1]).run();
+    await audit(env, user.id, "inventory.supplier_return_deleted", "supplier_returns", retDelete[1], { qty_restored: row.qty });
+    return json({ ok: true });
+  }
+
   /* ---- Marketing materials ---- */
 
   if (path === "/materials" && method === "GET") {

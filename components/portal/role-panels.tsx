@@ -279,6 +279,21 @@ interface InvItem {
   unit_price_cents?: number; // v1.4.101
   updated_by_name?: string;
 }
+interface SupplierReturn { // v1.4.148
+  id: number;
+  sku: string;
+  item_name: string;
+  qty: number;
+  unit_cost_cents: number;
+  total_cents: number;
+  supplier: string;
+  reason?: string | null;
+  return_date: string;
+  status: string; // outstanding | credited | replaced (v1.4.149)
+  credited_cents?: number | null;
+  credited_at?: string | null;
+  replaced_qty?: number | null; // v1.4.149
+}
 interface PostRec {
   id: number;
   order_ref: string;
@@ -424,6 +439,8 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
   );
 }
 
+const rmR = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export function InventoryPanel({ role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
@@ -435,6 +452,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [matDraft, setMatDraft] = useState("");
   const [adjQty, setAdjQty] = useState<Record<number, number>>({});
   const [invMsg, setInvMsg] = useState("");
+  // v1.4.148: supplier returns (reject → claim back)
+  const [returns, setReturns] = useState<SupplierReturn[]>([]);
+  const [retTotals, setRetTotals] = useState<{ total_cents: number; credited_cents: number; replaced_cents?: number; outstanding_cents: number } | null>(null);
+  const [retDraft, setRetDraft] = useState({ item_id: 0, qty: 1, unit_cost: "", supplier: "", reason: "", return_date: "" });
+  const [retMsg, setRetMsg] = useState("");
+  const [creditingId, setCreditingId] = useState<number | null>(null);
+  const [creditAmt, setCreditAmt] = useState("");
+  const [replacingId, setReplacingId] = useState<number | null>(null); // v1.4.149
+  const [replaceQty, setReplaceQty] = useState("");
+  const { confirm: invConfirm, node: invConfirmNode } = useConfirm(); // v1.4.148
 
   const adjust = async (id: number, delta: number) => {
     setInvMsg("");
@@ -447,14 +474,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   };
 
   const load = useCallback(async () => {
-    const [i, p, m] = await Promise.all([
+    const [i, p, m, r] = await Promise.all([
       api<{ items: InvItem[] }>(`/inventory`),
       api<{ records: PostRec[] }>(`/postage`),
       api<{ materials: Material[] }>(`/materials`),
+      api<{ returns: SupplierReturn[]; totals: { total_cents: number; credited_cents: number; replaced_cents?: number; outstanding_cents: number } }>(`/inventory/returns`),
     ]);
     if (i.data) setItems(i.data.items);
     if (p.data) setPostage(p.data.records);
     if (m.data) setMaterials(m.data.materials);
+    if (r.data?.returns) { setReturns(r.data.returns); setRetTotals(r.data.totals); }
   }, []);
   useEffect(() => {
     void load();
@@ -462,6 +491,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {invConfirmNode}
       <TikTokOrdersCard role={role} onChanged={() => void load()} />
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
@@ -541,6 +571,166 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* v1.4.148: rejected stock back to the supplier, costing tracked for
+          the claim-back. Recording a return deducts stock immediately. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">Supplier returns — rejects to claim back</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          Record rejected/defective items sent back to the supplier. Stock is
+          deducted on record. The supplier settles either way: mark the row
+          credited when money comes back, or replaced when replacement goods
+          arrive (stock returns automatically) — the outstanding figure is what
+          the supplier still owes the company.
+        </p>
+        {retTotals && retTotals.total_cents > 0 && (
+          <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
+            <span className="font-semibold">Returned {rmR(retTotals.total_cents)}</span>
+            <span className="text-green-800">Credited back {rmR(retTotals.credited_cents)}</span>
+            {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-blue-800">Replaced in goods {rmR(retTotals.replaced_cents ?? 0)}</span>}
+            <span className={retTotals.outstanding_cents > 0 ? "font-medium text-amber-700" : "text-muted-foreground"}>
+              Outstanding {rmR(retTotals.outstanding_cents)}
+            </span>
+          </div>
+        )}
+        {retMsg && <p className="text-destructive mt-1.5 text-xs font-medium">{retMsg}</p>}
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <SubR t="Item">
+            <select className={`${inputClass} max-w-56`} value={retDraft.item_id}
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                const it = items.find((x) => x.id === id);
+                setRetDraft((d) => ({ ...d, item_id: id, unit_cost: it?.unit_price_cents ? (it.unit_price_cents / 100).toFixed(2) : d.unit_cost }));
+              }}>
+              <option value={0}>Select item…</option>
+              {items.map((it) => <option key={it.id} value={it.id}>{it.sku} — {it.name} ({it.stock} in stock)</option>)}
+            </select>
+          </SubR>
+          <SubR t="Qty rejected">
+            <input type="number" min={1} className={`${inputClass} max-w-24`} value={retDraft.qty}
+              onChange={(e) => setRetDraft((d) => ({ ...d, qty: Number(e.target.value) }))} />
+          </SubR>
+          <SubR t="Unit cost (RM)">
+            <input type="number" min={0} step="0.01" className={`${inputClass} max-w-28`} placeholder="0.00" value={retDraft.unit_cost}
+              onChange={(e) => setRetDraft((d) => ({ ...d, unit_cost: e.target.value }))} />
+          </SubR>
+          <SubR t="Supplier">
+            <input className={`${inputClass} max-w-44`} placeholder="e.g. Tekstil Maju Sdn Bhd" value={retDraft.supplier}
+              onChange={(e) => setRetDraft((d) => ({ ...d, supplier: e.target.value }))} />
+          </SubR>
+          <SubR t="Return date">
+            <input type="date" className={`${inputClass} max-w-40`} value={retDraft.return_date}
+              onChange={(e) => setRetDraft((d) => ({ ...d, return_date: e.target.value }))} />
+          </SubR>
+          <SubR t="Reason (defect etc.)">
+            <input className={`${inputClass} max-w-52`} placeholder="e.g. stitching defect, wrong colour" value={retDraft.reason}
+              onChange={(e) => setRetDraft((d) => ({ ...d, reason: e.target.value }))} />
+          </SubR>
+          <button type="button" className={btnClass}
+            onClick={async () => {
+              setRetMsg("");
+              const res = await api<{ error?: { message?: string } }>(`/inventory/returns`, {
+                method: "POST",
+                body: JSON.stringify({
+                  item_id: retDraft.item_id, qty: retDraft.qty,
+                  unit_cost: retDraft.unit_cost === "" ? undefined : Number(retDraft.unit_cost),
+                  supplier: retDraft.supplier, reason: retDraft.reason, return_date: retDraft.return_date,
+                }),
+              });
+              if (!res.ok) { setRetMsg(res.data?.error?.message ?? "Could not record the return"); return; }
+              setRetDraft({ item_id: 0, qty: 1, unit_cost: "", supplier: "", reason: "", return_date: "" });
+              void load();
+            }}>
+            Record return
+          </button>
+        </div>
+        <div className="mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-1">
+          {returns.length === 0 && <p className="text-muted-foreground text-sm">No supplier returns recorded.</p>}
+          {returns.map((r) => (
+            <div key={r.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+              <span className="min-w-0">
+                <span className="font-medium">{dmy(r.return_date)}</span> · {r.sku} — {r.item_name} · {r.qty} × {rmR(r.unit_cost_cents)} = <span className="font-semibold">{rmR(r.total_cents)}</span>
+                <span className="text-muted-foreground"> · {r.supplier}{r.reason ? ` · ${r.reason}` : ""}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {r.status === "credited" ? (
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                    Credited {rmR(r.credited_cents ?? r.total_cents)}
+                  </span>
+                ) : r.status === "replaced" ? (
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                    Replaced {r.qty} pcs
+                  </span>
+                ) : (
+                  <>
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      Outstanding{(r.replaced_qty ?? 0) > 0 ? ` (${r.replaced_qty}/${r.qty} replaced)` : ""}
+                    </span>
+                    {creditingId === r.id ? (
+                      <span className="flex items-center gap-1">
+                        <input type="number" min={0} step="0.01" autoFocus
+                          className={`${inputClass} h-7 max-w-24 text-xs`}
+                          placeholder={(r.total_cents / 100).toFixed(2)}
+                          value={creditAmt}
+                          onChange={(e) => setCreditAmt(e.target.value)} />
+                        <button type="button" className="text-xs font-medium underline"
+                          onClick={async () => {
+                            await api(`/inventory/returns/${r.id}/credit`, { method: "POST", body: JSON.stringify({ credited: creditAmt.trim() === "" ? undefined : Number(creditAmt) }) });
+                            setCreditingId(null); setCreditAmt("");
+                            void load();
+                          }}>
+                          Save
+                        </button>
+                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setCreditingId(null); setCreditAmt(""); }}>cancel</button>
+                      </span>
+                    ) : replacingId === r.id ? (
+                      <span className="flex items-center gap-1">
+                        <input type="number" min={1} max={r.qty - (r.replaced_qty ?? 0)} autoFocus
+                          className={`${inputClass} h-7 max-w-20 text-xs`}
+                          placeholder={String(r.qty - (r.replaced_qty ?? 0))}
+                          value={replaceQty}
+                          onChange={(e) => setReplaceQty(e.target.value)} />
+                        <button type="button" className="text-xs font-medium underline"
+                          onClick={async () => {
+                            await api(`/inventory/returns/${r.id}/replace`, { method: "POST", body: JSON.stringify({ qty: replaceQty.trim() === "" ? undefined : Number(replaceQty) }) });
+                            setReplacingId(null); setReplaceQty("");
+                            void load();
+                          }}>
+                          Save
+                        </button>
+                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setReplacingId(null); setReplaceQty(""); }}>cancel</button>
+                      </span>
+                    ) : (
+                      <>
+                        <button type="button" className="text-xs underline" title="Enter the amount the supplier refunded (blank = full amount)"
+                          onClick={() => { setCreditingId(r.id); setCreditAmt(""); }}>
+                          Mark credited
+                        </button>
+                        <button type="button" className="text-xs underline" title="Replacement goods arrived — qty goes back into stock (blank = all remaining)"
+                          onClick={() => { setReplacingId(r.id); setReplaceQty(""); }}>
+                          Replaced
+                        </button>
+                      </>
+                    )}
+                    {(r.replaced_qty ?? 0) === 0 && <button type="button" className="text-destructive text-xs underline"
+                      onClick={async () => {
+                        if (!(await invConfirm({
+                          title: "Delete this supplier return?",
+                          message: `${r.qty} × ${r.sku} goes back into stock and the ${rmR(r.total_cents)} claim record is removed.`,
+                          confirmLabel: "Delete return", variant: "danger",
+                        }))) return;
+                        await api(`/inventory/returns/${r.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                        void load();
+                      }}>
+                      Delete
+                    </button>}
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -2015,6 +2205,30 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
 
       <div className={card}>
         <p className="text-sm font-semibold">{canDecide ? "All claims" : "My claims"}</p>
+        {(() => {
+          // v1.4.147: overall of the present month, by CLAIM DATE (the same
+          // month-attribution rule the Expenses tab uses).
+          const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+          const scope = canDecide ? claims : claims.filter((c) => c.user_id === userId);
+          const mine = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === nowMyt);
+          if (mine.length === 0) return null;
+          const sum = (list: typeof mine) => list.reduce((a, c) => a + c.amount_cents, 0);
+          const fmt = (cents: number) => `RM ${(cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const approved = mine.filter((c) => c.status === "approved");
+          const paid = approved.filter((c) => c.paid_at);
+          const pending = mine.filter((c) => c.status === "pending");
+          const rejected = mine.filter((c) => c.status === "rejected");
+          return (
+            <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
+              <span className="font-semibold">{nowMyt.split("-").reverse().join("-")} · {mine.length} claim{mine.length === 1 ? "" : "s"} · {fmt(sum(mine))}</span>
+              <span className="text-green-800">Approved {approved.length} · {fmt(sum(approved))}</span>
+              <span className="text-green-800">— of which paid {paid.length} · {fmt(sum(paid))}</span>
+              <span className="text-amber-700">Pending {pending.length} · {fmt(sum(pending))}</span>
+              {rejected.length > 0 && <span className="text-red-700">Rejected {rejected.length} · {fmt(sum(rejected))}</span>}
+              <span className="text-muted-foreground">by claim date — matches the Expenses month figure</span>
+            </div>
+          );
+        })()}
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
           {(canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
           {(canDecide ? decided : mainList).map((c) => claimRow(c, false))}
@@ -2211,7 +2425,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]?.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

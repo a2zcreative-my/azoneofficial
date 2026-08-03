@@ -2,6 +2,44 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.149] — 2026-08-03 — Supplier returns: replacement outcome
+
+### Added (CEO asked: what if the supplier does a replacement instead?)
+- A supplier can now settle a return **two ways**, and the record follows either path:
+  - **Credited** — money back (unchanged from v1.4.148)
+  - **Replaced** — replacement goods arrive: press **Replaced** on the row, enter the qty received (blank = all remaining) → **that stock walks back onto the shelf automatically**, and the claim shrinks by the replaced value. **Partial deliveries accumulate** — the row shows "Outstanding (2/5 replaced)" until complete, then closes with a blue **Replaced** chip
+- The summary strip now reads: Returned RM · Credited back RM · **Replaced in goods RM** · Outstanding RM — outstanding = returned − credited − replaced value, so the amber figure is always what's genuinely still owed, in money or goods
+- Guards: can't replace more than remains; credited rows can't also be replaced (and vice versa); once any replacement is received the row becomes a permanent record (no delete — the stock has already moved). Audited (`inventory.supplier_return_replaced`)
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0042 + **0043**) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.148] — 2026-08-03 — Supplier returns: rejected stock tracked for claim-back
+
+### Added (CEO: rejected items returned to the supplier must be recorded, with the costing tracked to claim back)
+- New **"Supplier returns — rejects to claim back"** card on the Inventory tab (migration **0042** `supplier_returns`):
+  - **Record a return:** pick the item (unit cost auto-fills from the inventory price, adjustable to the actual purchase cost), qty rejected, supplier, return date, reason (e.g. stitching defect) → **stock is deducted immediately** (the goods left the shelf), and the record carries SKU + item-name snapshots so it stays meaningful even if the item changes later
+  - **Costing summary strip:** Returned RM total · **Credited back** RM · **Outstanding RM** in amber — the outstanding figure is exactly what suppliers still owe the company
+  - **Mark credited** with an inline amount box (blank = full amount) for partial refunds; credited rows become permanent records (green chip with the credited RM)
+  - **Delete** (branded danger confirm) for mistaken entries — the stock walks back onto the shelf automatically; credited rows can't be deleted
+  - Every action audited (`inventory.supplier_return` / `_credited` / `_deleted`); qty is guarded against exceeding current stock; a helpful `migration_missing` error names the 0042 command if the table isn't applied yet
+
+### Deploy
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0042) → `npx wrangler deploy` → `pnpm build` → hard refresh
+
+
+## [1.4.147] — 2026-08-03 — Claims: present-month overview strip
+
+### Added (CEO: "I want to see the overall of the claim submitted on the present month")
+- A **summary strip** now sits at the top of the claims list showing the present month at a glance: **total count and RM**, then **Approved (count · RM) — of which paid (count · RM)**, **Pending (count · RM)** in amber, and **Rejected** in red when any exist
+- Attribution follows the CEO's standing month rule: **by claim date** — so the strip's total lines up with the staff-claims figure on the Expenses tab for the same month (noted right on the strip)
+- Scope matches the list below it: the CEO sees the whole company's month; each staff member sees their own. The strip hides itself when the month has no claims
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.146] — 2026-08-03 — Mobile fit: header on one row, tighter app rhythm
 
 ### Fixed (per the CEO's phone screenshot: too much scrolling, awkward)
