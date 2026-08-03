@@ -648,7 +648,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
+  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);

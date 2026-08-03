@@ -590,7 +590,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             <>
               <span className="text-muted-foreground">
                 Staff can view {monthDMY(month)} payslips from{" "}
-                <span className="font-medium">{release.available_from.split(" ")[0].split("-").reverse().join("-")} {release.available_from.split(" ")[1]} MYT</span>
+                <span className="font-medium">{release?.available_from?.split(" ")[0]?.split("-").reverse().join("-")} {release?.available_from?.split(" ")[1]} MYT</span>
                 {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
               </span>{" "}
               <button
@@ -615,7 +615,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         <div className="border-border mt-3 rounded-lg border p-3">
           <p className="text-sm font-semibold">Base salaries (fixed monthly basic)</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Every new month's Basic auto-fills from these figures — no retyping.
+            Every new month&apos;s Basic auto-fills from these figures — no retyping.
             When someone gets an increment, change it here and it applies from
             the next unsaved month onwards; months already saved stay as saved.
           </p>
@@ -628,7 +628,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   <input
                     type="number" min={0} step="0.01"
                     className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
-                    value={baseDraft[u.id] ? (baseDraft[u.id] / 100).toString() : ""}
+                    value={baseDraft[u.id] ? (baseDraft[u.id]! / 100).toString() : ""}
                     placeholder="0.00"
                     onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
                   />
@@ -785,7 +785,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] ?? 0 } }))}>
                             Base
                           </button>
                         )}
@@ -923,7 +923,7 @@ export function MyPayslip() {
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
-            <span className="font-semibold">{lockedUntil.split(" ")[0].split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
+            <span className="font-semibold">{lockedUntil?.split(" ")[0]?.split("-").reverse().join("-")}, {lockedUntil?.split(" ")[1]} MYT</span>.
           </p>
           <button
             type="button"
