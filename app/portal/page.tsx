@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -2215,12 +2215,63 @@ export default function PortalPage() {
     localStorage.setItem("azone-theme", dark ? "dark" : "light");
   }, [dark]);
 
+  // v1.4.144: notification chime — a soft two-tone ding synthesized with the
+  // Web Audio API (no file to download), played when NEW unread notifications
+  // arrive. Browsers only allow audio after a user gesture, so the first
+  // click/tap anywhere unlocks the audio context; polls before that stay
+  // silent (the badge still updates). Toggleable via the 🔔/🔕 button.
+  const [sound, setSound] = useState(true);
+  useEffect(() => {
+    setSound(localStorage.getItem("azone-notif-sound") !== "off");
+  }, []);
+  const audioRef = useRef<AudioContext | null>(null);
+  const unreadRef = useRef<number | null>(null); // null = first load (no chime)
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioRef.current) {
+        try {
+          audioRef.current = new AudioContext();
+        } catch { /* very old browser — chime simply stays off */ }
+      }
+      void audioRef.current?.resume();
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
+  const chime = useCallback(() => {
+    const ctx = audioRef.current;
+    if (!ctx || ctx.state !== "running") return;
+    const note = (freq: number, at: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, ctx.currentTime + at);
+      gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + at + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.45);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + at);
+      osc.stop(ctx.currentTime + at + 0.5);
+    };
+    note(880, 0);      // A5
+    note(1174.66, 0.12); // D6 — rising two-tone, short and unobtrusive
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     const fetchNotifs = () =>
-      void api<{ notifications: Notification[] }>("/staff/notifications").then((r) =>
-        setNotifs(r.data?.notifications ?? []),
-      );
+      void api<{ notifications: Notification[] }>("/staff/notifications").then((r) => {
+        const list = r.data?.notifications ?? [];
+        const nowUnread = list.filter((n) => !n.is_read).length;
+        // Chime only on an INCREASE after the first load — never on open,
+        // never on mark-as-read shrinkage.
+        if (unreadRef.current !== null && nowUnread > unreadRef.current &&
+            localStorage.getItem("azone-notif-sound") !== "off") {
+          chime();
+        }
+        unreadRef.current = nowUnread;
+        setNotifs(list);
+      });
     fetchNotifs();
     // Live alerting (v1.4.31): announcements and assignments reach the bell
     // without a reload — poll every 60s and whenever the tab regains focus.
@@ -2230,7 +2281,7 @@ export default function PortalPage() {
       window.clearInterval(timer);
       window.removeEventListener("focus", fetchNotifs);
     };
-  }, [user, tab]);
+  }, [user, tab, chime]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -2293,6 +2344,20 @@ export default function PortalPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={btnGhost}
+            title={sound ? "Notification sound ON — tap to mute" : "Notification sound OFF — tap to unmute"}
+            aria-label={sound ? "Mute notification sound" : "Unmute notification sound"}
+            onClick={() => {
+              const next = !sound;
+              setSound(next);
+              localStorage.setItem("azone-notif-sound", next ? "on" : "off");
+              if (next) chime(); // audible confirmation (also a gesture, so audio is unlocked)
+            }}
+          >
+            {sound ? "🔊" : "🔇"}
+          </button>
           <button
             type="button"
             className={`${btnGhost} relative`}

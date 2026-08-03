@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.144] — 2026-08-03 — Notification alert sound 🔊
+
+### Added (CEO asked: can we add an alert notification sound? Yes)
+- A soft **two-tone chime** now plays whenever **new** notifications arrive at the bell — task assignments, claim/leave stage moves, announcements. Details that make it behave well:
+  - **Synthesized in the browser** (Web Audio API) — a short rising A5→D6 ding, no audio file to download, instant
+  - **Only on new arrivals:** it never sounds on page load, on opening the bell, or when the count shrinks from marking-as-read — strictly when the unread count increases during the 60-second polling / focus refresh
+  - **🔊/🔇 toggle** in the header next to the bell — per-device preference, remembered (localStorage), and toggling ON plays the chime once as confirmation
+  - **Browser autoplay rules respected:** browsers only permit audio after a user gesture, so the first tap/click anywhere unlocks the sound; anything arriving before that stays silent (the badge still updates)
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.143] — 2026-08-03 — Tab order revised · attendance headers aligned over the chips
 
 ### Changed
