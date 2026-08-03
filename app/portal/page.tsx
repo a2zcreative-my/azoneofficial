@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -1007,6 +1007,16 @@ function canActOnStage(role: string, stage: string, applicantRole: string): bool
    and layout language as the claim form: employee e-signature + submission
    date, pre-approver name/signature/date, CEO full name + signature + date
    on approval, MYT everywhere, footer pinned to the A4 bottom, one page. */
+/** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
+function Sub({ t, children }: { t: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
+      {children}
+    </label>
+  );
+}
+
 function printLeaveForm(l: LeaveReq, meName: string) {
   const w = window.open("", "_blank", "width=900,height=950");
   if (!w) return;
@@ -1163,15 +1173,25 @@ function Leave({ user }: { user: User }) {
         <div className={card}>
           <p className="text-sm font-semibold">Apply for leave</p>
           <div className="mt-3 space-y-3">
-            <select className={inputClass} value={draft.type} onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}>
-              {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <Sub t="Leave type">
+              <select className={inputClass} value={draft.type} onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}>
+                {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Sub>
             <div className="grid grid-cols-2 gap-3">
-              <input type="date" className={inputClass} value={draft.start_date} onChange={(e) => setDraft((d) => ({ ...d, start_date: e.target.value }))} />
-              <input type="date" className={inputClass} value={draft.end_date} onChange={(e) => setDraft((d) => ({ ...d, end_date: e.target.value }))} />
+              <Sub t="Start date">
+                <input type="date" className={inputClass} value={draft.start_date} onChange={(e) => setDraft((d) => ({ ...d, start_date: e.target.value }))} />
+              </Sub>
+              <Sub t="End date">
+                <input type="date" className={inputClass} value={draft.end_date} onChange={(e) => setDraft((d) => ({ ...d, end_date: e.target.value }))} />
+              </Sub>
             </div>
-            <input type="number" min={0.5} step={0.5} className={inputClass} value={draft.days} onChange={(e) => setDraft((d) => ({ ...d, days: Number(e.target.value) }))} />
-            <textarea className={inputClass} rows={2} placeholder="Reason (optional)" value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} />
+            <Sub t="Days (0.5 = half day)">
+              <input type="number" min={0.5} step={0.5} className={inputClass} value={draft.days} onChange={(e) => setDraft((d) => ({ ...d, days: Number(e.target.value) }))} />
+            </Sub>
+            <Sub t="Reason (optional)">
+              <textarea className={inputClass} rows={2} placeholder="e.g. Family matters in Melaka" value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} />
+            </Sub>
             <button type="button" className={btnClass} onClick={() => void apply()}>Submit request</button>
           </div>
         </div>
@@ -1265,19 +1285,29 @@ function Tasks({ user }: { user: User }) {
           them as open, pending, or closed.
         </p>
         <div className="mt-3 space-y-3">
-          <input className={inputClass} placeholder="Title" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-          <textarea className={inputClass} rows={2} placeholder="Description" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          <Sub t="Title">
+            <input className={inputClass} placeholder="e.g. Prepare LIVE rundown" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+          </Sub>
+          <Sub t="Description">
+            <textarea className={inputClass} rows={2} placeholder="What needs doing?" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          </Sub>
           {canManage && (
-            <select className={inputClass} value={draft.assigned_to} onChange={(e) => setDraft((d) => ({ ...d, assigned_to: Number(e.target.value) }))}>
-              <option value={0}>Assign to myself</option>
-              {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            <Sub t="Assign to">
+              <select className={inputClass} value={draft.assigned_to} onChange={(e) => setDraft((d) => ({ ...d, assigned_to: Number(e.target.value) }))}>
+                <option value={0}>Assign to myself</option>
+                {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </Sub>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <select className={inputClass} value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}>
-              {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <input type="date" className={inputClass} value={draft.deadline} onChange={(e) => setDraft((d) => ({ ...d, deadline: e.target.value }))} />
+            <Sub t="Priority">
+              <select className={inputClass} value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}>
+                {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Sub>
+            <Sub t="Deadline (optional)">
+              <input type="date" className={inputClass} value={draft.deadline} onChange={(e) => setDraft((d) => ({ ...d, deadline: e.target.value }))} />
+            </Sub>
           </div>
           <button type="button" className={btnClass} onClick={() => void create()}>Create task</button>
         </div>
@@ -1744,12 +1774,20 @@ function Sales({ user }: { user: User }) {
         <div className={card}>
           <p className="text-sm font-semibold">Add customer</p>
           <div className="mt-3 space-y-3">
-            <input className={inputClass} placeholder="Company *" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
+            <Sub t="Company *">
+              <input className={inputClass} placeholder="e.g. ELFIA Official Store" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
+            </Sub>
             <div className="grid grid-cols-2 gap-3">
-              <input className={inputClass} placeholder="Contact person" value={cust.contact_person} onChange={(e) => setCust((c) => ({ ...c, contact_person: e.target.value }))} />
-              <input className={inputClass} placeholder="Phone · +60 12-345 6789" value={cust.phone} onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))} />
+              <Sub t="Contact person">
+                <input className={inputClass} placeholder="Full name" value={cust.contact_person} onChange={(e) => setCust((c) => ({ ...c, contact_person: e.target.value }))} />
+              </Sub>
+              <Sub t="Phone">
+                <input className={inputClass} placeholder="+60 12-345 6789" value={cust.phone} onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))} />
+              </Sub>
             </div>
-            <input className={inputClass} placeholder="Email" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
+            <Sub t="Email">
+              <input className={inputClass} placeholder="name@company.com" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
+            </Sub>
             <button type="button" className={btnClass} onClick={() => void addCustomer()}>Save customer</button>
           </div>
           <div className="mt-3 max-h-56 overflow-y-auto">

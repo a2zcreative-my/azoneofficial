@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.139] — 2026-08-03 — Subheads completed across the remaining tabs · rows aligned
+
+### Changed
+- The v1.4.135 subhead pattern now covers the tabs it had missed:
+  - **Leave — Apply for leave:** Leave type, Start date, End date, Days (0.5 = half day), Reason
+  - **Tasks — Create a task:** Title, Description, Assign to (managers), Priority, Deadline
+  - **Sales — Add customer:** Company *, Contact person, Phone, Email
+  - **Inventory — add item:** SKU (placeholder now reminds "must match TikTok"), Item name, Opening stock, Price/unit (RM)
+  - **Postage tracking:** Order reference, Courier, Tracking no.
+  - **Marketing materials:** Material needed
+- **Alignment fixed:** mixed-height rows (e.g. the Inventory add row where the Add-item button sat beside label-less boxes) use bottom alignment, so buttons and inputs line up under their subheads instead of floating mid-row. Placeholders across these forms now show examples/formats (e.g. J&T, Pos Laju · MY123456789 · +60 12-345 6789) rather than repeating the label
+
+### Deploy
+- `pnpm build` → hard refresh only
+
+
 ## [1.4.138] — 2026-08-03 — High-resolution signature scans installed
 
 ### Changed (assets)

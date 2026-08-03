@@ -17,7 +17,7 @@
  * these panels are conveniences, not the security boundary.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -39,6 +39,16 @@ async function api<T>(path: string, init?: RequestInit) {
   } catch {
     return { ok: false, status: 0, data: null };
   }
+}
+
+/** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
+function SubR({ t, children }: { t: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
+      {children}
+    </label>
+  );
 }
 
 const inputClass =
@@ -460,15 +470,23 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           Status recomputes on every movement (0 = out of stock · ≤5 = low).
         </p>
         {invMsg && <p className="text-destructive mt-1 text-xs font-medium">{invMsg}</p>}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input className={`${inputClass} max-w-32`} placeholder="SKU" value={invDraft.sku}
-            onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
-          <input className={`${inputClass} max-w-56`} placeholder="Item name" value={invDraft.name}
-            onChange={(e) => setInvDraft((d) => ({ ...d, name: e.target.value }))} />
-          <input type="number" min={0} className={`${inputClass} max-w-24`} title="Opening stock" value={invDraft.stock}
-            onChange={(e) => setInvDraft((d) => ({ ...d, stock: Number(e.target.value) }))} />
-          <input type="number" min={0} step="0.01" className={`${inputClass} max-w-32`} placeholder="Price/unit (RM)" value={invDraft.unit_price}
-            onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <SubR t="SKU">
+            <input className={`${inputClass} max-w-32`} placeholder="must match TikTok" value={invDraft.sku}
+              onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
+          </SubR>
+          <SubR t="Item name">
+            <input className={`${inputClass} max-w-56`} placeholder="e.g. Tudung Sarah XL" value={invDraft.name}
+              onChange={(e) => setInvDraft((d) => ({ ...d, name: e.target.value }))} />
+          </SubR>
+          <SubR t="Opening stock">
+            <input type="number" min={0} className={`${inputClass} max-w-24`} title="Opening stock" value={invDraft.stock}
+              onChange={(e) => setInvDraft((d) => ({ ...d, stock: Number(e.target.value) }))} />
+          </SubR>
+          <SubR t="Price/unit (RM)">
+            <input type="number" min={0} step="0.01" className={`${inputClass} max-w-32`} placeholder="0.00" value={invDraft.unit_price}
+              onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
+          </SubR>
           <button type="button" className={btnClass}
             onClick={async () => {
               await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
@@ -534,13 +552,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             Shopee, WhatsApp/direct sales, replacements.
           </p>
           <div className="mt-3 space-y-2">
-            <input className={inputClass} placeholder="Order reference" value={postDraft.order_ref}
-              onChange={(e) => setPostDraft((d) => ({ ...d, order_ref: e.target.value }))} />
+            <SubR t="Order reference">
+            <input className={inputClass} placeholder="e.g. SHP-10023 / WA order" value={postDraft.order_ref}
+              onChange={(e) => setPostDraft((d) => ({ ...d, order_ref: e.target.value }))} /></SubR>
             <div className="flex gap-2">
-              <input className={inputClass} placeholder="Courier" value={postDraft.courier}
-                onChange={(e) => setPostDraft((d) => ({ ...d, courier: e.target.value }))} />
-              <input className={inputClass} placeholder="Tracking no." value={postDraft.tracking_no}
-                onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} />
+              <SubR t="Courier">
+              <input className={inputClass} placeholder="e.g. J&T, Pos Laju" value={postDraft.courier}
+                onChange={(e) => setPostDraft((d) => ({ ...d, courier: e.target.value }))} /></SubR>
+              <SubR t="Tracking no.">
+              <input className={inputClass} placeholder="e.g. MY123456789" value={postDraft.tracking_no}
+                onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} /></SubR>
             </div>
             {postLines.map((line, idx) => (
               <div key={idx} className="flex gap-2">
@@ -627,8 +648,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             Track what sales needs — request new material, mark it done when produced.
           </p>
           <div className="mt-3 flex gap-2">
+            <SubR t="Material needed">
             <input className={inputClass} placeholder="e.g. Raya campaign product cards" value={matDraft}
-              onChange={(e) => setMatDraft(e.target.value)} />
+              onChange={(e) => setMatDraft(e.target.value)} /></SubR>
             <button type="button" className={btnClass}
               onClick={async () => {
                 if (!matDraft.trim()) return;
@@ -2178,7 +2200,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]?.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
