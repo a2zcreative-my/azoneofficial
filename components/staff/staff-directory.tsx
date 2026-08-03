@@ -34,7 +34,7 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
-const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const input =
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -46,6 +46,7 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
+  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
@@ -669,10 +670,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                       if (res.ok) {
                         setSaved(u.id);
                         window.setTimeout(() => setSaved(null), 3000);
+                        // v1.4.184 (CEO: "no popup successful when upload staff
+                        // Photo"): same save-popup family as every other save.
+                        showToast("Photo uploaded", `${properName(u.name)} — badge photo saved`);
                         void load();
                       } else {
                         const j = (await res.json().catch(() => null)) as ErrShape | null;
                         setRowMsg((m) => ({ ...m, [u.id]: j?.error?.message ?? "Photo upload failed" }));
+                        showToast("Photo upload failed", j?.error?.message ?? `${properName(u.name)} — try again`, "notice");
                       }
                     }}
                   />

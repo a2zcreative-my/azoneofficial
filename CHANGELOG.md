@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.184] — 2026-08-03 — Photo upload gets its save popup
+
+### Fixed (per the CEO: "no popup successful when upload staff Photo")
+- Uploading/replacing a staff photo on the Staff tab only set a subtle inline flag — the one save action still missing the v1.4.89 popup family. Success now shows the branded toast "Photo uploaded — {name} — badge photo saved"; failure shows a notice toast with the reason (inline row message kept). Frontend-only.
+
 ## [1.4.183] — 2026-08-03 — Part-time live hosts paid hourly (RM15.00/h from the clock) · live-host status rule
 
 ### Added (per the CEO: "live host I should have either part time or contract/permanent … part time live host will be counted their payroll based on their working hour which is RM15.00 per hour … defined based on their clock in-out, there is no OT eligible for live host part time")
