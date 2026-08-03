@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.177] — 2026-08-03 — HOTFIX: attendance monitor showed everyone as not clocked in
+
+### Fixed (CEO's screenshot: monitor claimed nobody clocked in despite real punches today)
+- The v1.4.173 monitor query filtered `type = 'in'` / `'out'`, but punches are stored as **`clock_in` / `clock_out`** — the subqueries matched nothing, so every staff member showed "⚠ not clocked in" regardless of their real data. Both literals corrected; the monitor now mirrors the same values the punch routes themselves use. Swept the codebase for other bare in/out comparisons — none remain.
+
 ## [1.4.176] — 2026-08-03 — Payee always answered · set/change payee on existing claims
 
 ### Added (per the CEO: "I want to know who is the payees and to insert the payees")

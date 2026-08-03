@@ -751,10 +751,13 @@ export async function handleStaff(
     const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const { results } = await env.DB.prepare(
       `SELECT u.id, u.name, u.role, u.employment_status,
+              /* v1.4.177 HOTFIX: punches are stored as clock_in/clock_out —
+                 v1.4.173 filtered on 'in'/'out', matched nothing, and showed
+                 EVERYONE as not clocked in despite real data. */
               (SELECT MIN(a.created_at) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
+                WHERE a.user_id = u.id AND a.type = 'clock_in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
               (SELECT MAX(a.created_at) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'out' AND date(a.created_at, '+8 hours') = ?1) AS out_at
+                WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1) AS out_at
        FROM users u
        WHERE u.is_active = 1
          AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')
