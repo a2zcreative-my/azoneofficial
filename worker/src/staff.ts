@@ -2774,19 +2774,44 @@ export async function handleStaff(
     const nowMYT = new Date(Date.now() + 8 * 3600 * 1000);
     const todayD = nowMYT.toISOString().slice(0, 10);
     const monthD = todayD.slice(0, 7);
-    const { results } = await env.DB.prepare(
-      `SELECT pi.inventory_item_id AS id, i.sku, i.name, i.stock,
-              SUM(CASE WHEN date(p.created_at, '+8 hours') = ?1 THEN pi.qty ELSE 0 END) AS today_qty,
-              SUM(CASE WHEN strftime('%Y-%m', p.created_at, '+8 hours') = ?2 THEN pi.qty ELSE 0 END) AS month_qty,
-              SUM(pi.qty) AS total_qty,
-              MAX(p.created_at) AS last_at
-       FROM postage_items pi
-       JOIN postage_records p ON p.id = pi.postage_id
-       JOIN inventory_items i ON i.id = pi.inventory_item_id
-       WHERE p.order_ref LIKE 'TT-%' AND p.status != 'returned'
-       GROUP BY pi.inventory_item_id, i.sku, i.name, i.stock
-       ORDER BY today_qty DESC, month_qty DESC, i.name`,
-    ).bind(todayD, monthD).all();
+    // v1.4.166: also the ACTUAL average sold price per unit (from TikTok's
+    // sale_price on each movement) and this month's sold value — so rebate
+    // vs list price is visible per item without any manual entry. Falls back
+    // to the plain query before migration 0047 lands.
+    let results: unknown[];
+    try {
+      const r = await env.DB.prepare(
+        `SELECT pi.inventory_item_id AS id, i.sku, i.name, i.stock, i.unit_price_cents,
+                SUM(CASE WHEN date(p.created_at, '+8 hours') = ?1 THEN pi.qty ELSE 0 END) AS today_qty,
+                SUM(CASE WHEN strftime('%Y-%m', p.created_at, '+8 hours') = ?2 THEN pi.qty ELSE 0 END) AS month_qty,
+                SUM(pi.qty) AS total_qty,
+                CAST(ROUND(AVG(pi.unit_sale_cents)) AS INTEGER) AS avg_sale_cents,
+                SUM(CASE WHEN strftime('%Y-%m', p.created_at, '+8 hours') = ?2 THEN pi.qty * COALESCE(pi.unit_sale_cents, 0) ELSE 0 END) AS month_value_cents,
+                MAX(p.created_at) AS last_at
+         FROM postage_items pi
+         JOIN postage_records p ON p.id = pi.postage_id
+         JOIN inventory_items i ON i.id = pi.inventory_item_id
+         WHERE p.order_ref LIKE 'TT-%' AND p.status != 'returned'
+         GROUP BY pi.inventory_item_id, i.sku, i.name, i.stock, i.unit_price_cents
+         ORDER BY today_qty DESC, month_qty DESC, i.name`,
+      ).bind(todayD, monthD).all();
+      results = r.results;
+    } catch {
+      const r = await env.DB.prepare(
+        `SELECT pi.inventory_item_id AS id, i.sku, i.name, i.stock,
+                SUM(CASE WHEN date(p.created_at, '+8 hours') = ?1 THEN pi.qty ELSE 0 END) AS today_qty,
+                SUM(CASE WHEN strftime('%Y-%m', p.created_at, '+8 hours') = ?2 THEN pi.qty ELSE 0 END) AS month_qty,
+                SUM(pi.qty) AS total_qty,
+                MAX(p.created_at) AS last_at
+         FROM postage_items pi
+         JOIN postage_records p ON p.id = pi.postage_id
+         JOIN inventory_items i ON i.id = pi.inventory_item_id
+         WHERE p.order_ref LIKE 'TT-%' AND p.status != 'returned'
+         GROUP BY pi.inventory_item_id, i.sku, i.name, i.stock
+         ORDER BY today_qty DESC, month_qty DESC, i.name`,
+      ).bind(todayD, monthD).all();
+      results = r.results;
+    }
     return json({ today: todayD, month: monthD, items: results });
   }
   if (path === "/inventory" && method === "POST") {

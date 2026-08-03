@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.166] — 2026-08-03 — Rebate auto-computed from actual TikTok sold prices (no manual entry)
+
+### Changed (per the CEO: "live rebate should not be manually insert — price RM 11.70, live sale RM 10.00 → rebate RM 1.70, auto updated and synced with the firm order; every inventory in-out correctly counted")
+- **Migration 0047 `postage_items.unit_sale_cents`** — every TikTok stock movement now stores the **actual price the buyer paid per unit** (TikTok's `sale_price` on each order line, captured by both the sync and the webhook).
+- **Rebate is now AUTO**: on every deduction, the item's `live_rebate_cents` auto-syncs to `list price − actual sold price` (never negative; untouched when no sold price arrived or no list price is set). The manual Live-rebate input is **gone** — the column is read-only "Live rebate (auto)" showing the amber "− 1.70"; Net (live) continues to show the resulting effective price. Migration-tolerant on both 0046/0047.
+- **📉 TikTok Live — stock out** card gains **"Avg sold @"** (real average paid price, with the amber per-unit rebate beside it and a tooltip doing the arithmetic: "List RM 11.70 − sold RM 10.00 = rebate RM 1.70/unit") and **"Sold value (month)"** (qty × sold price). Revenue math unchanged and correct by construction: sales totals already come from TikTok's paid amounts, so RM 10.00 counts as RM 10.00 — the rebate is derived, never double-deducted.
+- Audit `inventory.out` now records `unit_sale_cents` on every TikTok deduction — the in/out trail carries the sold price too.
+
 ## [1.4.165] — 2026-08-03 — "TikTok Live — stock out" card on Inventory
 
 ### Added (per the CEO: "how I will know which item are out during live sales in TikTok? this need to be added on the card box")

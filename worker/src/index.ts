@@ -324,21 +324,28 @@ async function tiktokSignedFetch(
 }
 
 /** Group TikTok line items (one row per unit) into SKU + quantity. */
-function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string }[]): { sku: string; name: string; variant: string; qty: number }[] {
+function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number }[]): { sku: string; name: string; variant: string; qty: number; unit_sale_cents: number | null }[] {
   // v1.4.162: carry the TikTok names too — matching now falls back to the
   // item description when the SKU doesn't line up with inventory.
-  const merged = new Map<string, { sku: string; name: string; variant: string; qty: number }>();
+  // v1.4.166: also carry the ACTUAL per-unit sale price (what the buyer paid
+  // after live rebates) — the rebate is computed from it, never typed in.
+  const merged = new Map<string, { sku: string; name: string; variant: string; qty: number; saleSum: number; salePriced: number }>();
   for (const li of items) {
     const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
     const variant = (li.sku_name ?? "").trim();
     const name = [li.product_name, li.sku_name].filter(Boolean).join(" ").trim();
     const key = (sku || name).toLowerCase();
     if (!key) continue;
-    const cur = merged.get(key);
-    if (cur) cur.qty += 1;
-    else merged.set(key, { sku, name, variant, qty: 1 });
+    const saleC = Math.round(Number(li.sale_price ?? NaN) * 100);
+    const cur = merged.get(key) ?? { sku, name, variant, qty: 0, saleSum: 0, salePriced: 0 };
+    cur.qty += 1;
+    if (Number.isFinite(saleC) && saleC >= 0) { cur.saleSum += saleC; cur.salePriced += 1; }
+    merged.set(key, cur);
   }
-  return [...merged.values()];
+  return [...merged.values()].map((v) => ({
+    sku: v.sku, name: v.name, variant: v.variant, qty: v.qty,
+    unit_sale_cents: v.salePriced > 0 ? Math.round(v.saleSum / v.salePriced) : null,
+  }));
 }
 
 /** v1.4.162 (CEO: "sync with TikTok order based on item desc or SKU"):
@@ -350,28 +357,55 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_n
          multi-hit never deducts, so an ambiguous name can't move the wrong
          stock. Names shorter than 3 chars never contains-match. */
 async function matchInventoryItem(env: Env, sku: string, name: string, variant: string):
-    Promise<{ id: number; stock: number; name: string; via: "sku" | "name" } | null> {
+    Promise<{ id: number; stock: number; name: string; unit_price_cents: number | null; via: "sku" | "name" } | null> {
   if (sku) {
     const bySku = await env.DB.prepare(
-      `SELECT id, stock, name FROM inventory_items WHERE lower(trim(sku)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(sku).first<{ id: number; stock: number; name: string }>();
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(sku)) = lower(trim(?1)) LIMIT 1`,
+    ).bind(sku).first<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
     if (bySku) return { ...bySku, via: "sku" };
   }
   for (const cand of [variant, name]) {
     if (!cand) continue;
     const exact = await env.DB.prepare(
-      `SELECT id, stock, name FROM inventory_items WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(cand).first<{ id: number; stock: number; name: string }>();
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1`,
+    ).bind(cand).first<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
     if (exact) return { ...exact, via: "name" };
   }
   if (name) {
     const contains = await env.DB.prepare(
-      `SELECT id, stock, name FROM inventory_items
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items
        WHERE length(trim(name)) >= 3 AND instr(lower(?1), lower(trim(name))) > 0 LIMIT 2`,
-    ).bind(name).all<{ id: number; stock: number; name: string }>();
+    ).bind(name).all<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
     if (contains.results.length === 1) return { ...contains.results[0]!, via: "name" };
   }
   return null;
+}
+
+/** v1.4.166: write a TikTok stock movement with the actual sold price, then
+    auto-sync the item's live rebate = list price − sold price (never
+    negative; untouched when the order carried no price or no list price is
+    set). Tolerant of migrations 0046/0047 not being applied yet. */
+async function recordTiktokLine(env: Env, postageId: number, itemId: number, qty: number, unitSaleCents: number | null): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO postage_items (postage_id, inventory_item_id, qty, unit_sale_cents) VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(postageId, itemId, qty, unitSaleCents).run();
+  } catch (e) {
+    if (!String(e).includes("no such column")) throw e;
+    await env.DB.prepare(
+      `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
+    ).bind(postageId, itemId, qty).run();
+  }
+  if (unitSaleCents !== null && unitSaleCents >= 0) {
+    try {
+      await env.DB.prepare(
+        `UPDATE inventory_items SET live_rebate_cents = CASE
+           WHEN unit_price_cents IS NOT NULL AND unit_price_cents > ?1 THEN unit_price_cents - ?1
+           ELSE 0 END
+         WHERE id = ?2 AND unit_price_cents IS NOT NULL AND unit_price_cents > 0`,
+      ).bind(unitSaleCents, itemId).run();
+    } catch { /* 0046 not applied — skip the auto rebate */ }
+  }
 }
 
 /** The token response does NOT include the shop identifier. Order APIs
@@ -416,7 +450,7 @@ async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail:
 async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { sku: string; qty: number }[]; city: string | null }> {
   const data = (await tiktokSignedFetch(env, "/order/202309/orders", { ids: orderId })) as {
     data?: { orders?: {
-      line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string }[];
+      line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number }[];
       recipient_address?: {
         city?: string; state?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
@@ -707,7 +741,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     data?: { orders?: {
       id?: string; status?: string; tracking_number?: string;
       packages?: { tracking_number?: string }[];
-      line_items?: { seller_sku?: string; sku_id?: string; tracking_number?: string }[];
+      line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number; tracking_number?: string }[];
       recipient_address?: {
         city?: string; state?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
@@ -763,7 +797,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       continue;
     }
     const lines = groupLineItems(o.line_items ?? []);
-    const resolved: { id: number; qty: number }[] = [];
+    const resolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
     const unknown: string[] = [];
     const shortages: string[] = [];
     const nameMatched: string[] = [];
@@ -773,7 +807,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
       if (item.via === "name") nameMatched.push(item.name);
       if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
-      resolved.push({ id: item.id, qty: l.qty });
+      resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
     }
     const canDeduct = shortages.length === 0 && resolved.length > 0;
     const notes = ["TikTok order (synced)"];
@@ -790,13 +824,12 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
           `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
         ).bind(l.qty, l.id).run();
         if (upd.meta.changes) {
-          await env.DB.prepare(
-            `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
-          ).bind(rec!.id, l.id, l.qty).run();
+          // v1.4.166: movement carries the actual sold price; rebate auto-syncs
+          await recordTiktokLine(env, rec!.id, l.id, l.qty, l.unit_sale_cents);
           await env.DB.prepare(
             `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
           ).bind(l.id).run();
-          await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: actorId ? "tiktok_sync" : "tiktok_cron" });
+          await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: actorId ? "tiktok_sync" : "tiktok_cron" });
         }
       }
     }
@@ -1027,7 +1060,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // Line items are not in the webhook — fetch them from the Order API.
       const detail = await tiktokOrderItems(env, orderId);
       const lines = detail.items;
-      const resolved: { id: number; qty: number }[] = [];
+      const resolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
       const unknown: string[] = [];
       const shortages: string[] = [];
       const nameMatched: string[] = [];
@@ -1037,7 +1070,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
         if (item.via === "name") nameMatched.push(item.name);
         if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
-        resolved.push({ id: item.id, qty: l.qty });
+        resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
       }
       const canDeduct = shortages.length === 0 && resolved.length > 0;
       const notes = ["TikTok order (auto)"];
@@ -1056,13 +1089,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
             `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
           ).bind(l.qty, l.id).run();
           if (upd.meta.changes) {
-            await env.DB.prepare(
-              `INSERT INTO postage_items (postage_id, inventory_item_id, qty) VALUES (?1, ?2, ?3)`,
-            ).bind(rec!.id, l.id, l.qty).run();
+            // v1.4.166: movement carries the actual sold price; rebate auto-syncs
+            await recordTiktokLine(env, rec!.id, l.id, l.qty, l.unit_sale_cents);
             await env.DB.prepare(
               `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
             ).bind(l.id).run();
-            await audit(env, null, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: orderRef, source: "tiktok" });
+            await audit(env, null, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: "tiktok" });
           }
         }
       }

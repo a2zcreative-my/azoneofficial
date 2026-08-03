@@ -296,6 +296,9 @@ interface InvItem {
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
   id: number; sku: string; name: string; stock: number;
   today_qty: number; month_qty: number; total_qty: number; last_at: string | null;
+  unit_price_cents?: number | null;   // v1.4.166
+  avg_sale_cents?: number | null;     // v1.4.166 — actual avg sold price/unit
+  month_value_cents?: number | null;  // v1.4.166 — qty × sold price this month
 }
 
 interface SupplierReturn { // v1.4.148
@@ -569,8 +572,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               <tr className="border-border border-b">
                 <th className={th}>SKU</th><th className={th}>Item</th>
                 <th className={th}>Price/unit</th>
-                {/* v1.4.164: rebate given during TikTok Live; net = price − rebate */}
-                <th className={th}>Live rebate</th>
+                {/* v1.4.166: rebate is AUTO — list price − the actual sold
+                    price from the latest TikTok firm order (never typed in) */}
+                <th className={th}>Live rebate (auto)</th>
                 <th className={th}>Net (live)</th>
                 <th className={th}>Stock</th><th className={th}>Status</th>
                 {/* v1.4.162: these two columns had no subheads (CEO spotted it) */}
@@ -604,17 +608,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                         void load();
                       }} />
                   </td>
-                  <td className={td}>
-                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-xs"
-                      title="Rebate announced during TikTok Live (RM per unit) — saves on change; net live price = price − rebate"
-                      defaultValue={it.live_rebate_cents ? (it.live_rebate_cents / 100).toFixed(2) : ""}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim() === "" ? 0 : Number(e.target.value);
-                        if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.live_rebate_cents ?? 0)) return;
-                        const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock, live_rebate: v }) });
-                        if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Rebate not saved", "notice"); return; }
-                        void load();
-                      }} />
+                  <td className={td}
+                    title="AUTO — computed from the latest TikTok firm order: list price − actual sold price. Updates itself as orders sync; not manually editable (per the CEO, v1.4.166).">
+                    {it.live_rebate_cents
+                      ? <span className="font-medium text-amber-700 dark:text-amber-400">− {(it.live_rebate_cents / 100).toFixed(2)}</span>
+                      : <span className="text-muted-foreground text-xs">auto</span>}
                   </td>
                   <td className={`${td} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
                     title="Effective price during TikTok Live = price/unit − live rebate">
@@ -692,7 +690,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         <p className="text-muted-foreground mt-0.5 text-xs">
           Units deducted by TikTok orders, per item — so you can see what
           moved during today&apos;s live and across the month. Counted from the
-          actual stock movements (returned orders excluded).
+          actual stock movements (returned orders excluded). &quot;Avg sold @&quot;
+          is the real price buyers paid (TikTok sale price) — the amber figure
+          beside it is the auto-computed rebate vs your list price.
         </p>
         {ttOut.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">
@@ -708,6 +708,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   <th className={th}>Out today</th>
                   <th className={th}>This month</th>
                   <th className={th}>All time</th>
+                  {/* v1.4.166: actual avg sold price from TikTok (rebate = list − sold) */}
+                  <th className={th}>Avg sold @</th>
+                  <th className={th}>Sold value (month)</th>
                   <th className={th}>Left in stock</th>
                   <th className={th}>Last order</th>
                 </tr>
@@ -724,6 +727,15 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     </td>
                     <td className={td}>{t.month_qty}</td>
                     <td className={td}>{t.total_qty}</td>
+                    <td className={td}
+                      title={t.avg_sale_cents != null && t.unit_price_cents ? `List RM ${(t.unit_price_cents / 100).toFixed(2)} − sold RM ${(t.avg_sale_cents / 100).toFixed(2)} = rebate RM ${(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents) / 100).toFixed(2)}/unit` : "No sold price captured yet — arrives with the next synced order"}>
+                      {t.avg_sale_cents != null
+                        ? <>RM {(t.avg_sale_cents / 100).toFixed(2)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
+                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {((t.unit_price_cents - t.avg_sale_cents) / 100).toFixed(2)})</span>
+                            : null}</>
+                        : <span className="text-muted-foreground text-xs">—</span>}
+                    </td>
+                    <td className={td}>{t.month_value_cents ? `RM ${(t.month_value_cents / 100).toFixed(2)}` : <span className="text-muted-foreground text-xs">—</span>}</td>
                     <td className={td}>{t.stock}</td>
                     <td className={`${td} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
                   </tr>
@@ -2651,7 +2663,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) - sum of SAVED payslip nets - after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
