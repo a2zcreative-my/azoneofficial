@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.183] — 2026-08-03 — Part-time live hosts paid hourly (RM15.00/h from the clock) · live-host status rule
+
+### Added (per the CEO: "live host I should have either part time or contract/permanent … part time live host will be counted their payroll based on their working hour which is RM15.00 per hour … defined based on their clock in-out, there is no OT eligible for live host part time")
+- **Migration 0053** — `payroll_entries` += `hourly_minutes`, `hourly_rate_cents` (rate stored per entry so historic slips survive future rate changes).
+- **Hourly payroll for part-time live hosts** — one server-side formula (rate constant `RM15.00/h`, single place to change): clocked minutes = Σ per MYT day (first clock-in → last clock-out; unpaired days earn nothing until corrected); pay = minutes × RM15 ÷ 60; **Net = hourly pay + commission + allowance − deduction**. No worked-days proration, no unpaid-leave maths, no OT — none of the salary concepts apply. The SAVE route recomputes these figures authoritatively from attendance regardless of what the client sent (tamper-proof), 🔧 Recompute re-derives them, and the payroll GET returns LIVE clocked figures so the panel always shows the current month's hours.
+- **Panel** — hourly rows get an "⏱ hourly" chip; Basic shows read-only "225.00 · 15h 00m × RM15/h (auto from clock in–out)"; OT column shows "—" (not OT-eligible — CEO rule); Days column shows the clocked hours; the TOTAL row and Save-all use the same hourly formula, so Payroll/Expenses/P&L stay in tally.
+- **Payslip** — earnings line becomes "HOURLY PAY (15H 00M × RM 15.00/HOUR)"; OT/unpaid-leave/incomplete-month lines never appear on an hourly slip. Works on "My payslip" too (hourly figures ride `p.*`).
+- **Live-host status rule enforced** — an active live host is part-time, contract or permanent: setting `probation` on a live host is refused with the CEO rule spelled out (resigned/terminated stay allowed for the lifecycle). OT eligibility unchanged and now justified: part-time live hosts never (server + UI), contract/permanent live hosts remain eligible.
+
 ## [1.4.182] — 2026-08-03 — Tab layout pinned: no more sideways shift between tabs
 
 ### Fixed (per the CEO: "each tabs header keep changing their location either wide or little bit smaller … standardize like a Dashboard")

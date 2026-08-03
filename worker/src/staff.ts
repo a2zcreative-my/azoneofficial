@@ -494,6 +494,16 @@ export async function handleStaff(
         !STATUSES.includes(body.employment_status)) {
       return err("invalid_input", `employment_status must be one of: ${STATUSES.join(", ")}`, 400);
     }
+    /* v1.4.183 (CEO: "live host I should have either part time or
+       contract/permanent. this need to be justify!"): an ACTIVE live host is
+       exactly one of those three — probation is not a live-host status.
+       Resigned/terminated stay allowed (lifecycle). */
+    if (typeof body?.employment_status === "string" && body.employment_status === "probation") {
+      const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(id).first<{ role: string }>();
+      if (roleRow?.role === "live_host") {
+        return err("invalid_input", "A live host is part-time, contract or permanent — probation is not a live-host status (CEO rule)", 400);
+      }
+    }
     const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number", "left_on", "rejoined_on"] as const;
     const current = await env.DB.prepare(
       `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
@@ -2647,6 +2657,33 @@ export async function handleStaff(
     });
   }
 
+  /* v1.4.183 (CEO): PART-TIME LIVE HOSTS are paid RM15.00/hour on their
+     clocked time — first clock-in to last clock-out per MYT day, summed for
+     the month. Contract/permanent live hosts stay on the salary model (and
+     keep OT eligibility; part-time never had it). One helper feeds the GET
+     view, the save route and the recompute button — single source of truth. */
+  const PART_TIME_LH_RATE_CENTS = 1500; // RM15.00/hour — CEO's rule, one place to change
+  const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
+    role === "live_host" && emp === "part_time";
+  const clockedMinutes = async (userId: number, month: string): Promise<number> => {
+    const { results } = await env.DB.prepare(
+      `SELECT date(created_at, '+8 hours') AS d,
+              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
+              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
+       FROM attendance_records
+       WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
+       GROUP BY d`,
+    ).bind(userId, month).all<{ d: string; i: string | null; o: string | null }>();
+    let mins = 0;
+    for (const r of results) {
+      if (!r.i || !r.o) continue; // an unpaired day earns nothing until fixed
+      const diff = (new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000;
+      if (diff > 0) mins += Math.round(diff);
+    }
+    return mins;
+  };
+  const hourlyPayCents = (mins: number) => Math.round((mins * PART_TIME_LH_RATE_CENTS) / 60);
+
   if (path === "/payroll" && method === "GET") {
     // Full payroll is for the processors only (v1.4.40): CEO and COO run it,
     // admin tier as backstop. hr_admin and CCO no longer see other people's pay.
@@ -2657,10 +2694,20 @@ export async function handleStaff(
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
-              u.employment_status, u.bank_name, u.bank_account, u.ic_number
+              u.employment_status, u.role AS user_role, u.bank_name, u.bank_account, u.ic_number
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 ORDER BY u.name`,
     ).bind(month).all();
+    // v1.4.183: hourly users get live clocked minutes so the panel shows the
+    // CURRENT month figure even before the entry is saved/recomputed.
+    for (const r of results as Record<string, unknown>[]) {
+      if (isHourlyUser(r.user_role as string, r.employment_status as string)) {
+        const mins = await clockedMinutes(r.user_id as number, month);
+        r.hourly_minutes_live = mins;
+        r.hourly_rate_live = PART_TIME_LH_RATE_CENTS;
+        r.hourly_pay_live = hourlyPayCents(mins);
+      }
+    }
     const releasedRow = await env.DB.prepare(
       `SELECT released_at, released_by FROM payslip_releases WHERE month = ?1`,
     ).bind(month).first();
@@ -2836,9 +2883,9 @@ export async function handleStaff(
     const { results: ents } = await env.DB.prepare(
       `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
-              p.worked_days, u.base_salary_cents
+              p.worked_days, u.base_salary_cents, u.role AS user_role, u.employment_status
        FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
-    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number }>();
+    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number; user_role: string; employment_status: string | null }>();
     const { results: ulsR } = await env.DB.prepare(
       `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
        WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
@@ -2846,6 +2893,26 @@ export async function handleStaff(
     const ulMapR = new Map(ulsR.map((r) => [r.user_id, r.days]));
     let fixed = 0;
     for (const e of ents) {
+      /* v1.4.183: hourly (part-time live host) rows re-derive from the
+         attendance clock — same formula as the save route. */
+      if (isHourlyUser(e.user_role, e.employment_status)) {
+        const minsR = await clockedMinutes(e.user_id, monthR);
+        const basicR = hourlyPayCents(minsR);
+        const netHR = Math.max(0, basicR + e.commission_cents + e.allowance_cents - e.deduction_cents);
+        try {
+          await env.DB.prepare(
+            `UPDATE payroll_entries SET basic_cents = ?1, ot_hours = NULL, ot_cents = 0,
+               worked_days = NULL, month_working_days = NULL, net_cents = ?2,
+               hourly_minutes = ?3, hourly_rate_cents = ?4, updated_at = datetime('now')
+             WHERE user_id = ?5 AND month = ?6`,
+          ).bind(basicR, netHR, minsR, PART_TIME_LH_RATE_CENTS, e.user_id, monthR).run();
+          fixed++;
+        } catch (errH) {
+          await logError(env, "payroll_recompute", errH instanceof Error ? errH.message : String(errH));
+          return err("migration_missing", "Migration 0053 is not applied — run: npx wrangler d1 migrations apply azoneofficial --remote, then press this button again.", 500);
+        }
+        continue;
+      }
       const ul = ulMapR.get(e.user_id) ?? 0;
       const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
       const hasDaysR = e.worked_days !== null && e.worked_days !== undefined;
@@ -2886,6 +2953,39 @@ export async function handleStaff(
     // v1.4.124: the panel sends the net it computed with THE shared formula —
     // stored so /expenses can sum identical figures (no re-derivation drift).
     const netCents = typeof body.net_cents === "number" && body.net_cents >= 0 ? Math.round(body.net_cents) : null;
+    /* v1.4.183: hourly (part-time live host) entries are computed by the
+       SERVER from attendance, whatever the client sent — basic = minutes ×
+       RM15/60, OT forced 0, no worked-days proration, net = hourly +
+       commission + allowance − deduction. Tamper-proof and always in step
+       with the clock records. */
+    const tRow = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
+      .bind(body.user_id).first<{ role: string; employment_status: string | null }>();
+    if (tRow && isHourlyUser(tRow.role, tRow.employment_status)) {
+      const minsH = await clockedMinutes(body.user_id, month);
+      const basicH = hourlyPayCents(minsH);
+      const netH = Math.max(0, basicH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents));
+      try {
+        await env.DB.prepare(
+          `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, hourly_minutes, hourly_rate_cents, note, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6, NULL, NULL, ?7, ?8, ?9, ?10, ?11)
+           ON CONFLICT (user_id, month) DO UPDATE SET
+             basic_cents = ?3, commission_cents = ?4, allowance_cents = ?5,
+             ot_hours = NULL, ot_cents = 0, net_cents = ?7,
+             deduction_cents = ?6, worked_days = NULL, month_working_days = NULL,
+             hourly_minutes = ?8, hourly_rate_cents = ?9,
+             note = ?10, updated_at = datetime('now')`,
+        ).bind(
+          body.user_id, month, basicH, cents(body.commission_cents), cents(body.allowance_cents),
+          cents(body.deduction_cents), netH, minsH, PART_TIME_LH_RATE_CENTS,
+          str(body.note, 300) ? body.note : null, user.id,
+        ).run();
+      } catch (eH) {
+        if (!String(eH).includes("no such column")) throw eH;
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0053_hourly_payroll)", 500);
+      }
+      await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month, hourly: true, minutes: minsH, rate_cents: PART_TIME_LH_RATE_CENTS });
+      return json({ ok: true, hourly: true, minutes: minsH, basic_cents: basicH, net_cents: netH });
+    }
     await env.DB.prepare(
       `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, note, created_by)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?13, ?11, ?12)

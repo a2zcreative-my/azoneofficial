@@ -67,6 +67,23 @@ interface Entry {
   ot_hours?: number | null;
   ot_cents?: number;
   note?: string | null;
+  // v1.4.183 — hourly (part-time live host) figures; *_live come freshly
+  // computed from attendance on every GET, the plain ones are what's stored.
+  hourly_minutes?: number | null;
+  hourly_rate_cents?: number | null;
+  hourly_minutes_live?: number;
+  hourly_rate_live?: number;
+  hourly_pay_live?: number;
+}
+
+/* v1.4.183 (CEO): a PART-TIME LIVE HOST is paid RM15.00/hour on clocked
+   time — no salary proration, no unpaid-leave maths, no OT. One predicate
+   used by the table, the net formula and the payslip. */
+function isHourly(u: { role: string; employment_status?: string | null }): boolean {
+  return u.role === "live_host" && u.employment_status === "part_time";
+}
+function hmLabel(mins: number): string {
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
 /** v1.4.85: overtime at the Employment Act normal-working-day rate —
@@ -122,14 +139,18 @@ export function printPayslip(
   month: string,
   x?: { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null,
 ) {
-  const otCents = e.ot_cents ?? otPay(e.basic_cents, e.ot_hours);
+  /* v1.4.183: PART-TIME LIVE HOST slips are hourly — the stored
+     hourly_minutes × RM15.00/h IS the pay; no OT, no unpaid-leave maths, no
+     incomplete-month adjustment (there is no salary to prorate). */
+  const hourlySlip = isHourly(u) || (e.hourly_minutes != null && e.hourly_rate_cents != null);
+  const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
   const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
   // v1.4.79: unpaid leave deducts EXPLICITLY on the slip (Employment Act
   // ordinary rate: basic ÷ 26 per day) — basic stays full, the reason shows.
-  const unpaidDed = x?.unpaid_deduction_cents ?? 0;
+  const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
   // v1.4.82: incomplete month (joining month / absent days) is ALSO an
   // explicit deduction against the FULL basic — never a shrunken basic.
-  const incompAdj = incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
+  const incompAdj = hourlySlip ? 0 : incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
   const totalDed = e.deduction_cents + unpaidDed + incompAdj;
   const net = Math.max(0, gross - totalDed);
   const [yy, mm] = month.split("-");
@@ -139,7 +160,10 @@ export function printPayslip(
   const n2 = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Earnings: basic always; commission/allowance only when present.
-  const earn: [string, number][] = [["BASIC PAY", e.basic_cents]];
+  const hrsLabel = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
+  const earn: [string, number][] = hourlySlip
+    ? [[`HOURLY PAY (${hrsLabel} × RM ${(((e.hourly_rate_cents ?? 1500)) / 100).toFixed(2)}/HOUR)`, e.basic_cents]]
+    : [["BASIC PAY", e.basic_cents]];
   if (e.commission_cents > 0) earn.push(["COMMISSION", e.commission_cents]);
   if (e.allowance_cents > 0) earn.push(["ALLOWANCE", e.allowance_cents]);
   if (otCents > 0) earn.push([`OVERTIME (${e.ot_hours ?? 0} HRS × 1.5 × HOURLY ORP)`, otCents]);
@@ -301,6 +325,13 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   // this total always tally after Save all.
   const netFor = (id: number): number => {
     const e = entry(id);
+    const uRow = staff.find((x) => x.id === id);
+    if (uRow && isHourly(uRow)) {
+      // v1.4.183: hourly pay (auto from the clock) + commission + allowance
+      // − deduction. The server recomputes authoritatively on save anyway.
+      const hourly = e.hourly_pay_live ?? e.basic_cents;
+      return Math.max(0, hourly + e.commission_cents + e.allowance_cents - e.deduction_cents);
+    }
     const ul = unpaidDays[id] ?? 0;
     const ulDed = ul > 0 ? Math.round(((base[id] || e.basic_cents) / 26) * ul) : 0;
     const d = workedDays[id];
@@ -643,19 +674,30 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <tbody>
             {staff.map((u) => {
               const e = entry(u.id);
-              const ul = unpaidDays[u.id] ?? 0;
+              const hourlyRow = isHourly(u); // v1.4.183
+              const hourlyMins = e.hourly_minutes_live ?? e.hourly_minutes ?? 0;
+              const hourlyPay = e.hourly_pay_live ?? (hourlyRow ? e.basic_cents : 0);
+              // hourly rows: no unpaid-leave maths, no proration, no OT.
+              const ul = hourlyRow ? 0 : (unpaidDays[u.id] ?? 0);
               const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
-              const adj = incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
-              const ot = otPay(e.basic_cents, e.ot_hours);
-              const net = e.basic_cents + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj;
+              const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
+              const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
+              const net = netFor(u.id);
               return (
                 <tr key={u.id} className="border-border border-b last:border-0">
                   <td className="px-2 py-1.5">
                     <span className="font-medium">{properName(u.name)}</span>{" "}
                     <span className="text-muted-foreground text-xs">{u.position ?? u.role}</span>
+                    {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900" title="Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT">⏱ hourly</span>}
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
                     <td key={k} className="px-2 py-1.5">
+                      {hourlyRow && k === "basic_cents" ? (
+                        <span className="block text-xs" title="Auto from clock in–out — first in to last out per day, summed for the month. RM15.00/hour (CEO rule). Not editable.">
+                          <span className="font-medium">{(hourlyPay / 100).toFixed(2)}</span>
+                          <span className="text-muted-foreground"> · {hmLabel(hourlyMins)} × RM15/h</span>
+                        </span>
+                      ) : (
                       <input
                         type="number" min={0} step="0.01"
                         className={inputSm}
@@ -664,9 +706,13 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         placeholder="0.00"
                         onChange={(ev) => setField(u.id, k, ev.target.value)}
                       />
+                      )}
                     </td>
                   ))}
                   <td className="px-2 py-1.5">
+                    {hourlyRow ? (
+                      <span className="text-muted-foreground text-xs" title="Part-time live hosts are not OT-eligible (CEO rule) — contract/permanent live hosts are">—</span>
+                    ) : (
                     <input
                       type="number" min={0} max={300} step="0.5"
                       className={inputSm}
@@ -679,6 +725,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         setEntries((m) => ({ ...m, [u.id]: { ...e, ot_hours: h } }));
                       }}
                     />
+                    )}
                     {ot > 0 && <span className="text-muted-foreground block text-[10px]">= {rm(ot)}</span>}
                   </td>
                   <td className="px-2 py-1.5">
@@ -703,7 +750,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                     )}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
-                    {!readOnly && (
+                    {hourlyRow ? (
+                      <span className="text-muted-foreground text-xs" title="Hourly pay is computed from clocked time directly — no worked-days proration">{hmLabel(hourlyMins)}</span>
+                    ) : !readOnly && (
                       <>
                         <input
                           type="number" min={0} max={31}
@@ -760,6 +809,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               const tot = staff.reduce(
                 (a, u) => {
                   const e = entry(u.id);
+                  if (isHourly(u)) {
+                    // v1.4.183: hourly rows — clocked pay, no UL/proration/OT
+                    const hp = e.hourly_pay_live ?? e.basic_cents;
+                    a.basic += hp; a.comm += e.commission_cents; a.allow += e.allowance_cents;
+                    a.ded += e.deduction_cents;
+                    a.net += Math.max(0, hp + e.commission_cents + e.allowance_cents - e.deduction_cents);
+                    return a;
+                  }
                   const ul = unpaidDays[u.id] ?? 0;
                   const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
                   const adj = incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
