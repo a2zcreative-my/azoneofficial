@@ -3121,43 +3121,106 @@ export async function handleStaff(
   }
 
   if (path === "/payroll/payment-file" && method === "GET") {
-    // v1.4.145: one-click payroll payment — a bulk payment CSV covering every
-    // saved entry with a positive net, ready for Maybank2u Biz (or any bank's)
-    // bulk upload. Columns are generic and easily remapped to the bank's
-    // template. PAYROLL_PROC only; audited.
+    /* v1.4.201 (CEO uploaded the official Maybank2E "RCGEN2 - Funds Transfer"
+       template, sheet "Salary Bulk Payment (MY)"): the export now matches that
+       sheet's columns EXACTLY (headers row 4, data from row 5, cols A..Q used)
+       so rows can be pasted straight into the template at cell A5.
+       - Payment Mode: IT (intrabank) when the recipient bank is Maybank —
+         payer account is Maybank — else IG (GIRO/ACH).
+       - Recipient Bank Code: mapped from the staff member's free-text
+         bank_name to M2E's official code list (template "Recipient Bank Code"
+         sheet). Unmatched banks are listed at the bottom so the CEO fixes the
+         bank name in Staff Details or fills the code by hand.
+       - Value date: optional ?value_date=YYYY-MM-DD (defaults to today MYT),
+         emitted DDMMYYYY as the template requires.
+       PAYROLL_PROC only; audited. */
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const urlPF = new URL(request.url);
     const monthPF = urlPF.searchParams.get("month");
     if (!monthPF || !/^\d{4}-\d{2}$/.test(monthPF)) return err("invalid_input", "month (YYYY-MM) required", 400);
+    const vdParam = urlPF.searchParams.get("value_date");
+    const vd = vdParam && /^\d{4}-\d{2}-\d{2}$/.test(vdParam)
+      ? vdParam
+      : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const [vy, vm, vdd] = vd.split("-");
+    const valueDate = `${vdd}${vm}${vy}`; // DDMMYYYY per the template
+    // M2E "Recipient Bank Code" sheet — retail banks with GIRO=Yes. Keyed by
+    // a lowercase fragment matched against the stored bank_name.
+    const M2E_BANKS: [string, string][] = [
+      ["maybank", "MBBEMYKL"], ["malayan banking", "MBBEMYKL"],
+      ["cimb", "CIBBMYKL"], ["public bank", "PBBEMYKL"], ["rhb", "RHBBMYKL"],
+      ["hong leong", "HLBBMYKL"], ["ambank", "ARBKMYKL"],
+      ["bank islam", "BIMBMYKL"], ["muamalat", "BMMBMYKL"],
+      ["bsn", "BSNAMYK1"], ["simpanan nasional", "BSNAMYK1"],
+      ["bank rakyat", "BKRMMYKL"], ["kerjasama rakyat", "BKRMMYKL"],
+      ["agrobank", "AGOBMYKL"], ["pertanian", "AGOBMYKL"],
+      ["affin", "PHBMMYKL"], ["alliance", "MFBBMYKL"],
+      ["al-rajhi", "RJHIMYKL"], ["al rajhi", "RJHIMYKL"],
+      ["mbsb", "AFBQMYKL"], ["ocbc", "OCBCMYKL"], ["uob", "UOVBMYKL"],
+      ["united overseas", "UOVBMYKL"], ["hsbc", "HBMBMYKL"],
+      ["standard chartered", "SCBLMYKX"], ["citibank", "CITIMYKL"],
+      ["kuwait finance", "KFHOMYKL"], ["bank of china", "BKCHMYKL"],
+    ];
+    const bankCode = (name: string): string | null => {
+      const n = name.toLowerCase();
+      for (const [frag, code] of M2E_BANKS) if (n.includes(frag)) return code;
+      return null;
+    };
     const { results: rows } = await env.DB.prepare(
-      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, p.net_cents,
+      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
               p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 AND u.is_active = 1
          AND u.role NOT IN ('customer', 'super_admin')
        ORDER BY u.name`,
-    ).bind(monthPF).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    ).bind(monthPF).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
     const missing: string[] = [];
-    const lines = ["Employee name,Bank,Account number,Amount (RM),Payment reference"];
-    let totalC = 0;
+    const noCode: string[] = [];
     const [yPF, mPF] = monthPF.split("-");
-    const ref = `AZOO SALARY ${mPF}-${yPF}`;
+    const ownRef = `AZOO${mPF}${yPF}`;
+    const desc = `SALARY ${mPF}-${yPF}`;
+    const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    // Header mirrors the template's row 4 (cols A..Q) so column alignment can
+    // be verified — PASTE FROM THE DATA ROWS ONLY, into the template's A5.
+    const lines = [
+      [
+        "Payment Mode", "Value Date", "Recipient Name 1", "Favourite Recipient Code",
+        "Transaction Amount (RM)", "Recipient Account No.", "Recipient Bank Code",
+        "Recipient Name 2", "Recipient Name 3", "New IC No", "Old IC No",
+        "Business Registration No", "Police/ Army ID/ Passport No", "Own Ref.",
+        "Recipient Description", "Email", "Payer Description",
+      ].join(","),
+    ];
+    let totalC = 0;
+    let payees = 0;
     for (const r of rows) {
       const net = r.net_cents ?? Math.max(0, r.basic_cents + r.commission_cents + r.allowance_cents + r.ot_cents - r.deduction_cents);
       if (net <= 0) continue; // e.g. the CEO's own RM 0 row
       if (!r.bank_name || !r.bank_account) { missing.push(r.full_name || r.name); continue; }
-      const nm = (r.full_name || r.name).toUpperCase().replace(/,/g, " ");
-      lines.push(`${nm},${r.bank_name.replace(/,/g, " ")},${r.bank_account},${(net / 100).toFixed(2)},${ref}`);
+      const code = bankCode(r.bank_name);
+      if (!code) noCode.push(`${r.full_name || r.name} (${r.bank_name})`);
+      const nm = (r.full_name || r.name).toUpperCase().replace(/[^A-Z0-9 @\/\-.]/g, " ").slice(0, 40).trim();
+      const acct = r.bank_account.replace(/[^0-9]/g, "");
+      const mode = code === "MBBEMYKL" ? "IT" : "IG"; // payer account is Maybank
+      const ic = (r.ic_number ?? "").replace(/[^0-9]/g, "");
+      lines.push([
+        mode, valueDate, cell(nm), "", (net / 100).toFixed(2), acct, code ?? "FILL-IN",
+        "", "", ic, "", "", "", ownRef, cell(desc), "", cell(desc),
+      ].join(","));
       totalC += net;
+      payees += 1;
     }
-    lines.push(`TOTAL,,,${(totalC / 100).toFixed(2)},${lines.length - 1} payees`);
+    lines.push("");
+    lines.push(`# TOTAL RM ${(totalC / 100).toFixed(2)} across ${payees} payees — paste ONLY the data rows into the M2E template sheet "Salary Bulk Payment (MY)" starting at cell A5 (do NOT paste this header or these # lines).`);
+    lines.push(`# In Excel, account numbers and IC numbers that start with 0 need a leading apostrophe — paste-as-text or format the columns as Text first.`);
     if (missing.length > 0) lines.push(`# MISSING BANK DETAILS (add in Staff Details, then re-download): ${missing.join("; ")}`);
-    await audit(env, user.id, "payroll.payment_file", "payroll", monthPF, { payees: lines.length - 2 - (missing.length > 0 ? 1 : 0), total_cents: totalC });
+    if (noCode.length > 0) lines.push(`# BANK NOT RECOGNISED — fix the bank name in Staff Details or type the M2E Recipient Bank Code by hand: ${noCode.join("; ")}`);
+    await audit(env, user.id, "payroll.payment_file", "payroll", monthPF, { payees, total_cents: totalC, format: "m2e_salary" });
     return new Response(lines.join("\r\n"), {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="azoo-payroll-${monthPF}.csv"`,
+        "Content-Disposition": `attachment; filename="azoo-m2e-salary-${monthPF}.csv"`,
       },
     });
   }

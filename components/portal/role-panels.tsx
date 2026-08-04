@@ -2153,7 +2153,6 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -3140,9 +3139,9 @@ export function ExpensesPanel() {
                         🔧 Fix discrepancy now (recompute on server)
                       </button>
                       <a className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
-                        title="Bulk payment CSV for bank upload — one approval pays everyone, then press Mark paid here"
+                        title="Maybank2E salary file — columns match the RCGEN2 template's Salary Bulk Payment (MY) sheet. Paste the data rows into the template at cell A5, upload, one approval pays everyone, then press Mark paid here"
                         href={`/api/v1/staff/payroll/payment-file?month=${staffPayroll!.month}`} download>
-                        💳 Payment file
+                        💳 M2E salary file
                       </a>
                     </details>
                   )}

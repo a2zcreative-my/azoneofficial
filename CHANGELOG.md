@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.201] — 2026-08-04 — Payroll payment file now matches the official Maybank2E RCGEN2 template
+
+### Changed (CEO uploaded RCGEN2 - M2E Funds Transfer R3 V1.6.xlsm: "this is the format given by Maybank2E for me to make bulk payroll")
+- GET /payroll/payment-file rebuilt around the template's "Salary Bulk Payment (MY)" sheet (headers row 4, data from row 5): the CSV's columns now mirror cols A–Q exactly — Payment Mode, Value Date (DDMMYYYY), Recipient Name 1 (≤40, sanitized), Favourite Code, Amount, Account No (digits only), Recipient Bank Code, Names 2/3, New IC No (from staff ic_number), Old IC/Biz Reg/Passport, Own Ref (AZOO{MM}{YYYY}), Recipient Description, Email, Payer Description — so the data rows paste straight into the template at A5.
+- Payment Mode auto-set per row: IT (intrabank) when the staff bank maps to Maybank, else IG (GIRO/ACH) — payer account is Maybank.
+- Recipient Bank Code resolved from staff free-text bank_name against the template's own "Recipient Bank Code" sheet (27 fragment mappings: Maybank/CIMB/Public/RHB/Hong Leong/AmBank/Bank Islam/Muamalat/BSN/Rakyat/Agrobank/Affin/Alliance/Al-Rajhi/MBSB/OCBC/UOB/HSBC/StanChart/Citi/KFH/BOC). Unmatched → cell says FILL-IN + a # footer names who to fix in Staff Details.
+- Optional ?value_date=YYYY-MM-DD (defaults to today MYT). Footer prints the batch TOTAL + paste instructions + the Excel leading-zero apostrophe warning from the template itself.
+- Filename now azoo-m2e-salary-{month}.csv; audit meta += format: m2e_salary. 💳 button renamed "M2E salary file" with paste instructions in the tooltip. Home-sheet fields (Corporate ID, Client Batch ID, Payer Account No) stay YOURS to fill in the template — the portal never stores them.
+
 ## [1.4.200] — 2026-08-04 — HOTFIX: Live engagement — TikTok rejects currency=MYR
 
 ### Fixed (user: "I already toggle on live data but still not appear!" — card showed TikTok: Currency is invalid, allowed values: USD, LOCAL)
