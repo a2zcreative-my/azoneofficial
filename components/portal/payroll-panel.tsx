@@ -294,6 +294,47 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   // net RM807.69. Same money as the old proration, but visible and fair.
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
+
+  /* v1.4.203 — M2E: filled-.xlsm download + one-time setup (template upload,
+     Corporate ID, payer account). The M2E USER ID/password are login
+     credentials and are never asked for nor stored. */
+  const [m2eCid, setM2eCid] = useState("");
+  const [m2eAcc, setM2eAcc] = useState("");
+  const [m2eHasTpl, setM2eHasTpl] = useState<boolean | null>(null);
+  const loadM2e = useCallback(async () => {
+    const r = await api<{ corporate_id?: string; payer_account?: string; has_template?: boolean }>(`/payroll/m2e-settings`);
+    if (r.ok) { setM2eCid(r.data?.corporate_id ?? ""); setM2eAcc(r.data?.payer_account ?? ""); setM2eHasTpl(!!r.data?.has_template); }
+  }, []);
+  useEffect(() => { void loadM2e(); }, [loadM2e]);
+  const downloadM2e = async () => {
+    const res = await fetch(`${API}/payroll/m2e-file?month=${month}`, { credentials: "include" });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      showToast("No file", j?.error?.message ?? "M2E file failed — check ⚙ M2E setup below", "notice");
+      return;
+    }
+    const skipped = res.headers.get("X-M2E-Skipped");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `azoo-m2e-salary-${month}.xlsm`; a.click();
+    URL.revokeObjectURL(url);
+    if (skipped) showToast("Check bank details", `Skipped (fix in Staff Details, then re-download): ${decodeURIComponent(skipped)}`, "notice");
+    else showToast("Saved", "M2E workbook downloaded — open, enable macros, generate + upload");
+  };
+  const saveM2eSettings = async () => {
+    const r = await api<{ error?: { message?: string } }>(`/payroll/m2e-settings`, {
+      method: "POST", body: JSON.stringify({ corporate_id: m2eCid, payer_account: m2eAcc }),
+    });
+    if (r.ok) showToast("Saved", "M2E settings stored — the 💳 button now fills them into every file");
+    else showToast("No changes", r.data?.error?.message ?? "Save failed", "notice");
+  };
+  const uploadM2eTemplate = async (f: File) => {
+    const res = await fetch(`${API}/payroll/m2e-template`, { method: "POST", credentials: "include", body: f });
+    const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+    if (res.ok) { setM2eHasTpl(true); showToast("Saved", "Blank M2E template stored — 💳 now generates the filled workbook"); }
+    else showToast("No changes", j?.error?.message ?? "Template upload failed", "notice");
+  };
   // v1.4.87: change detection — snapshot of each row as loaded, so Save can
   // honestly say "No changes" instead of pretending to work.
   const pristineRef = useRef<Record<number, string>>({});
@@ -561,13 +602,21 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           >
             🔧 Recompute nets
           </button>
+          <button
+            type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title="Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time ⚙ M2E setup first."
+            onClick={() => void downloadM2e()}
+          >
+            💳 M2E salary file
+          </button>
           <a
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="One-click payment: downloads a bulk payment CSV (every saved entry with a positive net + bank details) for upload to Maybank2u Biz bulk payment — pay all staff in one approval"
+            title="Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself"
             href={`${API}/payroll/payment-file?month=${month}`}
             download
           >
-            💳 Payment file
+            CSV
           </a>
           <button
             type="button"
@@ -579,6 +628,46 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      {!readOnly && (
+        <details className="mt-2 text-xs">
+          <summary className="text-muted-foreground cursor-pointer select-none">
+            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc ? "⚠ incomplete: 💳 needs this" : "complete"}
+          </summary>
+          <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
+            <p className="text-muted-foreground">
+              Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+              <label className="block">
+                <span className="text-muted-foreground">Corporate ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
+                  placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Payer account no</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
+                  inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
+              </label>
+              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
+                onClick={() => void saveM2eSettings()}>
+                Save
+              </button>
+            </div>
+            <div className="grid grid-cols-2 items-center gap-2 sm:flex">
+              <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
+              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
+                {m2eHasTpl ? "Replace template" : "Upload template"}
+                <input type="file" accept=".xlsm" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
+              </label>
+            </div>
+            <p className="text-muted-foreground">
+              Then 💳 downloads the template already filled: Home sheet (Corporate ID, batch ID AZOO{"{"}MM{"}"}{"{"}YYYY{"}"}, payer account, value date = 5th or the Friday before) + all salary rows from row 5. Open → enable macros → generate → upload → approve → Mark paid.
+            </p>
+          </div>
+        </details>
+      )}
 
       {release && (
         <p className="mt-2 text-xs">

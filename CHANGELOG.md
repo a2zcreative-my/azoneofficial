@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.203] — 2026-08-04 — 💳 now generates the FILLED Maybank2E workbook itself
+
+### Added (CEO: "I WANT the button can generate like this files!")
+- NEW worker/src/m2e.ts: fills the official RCGEN2 .xlsm inside the Worker — an .xlsm is a ZIP of XML, so we unzip (DecompressionStream deflate-raw, zero dependencies), patch the Home sheet + salary rows as inline-string/numeric cells (leading zeros in value dates/ICs survive, unlike Excel paste), and rezip (STORE + hand-rolled CRC32). vbaProject.bin is never touched, so the template's own generate/upload macros keep working. Verified in Node against the real template: all 73 zip entries preserved, CRCs valid, values correct, VBA intact.
+- GET /payroll/m2e-file?month= → the filled workbook: Home sheet (Corporate ID, Client Batch ID AZOO{MM}{YYYY}, payer account, Value Date per the v1.4.202 5th-or-earlier rule, ?value_date override) + every payable row from row 5 (mode IT/IG, amounts, accounts, bank codes, NRIC in col J). Staff with missing/unrecognised bank details are skipped and named in an X-M2E-Skipped header → toast. 409 with guidance when setup is incomplete.
+- One-time ⚙ M2E setup (Payroll tab, payroll processors only): upload the BLANK official template once (binary POST /payroll/m2e-template → R2 private/m2e/template.xlsm, validated by a dry-run fill, added to the binary exclusion list) and save Corporate ID + payer account (GET/POST /payroll/m2e-settings → system_meta). The M2E User ID and password are login credentials and are NEVER asked for nor stored.
+- 💳 button (Payroll toolbar + Expenses payments-due) now fetch-downloads the .xlsm with honest toasts; the paste-ready CSV stays as a fallback link. paymentDateFor + the bank-code map hoisted to module scope, shared by both routes.
+
 ## [1.4.202] — 2026-08-04 — Payment file Value Date follows the company payment rule
 
 ### Changed (CEO: "they payment date is always on 5th, if fall on weekend it will be earlier")

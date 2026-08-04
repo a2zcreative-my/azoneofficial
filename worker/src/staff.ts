@@ -4,6 +4,7 @@
  */
 
 import type { Env } from "./index";
+import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
 
 type Role =
@@ -255,6 +256,42 @@ function leaveStageLabel(stage: string): string {
   } as Record<string, string>)[stage] ?? stage;
 }
 
+/* v1.4.202/203 — payment-date rule (CEO: pay on the 5th, or EARLIER when the
+   5th is a weekend; deliberately opposite to payslip RELEASE which shifts
+   forward) and the M2E bank-code map from the template's own list. Hoisted to
+   module scope so the CSV route and the filled-.xlsm route share them. */
+export function paymentDateFor(payMonth: string): string {
+  const [py, pm] = payMonth.split("-").map(Number);
+  const ny = pm === 12 ? py + 1 : py;
+  const nm = pm === 12 ? 1 : pm + 1;
+  const d = new Date(Date.UTC(ny, nm - 1, 5));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const M2E_BANKS: [string, string][] = [
+  ["maybank", "MBBEMYKL"], ["malayan banking", "MBBEMYKL"],
+  ["cimb", "CIBBMYKL"], ["public bank", "PBBEMYKL"], ["rhb", "RHBBMYKL"],
+  ["hong leong", "HLBBMYKL"], ["ambank", "ARBKMYKL"],
+  ["bank islam", "BIMBMYKL"], ["muamalat", "BMMBMYKL"],
+  ["bsn", "BSNAMYK1"], ["simpanan nasional", "BSNAMYK1"],
+  ["bank rakyat", "BKRMMYKL"], ["kerjasama rakyat", "BKRMMYKL"],
+  ["agrobank", "AGOBMYKL"], ["pertanian", "AGOBMYKL"],
+  ["affin", "PHBMMYKL"], ["alliance", "MFBBMYKL"],
+  ["al-rajhi", "RJHIMYKL"], ["al rajhi", "RJHIMYKL"],
+  ["mbsb", "AFBQMYKL"], ["ocbc", "OCBCMYKL"], ["uob", "UOVBMYKL"],
+  ["united overseas", "UOVBMYKL"], ["hsbc", "HBMBMYKL"],
+  ["standard chartered", "SCBLMYKX"], ["citibank", "CITIMYKL"],
+  ["kuwait finance", "KFHOMYKL"], ["bank of china", "BKCHMYKL"],
+];
+function bankCode(name: string): string | null {
+  const n = name.toLowerCase();
+  for (const [frag, code] of M2E_BANKS) if (n.includes(frag)) return code;
+  return null;
+}
+
+const M2E_TEMPLATE_KEY = "private/m2e/template.xlsm";
+
 export async function handleStaff(
   request: Request,
   env: Env,
@@ -268,7 +305,7 @@ export async function handleStaff(
   // it consumed the stream, which is why every claim receipt upload failed
   // (the R2 put received a disturbed body). Both binary routes are excluded.
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof") && !path.endsWith("/documents")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -3120,6 +3157,111 @@ export async function handleStaff(
     return json({ extras: await payslipExtras(uid, mD) });
   }
 
+  if (path === "/payroll/m2e-settings" && method === "GET") {
+    // v1.4.203: one-time M2E setup — Corporate ID + payer account (CEO asked
+    // to store them so the button emits a fully-filled workbook). The M2E
+    // USER ID and password are login credentials and are NEVER stored.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const cid = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_corporate_id'`).first<{ value: string }>();
+    const acc = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_payer_account'`).first<{ value: string }>();
+    const tpl = await env.MEDIA.head(M2E_TEMPLATE_KEY);
+    return json({ corporate_id: cid?.value ?? "", payer_account: acc?.value ?? "", has_template: tpl !== null });
+  }
+  if (path === "/payroll/m2e-settings" && method === "POST") {
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const cid = String(body?.corporate_id ?? "").trim().toUpperCase().slice(0, 20);
+    const acc = String(body?.payer_account ?? "").replace(/[^0-9]/g, "").slice(0, 20);
+    if (!cid || !acc) return err("invalid_input", "corporate_id and payer_account required", 400);
+    await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('m2e_corporate_id', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(cid).run();
+    await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('m2e_payer_account', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(acc).run();
+    await audit(env, user.id, "payroll.m2e_settings", "payroll", "m2e", {});
+    return json({ ok: true });
+  }
+  if (path === "/payroll/m2e-template" && method === "POST") {
+    // Binary body (on the exclusion list): the BLANK official template,
+    // stored once in R2 and reused every month.
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const lenT = parseInt(request.headers.get("Content-Length") ?? "0", 10);
+    if (!lenT || lenT > 12 * 1024 * 1024) return err("invalid_input", "Template file required (max 12MB)", 400);
+    const bytesT = new Uint8Array(await request.arrayBuffer());
+    if (!(bytesT[0] === 0x50 && bytesT[1] === 0x4b)) return err("invalid_input", "Not an .xlsm file", 400);
+    try {
+      // must contain both sheets before we accept it
+      await fillM2eTemplate(bytesT, { corporateId: "X", clientBatchId: "X", payerAccount: "0", valueDate: "01011970" }, []);
+    } catch {
+      return err("invalid_input", "This doesn't look like the M2E RCGEN2 template (Home / Salary Bulk Payment (MY) sheets not found)", 400);
+    }
+    await env.MEDIA.put(M2E_TEMPLATE_KEY, bytesT, { httpMetadata: { contentType: "application/vnd.ms-excel.sheet.macroEnabled.12" } });
+    await audit(env, user.id, "payroll.m2e_template", "payroll", "m2e", { bytes: bytesT.length });
+    return json({ ok: true });
+  }
+  if (path === "/payroll/m2e-file" && method === "GET") {
+    /* v1.4.203 (CEO: "I WANT the button can generate like this files!"):
+       the filled .xlsm itself — Home sheet (Corporate ID, Client Batch ID
+       AZOO{MM}{YYYY}, payer account, Value Date per the v1.4.202 rule) plus
+       the salary rows from row 5 — macros untouched, ready to upload. */
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const urlM = new URL(request.url);
+    const monthM = urlM.searchParams.get("month");
+    if (!monthM || !/^\d{4}-\d{2}$/.test(monthM)) return err("invalid_input", "month (YYYY-MM) required", 400);
+    const tplObj = await env.MEDIA.get(M2E_TEMPLATE_KEY);
+    if (!tplObj) return err("template_missing", "Upload the blank M2E template once via M2E setup", 409);
+    const cidM = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_corporate_id'`).first<{ value: string }>();
+    const accM = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_payer_account'`).first<{ value: string }>();
+    if (!cidM?.value || !accM?.value) return err("settings_missing", "Save Corporate ID + payer account once via M2E setup", 409);
+    const vdP = urlM.searchParams.get("value_date");
+    const vdM = vdP && /^\d{4}-\d{2}-\d{2}$/.test(vdP) ? vdP : paymentDateFor(monthM);
+    const [my, mm, md] = vdM.split("-");
+    const valueDateM = `${md}${mm}${my}`;
+    const { results: rowsM } = await env.DB.prepare(
+      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
+              p.basic_cents, p.commission_cents, p.allowance_cents,
+              COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id
+       WHERE p.month = ?1 AND u.is_active = 1
+         AND u.role NOT IN ('customer', 'super_admin')
+       ORDER BY u.name`,
+    ).bind(monthM).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    const [yM, moM] = monthM.split("-");
+    const ownRefM = `AZOO${moM}${yM}`;
+    const descM = `SALARY ${moM}-${yM}`;
+    const skipped: string[] = [];
+    const m2eRows: M2eRow[] = [];
+    let totalM = 0;
+    for (const r of rowsM) {
+      const net = r.net_cents ?? Math.max(0, r.basic_cents + r.commission_cents + r.allowance_cents + r.ot_cents - r.deduction_cents);
+      if (net <= 0) continue;
+      const code = r.bank_name ? bankCode(r.bank_name) : null;
+      if (!r.bank_name || !r.bank_account || !code) { skipped.push(r.full_name || r.name); continue; }
+      m2eRows.push({
+        mode: code === "MBBEMYKL" ? "IT" : "IG",
+        valueDate: valueDateM,
+        name: (r.full_name || r.name).toUpperCase().replace(/[^A-Z0-9 @\/\-.]/g, " ").slice(0, 40).trim(),
+        amount: net / 100,
+        account: r.bank_account.replace(/[^0-9]/g, ""),
+        bankCode: code,
+        newIc: (r.ic_number ?? "").replace(/[^0-9]/g, ""),
+        ownRef: ownRefM,
+        recipientDesc: descM,
+        payerDesc: descM,
+      });
+      totalM += net;
+    }
+    if (m2eRows.length === 0) return err("no_payees", `No payable rows for ${monthM}${skipped.length ? ` (missing bank details/code: ${skipped.join("; ")})` : ""}`, 409);
+    const filled = await fillM2eTemplate(new Uint8Array(await tplObj.arrayBuffer()), {
+      corporateId: cidM.value,
+      clientBatchId: ownRefM,
+      payerAccount: accM.value,
+      valueDate: valueDateM,
+    }, m2eRows);
+    await audit(env, user.id, "payroll.m2e_file", "payroll", monthM, { payees: m2eRows.length, total_cents: totalM, skipped: skipped.length, value_date: valueDateM });
+    const headersM: Record<string, string> = {
+      "Content-Type": "application/vnd.ms-excel.sheet.macroEnabled.12",
+      "Content-Disposition": `attachment; filename="azoo-m2e-salary-${monthM}.xlsm"`,
+    };
+    if (skipped.length > 0) headersM["X-M2E-Skipped"] = encodeURIComponent(skipped.join("; "));
+    return new Response(filled, { headers: headersM });
+  }
   if (path === "/payroll/payment-file" && method === "GET") {
     /* v1.4.201 (CEO uploaded the official Maybank2E "RCGEN2 - Funds Transfer"
        template, sheet "Salary Bulk Payment (MY)"): the export now matches that
@@ -3139,44 +3281,9 @@ export async function handleStaff(
     const monthPF = urlPF.searchParams.get("month");
     if (!monthPF || !/^\d{4}-\d{2}$/.test(monthPF)) return err("invalid_input", "month (YYYY-MM) required", 400);
     const vdParam = urlPF.searchParams.get("value_date");
-    /* v1.4.202 (CEO: "payment date is always on 5th, if fall on weekend it
-       will be earlier"): default Value Date = the 5th of the month AFTER the
-       payroll month, shifted BACKWARD to Friday when the 5th is Sat/Sun.
-       (Deliberately opposite to the payslip RELEASE rule, which shifts
-       forward.) ?value_date=YYYY-MM-DD still overrides. */
-    const paymentDateFor = (payMonth: string): string => {
-      const [py, pm] = payMonth.split("-").map(Number);
-      const ny = pm === 12 ? py + 1 : py;
-      const nm = pm === 12 ? 1 : pm + 1;
-      const d = new Date(Date.UTC(ny, nm - 1, 5));
-      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
-      return d.toISOString().slice(0, 10);
-    };
     const vd = vdParam && /^\d{4}-\d{2}-\d{2}$/.test(vdParam) ? vdParam : paymentDateFor(monthPF);
     const [vy, vm, vdd] = vd.split("-");
     const valueDate = `${vdd}${vm}${vy}`; // DDMMYYYY per the template
-    // M2E "Recipient Bank Code" sheet — retail banks with GIRO=Yes. Keyed by
-    // a lowercase fragment matched against the stored bank_name.
-    const M2E_BANKS: [string, string][] = [
-      ["maybank", "MBBEMYKL"], ["malayan banking", "MBBEMYKL"],
-      ["cimb", "CIBBMYKL"], ["public bank", "PBBEMYKL"], ["rhb", "RHBBMYKL"],
-      ["hong leong", "HLBBMYKL"], ["ambank", "ARBKMYKL"],
-      ["bank islam", "BIMBMYKL"], ["muamalat", "BMMBMYKL"],
-      ["bsn", "BSNAMYK1"], ["simpanan nasional", "BSNAMYK1"],
-      ["bank rakyat", "BKRMMYKL"], ["kerjasama rakyat", "BKRMMYKL"],
-      ["agrobank", "AGOBMYKL"], ["pertanian", "AGOBMYKL"],
-      ["affin", "PHBMMYKL"], ["alliance", "MFBBMYKL"],
-      ["al-rajhi", "RJHIMYKL"], ["al rajhi", "RJHIMYKL"],
-      ["mbsb", "AFBQMYKL"], ["ocbc", "OCBCMYKL"], ["uob", "UOVBMYKL"],
-      ["united overseas", "UOVBMYKL"], ["hsbc", "HBMBMYKL"],
-      ["standard chartered", "SCBLMYKX"], ["citibank", "CITIMYKL"],
-      ["kuwait finance", "KFHOMYKL"], ["bank of china", "BKCHMYKL"],
-    ];
-    const bankCode = (name: string): string | null => {
-      const n = name.toLowerCase();
-      for (const [frag, code] of M2E_BANKS) if (n.includes(frag)) return code;
-      return null;
-    };
     const { results: rows } = await env.DB.prepare(
       `SELECT u.full_name, u.name, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
               p.basic_cents, p.commission_cents, p.allowance_cents,

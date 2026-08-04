@@ -3138,11 +3138,25 @@ export function ExpensesPanel() {
                         }}>
                         🔧 Fix discrepancy now (recompute on server)
                       </button>
-                      <a className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
-                        title="Maybank2E salary file — columns match the RCGEN2 template's Salary Bulk Payment (MY) sheet. Paste the data rows into the template at cell A5, upload, one approval pays everyone, then press Mark paid here"
-                        href={`/api/v1/staff/payroll/payment-file?month=${staffPayroll!.month}`} download>
+                      <button type="button"
+                        className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+                        title="Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time ⚙ M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here"
+                        onClick={async () => {
+                          const res = await fetch(`/api/v1/staff/payroll/m2e-file?month=${staffPayroll!.month}`, { credentials: "include" });
+                          if (!res.ok) {
+                            const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+                            showToast("No file", j?.error?.message ?? "M2E file failed — check ⚙ M2E setup in the Payroll tab", "notice");
+                            return;
+                          }
+                          const blob = await res.blob();
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url; a.download = `azoo-m2e-salary-${staffPayroll!.month}.xlsm`; a.click();
+                          URL.revokeObjectURL(url);
+                          showToast("Saved", "M2E workbook downloaded — open, enable macros, generate + upload");
+                        }}>
                         💳 M2E salary file
-                      </a>
+                      </button>
                     </details>
                   )}
                 </div>
