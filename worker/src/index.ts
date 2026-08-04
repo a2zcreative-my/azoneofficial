@@ -452,7 +452,7 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { s
     data?: { orders?: {
       line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number }[];
       recipient_address?: {
-        city?: string; state?: string;
+        city?: string; state?: string; district?: string; town?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
       };
     }[] };
@@ -462,6 +462,8 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { s
   const city = (
     ra?.city ??
     ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
+    // v1.4.190: some region payloads carry only the FLAT district/town keys
+    ra?.district ?? ra?.town ??
     ra?.state ??
     ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
     // v1.4.179: district level, then ANY named area level — still an area,
@@ -470,6 +472,12 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { s
     ra?.district_info?.find((d) => (d.address_name ?? "").trim() !== "")?.address_name ??
     null
   )?.slice(0, 80) ?? null;
+  // v1.4.190 diagnostic (privacy-safe: STRUCTURE only, never values): when a
+  // location still can't be extracted, record which keys/levels TikTok sent
+  // so the unseen regional shape can be added to the chain.
+  if (!city) {
+    await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] levels=[${(ra?.district_info ?? []).map((d) => d.address_level_name ?? "?").join(",")}]`);
+  }
   return { items: groupLineItems(order?.line_items ?? []), city };
 }
 
@@ -750,7 +758,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       packages?: { tracking_number?: string }[];
       line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number; tracking_number?: string }[];
       recipient_address?: {
-        city?: string; state?: string;
+        city?: string; state?: string; district?: string; town?: string;
         district_info?: { address_level_name?: string; address_name?: string }[];
       };
       payment?: { total_amount?: string | number; currency?: string };
@@ -783,6 +791,8 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const cityNow = (
       ra?.city ??
       ra?.district_info?.find((d) => /city|bandar/i.test(d.address_level_name ?? ""))?.address_name ??
+      // v1.4.190: some region payloads carry only the FLAT district/town keys
+      ra?.district ?? ra?.town ??
       ra?.state ??
       ra?.district_info?.find((d) => /state|negeri|province/i.test(d.address_level_name ?? ""))?.address_name ??
       // v1.4.179 (CEO: "why there is a missing location?"): some orders carry
@@ -793,6 +803,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       ra?.district_info?.find((d) => (d.address_name ?? "").trim() !== "")?.address_name ??
       null
     )?.slice(0, 80) ?? null;
+    // v1.4.190 diagnostic (privacy-safe: STRUCTURE only, never values).
+    if (!cityNow) {
+      await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] levels=[${(ra?.district_info ?? []).map((d) => d.address_level_name ?? "?").join(",")}]`);
+    }
     // v1.4.75: order amount in cents for the revenue dashboard. TikTok sends
     // the total as a decimal string; parse defensively, reject nonsense.
     const paidRaw = Number(o.payment?.total_amount);

@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.190] — 2026-08-04 — Johor location fallbacks + diagnostic · Attendance verification scrolls
+
+### Fixed (per the CEO: "location still be able to detect except in Johor. Attendance verification should scrollable")
+- **Location (Johor orders blank)** — the extraction chain gains the remaining FLAT keys some regional payloads use (`district`, `town`) in both the sync and webhook paths. And because a still-blank order means TikTok sent a shape we haven't seen, a privacy-safe diagnostic now records the payload STRUCTURE (key names + district_info level names only — never any values) to the error log whenever no location can be extracted. Press **Sync from TikTok**: either the 📍 appears via the new fallbacks, or the /admin Audit → System health error log will show exactly which keys the Johor payload carries so the chain can be extended precisely.
+- **Attendance verification** — the table now scrolls inside its card (max-h ≈ 28rem) with sticky column subheads per the v1.4.189 standard, instead of stretching the page.
+
 ## [1.4.189] — 2026-08-04 — Sticky subheads in every scrollable table
 
 ### Added (per the CEO: "every subhead will be remain if scrollable")

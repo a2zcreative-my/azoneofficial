@@ -173,8 +173,10 @@ export function HrPanel() {
             </a>
           </div>
         </div>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse">
+        {/* v1.4.190 (CEO): the verification list scrolls inside the card
+            like every other long table — sticky subheads per v1.4.189. */}
+        <div className="mt-4 max-h-[28rem] overflow-x-auto overflow-y-auto">
+          <table className="tbl-sticky w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>Staff</th>
