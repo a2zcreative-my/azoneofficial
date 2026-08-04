@@ -26,6 +26,7 @@ import {
   ExpensesPanel,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const API = "/api/v1";
 
@@ -657,7 +658,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
+  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -2004,7 +2005,7 @@ function LiveEngagementCard() {
                 {have.map(([k, label]) => (
                   <div key={k} className="bg-secondary rounded-lg px-3 py-2">
                     <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">{label}</p>
-                    <p className="text-lg font-bold">{k === "gmv" ? la.metrics![k].toFixed(2) : nf(la.metrics![k])}</p>
+                    <p className="text-lg font-bold">{k === "gmv" ? la.metrics![k]!.toFixed(2) : nf(la.metrics![k]!)}</p>
                   </div>
                 ))}
               </div>

@@ -2139,7 +2139,6 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2452,10 +2451,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) (pr === "hr_admin" ? (anyWaived = true) : missingSkipped.push("HR review"));
-          if (!cl.pre_approved_at) (pr === "coo" ? (anyWaived = true) : missingSkipped.push("COO pre-approval"));
+          if (!cl.hr_reviewed_at) {
+            if (pr === "hr_admin") anyWaived = true;
+            else missingSkipped.push("HR review");
+          }
+          if (!cl.pre_approved_at) {
+            if (pr === "coo") anyWaived = true;
+            else missingSkipped.push("COO pre-approval");
+          }
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          (pr === "cco" ? (anyWaived = true) : missingSkipped.push("CCO pre-approval"));
+          if (pr === "cco") anyWaived = true;
+          else missingSkipped.push("CCO pre-approval");
         }
       }
       if (missingSkipped.length > 0) {
@@ -2993,7 +2999,7 @@ export function ExpensesPanel() {
     }
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
-    const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); })();
+    const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y!, m! - 2, 1)); return d.toISOString().slice(0, 7); })();
     const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${prev}`);
     if (pr.ok && pr.data?.release) {
       setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
@@ -3102,7 +3108,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0].split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
@@ -3172,7 +3178,7 @@ export function ExpensesPanel() {
             ))}
             {upcoming.map((r) => {
               const [yy, mm] = month.split("-").map(Number);
-              const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               return (
                 <div key={`u-${r.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
@@ -3204,7 +3210,7 @@ export function ExpensesPanel() {
             })}
             {rows.filter((r) => r.due_day && !r.paid_at).map((r) => {
               const [yy, mm] = month.split("-").map(Number);
-              const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
               const overdue = todayISO > dueISO;
