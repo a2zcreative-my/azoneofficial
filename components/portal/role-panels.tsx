@@ -819,6 +819,42 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 </tr>
               ))}
             </tbody>
+            {/* v1.4.188 (CEO: "I want to have the total of inventory prices
+                for me to monitor how much that Stock I have for me to clear
+                off"): bold TOTAL — units on hand, value at list price, and
+                value at net (live) after auto rebates (what clearing it on
+                Live would actually bring in). Same footer standard as the
+                stock-out card (v1.4.172). */}
+            <tfoot>
+              {(() => {
+                const tot = sortedItems.reduce(
+                  (a, it) => {
+                    const price = it.unit_price_cents ?? 0;
+                    const net = Math.max(0, price - (it.live_rebate_cents ?? 0));
+                    a.units += it.stock;
+                    a.value += it.stock * price;
+                    a.net += it.stock * net;
+                    return a;
+                  },
+                  { units: 0, value: 0, net: 0 },
+                );
+                return (
+                  <tr className="border-border border-t-2 font-semibold">
+                    <td className={td} colSpan={2}>TOTAL — stock on hand</td>
+                    <td className={td} title="Σ stock × price/unit — the value sitting in stock at list price">
+                      RM {(tot.value / 100).toFixed(2)}
+                    </td>
+                    <td className={td}></td>
+                    <td className={`${td} text-green-700 dark:text-green-400`}
+                      title="Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates">
+                      RM {(tot.net / 100).toFixed(2)}
+                    </td>
+                    <td className={td}>{tot.units}</td>
+                    <td className={td} colSpan={3}></td>
+                  </tr>
+                );
+              })()}
+            </tfoot>
           </table>
         </div>
         </>

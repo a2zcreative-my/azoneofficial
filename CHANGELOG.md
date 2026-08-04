@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.188] — 2026-08-03 — Inventory TOTAL: stock value on hand
+
+### Added (per the CEO: "I want to have the total of inventory prices for me to monitor how much that Stock I have for me to clear off")
+- Bold **TOTAL — stock on hand** footer on the Inventory live-status table (same footer standard as the stock-out card): total units in stock, **value at list price** (Σ stock × price/unit) under Price/unit, and **value at net (live)** in green (Σ stock × (price − auto rebate)) under Net (live) — what clearing everything on TikTok Live would actually bring in. Recomputes live as prices, rebates and stock change. Frontend-only.
+
 ## [1.4.187] — 2026-08-03 — Tab rows flush with card width
 
 ### Fixed (per the CEO: "tabs width was not same with card width")
