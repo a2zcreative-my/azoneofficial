@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.207] — 2026-08-04 — TOTAL rows stay visible while the tables scroll
+
+### Changed (CEO: "can you make the total fit eventho scrolling")
+- globals.css: `.tbl-sticky tfoot td/th` pins to the BOTTOM of the scroll area — the mirror of v1.4.189's sticky subheads, with the same inset-shadow divider (real borders scroll away under border-collapse). Any tbl-sticky table that gains a tfoot inherits it automatically.
+- The TikTok stock-out TOTAL row moved from the end of tbody into a real `<tfoot>` so the rule catches it; the Inventory live-status TOTAL already lived in a tfoot and pins with no markup change. Both cards now show sticky subheads at the top AND the TOTAL at the bottom while the rows scroll between them. Frontend-only.
+
 ## [1.4.206] — 2026-08-04 — Live engagement card removed; today's sales get a trend arrow vs yesterday
 
 ### Removed (CEO: "remove it Live engagement — TikTok since I cant get the API!")

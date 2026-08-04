@@ -943,9 +943,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     <td className={`${tdR2} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
                   </tr>
                 ))}
-                {/* v1.4.171 (CEO): TOTAL row — sums across every item; the
-                    Avg sold @ total is WEIGHTED by units (Σ price×qty ÷ Σ qty),
-                    not a simple average of the row averages. */}
+              </tbody>
+              {/* v1.4.171 (CEO): TOTAL row — sums across every item; the
+                  Avg sold @ total is WEIGHTED by units (Σ price×qty ÷ Σ qty),
+                  not a simple average of the row averages. v1.4.207: moved
+                  into a real tfoot so the sticky-total CSS pins it to the
+                  bottom of the scroll area like the Inventory card. */}
+              <tfoot>
                 {(() => {
                   const sum = (f: (t: TtOut) => number) => ttOut.reduce((a, t) => a + f(t), 0);
                   const today = sum((t) => t.today_qty);
@@ -969,7 +973,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     </tr>
                   );
                 })()}
-              </tbody>
+              </tfoot>
             </table>
           </div>
           </>
