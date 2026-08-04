@@ -1022,7 +1022,14 @@ export default function AdminPage() {
         {tab === "Website" && <SiteEditor />}
         {tab === "Advanced" && <ContentPanel />}
         {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
-        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && <><StaffDirectory canAmend /><div className="mt-6"><HrAdminPanel /></div><div className="mt-6"><StaffPanel /></div></>}
+        {/* v1.4.192: standard multi-card spacing wrapper (was ad-hoc mt-6 divs) */}
+        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && (
+          <div className="space-y-4 md:space-y-6">
+            <StaffDirectory canAmend />
+            <HrAdminPanel />
+            <StaffPanel />
+          </div>
+        )}
         {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
             <SystemHealthCard />

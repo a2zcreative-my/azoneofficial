@@ -650,6 +650,55 @@ export async function handleStaff(
     } catch { /* pre-0056 or best-effort */ }
   };
 
+  /* v1.4.193 (CEO: "insert live GMV into my /portal at dashboard tabs for my
+     staff view their live GMV daily results"): TikTok Live GMV for EVERY
+     staff role — today, this month, and the last 7 days, from order amounts
+     on TT- postage records (returned excluded). When the viewer has live
+     sessions scheduled with an end time, orders landing INSIDE their session
+     windows today are attributed as "during your live" (motivation, not
+     payroll — window-based attribution, EXISTS to avoid double counting). */
+  if (path === "/gmv" && method === "GET") {
+    const base = `FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND order_amount_cents IS NOT NULL`;
+    const today = await env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS c, COUNT(*) AS n ${base}
+       AND date(created_at, '+8 hours') = date('now', '+8 hours')`,
+    ).first<{ c: number; n: number }>();
+    const monthG = await env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS c, COUNT(*) AS n ${base}
+       AND strftime('%Y-%m', created_at, '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`,
+    ).first<{ c: number; n: number }>();
+    const { results: week } = await env.DB.prepare(
+      `SELECT date(created_at, '+8 hours') AS d, COALESCE(SUM(order_amount_cents), 0) AS c, COUNT(*) AS n ${base}
+       AND date(created_at, '+8 hours') >= date('now', '+8 hours', '-6 days')
+       GROUP BY d ORDER BY d DESC`,
+    ).all<{ d: string; c: number; n: number }>();
+    let mine: { c: number; n: number } | null = null;
+    try {
+      const m = await env.DB.prepare(
+        `SELECT COALESCE(SUM(order_amount_cents), 0) AS c, COUNT(*) AS n ${base}
+         AND date(created_at, '+8 hours') = date('now', '+8 hours')
+         AND EXISTS (
+           SELECT 1 FROM live_sessions s
+           WHERE s.host_user_id = ?1 AND s.status != 'cancelled' AND s.end_time IS NOT NULL
+             AND s.session_date = date(postage_records.created_at, '+8 hours')
+             AND strftime('%H:%M', postage_records.created_at, '+8 hours') >= s.start_time
+             AND strftime('%H:%M', postage_records.created_at, '+8 hours') <= s.end_time
+         )`,
+      ).bind(user.id).first<{ c: number; n: number }>();
+      const hasToday = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM live_sessions WHERE host_user_id = ?1 AND status != 'cancelled'
+         AND session_date = date('now', '+8 hours')`,
+      ).bind(user.id).first<{ n: number }>();
+      if ((hasToday?.n ?? 0) > 0) mine = { c: m?.c ?? 0, n: m?.n ?? 0 };
+    } catch { /* pre-0056 — company figures still return */ }
+    return json({
+      today: { cents: today?.c ?? 0, orders: today?.n ?? 0 },
+      month: { cents: monthG?.c ?? 0, orders: monthG?.n ?? 0 },
+      week,
+      my_sessions_today: mine,
+    });
+  }
+
   if (path === "/attendance/ot/pending" && method === "GET") {
     if (!["ceo", "coo", "super_admin", "admin"].includes(user.role)) {
       return err("forbidden", "OT approvals are for the CEO/COO", 403);

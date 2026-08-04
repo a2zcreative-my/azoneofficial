@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.193] — 2026-08-04 — 🔥 Live GMV on the Dashboard for every staff member
+
+### Added (per the CEO: "insert live GMV into my /portal at dashboard tabs for my staff view their live GMV daily results")
+- **GET /staff/gmv** (every staff role): TikTok Live GMV — today's total + order count (gold box), this month, and the last 7 days as daily rows; from order amounts on TT- postage records, returned orders excluded, MYT scoping. When the viewer has a live session scheduled TODAY (v1.4.191 roster, end time set), a green "During your live today" box additionally shows the GMV that landed inside their session window(s) — window-based attribution for motivation, deliberately not a payroll figure; no double counting on overlapping sessions (EXISTS).
+- **LiveGmvCard on the Dashboard**, mounted right under Quick actions for ALL roles, auto-refreshing every 5 minutes — the whole team sees today's live results the moment they open the portal. Uses the theme-independent solid chip palette (amber/green -100/-900) per the v1.4.178 rule.
+
+## [1.4.192] — 2026-08-04 — Card spacing standardized on every multi-card tab
+
+### Fixed (per the CEO: "why the card too close? check all the files ensure that all standardize")
+- The v1.4.191 cards were mounted in bare fragments, so tabs stacking several components had no uniform gap between cards (visible between My attendance and Live session schedule). STANDARD applied everywhere: every multi-card tab wraps in the Profile-style `space-y-4 md:space-y-6` container — /portal Attendance (Attendance + OT approvals + Live schedule + corrections), Sales (Sales + Clients + Customer enquiries), HR (HrPanel + HrAdminPanel), and /admin Staff (StaffDirectory + HrAdminPanel + StaffPanel, previously ad-hoc mt-6 divs). The Attendance component's internal root aligned to the same scale. /admin Audit + Account and /account already followed the standard (verified). Frontend-only.
+
 ## [1.4.191] — 2026-08-04 — Eight gaps closed: OT approvals · enquiry replies · low-stock alerts · live roster · client layer · staff vault · off-site backup · PDPA
 
 ### Added (the CEO's selected gap list, all eight)

@@ -354,6 +354,10 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </p>
       </div>
 
+      {/* v1.4.193 (CEO): daily LIVE GMV for every staff member — right on
+          the Dashboard so the whole team sees today's live results. */}
+      <LiveGmvCard />
+
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
@@ -1002,7 +1006,7 @@ function Attendance({ user }: { user: User }) {
   }, [canReport]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 md:space-y-6">
       {/* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or
           clock out for me to aware"): today's snapshot, refreshed every two
           minutes — missing punches called out on top, then a compact list. */}
@@ -1930,6 +1934,73 @@ interface DocFull {
    enquiries): the business team works those enquiries HERE, not only in
    /admin — newest first, category chips, status select, one-tap WhatsApp /
    email reply. */
+/* v1.4.193 LIVE GMV (CEO: "staff view their live GMV daily results"): 🔥
+   today + this month + last-7-days rows, all staff roles. Hosts with a live
+   session scheduled today additionally see the GMV that landed during
+   their session window(s) — motivation, not payroll. Auto-refresh 5 min. */
+function LiveGmvCard() {
+  interface Gmv {
+    today: { cents: number; orders: number };
+    month: { cents: number; orders: number };
+    week: { d: string; c: number; n: number }[];
+    my_sessions_today: { c: number; n: number } | null;
+  }
+  const [gmv, setGmv] = useState<Gmv | null>(null);
+  useEffect(() => {
+    const load = () => void api<Gmv>(`/gmv`).then((r) => { if (r.ok && r.data) setGmv(r.data); });
+    load();
+    const t = window.setInterval(load, 300_000);
+    return () => window.clearInterval(t);
+  }, []);
+  if (!gmv) return null;
+  const rm2 = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">🔥 Live GMV — TikTok</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Gross merchandise value from TikTok orders (returned orders
+            excluded), Malaysia time. Updates every 5 minutes and on refresh.
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="rounded-lg border border-amber-300 bg-amber-100 px-3 py-2">
+          <p className="text-[11px] font-semibold tracking-wide text-amber-900 uppercase">Today</p>
+          <p className="text-lg font-bold text-amber-900">{rm2(gmv.today.cents)}</p>
+          <p className="text-xs text-amber-900">{gmv.today.orders} order{gmv.today.orders === 1 ? "" : "s"}</p>
+        </div>
+        <div className="bg-secondary rounded-lg px-3 py-2">
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">This month</p>
+          <p className="text-lg font-bold">{rm2(gmv.month.cents)}</p>
+          <p className="text-muted-foreground text-xs">{gmv.month.orders} order{gmv.month.orders === 1 ? "" : "s"}</p>
+        </div>
+        {gmv.my_sessions_today && (
+          <div className="col-span-2 rounded-lg border border-green-300 bg-green-100 px-3 py-2 sm:col-span-1">
+            <p className="text-[11px] font-semibold tracking-wide text-green-900 uppercase">During your live today</p>
+            <p className="text-lg font-bold text-green-900">{rm2(gmv.my_sessions_today.c)}</p>
+            <p className="text-xs text-green-900">{gmv.my_sessions_today.n} order{gmv.my_sessions_today.n === 1 ? "" : "s"} in your session window</p>
+          </div>
+        )}
+      </div>
+      {gmv.week.length > 0 && (
+        <div className="mt-3">
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Last 7 days</p>
+          <div className="mt-1 space-y-0">
+            {gmv.week.map((w) => (
+              <div key={w.d} className="border-border flex items-center justify-between border-b py-1 text-sm last:border-0">
+                <span className="text-muted-foreground text-xs">{w.d.split("-").reverse().join("-")}</span>
+                <span className="text-xs">{w.n} order{w.n === 1 ? "" : "s"} · <span className="font-medium">{rm2(w.c)}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* v1.4.191 OT APPROVALS (CEO gap list): pending day-pairs decided here —
    only approved OT will ever feed payroll. */
 function OtApprovalsCard() {
@@ -3279,22 +3350,28 @@ export default function PortalPage() {
         {tab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
         {tab === "Expenses" && <ExpensesPanel />}
         {tab === "Attendance" && (
-          <>
+          <div className="space-y-4 md:space-y-6">
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) && <OtApprovalsCard />}
             <LiveScheduleCard user={user} />
             {["ceo", "super_admin", "admin"].includes(user.role) && <AttendanceAdminPanel />}
-          </>
+          </div>
         )}
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && SALES_ROLES.includes(user.role) && (<><Sales user={user} /><ClientsCard /><CustomerEnquiriesCard /></>)}
+        {tab === "Sales" && SALES_ROLES.includes(user.role) && (
+          <div className="space-y-4 md:space-y-6">
+            <Sales user={user} />
+            <ClientsCard />
+            <CustomerEnquiriesCard />
+          </div>
+        )}
         {tab === "HR" && (
-          <>
+          <div className="space-y-4 md:space-y-6">
             <HrPanel />
             {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
-          </>
+          </div>
         )}
         {tab === "Payroll" && <PayrollPanel />}
         {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
