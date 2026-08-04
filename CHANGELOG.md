@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.204] — 2026-08-04 — Live engagement card hides itself while the LIVE scope is ungrantable
+
+### Changed (CEO chased the scope through Partner Center + Seller Center; conclusion documented)
+- CONFIRMED: the LIVE analytics scope (package "Live Data", Scope ID 8851204, key `creator.data.live.read.public`) CANNOT be granted through the TikTok Shop **seller** authorization flow. Evidence: (a) Partner Center shows the package Active but Publish → **Available 0 / Unavailable 1**, so it never reaches the published scope set; (b) ELFIA's consent page (fresh Authorize from Seller Center → App store → My apps and incidents) lists exactly seven Shop scopes — Order Information, Fulfillment Basic, Logistics Basic, Global Shop Information, Return & Refund Basic, Shop Authorized Information, Update Delivery Status — and no Live Data. It is a creator-side scope on a Shop-seller app; only TikTok approval can change it.
+- LiveEngagementCard therefore returns null on permission/scope errors instead of rendering a red error block on the CEO's dashboard every day. Other errors (network, missing route) still show their message, so a genuine fault is never silently swallowed. If the scope is ever granted, the card starts rendering again with no code change.
+- Live GMV (LiveGmvCard) is unaffected — it comes from our own order data and needs no TikTok permission.
+- NOTE for any future attempt: the three APIs under that package are Get Live Room Core Stats / GMV Trend / Interactive Trends, which are a DIFFERENT endpoint family from the `shop_lives/overview_performance` call in v1.4.197 — that route would need rewriting to match, not just re-authorizing. Frontend-only.
+
 ## [1.4.203] — 2026-08-04 — 💳 now generates the FILLED Maybank2E workbook itself
 
 ### Added (CEO: "I WANT the button can generate like this files!")

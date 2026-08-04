@@ -1980,6 +1980,19 @@ function LiveEngagementCard() {
   ];
   const nf = (n: number) => n.toLocaleString("en-MY");
   const have = la?.metrics ? LABELS.filter(([k]) => la.metrics![k] !== undefined) : [];
+  /* v1.4.204 (CONFIRMED 04-08-2026): the LIVE analytics scope
+     (creator.data.live.read.public, package "Live Data") CANNOT be granted
+     through the TikTok Shop SELLER authorization flow — the shop's consent
+     page lists only the seven Shop scopes, and Partner Center refuses to
+     publish the package (Publish → Unavailable 1). It is a creator-side
+     scope on a Shop-seller app; only a TikTok support/approval process can
+     change that. So a permission error is EXPECTED, not a fault to shout
+     about: the card hides itself entirely rather than showing a red error
+     block on the CEO's dashboard every single day. Live GMV (LiveGmvCard,
+     from our own order data) is unaffected and needs no TikTok permission.
+     When the scope is ever granted, this simply starts rendering again. */
+  const scopeBlocked = !!la?.error && /scope|permission|denied|not authorized|unauthoriz/i.test(la.error);
+  if (scopeBlocked) return null;
   return (
     <div className={card}>
       <p className="text-sm font-semibold">📊 Live engagement — TikTok</p>
