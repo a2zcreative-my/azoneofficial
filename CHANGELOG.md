@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.196] — 2026-08-04 — Click-to-expand details: the minimalist-view standard
+
+### Added (per the CEO: "by click on the data I can see the details data. if I didnt click on the data then it will hide the details data. this is to minimalist the view. Do check if the other card also need to have this feature and function like globally")
+- New global `DetailsToggle` component (components/ui/details-toggle.tsx): a ▸ one-click disclosure — collapsed by default every visit, click to reveal, click to hide again. THE STANDARD: summary figures, callouts and action forms stay visible; supporting DETAIL/HISTORY lists collapse behind it.
+- Applied across the portal audit: 🔥 Live GMV → "Last 7 days" rows; 👁 Attendance monitor → full per-staff list (the ⚠/⏳ callouts stay); TikTok Orders → order rows (status line + filter counts stay); Supplier returns → history list (summary strip + Record-return form stay); 🛠 Manual stock out → audit records with a live count in the label.
+- Deliberately left always-visible (working surfaces, not detail): Inventory live-status table (has forms + TOTAL), TikTok stock-out performance table, Sales Pipeline, Payroll processing, Attendance verification/corrections. Frontend-only.
+
 ## [1.4.195] — 2026-08-04 — HOTFIX: v1.4.191/193 cards called routes without the /staff prefix
 
 ### Fixed (the CEO's console caught it: GET /api/v1/gmv → 404)

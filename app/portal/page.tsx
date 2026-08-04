@@ -14,6 +14,7 @@ import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
+import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
@@ -1038,7 +1039,10 @@ function Attendance({ user }: { user: User }) {
                 ⏳ Past 18:00 with no clock-out yet: {stillIn.map((s) => firstName(s.name)).join(", ")}
               </p>
             )}
-            <div className="border-border divide-border mt-3 max-h-64 divide-y overflow-y-auto rounded-lg border">
+            {/* v1.4.196 (CEO): summary callouts stay; the full per-staff
+                list hides behind one click — minimalist view */}
+            <DetailsToggle label="Staff list">
+            <div className="border-border divide-border mt-1 max-h-64 divide-y overflow-y-auto rounded-lg border">
               {[...monitor.staff].sort((a, b) => Number(!!a.in_at) - Number(!!b.in_at) || a.name.localeCompare(b.name)).map((st) => (
                 <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm">
                   <span className="min-w-0 flex-1 truncate">
@@ -1056,6 +1060,7 @@ function Attendance({ user }: { user: User }) {
                 </div>
               ))}
             </div>
+            </DetailsToggle>
           </div>
         );
       })()}
@@ -2000,9 +2005,9 @@ function LiveGmvCard() {
           </div>
         )}
       </div>
+      {/* v1.4.196 (CEO): detail rows hide behind one click — minimalist view */}
       {gmv.week.length > 0 && (
-        <div className="mt-3">
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">Last 7 days</p>
+        <DetailsToggle label="Last 7 days">
           <div className="mt-1 space-y-0">
             {gmv.week.map((w) => (
               <div key={w.d} className="border-border flex items-center justify-between border-b py-1 text-sm last:border-0">
@@ -2011,7 +2016,7 @@ function LiveGmvCard() {
               </div>
             ))}
           </div>
-        </div>
+        </DetailsToggle>
       )}
     </div>
   );

@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { DetailsToggle } from "@/components/ui/details-toggle";
 import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -436,7 +437,9 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
           );
         })}
       </div>
-      <div className="mt-3 max-h-72 overflow-y-auto">
+      {/* v1.4.196 (CEO): order rows hide behind one click — minimalist view */}
+      <DetailsToggle label="Show orders">
+      <div className="mt-1 max-h-72 overflow-y-auto">
         {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>}
         {ttOrders.length > 0 && ttOrders.every((o) => ttFilter !== "all" && o.status !== ttFilter) && (
           <p className="text-muted-foreground text-sm">No orders with this status.</p>
@@ -466,6 +469,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
           </div>
         ))}
       </div>
+      </DetailsToggle>
     </div>
   );
 }
@@ -974,7 +978,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         {manualOuts.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">No manual stock outs yet — they appear here the moment one is recorded.</p>
         ) : (
-          <div className="mt-3 max-h-72 space-y-0 overflow-y-auto pr-1">
+          /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
+          <DetailsToggle label={`Show records (${manualOuts.length})`}>
+          <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
             {manualOuts.map((o) => (
               <div key={o.id} className={`border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
                 <span className={`min-w-0 flex-1 truncate ${o.reverted ? "line-through" : ""}`}>
@@ -1035,6 +1041,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               </div>
             ))}
           </div>
+          </DetailsToggle>
         )}
       </div>
 
@@ -1110,7 +1117,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             Record return
           </button>
         </div>
-        <div className="mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-1">
+        {/* v1.4.196 (CEO): the history list hides behind one click — minimalist view */}
+        <DetailsToggle label="Returns history">
+        <div className="mt-1 max-h-72 space-y-1.5 overflow-y-auto pr-1">
           {returns.length === 0 && <p className="text-muted-foreground text-sm">No supplier returns recorded.</p>}
           {returns.map((r) => (
             <div key={r.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0">
@@ -1253,6 +1262,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </div>
           ))}
         </div>
+        </DetailsToggle>
       </div>
 
       <div className="grid items-start gap-4 md:gap-6 lg:grid-cols-2">
