@@ -3139,9 +3139,20 @@ export async function handleStaff(
     const monthPF = urlPF.searchParams.get("month");
     if (!monthPF || !/^\d{4}-\d{2}$/.test(monthPF)) return err("invalid_input", "month (YYYY-MM) required", 400);
     const vdParam = urlPF.searchParams.get("value_date");
-    const vd = vdParam && /^\d{4}-\d{2}-\d{2}$/.test(vdParam)
-      ? vdParam
-      : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    /* v1.4.202 (CEO: "payment date is always on 5th, if fall on weekend it
+       will be earlier"): default Value Date = the 5th of the month AFTER the
+       payroll month, shifted BACKWARD to Friday when the 5th is Sat/Sun.
+       (Deliberately opposite to the payslip RELEASE rule, which shifts
+       forward.) ?value_date=YYYY-MM-DD still overrides. */
+    const paymentDateFor = (payMonth: string): string => {
+      const [py, pm] = payMonth.split("-").map(Number);
+      const ny = pm === 12 ? py + 1 : py;
+      const nm = pm === 12 ? 1 : pm + 1;
+      const d = new Date(Date.UTC(ny, nm - 1, 5));
+      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0, 10);
+    };
+    const vd = vdParam && /^\d{4}-\d{2}-\d{2}$/.test(vdParam) ? vdParam : paymentDateFor(monthPF);
     const [vy, vm, vdd] = vd.split("-");
     const valueDate = `${vdd}${vm}${vy}`; // DDMMYYYY per the template
     // M2E "Recipient Bank Code" sheet — retail banks with GIRO=Yes. Keyed by
@@ -3213,6 +3224,7 @@ export async function handleStaff(
     }
     lines.push("");
     lines.push(`# TOTAL RM ${(totalC / 100).toFixed(2)} across ${payees} payees — paste ONLY the data rows into the M2E template sheet "Salary Bulk Payment (MY)" starting at cell A5 (do NOT paste this header or these # lines).`);
+    lines.push(`# Value Date ${valueDate} = the 5th of the following month, moved earlier when it falls on a weekend (company payment rule). Override with &value_date=YYYY-MM-DD or edit in the template.`);
     lines.push(`# In Excel, account numbers and IC numbers that start with 0 need a leading apostrophe — paste-as-text or format the columns as Text first.`);
     if (missing.length > 0) lines.push(`# MISSING BANK DETAILS (add in Staff Details, then re-download): ${missing.join("; ")}`);
     if (noCode.length > 0) lines.push(`# BANK NOT RECOGNISED — fix the bank name in Staff Details or type the M2E Recipient Bank Code by hand: ${noCode.join("; ")}`);

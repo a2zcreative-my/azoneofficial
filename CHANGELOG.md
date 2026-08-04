@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.202] — 2026-08-04 — Payment file Value Date follows the company payment rule
+
+### Changed (CEO: "they payment date is always on 5th, if fall on weekend it will be earlier")
+- The M2E salary file's default Value Date is no longer "today": it is now the **5th of the month after the payroll month, shifted EARLIER to the Friday before when the 5th falls on a weekend**. July payroll → 05-08-2026 (Wed); August → 04-09-2026 (5 Sep is Saturday); November → 04-12-2026; December → 05-01-2027.
+- This is deliberately the opposite direction from the payslip RELEASE rule (v1.4.82–85, shifted forward) — staff see payslips on/after the day the money moves, never before it's due.
+- `?value_date=YYYY-MM-DD` still overrides, and a # footer line states the computed date + the rule so it's auditable in the file itself. Worker-only.
+
 ## [1.4.201] — 2026-08-04 — Payroll payment file now matches the official Maybank2E RCGEN2 template
 
 ### Changed (CEO uploaded RCGEN2 - M2E Funds Transfer R3 V1.6.xlsm: "this is the format given by Maybank2E for me to make bulk payroll")
