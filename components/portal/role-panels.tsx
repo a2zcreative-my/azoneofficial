@@ -2153,6 +2153,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
+
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2458,7 +2459,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
           if (!cl.hr_reviewed_at) {
-            if (pr === "coo") anyWaived = true; else missingSkipped.push("HR review");
+            if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review");
           }
           if (!cl.pre_approved_at) {
             if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval");

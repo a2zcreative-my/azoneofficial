@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.200] — 2026-08-04 — HOTFIX: Live engagement — TikTok rejects currency=MYR
+
+### Fixed (user: "I already toggle on live data but still not appear!" — card showed TikTok: Currency is invalid, allowed values: USD, LOCAL)
+- MY BUG in v1.4.197: the analytics call sent `currency: "MYR"`, but TikTok's overview_performance endpoint only accepts `USD` or `LOCAL` (LOCAL = the shop's own currency, i.e. MYR for us). Now sends `LOCAL`. The error itself proved the deploy + Analytics scope are fine — TikTok processed the request and complained only about this parameter.
+- Error hint corrected: the "grant the Analytics scope…" suffix now only appears when TikTok's message actually reads like a permission problem; parameter errors show TikTok's message plainly.
+- Errors were never cached (cache stores successes only), so the fix shows on the next card refresh after deploy.
+
 ## [1.4.199] — 2026-08-04 — Sort by clicking the column headers; sort pills removed
 
 ### Changed (per the CEO: "remove sort button, I want to click A to Z or Z to A by the subhead table instead. but need to sort based on the SKU for Inventory … and TikTok Live — stock out based on today hot sales")

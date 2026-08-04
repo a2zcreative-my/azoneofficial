@@ -1808,12 +1808,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const end = new Date(mytNow.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10); // end_date_lt is exclusive
     const start = new Date(mytNow.getTime() - 6 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     const data = (await tiktokSignedFetch(env, "/analytics/202508/shop_lives/overview_performance", {
-      start_date_ge: start, end_date_lt: end, granularity: "1D", account_type: "ALL", currency: "MYR",
+      // v1.4.200: this endpoint only accepts USD or LOCAL — LOCAL = the
+      // shop's own currency (MYR for us). "MYR" itself is rejected.
+      start_date_ge: start, end_date_lt: end, granularity: "1D", account_type: "ALL", currency: "LOCAL",
     })) as { code?: number; message?: string; data?: Record<string, unknown> } | null;
     if (!data) return json({ error: "TikTok connection not configured — connect the shop first." });
     if (typeof data.code === "number" && data.code !== 0) {
-      // Most likely: the Analytics scope isn't granted yet — show TikTok's words.
-      return json({ error: `TikTok: ${data.message ?? "analytics request refused"} — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize.` });
+      // Show TikTok's words; add the scope hint only when it reads like a
+      // permission problem (v1.4.200 — a param error got the wrong hint).
+      const msg = data.message ?? "analytics request refused";
+      const scopeHint = /scope|permission|auth|access/i.test(msg)
+        ? " — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize."
+        : "";
+      return json({ error: `TikTok: ${msg}${scopeHint}` });
     }
     // Tolerant metric extraction: walk the payload for the known metric names
     // wherever TikTok nests them; log the STRUCTURE (keys only) if none found.
