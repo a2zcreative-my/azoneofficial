@@ -2036,9 +2036,16 @@ export async function handleStaff(
   const exPaid = path.match(/^\/expenses\/(\d+)\/paid$/);
   if (exPaid && method === "POST") {
     // v1.4.88: mark an expense paid — the due chip turns into PAID.
+    // v1.4.208 (CEO wants paid/outstanding tracking): now a TOGGLE — body
+    // { paid: false } clears the mark so a misclick is one click to undo.
     if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
-    await env.DB.prepare(`UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`).bind(exPaid[1]).run();
-    await audit(env, user.id, "expense.paid", "expenses", exPaid[1]);
+    const unpay = body?.paid === false;
+    await env.DB.prepare(
+      unpay
+        ? `UPDATE expenses SET paid_at = NULL WHERE id = ?1`
+        : `UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`,
+    ).bind(exPaid[1]).run();
+    await audit(env, user.id, "expense.paid", "expenses", exPaid[1], { paid: !unpay });
     return json({ ok: true });
   }
   if (path === "/expenses" && method === "POST") {

@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.208] — 2026-08-04 — Expenses: paid / outstanding tracking per month
+
+### Added (CEO: "track that I have paid and how many more outstanding for me to clear off … remaining amount for each month")
+- Every expense row gets a green-outline "Mark paid" button; once paid the chip reads "✓ PAID {date}" and the button becomes a subtle "Undo paid" (the /expenses/:id/paid route is now a toggle — body { paid:false } clears the mark, audited either way).
+- Header summary under the month Total: green "Paid RM a · bold amber Outstanding RM b (n to clear)" — outstanding counts unpaid expense rows + the payroll run if not yet Marked paid + approved claims not yet 💸 paid, i.e. the same three components as the Total. When everything is cleared it flips to "✅ All cleared — RM x paid".
+- Payroll and claims keep their existing Mark-paid flows (Payments due card / Claims tab); the summary just reads their state. Worker + frontend; no migrations (paid_at existed since v1.4.88 — the UI never exposed it on rows).
+
 ## [1.4.207] — 2026-08-04 — TOTAL rows stay visible while the tables scroll
 
 ### Changed (CEO: "can you make the total fit eventho scrolling")

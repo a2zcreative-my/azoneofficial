@@ -3304,6 +3304,29 @@ export function ExpensesPanel() {
                 incl. staff payroll {rmc(staffPayroll.cents)} ({staffPayroll.month.split("-").reverse().join("-")}) + expenses {rmc(total)}{staffClaims.in_month.length > 0 ? ` + staff claims ${rmc(staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.in_month.length}, by claim date)` : ""}
               </p>
             )}
+            {/* v1.4.208 (CEO): what's cleared vs what's still to pay this
+                month — across expense rows, the payroll run, and approved
+                claims (each keeps its own Mark paid). */}
+            {(() => {
+              const expPaid = rows.filter((r) => r.paid_at).reduce((a, r) => a + r.amount_cents, 0);
+              const expOutN = rows.filter((r) => !r.paid_at).length;
+              const payrollOut = staffPayroll && staffPayroll.cents > 0 && !staffPayroll.paid_at ? staffPayroll.cents : 0;
+              const claimsOutRows = staffClaims.in_month.filter((c) => !c.paid_at);
+              const claimsOut = claimsOutRows.reduce((a, c) => a + c.amount_cents, 0);
+              const outstanding = (total - expPaid) + payrollOut + claimsOut;
+              const grand = total + (staffPayroll?.cents ?? 0) + staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0);
+              const items = expOutN + (payrollOut > 0 ? 1 : 0) + claimsOutRows.length;
+              return outstanding > 0 ? (
+                <p className="mt-0.5 text-xs">
+                  <span className="font-medium text-green-700">Paid {rmc(grand - outstanding)}</span>
+                  <span className="text-muted-foreground"> · </span>
+                  <span className="font-bold text-amber-700">Outstanding {rmc(outstanding)}</span>
+                  <span className="text-muted-foreground"> ({items} to clear)</span>
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs font-medium text-green-700">✅ All cleared — {rmc(grand)} paid</p>
+              );
+            })()}
           </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
@@ -3362,13 +3385,24 @@ export function ExpensesPanel() {
                   {r.created_by_name ? ` · by ${r.created_by_name}` : ""}
                   {r.recurring === 1 && <span className="ml-1 rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-700">↻</span>}
                   {r.paid_at
-                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 font-semibold text-green-700">PAID</span>
+                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
                       ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>
               <span className="flex items-center gap-2">
+                {/* v1.4.208 (CEO: "track that I have paid and how many more
+                    outstanding … remaining amount I should clear off"):
+                    paid state is set right on the row; Undo covers a
+                    misclick (toggle route). */}
+                {r.paid_at ? (
+                  <button type="button" className="text-muted-foreground text-xs underline" title="Clear the paid mark (misclick)"
+                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({ paid: false }) }); if (res.ok) { showToast("Saved", "Paid mark cleared — back to outstanding"); void load(); } }}>Undo paid</button>
+                ) : (
+                  <button type="button" className="inline-flex h-7 items-center rounded-lg border border-green-700 px-2.5 text-xs font-medium text-green-700" title="Record that this expense has been paid"
+                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({}) }); if (res.ok) { showToast("Saved", "Marked paid ✓"); void load(); } }}>Mark paid</button>
+                )}
                 <button type="button" className="text-xs underline"
                   onClick={() => {
                     setEditId(r.id);
