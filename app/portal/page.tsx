@@ -1946,13 +1946,29 @@ function LiveGmvCard() {
     my_sessions_today: { c: number; n: number } | null;
   }
   const [gmv, setGmv] = useState<Gmv | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
   useEffect(() => {
-    const load = () => void api<Gmv>(`/gmv`).then((r) => { if (r.ok && r.data) setGmv(r.data); });
+    const load = () => void api<Gmv>(`/gmv`).then((r) => {
+      if (r.ok && r.data) { setGmv(r.data); setState("ready"); }
+      else setState("unavailable");
+    });
     load();
     const t = window.setInterval(load, 300_000);
     return () => window.clearInterval(t);
   }, []);
-  if (!gmv) return null;
+  // v1.4.194: never vanish silently — say what's happening instead.
+  if (state !== "ready" || !gmv) {
+    return (
+      <div className={card}>
+        <p className="text-sm font-semibold">🔥 Live GMV — TikTok</p>
+        <p className="text-muted-foreground mt-1 text-sm">
+          {state === "loading"
+            ? "Loading today's live GMV…"
+            : "Live GMV needs the latest server — run the worker deploy from the current release, then refresh."}
+        </p>
+      </div>
+    );
+  }
   const rm2 = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return (
     <div className={card}>

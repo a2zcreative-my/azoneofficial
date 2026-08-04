@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.194] — 2026-08-04 — Live GMV card announces itself
+
+### Fixed (per the CEO: "I didnt see any gmv on the dashboard")
+- The CEO's screenshot was the pre-v1.4.193 build — but the card ALSO rendered nothing while loading or when the worker route was missing, which would have looked identical. It now always shows: "Loading today's live GMV…" while fetching, and a clear "Live GMV needs the latest server — run the worker deploy" line if /gmv isn't there yet, instead of silently vanishing. Frontend-only on top of v1.4.193.
+
 ## [1.4.193] — 2026-08-04 — 🔥 Live GMV on the Dashboard for every staff member
 
 ### Added (per the CEO: "insert live GMV into my /portal at dashboard tabs for my staff view their live GMV daily results")
