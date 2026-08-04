@@ -26,7 +26,7 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 interface ErrRow { id: number; created_at: string; source: string; message: string; path?: string | null }
-interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null }
+interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null }
 
 function myt(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T").replace(/Z?$/, "Z")).getTime() + 8 * 3600 * 1000);
@@ -75,15 +75,40 @@ export function SystemHealthCard() {
               : "No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now."}
           </p>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary disabled:opacity-50"
-          onClick={() => void backupNow()}
-        >
-          Back up now
-        </button>
+        <span className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+            onClick={() => void backupNow()}
+          >
+            Back up now
+          </button>
+          {/* v1.4.191 (CEO gap list): OFF-CLOUDFLARE copy — download the
+              newest backup and keep it OUTSIDE this Cloudflare account
+              (ransomware / account-loss insurance). Quarterly nag below. */}
+          <a
+            className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+            href={`${API}/system/backup/download`}
+            title="Downloads the newest backup file — store it on a drive or another cloud, outside Cloudflare"
+          >
+            ⬇ Off-site copy
+          </a>
+        </span>
       </div>
+      {(() => {
+        const off = health?.last_offsite ? new Date(health.last_offsite + "Z") : null;
+        const days = off ? Math.floor((Date.now() - off.getTime()) / 86400000) : null;
+        return (
+          <p className={`mt-1.5 text-xs ${days === null || days > 90 ? "font-semibold text-amber-700" : "text-muted-foreground"}`}>
+            {days === null
+              ? "No off-site copy has ever been downloaded — take one now and store it outside Cloudflare (quarterly)."
+              : days > 90
+                ? `Last off-site copy ${days} days ago — a quarter has passed, download a fresh one.`
+                : `Last off-site copy ${days} day(s) ago.`}
+          </p>
+        );
+      })()}
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       <div className="mt-3">
         <p className="text-xs font-semibold tracking-wide uppercase">Recent errors</p>

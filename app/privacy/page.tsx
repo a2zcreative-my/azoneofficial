@@ -103,6 +103,46 @@ export default function PrivacyPage() {
           {SITE_CONFIG.address}
         </p>
       </section>
+      {/* v1.4.191 (CEO gap list): the policy covered website visitors and
+          customers but said nothing about STAFF personal data (NRIC, bank
+          accounts, photos, payroll, employment documents) or the customer
+          account portal. Both are now stated. DRAFT wording — part of the
+          lawyer-review pile; PDPA also requires a Bahasa Malaysia version. */}
+      <section>
+        <h2>Customer accounts &amp; enquiries</h2>
+        <p>
+          When you create an account or contact us, we process your name,
+          email address, phone number (if provided), your enquiries and our
+          replies, and order information handled through our live commerce
+          operations. Operational staff see the delivery area only — never
+          your street address.
+        </p>
+      </section>
+
+      <section>
+        <h2>Staff personal data</h2>
+        <p>
+          For employment administration we process staff identification
+          details (including NRIC number), photographs for company ID, bank
+          account details for salary payment, attendance, leave, claims and
+          payroll records, and employment documents such as contracts and
+          offer letters. Access is role-restricted and audit-logged, staff
+          accounts use two-factor authentication, and this data is kept only
+          for as long as employment and statutory record-keeping require.
+        </p>
+      </section>
+
+      <section>
+        <h2>Your PDPA rights</h2>
+        <p>
+          Under the Personal Data Protection Act 2010 you may request access
+          to and correction of your personal data, and withdraw consent to
+          processing (subject to legal and contractual limits). Write to
+          {" "}{CONTACT.email} — we will respond within the timeframes the
+          PDPA prescribes. A Bahasa Malaysia version of this notice is being
+          prepared as the Act requires.
+        </p>
+      </section>
     </PageShell>
   );
 }

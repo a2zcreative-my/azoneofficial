@@ -12,7 +12,7 @@
  *    and phone number. Blood type is retired from both the form and the card.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -730,6 +730,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               ))}
             </div>
             )}
+            {open.has(u.id) && <StaffVault userId={u.id} name={properName(u.name)} />}
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">
                 <p className="text-muted-foreground mb-2 text-xs">
@@ -741,6 +742,93 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           </div>
         );
       })}
+      </div>
+    </div>
+  );
+}
+
+
+/* v1.4.191 STAFF DOCUMENT VAULT + onboarding checklist (CEO gap list):
+   contracts, offer letters and resignation letters finally have a home —
+   R2-backed, indexed, downloadable. The checklist tracks the standard
+   joining steps per staff member. */
+const ONBOARDING_ITEMS: [string, string][] = [
+  ["offer_letter", "Offer letter signed"],
+  ["contract", "Employment contract signed"],
+  ["bank", "Bank details collected"],
+  ["twofa", "2FA enabled"],
+  ["badge", "ID badge printed"],
+  ["groups", "Added to team WhatsApp group"],
+];
+function StaffVault({ userId, name }: { userId: number; name: string }) {
+  interface Doc { id: number; kind: string; label?: string | null; filename?: string | null; size?: number | null; created_at: string; uploaded_by_name?: string | null }
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [onb, setOnb] = useState<Record<string, boolean>>({});
+  const [kind, setKind] = useState("contract");
+  const [loaded, setLoaded] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const load = async () => {
+    const r = await api<{ documents?: Doc[]; onboarding?: Record<string, boolean> }>(`/users/${userId}/documents`);
+    if (r.ok) { setDocs(r.data?.documents ?? []); setOnb(r.data?.onboarding ?? {}); }
+    setLoaded(true);
+  };
+  useEffect(() => { void load(); }, [userId]);
+  const upload = async (f: File) => {
+    await fetch(`${API}/users/${userId}/documents`, {
+      method: "POST", credentials: "include",
+      headers: {
+        "Content-Type": f.type || "application/octet-stream",
+        "X-Doc-Kind": kind, "X-Doc-Filename": f.name,
+      },
+      body: f,
+    });
+    void load();
+  };
+  const toggle = async (key: string) => {
+    const next = { ...onb, [key]: !onb[key] };
+    setOnb(next);
+    await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
+  };
+  if (!loaded) return null;
+  const KIND_LABEL: Record<string, string> = { contract: "Contract", offer_letter: "Offer letter", resignation: "Resignation", other: "Other" };
+  return (
+    <div className="border-border mt-3 rounded-lg border p-3">
+      <p className="text-xs font-semibold">📁 Documents &amp; onboarding — {name}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select className="border-input bg-background rounded border px-2 py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
+          {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-secondary"
+          onClick={() => fileRef.current?.click()}>⬆ Upload document</button>
+        <input ref={fileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ""; }} />
+      </div>
+      {docs.length > 0 && (
+        <div className="mt-2 space-y-0">
+          {docs.map((d) => (
+            <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-xs last:border-0">
+              <span className="min-w-0">
+                <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{KIND_LABEL[d.kind] ?? d.kind}</span>
+                <span className="font-medium">{d.filename ?? d.label ?? "document"}</span>
+                <span className="text-muted-foreground"> · {d.created_at.slice(0, 10).split("-").reverse().join("-")}{d.uploaded_by_name ? ` · by ${properName(d.uploaded_by_name)}` : ""}</span>
+              </span>
+              <span className="flex items-center gap-2">
+                <a className="underline" href={`${API}/staff-documents/${d.id}`}>Download</a>
+                <button type="button" className="text-destructive underline"
+                  onClick={async () => { await api(`/staff-documents/${d.id}`, { method: "DELETE" }); void load(); }}>Delete</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-muted-foreground mt-3 text-[11px] font-semibold tracking-wide uppercase">Onboarding checklist</p>
+      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+        {ONBOARDING_ITEMS.map(([k, l]) => (
+          <label key={k} className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={!!onb[k]} onChange={() => void toggle(k)} />
+            <span className={onb[k] ? "text-muted-foreground line-through" : ""}>{l}</span>
+          </label>
+        ))}
       </div>
     </div>
   );

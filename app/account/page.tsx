@@ -9,7 +9,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 const API = "/api/v1";
 
 interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
-interface Enquiry { id: number; message: string; category?: string | null; status: string; created_at: string }
+interface Enquiry { id: number; message: string; category?: string | null; status: string; reply?: string | null; replied_at?: string | null; created_at: string }
 /* v1.4.181: enquiry categories — mirror the server whitelist. */
 const ENQUIRY_CATS = [
   ["general", "General question"],
@@ -282,6 +282,12 @@ export default function AccountPage() {
           enquiries.map((e) => (
             <div key={e.id} className="border-border border-b py-2 text-sm last:border-0">
               <p>{e.message}</p>
+              {/* v1.4.191: the team's reply, right here in the thread */}
+              {e.reply && (
+                <p className="mt-1.5 rounded border border-green-300 bg-green-100 px-2.5 py-1.5 text-sm text-green-900">
+                  <span className="font-semibold">AZ ONE OFFICIAL replied{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
+                </p>
+              )}
               <p className="text-muted-foreground mt-1 text-xs">
                 {e.category ? <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{CAT_LABEL[e.category] ?? e.category}</span> : null}
                 Status: {e.status} · {dmy(e.created_at)}
@@ -292,6 +298,10 @@ export default function AccountPage() {
       </div>
       </>
       )}
+      {/* v1.4.191: PDPA notice one tap away for customers */}
+      <p className="text-muted-foreground mt-6 pb-2 text-center text-xs">
+        <a className="underline" href="/privacy">Privacy Notice (PDPA)</a>
+      </p>
     </div>
   );
 }

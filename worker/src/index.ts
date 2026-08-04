@@ -969,6 +969,33 @@ export default {
     if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
       await logError(env, "tiktok_cron", res.message);
     }
+    /* v1.4.191 LOW-STOCK SWEEP (CEO gap list): after every sync, alert on
+       items at ≤5 units — protects lives from selling out mid-stream. The
+       low_alerted column stops repeats; recovery above 5 resets it. Covers
+       TikTok deductions; manual movements alert instantly in staff.ts. */
+    try {
+      const { results: lowItems } = await env.DB.prepare(
+        `SELECT id, sku, name, stock, low_alerted FROM inventory_items
+         WHERE stock <= 5 AND (low_alerted IS NULL OR stock < low_alerted)`,
+      ).all<{ id: number; sku: string; name: string; stock: number; low_alerted: number | null }>();
+      if (lowItems.length > 0) {
+        const { results: alertStaff } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('sales_marketing', 'ceo')`,
+        ).all<{ id: number }>();
+        for (const it of lowItems) {
+          const msg = it.stock <= 0 ? `🛑 OUT OF STOCK: ${it.sku} ${it.name}` : `⚠ Low stock: ${it.sku} ${it.name} — ${it.stock} left`;
+          for (const st of alertStaff) {
+            await env.DB.prepare(
+              `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'stock', ?2, ?3)`,
+            ).bind(st.id, msg, `stock:${it.id}`).run();
+          }
+          await env.DB.prepare(`UPDATE inventory_items SET low_alerted = ?1 WHERE id = ?2`).bind(it.stock, it.id).run();
+        }
+      }
+      await env.DB.prepare(`UPDATE inventory_items SET low_alerted = NULL WHERE stock > 5 AND low_alerted IS NOT NULL`).run();
+    } catch (e) {
+      if (!String(e).includes("no such column")) await logError(env, "lowstock_cron", e instanceof Error ? e.message : String(e));
+    }
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -1711,7 +1738,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     let results: unknown[];
     try {
       results = (await env.DB.prepare(
-        `SELECT id, name, company, phone, email, message, category, status, assigned_to, created_at
+        `SELECT id, name, company, phone, email, message, category, status, reply, replied_at, assigned_to, created_at
          FROM enquiries ORDER BY created_at DESC LIMIT 100`,
       ).all()).results;
     } catch {
@@ -1730,14 +1757,56 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const id = path.split("/").pop()!;
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     const allowed = ["new", "contacted", "qualified", "closed"];
-    if (!body || typeof body.status !== "string" || !allowed.includes(body.status)) {
-      return errorResponse("invalid_input", `status must be one of: ${allowed.join(", ")}`, 400);
+    const hasStatus = typeof body?.status === "string" && allowed.includes(body.status);
+    /* v1.4.191 (CEO gap list): IN-APP REPLY — staff answer inside the portal
+       and the customer reads it on /account. Sending a reply auto-marks the
+       enquiry contacted (unless a further status is set in the same call). */
+    const hasReply = typeof body?.reply === "string" && body.reply.trim() !== "";
+    if (!body || (!hasStatus && !hasReply)) {
+      return errorResponse("invalid_input", `Provide reply text and/or status (${allowed.join(", ")})`, 400);
     }
-    await env.DB.prepare(`UPDATE enquiries SET status = ?1 WHERE id = ?2`)
-      .bind(body.status, id)
-      .run();
-    await audit(env, user.id, "enquiry.update_status", "enquiries", id, { status: body.status });
+    if (hasReply) {
+      try {
+        await env.DB.prepare(
+          `UPDATE enquiries SET reply = ?1, replied_by = ?2, replied_at = datetime('now'),
+             status = COALESCE(?3, CASE WHEN status = 'new' THEN 'contacted' ELSE status END)
+           WHERE id = ?4`,
+        ).bind((body.reply as string).trim().slice(0, 2000), user.id, hasStatus ? body.status : null, id).run();
+      } catch (e) {
+        if (String(e).includes("no such column")) return errorResponse("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0055_enquiry_reply)", 500);
+        throw e;
+      }
+    } else {
+      await env.DB.prepare(`UPDATE enquiries SET status = ?1 WHERE id = ?2`).bind(body.status, id).run();
+    }
+    await audit(env, user.id, "enquiry.update_status", "enquiries", id, { ...(hasStatus ? { status: body.status } : {}), ...(hasReply ? { replied: true } : {}) });
     return json({ ok: true });
+  }
+
+  /* v1.4.191 (CEO gap list): OFF-CLOUDFLARE EXPORT — stream the newest R2
+     backup for download so a copy lives OUTSIDE this Cloudflare account
+     (ransomware / account-loss insurance). Records the export moment in
+     system_meta so /admin can nag when a quarter passes. */
+  if (path === "/api/v1/system/backup/download" && method === "GET") {
+    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    const listed = await env.MEDIA.list({ prefix: "backups/" });
+    const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
+    if (!newest) return errorResponse("not_found", "No backup exists yet — press Back up now first", 404);
+    const obj = await env.MEDIA.get(newest.key);
+    if (!obj) return errorResponse("not_found", "Backup object missing", 404);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO system_meta (key, value) VALUES ('last_offsite_export', datetime('now'))
+         ON CONFLICT (key) DO UPDATE SET value = datetime('now')`,
+      ).run();
+    } catch { /* pre-0057 — download still works */ }
+    await audit(env, user.id, "system.backup_export", "system", newest.key);
+    return new Response(obj.body, {
+      headers: {
+        "Content-Type": "application/gzip",
+        "Content-Disposition": `attachment; filename="${newest.key.split("/").pop()}"`,
+      },
+    });
   }
 
   /* ---- system health (v1.4.72): error log + backup status ---- */
@@ -1757,7 +1826,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
       if (newest) last_backup = { key: newest.key, size: newest.size, uploaded: newest.uploaded.toISOString() };
     } catch { /* keep null */ }
-    return json({ errors, last_backup });
+    let last_offsite: string | null = null;
+    try {
+      const meta = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'last_offsite_export'`)
+        .first<{ value: string }>();
+      last_offsite = meta?.value ?? null;
+    } catch { /* pre-0057 */ }
+    return json({ errors, last_backup, last_offsite });
   }
 
   if (path === "/api/v1/system/backup" && method === "POST") {
@@ -1882,9 +1957,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     try {
       results = (await env.DB.prepare(
         verified
-          ? `SELECT id, message, category, status, created_at FROM enquiries
+          ? `SELECT id, message, category, status, reply, replied_at, created_at FROM enquiries
              WHERE email = ?1 ORDER BY created_at DESC LIMIT 50`
-          : `SELECT id, message, category, status, created_at FROM enquiries
+          : `SELECT id, message, category, status, reply, replied_at, created_at FROM enquiries
              WHERE email = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 50`,
       ).bind(...(verified ? [user.email] : [user.email, acct?.created_at ?? ""])).all()).results;
     } catch {

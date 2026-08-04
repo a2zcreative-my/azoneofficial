@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.191] — 2026-08-04 — Eight gaps closed: OT approvals · enquiry replies · low-stock alerts · live roster · client layer · staff vault · off-site backup · PDPA
+
+### Added (the CEO's selected gap list, all eight)
+- **OT approval chain (migration 0054)** — ot_records gains status/decided_by/decided_at/decision_note. New "⏱ Overtime approvals" card on Attendance (CEO/COO + admin tier): completed day-pairs pending decision, Approve/Reject with optional note (reject = branded danger confirm), staff bell-notified either way, self-decision blocked, audited. Only APPROVED OT will feed payroll when the rounding rule lands.
+- **In-app enquiry replies (migration 0055)** — enquiries gain reply/replied_by/replied_at. Staff reply inside the portal's Customer enquiries card ("↩ Reply in-app" / "✎ Update reply"); sending auto-marks new → contacted; the customer reads a green "AZ ONE OFFICIAL replied…" box in their /account thread (reply fields ride both list endpoints, pre-0055 tolerant).
+- **Low-stock alerts (in migration 0056: inventory_items.low_alerted)** — bell notifications to active sales_marketing + the CEO when an item crosses to ≤5 ("⚠ Low stock… N left") or 0 ("🛑 OUT OF STOCK"). Instant on every manual movement (checkLowStock hooked after adjust/out/edit/revert/postage in staff.ts) and swept after each 30-min sync for TikTok deductions; low_alerted stops repeats and resets above 5.
+- **Live session roster (migration 0056: live_sessions)** — "📺 Live session schedule" card on Attendance: managers (ceo/coo/cco/hr_admin/admin tier) schedule date · start–end · platform (tiktok/shopee/other) · host (validated active staff) · client (customers registry or free text) · notes; hosts see their own and are bell-notified on assignment; status scheduled/completed/cancelled; audited.
+- **Client layer** — GET /clients/summary + "🤝 Clients" card on Sales: per-client invoiced total, collected (paid), quotations in play, live sessions scheduled — from sales_documents + the roster, customers registry as the client list.
+- **Staff document vault + onboarding checklist (migration 0057)** — staff_documents (R2 private/staff-docs/) + users.onboarding_json. "📁 Documents & onboarding" inside each staff record's Details: upload (contract/offer letter/resignation/other), download, delete for hr_manage; staff can fetch their own via API. Six-item onboarding checklist persisted per staff member. Binary-body exclusion list extended for the upload route.
+- **Off-Cloudflare backup (in migration 0057: system_meta)** — GET /api/v1/system/backup/download (super admin) streams the newest R2 backup; "⬇ Off-site copy" button on the /admin System health card; the card shows the last export and nags in amber when a quarter passes (or never exported).
+- **PDPA** — the existing /privacy policy covered website visitors only; added Customer accounts & enquiries, Staff personal data (NRIC, bank, photos, payroll, employment documents; role-restricted, audit-logged, 2FA) and PDPA rights sections — marked DRAFT for the lawyer pile, BM version noted as required. Linked from the /account footer and the staff Profile tab.
+
 ## [1.4.190] — 2026-08-04 — Johor location fallbacks + diagnostic · Attendance verification scrolls
 
 ### Fixed (per the CEO: "location still be able to detect except in Johor. Attendance verification should scrollable")

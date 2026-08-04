@@ -268,7 +268,7 @@ export async function handleStaff(
   // it consumed the stream, which is why every claim receipt upload failed
   // (the R2 put received a disturbed body). Both binary routes are excluded.
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof") && !path.endsWith("/documents")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -620,6 +620,238 @@ export async function handleStaff(
      approval. Part-time staff (the live hosts) are not eligible, enforced here
      and hidden in the UI. Requires today's clock-in (you can't OT a day you
      never worked), and OT out requires today's OT in. One of each per day. */
+
+  /* v1.4.191 OT APPROVAL CHAIN (CEO's gap list): OT day-pairs are decided
+     by management — approvers = ceo/coo + admin tier. Only APPROVED OT will
+     ever feed payroll. Decisions bell-notify the staff member. */
+  /* v1.4.191 LOW-STOCK ALERTS: when an item's stock crosses to ≤5 (or drops
+     further while low), bell-notify sales_marketing + the CEO once — the
+     low_alerted column remembers the level already alerted at and resets
+     when stock recovers above 5. Called from manual adjusts here and from
+     the sync/cron sweep in index.ts. */
+  const checkLowStock = async (itemId: number) => {
+    try {
+      const it = await env.DB.prepare(`SELECT sku, name, stock, low_alerted FROM inventory_items WHERE id = ?1`)
+        .bind(itemId).first<{ sku: string; name: string; stock: number; low_alerted: number | null }>();
+      if (!it) return;
+      if (it.stock > 5) {
+        if (it.low_alerted != null) await env.DB.prepare(`UPDATE inventory_items SET low_alerted = NULL WHERE id = ?1`).bind(itemId).run();
+        return;
+      }
+      if (it.low_alerted != null && it.stock >= it.low_alerted) return; // already alerted at this level or lower
+      const { results: staffRows } = await env.DB.prepare(
+        `SELECT id FROM users WHERE is_active = 1 AND role IN ('sales_marketing', 'ceo')`,
+      ).all<{ id: number }>();
+      const msg = it.stock <= 0
+        ? `🛑 OUT OF STOCK: ${it.sku} ${it.name}`
+        : `⚠ Low stock: ${it.sku} ${it.name} — ${it.stock} left`;
+      for (const st of staffRows) await notify(env, st.id, "stock", msg, `stock:${itemId}`);
+      await env.DB.prepare(`UPDATE inventory_items SET low_alerted = ?1 WHERE id = ?2`).bind(it.stock, itemId).run();
+    } catch { /* pre-0056 or best-effort */ }
+  };
+
+  if (path === "/attendance/ot/pending" && method === "GET") {
+    if (!["ceo", "coo", "super_admin", "admin"].includes(user.role)) {
+      return err("forbidden", "OT approvals are for the CEO/COO", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT o.user_id, u.name, date(o.created_at, '+8 hours') AS d, o.status,
+                MIN(CASE WHEN o.type = 'ot_in'  THEN strftime('%H:%M', o.created_at, '+8 hours') END) AS ot_in,
+                MAX(CASE WHEN o.type = 'ot_out' THEN strftime('%H:%M', o.created_at, '+8 hours') END) AS ot_out
+         FROM ot_records o JOIN users u ON u.id = o.user_id
+         GROUP BY o.user_id, d
+         HAVING o.status = 'pending' AND ot_out IS NOT NULL
+         ORDER BY d DESC LIMIT 100`,
+      ).all();
+      return json({ pending: results });
+    } catch (e) {
+      if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0054_ot_approval)", 500);
+      throw e;
+    }
+  }
+  if (path === "/attendance/ot/decide" && method === "POST") {
+    if (!["ceo", "coo", "super_admin", "admin"].includes(user.role)) {
+      return err("forbidden", "OT approvals are for the CEO/COO", 403);
+    }
+    const uid = Number(body?.user_id); const day = typeof body?.date === "string" ? body.date : "";
+    const decision = body?.decision === "approved" ? "approved" : body?.decision === "rejected" ? "rejected" : null;
+    if (!uid || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !decision) {
+      return err("invalid_input", "user_id, date (YYYY-MM-DD) and decision (approved/rejected) required", 400);
+    }
+    if (uid === user.id) return err("forbidden", "You cannot decide your own OT", 403);
+    const note = typeof body?.note === "string" ? body.note.slice(0, 300) : null;
+    const r = await env.DB.prepare(
+      `UPDATE ot_records SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3
+       WHERE user_id = ?4 AND date(created_at, '+8 hours') = ?5 AND status = 'pending'`,
+    ).bind(decision, user.id, note, uid, day).run();
+    if ((r.meta?.changes ?? 0) === 0) return err("not_found", "No pending OT punches for that day", 404);
+    await notify(env, uid, "ot", `Your overtime on ${day.split("-").reverse().join("-")} was ${decision}${note ? ` — ${note}` : ""}`, `ot:${day}`);
+    await audit(env, user.id, "ot.decide", "users", String(uid), { date: day, decision });
+    return json({ ok: true });
+  }
+
+  /* v1.4.191 LIVE SESSION ROSTER: which host, which client, which platform,
+     what slot — the schedule a live commerce agency runs on. Managers =
+     ceo/coo/cco/hr_admin + admin tier; hosts see their own. */
+  if (path === "/live-sessions" && method === "GET") {
+    const mgr = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
+    try {
+      const { results } = await env.DB.prepare(
+        mgr
+          ? `SELECT s.*, u.name AS host_name, c.company AS client_company
+             FROM live_sessions s JOIN users u ON u.id = s.host_user_id
+             LEFT JOIN customers c ON c.id = s.client_id
+             WHERE s.session_date >= date('now', '+8 hours', '-14 days')
+             ORDER BY s.session_date, s.start_time LIMIT 200`
+          : `SELECT s.*, u.name AS host_name, c.company AS client_company
+             FROM live_sessions s JOIN users u ON u.id = s.host_user_id
+             LEFT JOIN customers c ON c.id = s.client_id
+             WHERE s.host_user_id = ?1 AND s.session_date >= date('now', '+8 hours', '-14 days')
+             ORDER BY s.session_date, s.start_time LIMIT 100`,
+      ).bind(...(mgr ? [] : [user.id])).all();
+      return json({ sessions: results, manager: mgr });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0056_live_sessions)", 500);
+      throw e;
+    }
+  }
+  if (path === "/live-sessions" && method === "POST") {
+    if (!["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)) {
+      return err("forbidden", "Session scheduling is for management", 403);
+    }
+    const d = typeof body?.session_date === "string" ? body.session_date : "";
+    const st = typeof body?.start_time === "string" ? body.start_time : "";
+    const host = Number(body?.host_user_id);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(st) || !host) {
+      return err("invalid_input", "session_date, start_time and host_user_id are required", 400);
+    }
+    const hostRow = await env.DB.prepare(`SELECT name, role, is_active FROM users WHERE id = ?1`)
+      .bind(host).first<{ name: string; role: string; is_active: number }>();
+    if (!hostRow || !hostRow.is_active || ["customer", "super_admin", "admin"].includes(hostRow.role)) {
+      return err("invalid_input", "Host must be an active staff member", 400);
+    }
+    const platform = ["tiktok", "shopee", "other"].includes(String(body?.platform)) ? String(body?.platform) : "tiktok";
+    const clientId = Number(body?.client_id) || null;
+    const res = await env.DB.prepare(
+      `INSERT INTO live_sessions (session_date, start_time, end_time, platform, client_id, client_name, host_user_id, notes, created_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
+    ).bind(
+      d, st,
+      typeof body?.end_time === "string" && /^\d{2}:\d{2}$/.test(body.end_time) ? body.end_time : null,
+      platform, clientId,
+      typeof body?.client_name === "string" && body.client_name.trim() ? body.client_name.trim().slice(0, 120) : null,
+      host,
+      typeof body?.notes === "string" ? body.notes.slice(0, 500) : null,
+      user.id,
+    ).first<{ id: number }>();
+    await notify(env, host, "live", `📺 Live session assigned: ${d.split("-").reverse().join("-")} ${st} (${platform})`, `live:${res?.id}`);
+    await audit(env, user.id, "live.schedule", "users", String(host), { date: d, start: st, platform });
+    return json({ ok: true, id: res?.id }, 201);
+  }
+  {
+    const mLS = path.match(/^\/live-sessions\/(\d+)$/);
+    if (mLS && method === "PATCH") {
+      if (!["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)) {
+        return err("forbidden", "Session scheduling is for management", 403);
+      }
+      const st = ["scheduled", "completed", "cancelled"].includes(String(body?.status)) ? String(body?.status) : null;
+      if (!st) return err("invalid_input", "status must be scheduled/completed/cancelled", 400);
+      await env.DB.prepare(`UPDATE live_sessions SET status = ?1 WHERE id = ?2`).bind(st, mLS[1]).run();
+      await audit(env, user.id, "live.status", "live_sessions", mLS[1]!, { status: st });
+      return json({ ok: true });
+    }
+  }
+
+  /* v1.4.191 STAFF DOCUMENT VAULT + onboarding checklist. Vault: contracts /
+     offer letters / resignation letters into R2 (private/staff-docs/), index
+     in staff_documents. Upload/delete = hr_manage; each staff member can
+     list + download their OWN documents. */
+  {
+    const mDoc = path.match(/^\/users\/(\d+)\/documents$/);
+    if (mDoc && method === "GET") {
+      const uidD = Number(mDoc[1]);
+      if (!can(user, "hr_manage") && user.id !== uidD) return err("forbidden", "Not your documents", 403);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT d.id, d.kind, d.label, d.filename, d.size, d.created_at, u.name AS uploaded_by_name
+           FROM staff_documents d LEFT JOIN users u ON u.id = d.uploaded_by
+           WHERE d.user_id = ?1 ORDER BY d.created_at DESC`,
+        ).bind(uidD).all();
+        let onboarding: Record<string, boolean> = {};
+        try {
+          const ob = await env.DB.prepare(`SELECT onboarding_json FROM users WHERE id = ?1`)
+            .bind(uidD).first<{ onboarding_json: string | null }>();
+          onboarding = ob?.onboarding_json ? (JSON.parse(ob.onboarding_json) as Record<string, boolean>) : {};
+        } catch { /* pre-0057 */ }
+        return json({ documents: results, onboarding });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0057_staff_docs_vault)", 500);
+        throw e;
+      }
+    }
+    if (mDoc && method === "POST") {
+      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      if (!request.body) return err("invalid_input", "File body required", 400);
+      const ctD = request.headers.get("Content-Type") ?? "application/octet-stream";
+      const kindD = ["contract", "offer_letter", "resignation", "other"].includes(request.headers.get("X-Doc-Kind") ?? "") ? request.headers.get("X-Doc-Kind")! : "other";
+      const fnameD = (request.headers.get("X-Doc-Filename") ?? "document").slice(0, 160);
+      const labelD = (request.headers.get("X-Doc-Label") ?? "").slice(0, 160) || null;
+      const keyD = `private/staff-docs/${mDoc[1]}-${Date.now()}-${fnameD.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+      await env.MEDIA.put(keyD, request.body, { httpMetadata: { contentType: ctD } });
+      const head = await env.MEDIA.head(keyD);
+      await env.DB.prepare(
+        `INSERT INTO staff_documents (user_id, kind, label, r2_key, filename, size, uploaded_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(mDoc[1], kindD, labelD, keyD, fnameD, head?.size ?? null, user.id).run();
+      await audit(env, user.id, "staff.document_upload", "users", mDoc[1]!, { kind: kindD, filename: fnameD });
+      return json({ ok: true }, 201);
+    }
+  }
+  {
+    const mDocOne = path.match(/^\/staff-documents\/(\d+)$/);
+    if (mDocOne && method === "GET") {
+      const row = await env.DB.prepare(`SELECT user_id, r2_key, filename FROM staff_documents WHERE id = ?1`)
+        .bind(mDocOne[1]).first<{ user_id: number; r2_key: string; filename: string | null }>();
+      if (!row) return err("not_found", "Document not found", 404);
+      if (!can(user, "hr_manage") && user.id !== row.user_id) return err("forbidden", "Not your document", 403);
+      const obj = await env.MEDIA.get(row.r2_key);
+      if (!obj) return err("not_found", "File missing from storage", 404);
+      return new Response(obj.body, {
+        headers: {
+          "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${(row.filename ?? "document").replace(/"/g, "")}"`,
+        },
+      });
+    }
+    if (mDocOne && method === "DELETE") {
+      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      const row = await env.DB.prepare(`SELECT r2_key FROM staff_documents WHERE id = ?1`)
+        .bind(mDocOne[1]).first<{ r2_key: string }>();
+      if (!row) return err("not_found", "Document not found", 404);
+      try { await env.MEDIA.delete(row.r2_key); } catch { /* best effort */ }
+      await env.DB.prepare(`DELETE FROM staff_documents WHERE id = ?1`).bind(mDocOne[1]).run();
+      await audit(env, user.id, "staff.document_delete", "staff_documents", mDocOne[1]!);
+      return json({ ok: true });
+    }
+  }
+  {
+    const mChk = path.match(/^\/users\/(\d+)\/onboarding$/);
+    if (mChk && method === "POST") {
+      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      const items = body?.items;
+      if (typeof items !== "object" || items === null) return err("invalid_input", "items object required", 400);
+      try {
+        await env.DB.prepare(`UPDATE users SET onboarding_json = ?1 WHERE id = ?2`)
+          .bind(JSON.stringify(items).slice(0, 4000), mChk[1]).run();
+      } catch (e) {
+        if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0057_staff_docs_vault)", 500);
+        throw e;
+      }
+      await audit(env, user.id, "staff.onboarding", "users", mChk[1]!);
+      return json({ ok: true });
+    }
+  }
 
   if (path === "/attendance/ot" && method === "POST") {
     const otTypes = ["ot_in", "ot_out"];
@@ -2046,6 +2278,32 @@ export async function handleStaff(
 
   /* ---- CRM customers ---- */
 
+  /* v1.4.191 CLIENT LAYER (CEO gap list): per-client view for an agency —
+     the customers registry IS the client list; this summary joins invoiced /
+     paid totals from sales docs and scheduled live sessions per client. */
+  if (path === "/clients/summary" && method === "GET") {
+    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT c.id, c.company, c.name, c.phone, c.email,
+              (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoices,
+              (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoiced_cents,
+              (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid') AS paid_cents,
+              (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations
+       FROM customers c
+       WHERE c.company != 'Walk-in Customer'
+       ORDER BY invoiced_cents DESC, c.company LIMIT 200`,
+    ).all();
+    // live-session counts ride along when 0056 is applied
+    let sessions: Record<string, number> = {};
+    try {
+      const { results: sess } = await env.DB.prepare(
+        `SELECT client_id, COUNT(*) AS n FROM live_sessions WHERE client_id IS NOT NULL AND status != 'cancelled' GROUP BY client_id`,
+      ).all<{ client_id: number; n: number }>();
+      sessions = Object.fromEntries(sess.map((r) => [String(r.client_id), r.n]));
+    } catch { /* pre-0056 */ }
+    return json({ clients: results, sessions });
+  }
+
   if (path === "/customers" && (method === "GET" || method === "POST")) {
     if (method === "GET" ? !can(user, "sales") && !can(user, "exec_view") : !can(user, "sales")) {
       return err("forbidden", "Sales access required", 403);
@@ -3135,6 +3393,7 @@ export async function handleStaff(
       } catch {
         return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0050_manual_out_lifecycle)", 500);
       }
+      await checkLowStock(row.item_id); // v1.4.191 (recovery resets the alert)
       await audit(env, user.id, "inventory.manual_out_revert", "manual_stockouts", String(row.id),
         { qty: row.qty, unit_sale_cents: row.unit_sale_cents, sale_removed: !!sid });
       return json({ ok: true, stock: back });
@@ -3219,6 +3478,7 @@ export async function handleStaff(
     } catch {
       return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0050_manual_out_lifecycle)", 500);
     }
+    await checkLowStock(row.item_id); // v1.4.191
     await audit(env, user.id, "inventory.manual_out_edit", "manual_stockouts", String(row.id), {
       from: { qty: row.qty, unit_sale_cents: row.unit_sale_cents, out_date: row.out_date ?? null },
       to: { qty: qtyF, unit_sale_cents: saleF, out_date: dateF },
@@ -3346,6 +3606,7 @@ export async function handleStaff(
       throw e;
     }
     await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
+      await checkLowStock(Number(invMatch[1]));
     return json({ ok: true });
   }
   /* v1.4.162 (CEO): fix a wrongly inserted item — edit SKU/name, or delete
@@ -3505,6 +3766,7 @@ export async function handleStaff(
         `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
       ).bind(l.id).run();
       await audit(env, user.id, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, order: body.order_ref as string });
+      await checkLowStock(l.id); // v1.4.191
     }
     await audit(env, user.id, "postage.create", "postage_records", String(rec?.id), { lines: lines.length });
     return json({ ok: true, id: rec?.id }, 201);
@@ -3539,6 +3801,7 @@ export async function handleStaff(
                updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
           ).bind(l.qty, user.id, l.inventory_item_id).run();
           await audit(env, user.id, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: "returned" });
+      await checkLowStock(Number(l.inventory_item_id));
         }
         if (lines.length > 0) {
           await env.DB.prepare(`UPDATE postage_records SET restocked = 1 WHERE id = ?1`).bind(postMatch[1]).run();
@@ -3638,6 +3901,7 @@ export async function handleStaff(
     }
     await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1],
       saleC !== null ? { qty: Math.abs(delta), unit_sale_cents: saleC, total_cents: Math.abs(delta) * saleC, manual_sale: true, remark } : { qty: Math.abs(delta), remark });
+    await checkLowStock(Number(invAdjust[1])); // v1.4.191
     return json({ ok: true, stock: newStock, status: stockStatus(newStock), sale_recorded: saleC !== null });
   }
 

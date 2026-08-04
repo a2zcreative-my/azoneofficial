@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -1232,9 +1233,9 @@ function canActOnStage(role: string, stage: string, applicantRole: string): bool
    date, pre-approver name/signature/date, CEO full name + signature + date
    on approval, MYT everywhere, footer pinned to the A4 bottom, one page. */
 /** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
-function Sub({ t, children }: { t: string; children: ReactNode }) {
+function Sub({ t, children, className = "" }: { t: string; children: ReactNode; className?: string }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
       {children}
     </label>
@@ -1929,8 +1930,227 @@ interface DocFull {
    enquiries): the business team works those enquiries HERE, not only in
    /admin — newest first, category chips, status select, one-tap WhatsApp /
    email reply. */
+/* v1.4.191 OT APPROVALS (CEO gap list): pending day-pairs decided here —
+   only approved OT will ever feed payroll. */
+function OtApprovalsCard() {
+  interface Pend { user_id: number; name: string; d: string; ot_in: string | null; ot_out: string | null }
+  const [pending, setPending] = useState<Pend[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
+  const load = async () => {
+    const r = await api<{ pending?: Pend[] }>(`/attendance/ot/pending`);
+    if (r.ok) setPending(r.data?.pending ?? []);
+    setLoaded(true);
+  };
+  useEffect(() => { void load(); }, []);
+  const decide = async (p: Pend, decision: "approved" | "rejected") => {
+    if (decision === "rejected" && !(await otConfirm({
+      title: "Reject this overtime?",
+      message: `${properName(p.name)} — ${p.d.split("-").reverse().join("-")} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`,
+      confirmLabel: "Reject OT", variant: "danger",
+    }))) return;
+    await api(`/attendance/ot/decide`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: p.user_id, date: p.d, decision, note: note[`${p.user_id}:${p.d}`] || undefined }),
+    });
+    void load();
+  };
+  if (!loaded || pending.length === 0) return <>{otConfirmNode}</>;
+  const dur = (p: Pend) => {
+    if (!p.ot_in || !p.ot_out) return "";
+    const [h1, m1] = p.ot_in.split(":").map(Number); const [h2, m2] = p.ot_out.split(":").map(Number);
+    const mins = (h2! * 60 + m2!) - (h1! * 60 + m1!);
+    return mins > 0 ? ` · ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m` : "";
+  };
+  return (
+    <div className={card}>
+      {otConfirmNode}
+      <p className="text-sm font-semibold">⏱ Overtime approvals</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Completed OT day-pairs awaiting a decision. Only APPROVED overtime
+        will count when OT feeds payroll. The staff member is notified of
+        every decision.
+      </p>
+      <div className="mt-3 space-y-0">
+        {pending.map((p) => (
+          <div key={`${p.user_id}:${p.d}`} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+            <span className="min-w-0">
+              <span className="font-medium">{properName(p.name)}</span>{" "}
+              <span className="text-muted-foreground text-xs">{p.d.split("-").reverse().join("-")} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder="Note (optional)"
+                value={note[`${p.user_id}:${p.d}`] ?? ""}
+                onChange={(e) => setNote((n) => ({ ...n, [`${p.user_id}:${p.d}`]: e.target.value }))} />
+              <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
+                onClick={() => void decide(p, "approved")}>Approve</button>
+              <button type="button" className="text-destructive rounded border border-border px-2 py-0.5 text-xs"
+                onClick={() => void decide(p, "rejected")}>Reject</button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* v1.4.191 LIVE SESSION ROSTER (CEO gap list): which host, which client,
+   which platform, what slot. Managers schedule; hosts see their own and are
+   bell-notified on assignment. */
+function LiveScheduleCard({ user }: { user: User }) {
+  interface Sess { id: number; session_date: string; start_time: string; end_time?: string | null; platform: string; client_company?: string | null; client_name?: string | null; host_user_id: number; host_name: string; notes?: string | null; status: string }
+  interface Opt { id: number; name?: string | null; company?: string | null; role?: string }
+  const manager = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
+  const [sessions, setSessions] = useState<Sess[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [hosts, setHosts] = useState<Opt[]>([]);
+  const [clients, setClients] = useState<Opt[]>([]);
+  const [draft, setDraft] = useState({ session_date: "", start_time: "", end_time: "", platform: "tiktok", client_id: "", client_name: "", host_user_id: "", notes: "" });
+  const load = async () => {
+    const r = await api<{ sessions?: Sess[] }>(`/live-sessions`);
+    if (r.ok) setSessions(r.data?.sessions ?? []);
+    setLoaded(true);
+  };
+  useEffect(() => {
+    void load();
+    if (manager) {
+      void api<{ users?: Opt[] }>(`/users`).then((r) => {
+        if (r.ok) setHosts((r.data?.users ?? []).filter((u) => !["customer", "super_admin", "admin"].includes(u.role ?? "")));
+      });
+      void api<{ customers?: Opt[] }>(`/customers`).then((r) => {
+        if (r.ok) setClients((r.data?.customers ?? []).filter((c) => (c.company ?? "") !== "Walk-in Customer"));
+      });
+    }
+  }, [manager]);
+  const create = async () => {
+    if (!draft.session_date || !draft.start_time || !draft.host_user_id) return;
+    await api(`/live-sessions`, {
+      method: "POST",
+      body: JSON.stringify({
+        session_date: draft.session_date, start_time: draft.start_time,
+        end_time: draft.end_time || undefined, platform: draft.platform,
+        client_id: draft.client_id ? Number(draft.client_id) : undefined,
+        client_name: draft.client_name || undefined,
+        host_user_id: Number(draft.host_user_id), notes: draft.notes || undefined,
+      }),
+    });
+    setDraft({ session_date: "", start_time: "", end_time: "", platform: "tiktok", client_id: "", client_name: "", host_user_id: "", notes: "" });
+    void load();
+  };
+  const setStatus = async (id: number, status: string) => {
+    await api(`/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    void load();
+  };
+  if (!loaded) return null;
+  if (!manager && sessions.length === 0) return null;
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📺 Live session schedule</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        {manager
+          ? "The roster: which host goes live for which client, on which platform, at what slot. Hosts are bell-notified when assigned."
+          : "Your upcoming live sessions — you are notified when a new one is assigned to you."}
+      </p>
+      {manager && (
+        <div className="mt-3 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+          <Sub t="Date"><input type="date" className={inputClass} value={draft.session_date} onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} /></Sub>
+          <Sub t="Start"><input type="time" className={inputClass} value={draft.start_time} onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} /></Sub>
+          <Sub t="End (optional)"><input type="time" className={inputClass} value={draft.end_time} onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} /></Sub>
+          <Sub t="Platform">
+            <select className={inputClass} value={draft.platform} onChange={(e) => setDraft((d) => ({ ...d, platform: e.target.value }))}>
+              {["tiktok", "shopee", "other"].map((pf) => <option key={pf} value={pf}>{pf}</option>)}
+            </select>
+          </Sub>
+          <Sub t="Host">
+            <select className={inputClass} value={draft.host_user_id} onChange={(e) => setDraft((d) => ({ ...d, host_user_id: e.target.value }))}>
+              <option value="">Select host…</option>
+              {hosts.map((h) => <option key={h.id} value={h.id}>{properName(h.name ?? "")}</option>)}
+            </select>
+          </Sub>
+          <Sub t="Client">
+            <select className={inputClass} value={draft.client_id} onChange={(e) => setDraft((d) => ({ ...d, client_id: e.target.value }))}>
+              <option value="">— unregistered / see note —</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
+            </select>
+          </Sub>
+          <Sub t="Notes (optional)" className="col-span-2 sm:max-w-64 sm:flex-1">
+            <input className={inputClass} placeholder="e.g. Raya campaign, product focus" value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+          </Sub>
+          <button type="button" className={`${btnClass} col-span-2 sm:col-span-1`} onClick={() => void create()}>Schedule</button>
+        </div>
+      )}
+      {sessions.length === 0 ? (
+        <p className="text-muted-foreground mt-3 text-sm">No sessions scheduled.</p>
+      ) : (
+        <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
+          {sessions.map((sn) => (
+            <div key={sn.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+              <span className="min-w-0">
+                <span className="font-medium">{sn.session_date.split("-").reverse().join("-")}</span>{" "}
+                <span className="text-muted-foreground">{sn.start_time}{sn.end_time ? `–${sn.end_time}` : ""}</span>{" "}
+                <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{sn.platform}</span>{" "}
+                <span>{properName(sn.host_name)}</span>
+                {(sn.client_company ?? sn.client_name) && <span className="text-muted-foreground text-xs"> · {sn.client_company ?? sn.client_name}</span>}
+                {sn.notes && <span className="text-muted-foreground block text-xs">{sn.notes}</span>}
+              </span>
+              {manager ? (
+                <select className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]" value={sn.status}
+                  onChange={(e) => void setStatus(sn.id, e.target.value)}>
+                  {["scheduled", "completed", "cancelled"].map((st) => <option key={st} value={st}>{st}</option>)}
+                </select>
+              ) : (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sn.status === "cancelled" ? "bg-red-100 text-red-900" : sn.status === "completed" ? "bg-secondary" : "bg-green-100 text-green-900"}`}>{sn.status}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* v1.4.191 CLIENT LAYER (CEO gap list): per-client agency view — invoiced /
+   paid / quotations / live sessions per client, from the customers registry. */
+function ClientsCard() {
+  interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
+  const [clients, setClients] = useState<Cl[]>([]);
+  const [sessions, setSessions] = useState<Record<string, number>>({});
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/clients/summary`).then((r) => {
+      if (r.ok) { setClients(r.data?.clients ?? []); setSessions(r.data?.sessions ?? {}); }
+      setLoaded(true);
+    });
+  }, []);
+  if (!loaded || clients.length === 0) return null;
+  const rm2 = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">🤝 Clients</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Per-client view from your sales documents and the live roster —
+        invoiced, collected, quotations in play and sessions scheduled.
+      </p>
+      <div className="mt-3 max-h-80 space-y-0 overflow-y-auto pr-1">
+        {clients.map((c) => (
+          <div key={c.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+            <span className="min-w-0 font-medium">{c.company}</span>
+            <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
+              <span title="Invoiced total (all INV)">{rm2(c.invoiced_cents)} invoiced</span>
+              <span className="font-medium text-green-700" title="Collected (paid invoices)">{rm2(c.paid_cents)} paid</span>
+              <span title="Quotations issued">{c.quotations} QT</span>
+              <span title="Live sessions scheduled (not cancelled)">{sessions[String(c.id)] ?? 0} live</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CustomerEnquiriesCard() {
-  interface Enq { id: number; name: string; company?: string | null; phone?: string | null; email: string; message: string; category?: string | null; status: string; created_at: string }
+  interface Enq { id: number; name: string; company?: string | null; phone?: string | null; email: string; message: string; category?: string | null; status: string; reply?: string | null; replied_at?: string | null; created_at: string }
   const [enqs, setEnqs] = useState<Enq[]>([]);
   const [loaded, setLoaded] = useState(false);
   const CAT: Record<string, string> = {
@@ -1950,6 +2170,19 @@ function CustomerEnquiriesCard() {
       method: "PATCH", credentials: "include",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
     });
+    void load();
+  };
+  // v1.4.191: in-app reply — the customer reads it on /account.
+  const [replyDraft, setReplyDraft] = useState<Record<number, string>>({});
+  const [replyOpen, setReplyOpen] = useState<number | null>(null);
+  const sendReply = async (id: number) => {
+    const text = (replyDraft[id] ?? "").trim();
+    if (!text) return;
+    await fetch(`/api/v1/enquiries/${id}`, {
+      method: "PATCH", credentials: "include",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reply: text }),
+    });
+    setReplyOpen(null); setReplyDraft((d) => ({ ...d, [id]: "" }));
     void load();
   };
   if (!loaded) return null;
@@ -1985,6 +2218,25 @@ function CustomerEnquiriesCard() {
                 </span>
               </div>
               <p className="text-muted-foreground mt-1 text-xs">{e.message}</p>
+              {e.reply && (
+                <p className="mt-1 rounded border border-green-300 bg-green-100 px-2 py-1 text-xs text-green-900">
+                  ↩ Replied{e.replied_at ? ` ${mytDateTime(e.replied_at)} MYT` : ""}: {e.reply}
+                </p>
+              )}
+              {replyOpen === e.id ? (
+                <span className="mt-1 flex items-center gap-1.5">
+                  <input className="border-input bg-background min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+                    placeholder="Write the reply the customer will see on /account…"
+                    value={replyDraft[e.id] ?? ""}
+                    onChange={(ev) => setReplyDraft((d) => ({ ...d, [e.id]: ev.target.value }))} />
+                  <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-1 text-xs font-medium"
+                    onClick={() => void sendReply(e.id)}>Send</button>
+                  <button type="button" className="text-xs underline" onClick={() => setReplyOpen(null)}>Cancel</button>
+                </span>
+              ) : (
+                <button type="button" className="mt-1 text-xs underline"
+                  onClick={() => setReplyOpen(e.id)}>{e.reply ? "✎ Update reply" : "↩ Reply in-app"}</button>
+              )}
               <p className="text-muted-foreground mt-0.5 text-[10px]">{e.email} · {mytDateTime(e.created_at)} MYT</p>
             </div>
           ))}
@@ -3029,13 +3281,15 @@ export default function PortalPage() {
         {tab === "Attendance" && (
           <>
             <Attendance user={user} />
+            {["ceo", "coo", "super_admin", "admin"].includes(user.role) && <OtApprovalsCard />}
+            <LiveScheduleCard user={user} />
             {["ceo", "super_admin", "admin"].includes(user.role) && <AttendanceAdminPanel />}
           </>
         )}
         {tab === "Leave" && <Leave user={user} />}
         {tab === "Tasks" && <Tasks user={user} />}
         {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && SALES_ROLES.includes(user.role) && (<><Sales user={user} /><CustomerEnquiriesCard /></>)}
+        {tab === "Sales" && SALES_ROLES.includes(user.role) && (<><Sales user={user} /><ClientsCard /><CustomerEnquiriesCard /></>)}
         {tab === "HR" && (
           <>
             <HrPanel />
@@ -3053,6 +3307,11 @@ export default function PortalPage() {
             <Profile />
             <MyPayslip />
             <TwoFactorPanel />
+            {/* v1.4.191: staff read how their personal data (NRIC, bank,
+                photos, payroll) is handled — PDPA notice */}
+            <p className="text-muted-foreground text-center text-xs">
+              <a className="underline" href="/privacy" target="_blank" rel="noopener noreferrer">How your personal data is handled — Privacy Notice (PDPA)</a>
+            </p>
           </div>
         )}
       </main>
