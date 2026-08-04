@@ -300,10 +300,11 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
      credentials and are never asked for nor stored. */
   const [m2eCid, setM2eCid] = useState("");
   const [m2eAcc, setM2eAcc] = useState("");
+  const [m2eCbid, setM2eCbid] = useState("");
   const [m2eHasTpl, setM2eHasTpl] = useState<boolean | null>(null);
   const loadM2e = useCallback(async () => {
-    const r = await api<{ corporate_id?: string; payer_account?: string; has_template?: boolean }>(`/payroll/m2e-settings`);
-    if (r.ok) { setM2eCid(r.data?.corporate_id ?? ""); setM2eAcc(r.data?.payer_account ?? ""); setM2eHasTpl(!!r.data?.has_template); }
+    const r = await api<{ corporate_id?: string; payer_account?: string; client_batch_id?: string; has_template?: boolean }>(`/payroll/m2e-settings`);
+    if (r.ok) { setM2eCid(r.data?.corporate_id ?? ""); setM2eAcc(r.data?.payer_account ?? ""); setM2eCbid(r.data?.client_batch_id ?? ""); setM2eHasTpl(!!r.data?.has_template); }
   }, []);
   useEffect(() => { void loadM2e(); }, [loadM2e]);
   const downloadM2e = async () => {
@@ -324,7 +325,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   };
   const saveM2eSettings = async () => {
     const r = await api<{ error?: { message?: string } }>(`/payroll/m2e-settings`, {
-      method: "POST", body: JSON.stringify({ corporate_id: m2eCid, payer_account: m2eAcc }),
+      method: "POST", body: JSON.stringify({ corporate_id: m2eCid, payer_account: m2eAcc, client_batch_id: m2eCbid }),
     });
     if (r.ok) showToast("Saved", "M2E settings stored — the 💳 button now fills them into every file");
     else showToast("No changes", r.data?.error?.message ?? "Save failed", "notice");
@@ -632,7 +633,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {!readOnly && (
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
-            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc ? "⚠ incomplete: 💳 needs this" : "complete"}
+            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
           </summary>
           <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
             <p className="text-muted-foreground">
@@ -643,6 +644,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                 <span className="text-muted-foreground">Corporate ID</span>
                 <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
                   placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Client Batch ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
+                  placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
+                  onChange={(e) => setM2eCbid(e.target.value)} />
               </label>
               <label className="block">
                 <span className="text-muted-foreground">Payer account no</span>
@@ -663,7 +670,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               </label>
             </div>
             <p className="text-muted-foreground">
-              Then 💳 downloads the template already filled: Home sheet (Corporate ID, batch ID AZOO{"{"}MM{"}"}{"{"}YYYY{"}"}, payer account, value date = 5th or the Friday before) + all salary rows from row 5. Open → enable macros → generate → upload → approve → Mark paid.
+              Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
             </p>
           </div>
         </details>

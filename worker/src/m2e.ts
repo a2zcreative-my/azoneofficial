@@ -21,6 +21,7 @@ export interface M2eRow {
   mode: string;        // A  IT | IG
   valueDate: string;   // B  DDMMYYYY
   name: string;        // C  ≤40
+  faveCode: string;    // D  Favourite Recipient Code ("" to skip)
   amount: number;      // E  RM
   account: string;     // F  digits
   bankCode: string;    // G  e.g. MBBEMYKL
@@ -260,7 +261,8 @@ export async function fillM2eTemplate(template: Uint8Array, home: M2eHome, rows:
       { col: "O", text: r.recipientDesc },
       { col: "Q", text: r.payerDesc },
     ];
-    if (r.newIc) vals.splice(6, 0, { col: "J", text: r.newIc });
+    if (r.faveCode) vals.push({ col: "D", text: r.faveCode });
+    if (r.newIc) vals.push({ col: "J", text: r.newIc });
     salCells.set(rn, vals);
   });
   salEntry.data = te.encode(patchSheetXml(td.decode(salEntry.data), salCells));

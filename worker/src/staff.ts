@@ -2211,43 +2211,47 @@ export async function handleStaff(
     // v1.4.156 (CEO: "show today sales to motivate my Sales team") — same
     // bases as the monthly figures, scoped to today in Malaysia time.
     const todayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const tiktokToday = env.DB.prepare(
+    // v1.4.206 (CEO: trend arrow vs yesterday): same four channel bases,
+    // scoped to yesterday MYT, summed into one comparable number.
+    const yesterdayMYT = new Date(Date.now() + 8 * 3600 * 1000 - 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const tiktokDay = (d: string) => env.DB.prepare(
       `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents, COUNT(*) AS orders
        FROM postage_records
        WHERE order_ref LIKE 'TT-%' AND status != 'returned'
          AND date(created_at, '+8 hours') = ?1`,
-    ).bind(todayMYT).first<{ cents: number; orders: number }>();
-    const invoicedToday = env.DB.prepare(
+    ).bind(d).first<{ cents: number; orders: number }>();
+    const invoicedDay = (d: string) => env.DB.prepare(
       `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
        FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'
          AND date(COALESCE(paid_at, created_at), '+8 hours') = ?1`,
-    ).bind(todayMYT).first<{ cents: number; docs: number }>();
-    const otherToday = env.DB.prepare(
+    ).bind(d).first<{ cents: number; docs: number }>();
+    const otherDay = (d: string) => env.DB.prepare(
       `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents
        FROM postage_records
        WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned'
          AND date(created_at, '+8 hours') = ?1`,
-    ).bind(todayMYT).first<{ cents: number }>();
-    const manualToday = (async () => {
+    ).bind(d).first<{ cents: number }>();
+    const manualDay = async (d: string) => {
       try {
         return await env.DB.prepare(
           `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
            WHERE (CASE WHEN out_date IS NOT NULL THEN out_date
                        ELSE date(created_at, '+8 hours') END) = ?1`,
-        ).bind(todayMYT).first<{ cents: number }>();
+        ).bind(d).first<{ cents: number }>();
       } catch {
         try {
           return await env.DB.prepare(
             `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
              WHERE date(created_at, '+8 hours') = ?1`,
-          ).bind(todayMYT).first<{ cents: number }>();
+          ).bind(d).first<{ cents: number }>();
         } catch { return { cents: 0 }; }
       }
-    })();
-    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday] = await Promise.all([
+    };
+    const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday, tYest, iYest, oYest, mYest] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
-      targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokToday, invoicedToday,
-      otherPostage(month), otherPostage(lastMonth), manualSales(month), manualSales(lastMonth), otherToday, manualToday,
+      targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokDay(todayMYT), invoicedDay(todayMYT),
+      otherPostage(month), otherPostage(lastMonth), manualSales(month), manualSales(lastMonth), otherDay(todayMYT), manualDay(todayMYT),
+      tiktokDay(yesterdayMYT), invoicedDay(yesterdayMYT), otherDay(yesterdayMYT), manualDay(yesterdayMYT),
     ]);
     return json({
       month, last_month: lastMonth, next_month: nextMonth,
@@ -2256,6 +2260,10 @@ export async function handleStaff(
         tiktok_cents: tToday?.cents ?? 0, tiktok_orders: tToday?.orders ?? 0,
         invoiced_cents: iToday?.cents ?? 0, invoiced_docs: iToday?.docs ?? 0,
         other_cents: oToday?.cents ?? 0, manual_cents: mToday?.cents ?? 0, // v1.4.169
+      },
+      yesterday: { // v1.4.206: one comparable all-channel number for the trend arrow
+        date: yesterdayMYT,
+        total_cents: (tYest?.cents ?? 0) + (iYest?.cents ?? 0) + (oYest?.cents ?? 0) + (mYest?.cents ?? 0),
       },
       tiktok: { this_cents: tThis?.cents ?? 0, this_orders: tThis?.orders ?? 0, last_cents: tLast?.cents ?? 0, last_orders: tLast?.orders ?? 0 },
       invoiced: { this_cents: iThis?.cents ?? 0, this_docs: iThis?.docs ?? 0, last_cents: iLast?.cents ?? 0, last_docs: iLast?.docs ?? 0 },
@@ -3164,16 +3172,19 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const cid = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_corporate_id'`).first<{ value: string }>();
     const acc = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_payer_account'`).first<{ value: string }>();
+    const cbid = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_client_batch_id'`).first<{ value: string }>();
     const tpl = await env.MEDIA.head(M2E_TEMPLATE_KEY);
-    return json({ corporate_id: cid?.value ?? "", payer_account: acc?.value ?? "", has_template: tpl !== null });
+    return json({ corporate_id: cid?.value ?? "", payer_account: acc?.value ?? "", client_batch_id: cbid?.value ?? "", has_template: tpl !== null });
   }
   if (path === "/payroll/m2e-settings" && method === "POST") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const cid = String(body?.corporate_id ?? "").trim().toUpperCase().slice(0, 20);
     const acc = String(body?.payer_account ?? "").replace(/[^0-9]/g, "").slice(0, 20);
-    if (!cid || !acc) return err("invalid_input", "corporate_id and payer_account required", 400);
+    const cbid = String(body?.client_batch_id ?? "").trim().toUpperCase().slice(0, 20);
+    if (!cid || !acc || !cbid) return err("invalid_input", "corporate_id, client_batch_id and payer_account required", 400);
     await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('m2e_corporate_id', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(cid).run();
     await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('m2e_payer_account', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(acc).run();
+    await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('m2e_client_batch_id', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(cbid).run();
     await audit(env, user.id, "payroll.m2e_settings", "payroll", "m2e", {});
     return json({ ok: true });
   }
@@ -3208,22 +3219,28 @@ export async function handleStaff(
     if (!tplObj) return err("template_missing", "Upload the blank M2E template once via M2E setup", 409);
     const cidM = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_corporate_id'`).first<{ value: string }>();
     const accM = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_payer_account'`).first<{ value: string }>();
-    if (!cidM?.value || !accM?.value) return err("settings_missing", "Save Corporate ID + payer account once via M2E setup", 409);
+    const cbidM = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_client_batch_id'`).first<{ value: string }>();
+    if (!cidM?.value || !accM?.value || !cbidM?.value) return err("settings_missing", "Save Corporate ID, Client Batch ID + payer account once via M2E setup", 409);
     const vdP = urlM.searchParams.get("value_date");
     const vdM = vdP && /^\d{4}-\d{2}-\d{2}$/.test(vdP) ? vdP : paymentDateFor(monthM);
     const [my, mm, md] = vdM.split("-");
     const valueDateM = `${md}${mm}${my}`;
     const { results: rowsM } = await env.DB.prepare(
-      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
+      `SELECT u.full_name, u.name, u.employee_id, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
               p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 AND u.is_active = 1
          AND u.role NOT IN ('customer', 'super_admin')
        ORDER BY u.name`,
-    ).bind(monthM).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    ).bind(monthM).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
     const [yM, moM] = monthM.split("-");
-    const ownRefM = `AZOO${moM}${yM}`;
+    /* v1.4.205 (his real working batch, screenshots): Own Ref is UNIQUE per
+       row — PAYROLL + value date as MMDDYY + 2-digit row number
+       (PAYROLL08052601..05 for value date 05082026). Favourite Recipient
+       Code = the staff employee_id (AZOOM002, AZOOA001, …) — he registered
+       his M2E favourites under the portal's employee IDs. */
+    const refBase = `PAYROLL${vdM.slice(5, 7)}${vdM.slice(8, 10)}${vdM.slice(2, 4)}`;
     const descM = `SALARY ${moM}-${yM}`;
     const skipped: string[] = [];
     const m2eRows: M2eRow[] = [];
@@ -3237,11 +3254,12 @@ export async function handleStaff(
         mode: code === "MBBEMYKL" ? "IT" : "IG",
         valueDate: valueDateM,
         name: (r.full_name || r.name).toUpperCase().replace(/[^A-Z0-9 @\/\-.]/g, " ").slice(0, 40).trim(),
+        faveCode: (r.employee_id ?? "").toUpperCase(),
         amount: net / 100,
         account: r.bank_account.replace(/[^0-9]/g, ""),
         bankCode: code,
         newIc: (r.ic_number ?? "").replace(/[^0-9]/g, ""),
-        ownRef: ownRefM,
+        ownRef: `${refBase}${String(m2eRows.length + 1).padStart(2, "0")}`,
         recipientDesc: descM,
         payerDesc: descM,
       });
@@ -3250,7 +3268,7 @@ export async function handleStaff(
     if (m2eRows.length === 0) return err("no_payees", `No payable rows for ${monthM}${skipped.length ? ` (missing bank details/code: ${skipped.join("; ")})` : ""}`, 409);
     const filled = await fillM2eTemplate(new Uint8Array(await tplObj.arrayBuffer()), {
       corporateId: cidM.value,
-      clientBatchId: ownRefM,
+      clientBatchId: cbidM.value,
       payerAccount: accM.value,
       valueDate: valueDateM,
     }, m2eRows);
@@ -3285,18 +3303,19 @@ export async function handleStaff(
     const [vy, vm, vdd] = vd.split("-");
     const valueDate = `${vdd}${vm}${vy}`; // DDMMYYYY per the template
     const { results: rows } = await env.DB.prepare(
-      `SELECT u.full_name, u.name, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
+      `SELECT u.full_name, u.name, u.employee_id, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
               p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 AND u.is_active = 1
          AND u.role NOT IN ('customer', 'super_admin')
        ORDER BY u.name`,
-    ).bind(monthPF).all<{ full_name: string | null; name: string; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    ).bind(monthPF).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
     const missing: string[] = [];
     const noCode: string[] = [];
     const [yPF, mPF] = monthPF.split("-");
-    const ownRef = `AZOO${mPF}${yPF}`;
+    // v1.4.205: Own Ref unique per row — PAYROLL + value date MMDDYY + seq
+    const refBasePF = `PAYROLL${vd.slice(5, 7)}${vd.slice(8, 10)}${vd.slice(2, 4)}`;
     const desc = `SALARY ${mPF}-${yPF}`;
     const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
     // Header mirrors the template's row 4 (cols A..Q) so column alignment can
@@ -3323,8 +3342,8 @@ export async function handleStaff(
       const mode = code === "MBBEMYKL" ? "IT" : "IG"; // payer account is Maybank
       const ic = (r.ic_number ?? "").replace(/[^0-9]/g, "");
       lines.push([
-        mode, valueDate, cell(nm), "", (net / 100).toFixed(2), acct, code ?? "FILL-IN",
-        "", "", ic, "", "", "", ownRef, cell(desc), "", cell(desc),
+        mode, valueDate, cell(nm), (r.employee_id ?? "").toUpperCase(), (net / 100).toFixed(2), acct, code ?? "FILL-IN",
+        "", "", ic, "", "", "", `${refBasePF}${String(payees + 1).padStart(2, "0")}`, cell(desc), "", cell(desc),
       ].join(","));
       totalC += net;
       payees += 1;

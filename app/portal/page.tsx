@@ -359,10 +359,6 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           the Dashboard so the whole team sees today's live results. */}
       <LiveGmvCard />
 
-      {/* v1.4.197 (CEO, LIVE Center screenshots): engagement metrics from
-          TikTok's official analytics API — needs the Analytics scope. */}
-      <LiveEngagementCard />
-
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
@@ -440,6 +436,7 @@ interface RevenueData {
   month: string;
   last_month: string;
   today?: { date: string; tiktok_cents: number; tiktok_orders: number; invoiced_cents: number; invoiced_docs: number; other_cents?: number; manual_cents?: number };
+  yesterday?: { date: string; total_cents: number };  // v1.4.206 trend arrow
   other?: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };  // v1.4.169 non-TikTok shipments
   manual?: { this_cents: number; this_units: number; last_cents: number; last_units: number };   // v1.4.169 manual sales
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
@@ -506,6 +503,15 @@ function SalesRevenueCard({ role }: { role?: string }) {
                 {(rev.today.manual_cents ?? 0) > 0 ? ` · manual sales ${rm(rev.today.manual_cents ?? 0)}` : ""}
                 {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
               </p>
+              {/* v1.4.206 (CEO: "compare yesterday sales by telling the
+                  staff it is either arrow uptrend or downtrend") */}
+              {rev.yesterday && (todayTotal > 0 || rev.yesterday.total_cents > 0) && (() => {
+                const y = rev.yesterday!.total_cents;
+                const d = todayTotal - y;
+                if (d > 0) return <p className="mt-1 text-xs font-semibold text-green-700">▲ Uptrend — {rm(d)} above yesterday ({rm(y)})</p>;
+                if (d < 0) return <p className="mt-1 text-xs font-semibold text-red-600">▼ Downtrend — {rm(-d)} below yesterday ({rm(y)})</p>;
+                return <p className="text-muted-foreground mt-1 text-xs font-semibold">— level with yesterday ({rm(y)})</p>;
+              })()}
             </div>
           );
         })()}
@@ -1953,83 +1959,15 @@ interface DocFull {
    official /analytics shop_lives endpoint. Honest states: TikTok's own
    error verbatim while the Data & Insights (Analytics) scope is missing.
    LIVE Rewards (diamonds) is creator-side and NOT in the Shop API. */
-function LiveEngagementCard() {
-  interface La {
-    metrics?: Record<string, number>;
-    range?: { start: string; end: string };
-    fetched_at_myt?: string;
-    error?: string;
-  }
-  const [la, setLa] = useState<La | null>(null);
-  useEffect(() => {
-    // NOTE (v1.4.195 lesson): this route lives directly at /api/v1 in the
-    // worker — deliberately NO /staff prefix here.
-    const load = () => void api<La>(`/live-analytics`).then((r) => {
-      if (r.ok && r.data) setLa(r.data);
-      else setLa({ error: "Live engagement needs the latest server — run the worker deploy, then refresh." });
-    });
-    load();
-    const t = window.setInterval(load, 300_000);
-    return () => window.clearInterval(t);
-  }, []);
-  const LABELS: [string, string][] = [
-    ["views", "Views"], ["unique_viewers", "Unique viewers"], ["impressions", "LIVE impressions"],
-    ["likes", "Likes"], ["comments", "Comments"], ["shares", "Shares"],
-    ["new_followers", "New followers"], ["units_sold", "Items sold"], ["sku_orders", "SKU orders"],
-    ["unique_buyers", "Buyers"], ["live_count", "LIVE sessions"], ["gmv", "Attr. GMV (RM)"],
-  ];
-  const nf = (n: number) => n.toLocaleString("en-MY");
-  const have = la?.metrics ? LABELS.filter(([k]) => la.metrics![k] !== undefined) : [];
-  /* v1.4.204 (CONFIRMED 04-08-2026): the LIVE analytics scope
-     (creator.data.live.read.public, package "Live Data") CANNOT be granted
-     through the TikTok Shop SELLER authorization flow — the shop's consent
-     page lists only the seven Shop scopes, and Partner Center refuses to
-     publish the package (Publish → Unavailable 1). It is a creator-side
-     scope on a Shop-seller app; only a TikTok support/approval process can
-     change that. So a permission error is EXPECTED, not a fault to shout
-     about: the card hides itself entirely rather than showing a red error
-     block on the CEO's dashboard every single day. Live GMV (LiveGmvCard,
-     from our own order data) is unaffected and needs no TikTok permission.
-     When the scope is ever granted, this simply starts rendering again. */
-  const scopeBlocked = !!la?.error && /scope|permission|denied|not authorized|unauthoriz/i.test(la.error);
-  if (scopeBlocked) return null;
-  return (
-    <div className={card}>
-      <p className="text-sm font-semibold">📊 Live engagement — TikTok</p>
-      {!la && <p className="text-muted-foreground mt-1 text-sm">Loading live engagement…</p>}
-      {la?.error && <p className="text-muted-foreground mt-1 text-sm">{la.error}</p>}
-      {la && !la.error && (
-        <>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            Last 7 days from TikTok&apos;s LIVE analytics (attribution is
-            TikTok&apos;s own, so Attr. GMV can differ slightly from the order
-            figures above). Rewards/diamonds are creator-side and not
-            available via the Shop API.
-            {la.fetched_at_myt ? ` Updated ${la.fetched_at_myt} MYT.` : ""}
-          </p>
-          {have.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">
-              No engagement data returned yet — after your next LIVE ends,
-              this fills in on the next refresh.
-            </p>
-          ) : (
-            <DetailsToggle label={`Show metrics (${have.length})`}>
-              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {have.map(([k, label]) => (
-                  <div key={k} className="bg-secondary rounded-lg px-3 py-2">
-                    <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">{label}</p>
-                    <p className="text-lg font-bold">{k === "gmv" ? la.metrics![k]!.toFixed(2) : nf(la.metrics![k]!)}</p>
-                  </div>
-                ))}
-              </div>
-            </DetailsToggle>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
+/* v1.4.206 (CEO: "remove it Live engagement — TikTok since I cant get the
+   API!"): LiveEngagementCard REMOVED entirely. The LIVE analytics scope
+   (creator.data.live.read.public) is not grantable to a Shop-seller app —
+   confirmed 04-08-2026 via Partner Center (Publish → Unavailable) and the
+   shop's consent page (7 Shop scopes only). The worker route
+   /api/v1/live-analytics stays dormant and harmless; if TikTok ever grants
+   the scope via support ticket, rebuild the card against the Live Room
+   Core Stats / GMV Trend / Interactive Trends endpoints (different family
+   from the one previously coded). */
 function LiveGmvCard() {
   interface Gmv {
     today: { cents: number; orders: number };

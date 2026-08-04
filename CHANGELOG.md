@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.206] — 2026-08-04 — Live engagement card removed; today's sales get a trend arrow vs yesterday
+
+### Removed (CEO: "remove it Live engagement — TikTok since I cant get the API!")
+- LiveEngagementCard deleted from the Dashboard entirely (v1.4.204's conditional hide still let non-scope errors through, e.g. TikTok "Internal error"). A tombstone comment in page.tsx records why and how to rebuild if TikTok ever grants the scope; the worker route /api/v1/live-analytics stays dormant and harmless.
+
+### Added (CEO: "compare yesterday sales by telling the staff it is either arrow uptrend or downtrend")
+- GET /staff/revenue now also returns `yesterday: { date, total_cents }` — the same four channel bases (TikTok orders, payments received, other shipments, manual sales) scoped to yesterday MYT and summed into one comparable number. The day-scoped queries were generalised to take a date instead of being hard-bound to today.
+- The 🔥 Today box shows the trend under the channel line: green "▲ Uptrend — RM x above yesterday (RM y)", red "▼ Downtrend — RM x below yesterday (RM y)", or a neutral "level with yesterday". Hidden only when both days are zero. Worker + frontend; no migrations.
+
+## [1.4.205] — 2026-08-04 — M2E file matches the CEO's real working batch exactly
+
+### Changed (CEO's screenshots of a real generated batch: "one click download and upload without touch up")
+- Favourite Recipient Code (col D) now auto-fills from each staff member's **Employee ID** (AZOOM002, AZOOA001, …) — his M2E favourite recipients are registered under the portal's employee IDs, so no new data entry is needed anywhere.
+- Own Ref (col N) is now **unique per row**: `PAYROLL{MMDDYY of value date}{01,02,…}` — e.g. PAYROLL08052601…05 for value date 05082026 — matching his working batch instead of one shared reference.
+- Client Batch ID is now a stored setting (his batch uses MYAONOF1D, not a generated value): new field in ⚙ M2E setup, saved to system_meta, filled into the Home sheet on every download. Setup counts as incomplete until it's saved.
+- CSV fallback updated to the same columns/refs so both formats agree. Verified against the real template: Home + all five rows byte-match his screenshots (ref↔person pairing may differ since rows sort by name — refs only need to be unique within the batch). Worker + frontend; no migrations.
+
 ## [1.4.204] — 2026-08-04 — Live engagement card hides itself while the LIVE scope is ungrantable
 
 ### Changed (CEO chased the scope through Partner Center + Seller Center; conclusion documented)
