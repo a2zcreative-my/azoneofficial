@@ -707,7 +707,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           {sortBtn(invSort === "za", "Z→A", "Item name descending", () => setInvSort("za"))}
         </div>
         <div className="mt-2 max-h-96 overflow-x-auto overflow-y-auto pr-1">
-          <table className="w-full min-w-[780px] border-collapse">
+          <table className="tbl-sticky w-full min-w-[780px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>SKU</th><th className={th}>Item</th>
@@ -888,7 +888,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             {sortBtn(ttSort === "za", "Z→A", "Item name descending", () => setTtSort("za"))}
           </div>
           <div className="mt-2 max-h-80 overflow-x-auto overflow-y-auto pr-1">
-            <table className="w-full min-w-[560px] border-collapse">
+            <table className="tbl-sticky w-full min-w-[560px] border-collapse">
               <thead>
                 <tr className="border-border border-b">
                   <th className={th}>SKU</th><th className={th}>Item</th>
@@ -1467,7 +1467,7 @@ export function CommercialPanel() {
       <div className={card}>
         <p className="text-sm font-semibold">Pipeline</p>
         <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
-          <table className="w-full min-w-[640px] border-collapse">
+          <table className="tbl-sticky w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 <th className={th}>Client</th><th className={th}>Status</th>
@@ -1776,7 +1776,7 @@ export function OverviewPanel() {
             })}
           </div>
           <div className="mt-4 max-h-64 overflow-x-auto overflow-y-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="tbl-sticky w-full border-collapse text-sm">
               <thead>
                 <tr className="border-border border-b">
                   <th className={th}>Staff</th>
@@ -2025,7 +2025,7 @@ export function AttendanceAdminPanel() {
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
       <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
-        <table className="w-full min-w-[560px] border-collapse text-sm">
+        <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
               {([["name", "Staff"], ["type", "Type"], ["time", "Time (MYT)"], ["mark", "Mark"]] as const).map(([k, label]) => (

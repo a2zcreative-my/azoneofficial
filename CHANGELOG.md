@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.189] — 2026-08-04 — Sticky subheads in every scrollable table
+
+### Added (per the CEO: "every subhead will be remain if scrollable")
+- New `.tbl-sticky` utility: inside a scrollable card the column subhead row (SKU / ITEM / PRICE… etc.) pins to the top while rows scroll beneath — solid card background, inset-shadow divider (theme-aware). Applied to ALL six capped tables: Inventory live-status, TikTok Live stock-out, Manual stock-out traceability, Sales Pipeline, Attendance corrections & back-entry, and the Payroll processing table (plus the capped claims-compilation table). Frontend-only.
+
 ## [1.4.188] — 2026-08-03 — Inventory TOTAL: stock value on hand
 
 ### Added (per the CEO: "I want to have the total of inventory prices for me to monitor how much that Stock I have for me to clear off")

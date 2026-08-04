@@ -658,7 +658,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       )}
 
       <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
-        <table className="w-full min-w-[820px] border-collapse text-sm">
+        <table className="tbl-sticky w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
               <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Staff</th>

@@ -181,3 +181,16 @@ input[type="time"] {
   appearance: none;
   background-color: transparent;
 }
+
+/* v1.4.189 (CEO: "every subhead will be remain if scrollable"): sticky
+   column subheads — inside a scrollable card the table header row pins to
+   the top while the rows scroll beneath it. Solid card background so rows
+   never show through; inset shadow stands in for the header border (real
+   borders scroll away under border-collapse). */
+.tbl-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--card);
+  box-shadow: inset 0 -1px 0 0 var(--border);
+}
