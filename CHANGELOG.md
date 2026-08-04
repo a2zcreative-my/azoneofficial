@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.195] — 2026-08-04 — HOTFIX: v1.4.191/193 cards called routes without the /staff prefix
+
+### Fixed (the CEO's console caught it: GET /api/v1/gmv → 404)
+- MY BUG, not a deploy problem: page.tsx's api() helper is based at /api/v1 and every staff route must pass the /staff prefix explicitly — the v1.4.191 and v1.4.193 cards omitted it, so ALL their calls 404'd no matter which worker was deployed. The CEO's worker deploy (version 8a8c46b0) was correct the whole time. Fixed all nine call sites: /staff/gmv, /staff/attendance/ot/pending + /decide, /staff/live-sessions (GET/POST/PATCH), /staff/users, /staff/customers, /staff/clients/summary. Audit confirms zero non-/staff api() calls remain in page.tsx; staff-directory.tsx was already correct (its own base includes /staff). Frontend-only — `pnpm build` + hard refresh; NO worker redeploy needed.
+
 ## [1.4.194] — 2026-08-04 — Live GMV card announces itself
 
 ### Fixed (per the CEO: "I didnt see any gmv on the dashboard")

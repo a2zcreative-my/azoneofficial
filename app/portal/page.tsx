@@ -1948,7 +1948,7 @@ function LiveGmvCard() {
   const [gmv, setGmv] = useState<Gmv | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
   useEffect(() => {
-    const load = () => void api<Gmv>(`/gmv`).then((r) => {
+    const load = () => void api<Gmv>(`/staff/gmv`).then((r) => {
       if (r.ok && r.data) { setGmv(r.data); setState("ready"); }
       else setState("unavailable");
     });
@@ -2026,7 +2026,7 @@ function OtApprovalsCard() {
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
   const load = async () => {
-    const r = await api<{ pending?: Pend[] }>(`/attendance/ot/pending`);
+    const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
     if (r.ok) setPending(r.data?.pending ?? []);
     setLoaded(true);
   };
@@ -2037,7 +2037,7 @@ function OtApprovalsCard() {
       message: `${properName(p.name)} — ${p.d.split("-").reverse().join("-")} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`,
       confirmLabel: "Reject OT", variant: "danger",
     }))) return;
-    await api(`/attendance/ot/decide`, {
+    await api(`/staff/attendance/ot/decide`, {
       method: "POST",
       body: JSON.stringify({ user_id: p.user_id, date: p.d, decision, note: note[`${p.user_id}:${p.d}`] || undefined }),
     });
@@ -2095,24 +2095,24 @@ function LiveScheduleCard({ user }: { user: User }) {
   const [clients, setClients] = useState<Opt[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "", end_time: "", platform: "tiktok", client_id: "", client_name: "", host_user_id: "", notes: "" });
   const load = async () => {
-    const r = await api<{ sessions?: Sess[] }>(`/live-sessions`);
+    const r = await api<{ sessions?: Sess[] }>(`/staff/live-sessions`);
     if (r.ok) setSessions(r.data?.sessions ?? []);
     setLoaded(true);
   };
   useEffect(() => {
     void load();
     if (manager) {
-      void api<{ users?: Opt[] }>(`/users`).then((r) => {
+      void api<{ users?: Opt[] }>(`/staff/users`).then((r) => {
         if (r.ok) setHosts((r.data?.users ?? []).filter((u) => !["customer", "super_admin", "admin"].includes(u.role ?? "")));
       });
-      void api<{ customers?: Opt[] }>(`/customers`).then((r) => {
+      void api<{ customers?: Opt[] }>(`/staff/customers`).then((r) => {
         if (r.ok) setClients((r.data?.customers ?? []).filter((c) => (c.company ?? "") !== "Walk-in Customer"));
       });
     }
   }, [manager]);
   const create = async () => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) return;
-    await api(`/live-sessions`, {
+    await api(`/staff/live-sessions`, {
       method: "POST",
       body: JSON.stringify({
         session_date: draft.session_date, start_time: draft.start_time,
@@ -2126,7 +2126,7 @@ function LiveScheduleCard({ user }: { user: User }) {
     void load();
   };
   const setStatus = async (id: number, status: string) => {
-    await api(`/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    await api(`/staff/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     void load();
   };
   if (!loaded) return null;
@@ -2205,7 +2205,7 @@ function ClientsCard() {
   const [sessions, setSessions] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/clients/summary`).then((r) => {
+    void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/staff/clients/summary`).then((r) => {
       if (r.ok) { setClients(r.data?.clients ?? []); setSessions(r.data?.sessions ?? {}); }
       setLoaded(true);
     });
