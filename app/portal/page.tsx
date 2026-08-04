@@ -12,7 +12,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -359,6 +358,10 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           the Dashboard so the whole team sees today's live results. */}
       <LiveGmvCard />
 
+      {/* v1.4.197 (CEO, LIVE Center screenshots): engagement metrics from
+          TikTok's official analytics API — needs the Analytics scope. */}
+      <LiveEngagementCard />
+
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
@@ -654,7 +657,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
+  const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -1943,6 +1946,76 @@ interface DocFull {
    today + this month + last-7-days rows, all staff roles. Hosts with a live
    session scheduled today additionally see the GMV that landed during
    their session window(s) — motivation, not payroll. Auto-refresh 5 min. */
+/* v1.4.197 LIVE ENGAGEMENT (CEO: "I want to bring this data into my
+   dashboard too, possible?"): TikTok Shop LIVE analytics — views, likes,
+   comments, shares, new followers etc. for the last 7 days, from the
+   official /analytics shop_lives endpoint. Honest states: TikTok's own
+   error verbatim while the Data & Insights (Analytics) scope is missing.
+   LIVE Rewards (diamonds) is creator-side and NOT in the Shop API. */
+function LiveEngagementCard() {
+  interface La {
+    metrics?: Record<string, number>;
+    range?: { start: string; end: string };
+    fetched_at_myt?: string;
+    error?: string;
+  }
+  const [la, setLa] = useState<La | null>(null);
+  useEffect(() => {
+    // NOTE (v1.4.195 lesson): this route lives directly at /api/v1 in the
+    // worker — deliberately NO /staff prefix here.
+    const load = () => void api<La>(`/live-analytics`).then((r) => {
+      if (r.ok && r.data) setLa(r.data);
+      else setLa({ error: "Live engagement needs the latest server — run the worker deploy, then refresh." });
+    });
+    load();
+    const t = window.setInterval(load, 300_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const LABELS: [string, string][] = [
+    ["views", "Views"], ["unique_viewers", "Unique viewers"], ["impressions", "LIVE impressions"],
+    ["likes", "Likes"], ["comments", "Comments"], ["shares", "Shares"],
+    ["new_followers", "New followers"], ["units_sold", "Items sold"], ["sku_orders", "SKU orders"],
+    ["unique_buyers", "Buyers"], ["live_count", "LIVE sessions"], ["gmv", "Attr. GMV (RM)"],
+  ];
+  const nf = (n: number) => n.toLocaleString("en-MY");
+  const have = la?.metrics ? LABELS.filter(([k]) => la.metrics![k] !== undefined) : [];
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📊 Live engagement — TikTok</p>
+      {!la && <p className="text-muted-foreground mt-1 text-sm">Loading live engagement…</p>}
+      {la?.error && <p className="text-muted-foreground mt-1 text-sm">{la.error}</p>}
+      {la && !la.error && (
+        <>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Last 7 days from TikTok&apos;s LIVE analytics (attribution is
+            TikTok&apos;s own, so Attr. GMV can differ slightly from the order
+            figures above). Rewards/diamonds are creator-side and not
+            available via the Shop API.
+            {la.fetched_at_myt ? ` Updated ${la.fetched_at_myt} MYT.` : ""}
+          </p>
+          {have.length === 0 ? (
+            <p className="text-muted-foreground mt-2 text-sm">
+              No engagement data returned yet — after your next LIVE ends,
+              this fills in on the next refresh.
+            </p>
+          ) : (
+            <DetailsToggle label={`Show metrics (${have.length})`}>
+              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {have.map(([k, label]) => (
+                  <div key={k} className="bg-secondary rounded-lg px-3 py-2">
+                    <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">{label}</p>
+                    <p className="text-lg font-bold">{k === "gmv" ? la.metrics![k].toFixed(2) : nf(la.metrics![k])}</p>
+                  </div>
+                ))}
+              </div>
+            </DetailsToggle>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function LiveGmvCard() {
   interface Gmv {
     today: { cents: number; orders: number };

@@ -1783,6 +1783,71 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true });
   }
 
+  /* v1.4.197 (CEO, from his LIVE Center screenshots: "I want to bring this
+     data into my dashboard too, possible?"): TikTok Shop ANALYTICS — shop
+     LIVE performance (GMV, viewers, likes, comments, shares, followers…)
+     via GET /analytics/202508/shop_lives/overview_performance. Same signed
+     API; needs the Data & Insights (Analytics) SCOPE granted + re-authorize
+     — until then TikTok's own error message is surfaced honestly. LIVE
+     Rewards (diamonds) is creator-side monetisation and is NOT in the Shop
+     API — deliberately absent. Cached in system_meta for 30 min so staff
+     views never hammer TikTok. Any signed-in staff role may read (same
+     motivation principle as /staff/gmv). */
+  if (path === "/api/v1/live-analytics" && method === "GET") {
+    if (!user || user.role === "customer") return errorResponse("forbidden", "Staff access required", 403);
+    // 30-min cache
+    try {
+      const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'live_analytics_cache'`)
+        .first<{ value: string }>();
+      if (cached?.value) {
+        const c = JSON.parse(cached.value) as { fetched_at: number; payload: unknown };
+        if (Date.now() - c.fetched_at < 30 * 60 * 1000) return json({ cached: true, ...(c.payload as Record<string, unknown>) });
+      }
+    } catch { /* no cache / pre-0057 */ }
+    const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const end = new Date(mytNow.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10); // end_date_lt is exclusive
+    const start = new Date(mytNow.getTime() - 6 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const data = (await tiktokSignedFetch(env, "/analytics/202508/shop_lives/overview_performance", {
+      start_date_ge: start, end_date_lt: end, granularity: "1D", account_type: "ALL", currency: "MYR",
+    })) as { code?: number; message?: string; data?: Record<string, unknown> } | null;
+    if (!data) return json({ error: "TikTok connection not configured — connect the shop first." });
+    if (typeof data.code === "number" && data.code !== 0) {
+      // Most likely: the Analytics scope isn't granted yet — show TikTok's words.
+      return json({ error: `TikTok: ${data.message ?? "analytics request refused"} — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize.` });
+    }
+    // Tolerant metric extraction: walk the payload for the known metric names
+    // wherever TikTok nests them; log the STRUCTURE (keys only) if none found.
+    const metrics: Record<string, number> = {};
+    const wanted = new Set(["gmv", "views", "likes", "comments", "shares", "new_followers", "followers", "units_sold", "sku_orders", "unique_buyers", "live_count", "duration", "avg_view_duration", "impressions", "unique_viewers", "customers", "orders"]);
+    const walk = (node: unknown, depth: number) => {
+      if (depth > 6 || node === null || typeof node !== "object") return;
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        const key = k.toLowerCase();
+        if (wanted.has(key) && metrics[key] === undefined) {
+          if (typeof v === "number") metrics[key] = v;
+          else if (typeof v === "string" && v !== "" && !Number.isNaN(Number(v))) metrics[key] = Number(v);
+          else if (v && typeof v === "object" && "amount" in (v as Record<string, unknown>)) {
+            const amt = (v as { amount?: string | number }).amount;
+            if (amt !== undefined && !Number.isNaN(Number(amt))) metrics[key] = Number(amt);
+          }
+        }
+        if (v && typeof v === "object") walk(v, depth + 1);
+      }
+    };
+    walk(data.data ?? {}, 0);
+    if (Object.keys(metrics).length === 0) {
+      await logError(env, "tiktok_live_analytics", `no known metrics; top keys=[${Object.keys(data.data ?? {}).join(",")}]`);
+    }
+    const payload = { metrics, range: { start, end }, fetched_at_myt: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") };
+    try {
+      await env.DB.prepare(
+        `INSERT INTO system_meta (key, value) VALUES ('live_analytics_cache', ?1)
+         ON CONFLICT (key) DO UPDATE SET value = ?1`,
+      ).bind(JSON.stringify({ fetched_at: Date.now(), payload })).run();
+    } catch { /* pre-0057 — uncached is fine */ }
+    return json(payload);
+  }
+
   /* v1.4.191 (CEO gap list): OFF-CLOUDFLARE EXPORT — stream the newest R2
      backup for download so a copy lives OUTSIDE this Cloudflare account
      (ransomware / account-loss insurance). Records the export moment in

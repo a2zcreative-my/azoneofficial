@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.198] — 2026-08-04 — Table alignment: numeric columns right-aligned in both Inventory tables
+
+### Fixed (per the CEO: "Do properly aligned the text in table and ensure it is fit well with the table size")
+- New shared classes thR2/tdR2 — right-aligned header + cell with `tabular-nums` so digits stack in tidy columns. Applied consistently through HEADER, BODY and TOTAL FOOTER of both cards from the screenshots:
+  - **Inventory — live status & stock**: Price/unit (input itself right-aligned too), Live rebate, Net (live), Stock. SKU/Item/Status/controls stay left; the v1.4.188 TOTAL footer values line up under their columns.
+  - **📉 TikTok Live — stock out**: Out today, This month, All time, Avg sold @, Sold value (month), Left in stock, Last order — and the v1.4.171 weighted TOTAL row matches.
+- Both tables already fill the card (w-full + min-w with horizontal scroll on phones); the ragged look was mixed alignment, now standardized. Frontend-only.
+
+## [1.4.197] — 2026-08-04 — 📊 Live engagement from TikTok's official analytics API
+
+### Added (per the CEO's LIVE Center screenshots: "I want to bring this data into my dashboard too, possible?")
+- **GET /api/v1/live-analytics** (any signed-in staff role): last-7-days shop LIVE performance from the official `/analytics/202508/shop_lives/overview_performance` endpoint — views, impressions, likes, comments, shares, new followers, items sold, buyers, LIVE session count and TikTok's Attr. GMV. Tolerant metric extraction (structure-only diagnostic logged if TikTok changes shape); 30-minute cache in system_meta so staff views never hammer TikTok; TikTok's own error message surfaced verbatim while the **Data & Insights (Analytics) scope** isn't granted yet.
+- **LiveEngagementCard on the Dashboard**, under Live GMV, 5-min refresh, metrics behind a v1.4.196 DetailsToggle. Honest notes baked in: TikTok's attribution can differ slightly from our order-window GMV (both labeled), and **LIVE Rewards (diamonds) is creator-side monetisation that the Shop API does not expose** — deliberately absent rather than faked.
+
+### Deploy
+- Worker deploy required this time (`wrangler deploy`) + `pnpm build`. User-side gate: grant the Data & Insights (Analytics) scope in Partner Center, publish, re-authorize.
+
 ## [1.4.196] — 2026-08-04 — Click-to-expand details: the minimalist-view standard
 
 ### Added (per the CEO: "by click on the data I can see the details data. if I didnt click on the data then it will hide the details data. this is to minimalist the view. Do check if the other card also need to have this feature and function like globally")
