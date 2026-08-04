@@ -512,8 +512,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // v1.4.170: sort controls (SKU natural / A→Z / Z→A) for both stock tables,
   // the manual stock-out MODAL (item, qty, Sold @, mandatory remark), and the
   // traceability list.
-  const [invSort, setInvSort] = useState<"sku" | "az" | "za">("sku");
-  const [ttSort, setTtSort] = useState<"hot" | "sku" | "az" | "za">("hot");
+  // v1.4.199 (CEO: "remove sort button, I want to click A to Z or Z to A by
+  // the subhead table instead"): sorting lives in the column HEADERS now —
+  // click SKU / Item (and Out today on the stock-out card) to sort, click
+  // again to reverse. Defaults unchanged: inventory by SKU 1→end; stock-out
+  // by today's hot sales first.
+  const [invSort, setInvSort] = useState<"sku" | "sku-desc" | "az" | "za">("sku");
+  const [ttSort, setTtSort] = useState<"hot" | "hot-asc" | "sku" | "sku-desc" | "az" | "za">("hot");
   // edit_id null = new stock out; set = editing that traceability row.
   const [outModal, setOutModal] = useState<{ edit_id: number | null; item_id: number; qty: string; price: string; remark: string; out_date: string } | null>(null);
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -553,17 +558,17 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
   const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
   const sortedItems = [...items].sort(invSort === "sku" ? bySku
+    : invSort === "sku-desc" ? (a, b) => bySku(b, a)
     : invSort === "az" ? (a, b) => a.name.localeCompare(b.name)
     : (a, b) => b.name.localeCompare(a.name));
-  const sortedTtOut = ttSort === "hot" ? ttOut : [...ttOut].sort(ttSort === "sku" ? bySku
+  // Hot = today's sales first (ties: month, then SKU) — deterministic.
+  const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
+  const sortedTtOut = [...ttOut].sort(ttSort === "hot" ? byToday
+    : ttSort === "hot-asc" ? (a: TtOut, b: TtOut) => byToday(b, a)
+    : ttSort === "sku" ? bySku
+    : ttSort === "sku-desc" ? (a, b) => bySku(b, a)
     : ttSort === "az" ? (a, b) => a.name.localeCompare(b.name)
     : (a, b) => b.name.localeCompare(a.name));
-  const sortBtn = (active: boolean, label: string, title: string, onClick: () => void) => (
-    <button type="button" title={title} onClick={onClick}
-      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${active ? "bg-primary text-primary-foreground" : "border-border hover:bg-secondary border"}`}>
-      {label}
-    </button>
-  );
 
   const load = useCallback(async () => {
     const [i, p, m, r, t, mo] = await Promise.all([
@@ -708,19 +713,18 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         )}
         {items.length > 0 && (
         <>
-        {/* v1.4.170 (CEO): sort by SKU number / A→Z / Z→A, and the table
-            scrolls inside the card like the other lists. */}
-        <div className="mt-3 flex items-center gap-1.5">
-          <span className="text-muted-foreground text-xs">Sort:</span>
-          {sortBtn(invSort === "sku", "SKU 1→end", "SKU in natural number order (ELFIA001 → ELFIA012)", () => setInvSort("sku"))}
-          {sortBtn(invSort === "az", "A→Z", "Item name ascending", () => setInvSort("az"))}
-          {sortBtn(invSort === "za", "Z→A", "Item name descending", () => setInvSort("za"))}
-        </div>
-        <div className="mt-2 max-h-96 overflow-x-auto overflow-y-auto pr-1">
+        {/* v1.4.199 (CEO): pills removed — click the SKU / Item headers to
+            sort, click again to reverse. */}
+        <div className="mt-3 max-h-96 overflow-x-auto overflow-y-auto pr-1">
           <table className="tbl-sticky w-full min-w-[780px] border-collapse">
             <thead>
               <tr className="border-border border-b">
-                <th className={th}>SKU</th><th className={th}>Item</th>
+                <th className={`${th} cursor-pointer select-none`} title="Sort by SKU — click again to reverse"
+                  onClick={() => setInvSort((s) => (s === "sku" ? "sku-desc" : "sku"))}>
+                  SKU{invSort === "sku" ? " ▲" : invSort === "sku-desc" ? " ▼" : ""}</th>
+                <th className={`${th} cursor-pointer select-none`} title="Sort by item name A→Z — click again for Z→A"
+                  onClick={() => setInvSort((s) => (s === "az" ? "za" : "az"))}>
+                  Item{invSort === "az" ? " ▲" : invSort === "za" ? " ▼" : ""}</th>
                 <th className={thR2}>Price/unit</th>
                 {/* v1.4.166: rebate is AUTO — list price − the actual sold
                     price from the latest TikTok firm order (never typed in) */}
@@ -890,19 +894,21 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           </p>
         ) : (
           <>
-          <div className="mt-3 flex items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">Sort:</span>
-            {sortBtn(ttSort === "hot", "🔥 Today", "Hottest today first (default)", () => setTtSort("hot"))}
-            {sortBtn(ttSort === "sku", "SKU 1→end", "SKU in natural number order", () => setTtSort("sku"))}
-            {sortBtn(ttSort === "az", "A→Z", "Item name ascending", () => setTtSort("az"))}
-            {sortBtn(ttSort === "za", "Z→A", "Item name descending", () => setTtSort("za"))}
-          </div>
-          <div className="mt-2 max-h-80 overflow-x-auto overflow-y-auto pr-1">
+          {/* v1.4.199 (CEO): pills removed — click Out today / SKU / Item
+              headers to sort; default stays hottest-today-first. */}
+          <div className="mt-3 max-h-80 overflow-x-auto overflow-y-auto pr-1">
             <table className="tbl-sticky w-full min-w-[560px] border-collapse">
               <thead>
                 <tr className="border-border border-b">
-                  <th className={th}>SKU</th><th className={th}>Item</th>
-                  <th className={thR2}>Out today</th>
+                  <th className={`${th} cursor-pointer select-none`} title="Sort by SKU — click again to reverse"
+                    onClick={() => setTtSort((s) => (s === "sku" ? "sku-desc" : "sku"))}>
+                    SKU{ttSort === "sku" ? " ▲" : ttSort === "sku-desc" ? " ▼" : ""}</th>
+                  <th className={`${th} cursor-pointer select-none`} title="Sort by item name A→Z — click again for Z→A"
+                    onClick={() => setTtSort((s) => (s === "az" ? "za" : "az"))}>
+                    Item{ttSort === "az" ? " ▲" : ttSort === "za" ? " ▼" : ""}</th>
+                  <th className={`${thR2} cursor-pointer select-none`} title="Sort by today's hot sales (default) — click again to reverse"
+                    onClick={() => setTtSort((s) => (s === "hot" ? "hot-asc" : "hot"))}>
+                    Out today{ttSort === "hot" ? " ▼" : ttSort === "hot-asc" ? " ▲" : ""}</th>
                   <th className={thR2}>This month</th>
                   <th className={thR2}>All time</th>
                   {/* v1.4.166: actual avg sold price from TikTok (rebate = list − sold) */}
@@ -2139,6 +2145,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
+  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2146,7 +2153,6 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-  pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2452,16 +2458,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
           if (!cl.hr_reviewed_at) {
-            if (pr === "hr_admin") anyWaived = true;
-            else missingSkipped.push("HR review");
+            if (pr === "coo") anyWaived = true; else missingSkipped.push("HR review");
           }
           if (!cl.pre_approved_at) {
-            if (pr === "coo") anyWaived = true;
-            else missingSkipped.push("COO pre-approval");
+            if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval");
           }
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true;
-          else missingSkipped.push("CCO pre-approval");
+          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
         }
       }
       if (missingSkipped.length > 0) {
@@ -3108,7 +3111,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Due on {payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

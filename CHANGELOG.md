@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.199] — 2026-08-04 — Sort by clicking the column headers; sort pills removed
+
+### Changed (per the CEO: "remove sort button, I want to click A to Z or Z to A by the subhead table instead. but need to sort based on the SKU for Inventory … and TikTok Live — stock out based on today hot sales")
+- Both cards' "Sort:" pill rows are GONE — sorting now lives in the column headers themselves. Click a header to sort, click again to reverse; the active column shows ▲/▼.
+  - **Inventory — live status & stock**: clickable SKU (natural 1→end / reversed) and Item (A→Z / Z→A). DEFAULT: SKU 1→end, exactly as the CEO specified.
+  - **📉 TikTok Live — stock out**: clickable Out today, SKU and Item. DEFAULT: today's hot sales first (ties broken by month then SKU — deterministic), exactly as specified; click Out today again for coldest-first.
+- Unused sortBtn helper removed. Frontend-only.
+
 ## [1.4.198] — 2026-08-04 — Table alignment: numeric columns right-aligned in both Inventory tables
 
 ### Fixed (per the CEO: "Do properly aligned the text in table and ensure it is fit well with the table size")
