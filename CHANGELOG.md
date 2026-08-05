@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.211] — 2026-08-05 — Early payslip release is a first-class flow (for the right month)
+
+### Changed (CEO: "If I want to have a function mechanism to release the payslip earlier then how?")
+- The mechanism is the existing "Release now" on the month being PAID: month picker → last month → Release now. v1.4.211 makes that path friendly instead of scary: the confirm is now month-aware — releasing LAST month early (paying salaries before the 5th) gets a benign "Release {month} ahead of the automatic date? This is the normal early release…" while the current/future month keeps v1.4.210's strong wrong-month warning.
+- Signpost added: when the CURRENT month is on screen, the schedule line ends with "Paying salaries early? The payslips to release are {last month} — pick that month above, then Release now." so the rule never has to be remembered.
+- Undo release (v1.4.210) covers both cases unchanged. Frontend-only.
+
+## [1.4.210] — 2026-08-05 — Payslip release flow matches the payment cycle (early-release guard + undo)
+
+### Fixed (CEO: "if I release payslip earlier than 5th, it is for last month instead of next month — this is the correct process flow by right")
+- What happened: viewing August (the default month) he pressed "Release now", which released 08-2026 payslips at 00:42 UTC on 5 Aug — but the run being PAID in early August is JULY's, and July's payslips open automatically on 05-08 10:00 MYT with no action needed. The button silently released the wrong month a month early.
+- "Release now" on any month whose automatic date is still in the future now asks for confirmation, spelling out the flow: "{month} releases automatically on {date} — AFTER the month closes. The salary run you are paying now is LAST month's ({prev}) — its payslips release by themselves on the 5th. Release {month} EARLY anyway?"
+- The RELEASED banner detects an early release (automatic date still in the future) and shows "⚠ Released EARLY … The salary run you pay this week is LAST month's" plus a one-click **Undo release** — POST /payroll/release { undo:true } deletes the override (audited payroll.release_undo) and the automatic gate resumes. After the automatic moment, undo is a visibility no-op by design.
+- TO FIX TODAY'S ACCIDENT: open August in the Payroll tab → the banner now flags it → press Undo release. July needs nothing — it auto-released at 10:00 MYT. Worker + frontend; no migrations.
+
+## [1.4.209] — 2026-08-04 — Staff Details action buttons wrap on phones
+
+### Fixed (CEO's iPhone screenshot: "mobile view apps out")
+- Staff directory: with a record open, the header action span holds FIVE buttons (Save, Preview badge, Print badge, Replace/Upload photo, Hide details) in a non-wrapping flex row — on a phone it ran past the right screen edge, clipping "Hide details". Now `flex-wrap justify-end` per the v1.4.154 phone width standard: buttons flow onto extra lines, right-aligned, nothing off-screen.
+- Swept the file for other non-wrapping action rows: the staff-vault Download · Delete pair is two short links and cannot overflow — left as is. Frontend-only (`pnpm build`).
+
 ## [1.4.208] — 2026-08-04 — Expenses: paid / outstanding tracking per month
 
 ### Added (CEO: "track that I have paid and how many more outstanding for me to clear off … remaining amount for each month")

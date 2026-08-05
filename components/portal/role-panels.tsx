@@ -2149,7 +2149,6 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2157,6 +2156,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
+  pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2461,12 +2461,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) {
-            if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review");
-          }
-          if (!cl.pre_approved_at) {
-            if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval");
-          }
+          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
+          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
         } else if (ch === "hr" && !cl.pre_approved_at) {
           if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
         }

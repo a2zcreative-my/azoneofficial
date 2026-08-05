@@ -3089,10 +3089,20 @@ export async function handleStaff(
   }
   if (path === "/payroll/release" && method === "POST") {
     // Early manual release for a month (e.g. the 5th falls badly and the
-    // CEO decides to release before the automatic moment). One-way; audited.
+    // CEO decides to release before the automatic moment). Audited.
+    // v1.4.210 (CEO caught the flow bug — he released 08-2026 while the
+    // run being PAID in early August is July's): body { undo: true }
+    // deletes an early release so the automatic 5th-of-next-month gate
+    // resumes. After the automatic moment, undo is a no-op for staff
+    // visibility — the gate is open regardless of the override row.
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const mR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mR) return err("invalid_input", "month (YYYY-MM) is required", 400);
+    if (body?.undo === true) {
+      await env.DB.prepare(`DELETE FROM payslip_releases WHERE month = ?1`).bind(mR).run();
+      await audit(env, user.id, "payroll.release_undo", "payslip_releases", mR);
+      return json({ ok: true });
+    }
     await env.DB.prepare(
       `INSERT INTO payslip_releases (month, released_by) VALUES (?1, ?2)
        ON CONFLICT(month) DO NOTHING`,

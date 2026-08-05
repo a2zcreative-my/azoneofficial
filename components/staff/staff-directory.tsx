@@ -616,7 +616,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   </span>
                 )}
               </span>
-              <span className="flex items-center gap-2">
+              {/* v1.4.209 (CEO's iPhone screenshot: "mobile view apps out"):
+                  with a record OPEN this span holds FIVE buttons — Save,
+                  Preview badge, Print badge, Replace/Upload photo, Hide
+                  details — and without flex-wrap the row ran past the
+                  right edge of the phone screen (Hide details clipped).
+                  flex-wrap + justify-end = v1.4.154 phone standard. */}
+              <span className="flex flex-wrap items-center justify-end gap-2">
                 {saved === u.id && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
                 {open.has(u.id) && !readOnly && (

@@ -679,21 +679,79 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {release && (
         <p className="mt-2 text-xs">
           {release.released ? (
-            <span className="font-medium text-green-700">
-              Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
-            </span>
+            (() => {
+              /* v1.4.210 (CEO: "if I release payslip earlier than 5th, it
+                 is for last month instead of next month"): a release BEFORE
+                 the automatic date is almost always the wrong month — the
+                 run paid in early August is JULY's, and July opens by
+                 itself on the 5th. Flag it and offer one-click undo. */
+              const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+              const early = release.available_from > nowMYT;
+              return (
+                <span className="font-medium text-green-700">
+                  Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
+                  {early && (
+                    <>
+                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from.split(" ")[0]!.split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
+                      {" "}<button type="button" className="font-medium underline"
+                        title="Take this month's payslips back from staff view — the automatic release date resumes"
+                        onClick={async () => {
+                          const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month, undo: true }) });
+                          setMsg(res.ok ? "Early release undone — automatic date resumes." : "Undo failed");
+                          window.setTimeout(() => setMsg(""), 3000);
+                          void load();
+                        }}>Undo release</button>
+                    </>
+                  )}
+                </span>
+              );
+            })()
           ) : (
             <>
               <span className="text-muted-foreground">
                 Staff can view {monthDMY(month)} payslips from{" "}
                 <span className="font-medium">{release.available_from.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from.split(" ")[1]} MYT</span>
                 {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
+                {(() => {
+                  /* v1.4.211: when the CURRENT month is on screen, the
+                     early release the CEO usually wants is LAST month's —
+                     say so instead of relying on him remembering the rule. */
+                  const nowM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+                  const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
+                  return month === nowM
+                    ? <> Paying salaries early? The payslips to release are <span className="font-medium">{monthDMY(cycleM)}</span> — pick that month above, then Release now.</>
+                    : null;
+                })()}
               </span>{" "}
               <button
                 type="button"
                 className="font-medium underline"
                 title="Release this month's payslips to staff now, before the automatic date"
                 onClick={async () => {
+                  /* v1.4.210: releasing before the automatic date usually
+                     means the wrong month is on screen — confirm with the
+                     CEO's own flow rule spelled out. */
+                  const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+                  if (release.available_from > nowMYT) {
+                    /* v1.4.211 (CEO: "if I want to release the payslip
+                       earlier then how?"): early release of the month
+                       being PAID (= last calendar month, before its
+                       automatic 5th) is the LEGITIMATE case — benign
+                       confirm. Early release of the current/future month
+                       keeps the strong wrong-month warning (v1.4.210). */
+                    const [yR, moR] = month.split("-").map(Number);
+                    const prevM = new Date(Date.UTC(yR!, moR! - 2, 1)).toISOString().slice(0, 7);
+                    const autoD = release.available_from.split(" ")[0]!.split("-").reverse().join("-");
+                    const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
+                    const ok = month === cycleM
+                      ? window.confirm(
+                          `Release ${monthDMY(month)} payslips to staff now, ahead of the automatic date (${autoD} 10:00 MYT)?\n\nThis is the normal early release when you pay salaries before the 5th.`,
+                        )
+                      : window.confirm(
+                          `⚠ Early release!\n\n${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.\n\nRelease ${monthDMY(month)} EARLY anyway?`,
+                        );
+                    if (!ok) return;
+                  }
                   const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
                   setMsg(res.ok ? "Payslips released to staff." : "Release failed");
                   window.setTimeout(() => setMsg(""), 3000);
