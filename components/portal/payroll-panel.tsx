@@ -692,7 +692,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
                   {early && (
                     <>
-                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from.split(" ")[0].split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
+                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from.split(" ")[0]!.split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
                       {" "}<button type="button" className="font-medium underline"
                         title="Take this month's payslips back from staff view — the automatic release date resumes"
                         onClick={async () => {
