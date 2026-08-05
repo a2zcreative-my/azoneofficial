@@ -1104,11 +1104,26 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const last = await env.DB.prepare(
       `SELECT created_at, verified FROM webhook_events WHERE provider = 'tiktok' ORDER BY id DESC LIMIT 1`,
     ).first<{ created_at: string; verified: number }>();
+    /* v1.4.212 (approved architecture review): two ADDITIVE keys for the
+       new Connection-status card — existing keys and consumers untouched.
+       last_order_at = newest synced TikTok order (webhook or sync);
+       failed_events_7d = signature-verification failures this week (>0
+       usually means the stored app secret is stale — the known fix is
+       re-copy → wrangler secret put TIKTOK_APP_SECRET → deploy). */
+    const lastOrder = await env.DB.prepare(
+      `SELECT MAX(created_at) AS at FROM postage_records WHERE order_ref LIKE 'TT-%'`,
+    ).first<{ at: string | null }>();
+    const failed7 = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM webhook_events
+       WHERE provider = 'tiktok' AND verified = 0 AND created_at >= datetime('now', '-7 days')`,
+    ).first<{ n: number }>();
     return json({
       configured: Boolean(env.TIKTOK_APP_KEY && env.TIKTOK_APP_SECRET),
       authorized: Boolean(tok),
       last_event_at: last?.created_at ?? null,
       last_event_verified: last ? Boolean(last.verified) : null,
+      last_order_at: lastOrder?.at ?? null,
+      failed_events_7d: failed7?.n ?? 0,
     });
   }
 

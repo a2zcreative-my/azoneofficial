@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.212] — 2026-08-05 — Three new cards from the approved architecture review (extension-only)
+
+### Added (CEO APPROVED the review's recommended build order; zero existing components/layouts/routes altered)
+- 🔌 **TikTok connection** (Dashboard, all staff): Shop authorization state, last synced order, last webhook + signature verdict, 7-day signature-failure count — with the exact fix spelled out when failures exist (re-copy secret → wrangler secret put → deploy). NEW file connection-status-card.tsx consuming the EXISTING /integrations/tiktok/status route (v1.4.48), which gained two ADDITIVE keys (last_order_at, failed_events_7d).
+- 🕐 **Sales by hour** (revenue-role gate): hourly MYT histogram of the last 7 days across the same bases as the revenue card (shipments with order amounts, returned excluded, + manual sales) — pure-div bars (no chart library, by design), peak hour highlighted for scheduling LIVE sessions. NEW file + NEW route GET /staff/sales/by-hour (guard revenue_view).
+- 📮 **Fulfilment** (revenue-role gate): this month's shipments by status (preparing/shipped/in_transit/delivered/returned per the 0007 schema) with the oldest still-preparing order and its age. NEW file + NEW route GET /staff/fulfilment/summary (guard revenue_view).
+- Degradation: all three cards render NOTHING against an old worker (fetch fails → null) — the split-deploy skew seen on 04-08 cannot break the dashboard. No migrations. Affiliate Performance stays deferred per the review (TikTok scope not grantable).
+
 ## [1.4.211] — 2026-08-05 — Early payslip release is a first-class flow (for the right month)
 
 ### Changed (CEO: "If I want to have a function mechanism to release the payslip earlier then how?")

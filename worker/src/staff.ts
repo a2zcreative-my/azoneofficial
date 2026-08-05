@@ -2282,6 +2282,64 @@ export async function handleStaff(
       next_target_cents: tgtNext?.target_cents ?? null,
     });
   }
+
+  /* ================= v1.4.212 EXTENSIONS (approved architecture review) =================
+     Two additive routes for the new Sales-tab cards. Nothing above or
+     below altered; same guards as /revenue (revenue_view). */
+
+  if (path === "/sales/by-hour" && method === "GET") {
+    // Hourly MYT sales histogram over the last 7 days — for choosing LIVE
+    // hours. Bases mirror /revenue: postage_records with an order amount
+    // (TikTok TT- + other shipments, returned excluded) + manual sales.
+    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const sinceBH = new Date(Date.now() + 8 * 3600 * 1000 - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const post = await env.DB.prepare(
+      `SELECT CAST(strftime('%H', created_at, '+8 hours') AS INTEGER) AS h,
+              COALESCE(SUM(order_amount_cents), 0) AS cents, COUNT(*) AS orders
+       FROM postage_records
+       WHERE order_amount_cents IS NOT NULL AND status != 'returned'
+         AND date(created_at, '+8 hours') >= ?1
+       GROUP BY h`,
+    ).bind(sinceBH).all<{ h: number; cents: number; orders: number }>();
+    const man = await env.DB.prepare(
+      `SELECT CAST(strftime('%H', created_at, '+8 hours') AS INTEGER) AS h,
+              COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS orders
+       FROM manual_sales
+       WHERE date(created_at, '+8 hours') >= ?1
+       GROUP BY h`,
+    ).bind(sinceBH).all<{ h: number; cents: number; orders: number }>();
+    const buckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, cents: 0, orders: 0 }));
+    for (const r of [...(post.results ?? []), ...(man.results ?? [])]) {
+      const b = buckets[r.h]; if (b) { b.cents += r.cents; b.orders += r.orders; }
+    }
+    return json({ since: sinceBH, days: 7, buckets });
+  }
+
+  if (path === "/fulfilment/summary" && method === "GET") {
+    // Orders by fulfilment status this month (MYT) + the oldest order still
+    // preparing — postage_records.status: preparing | shipped | in_transit
+    // | delivered | returned (schema since 0007).
+    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const monthFS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const { results: byStatus } = await env.DB.prepare(
+      `SELECT status, COUNT(*) AS n FROM postage_records
+       WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1
+       GROUP BY status`,
+    ).bind(monthFS).all<{ status: string; n: number }>();
+    const oldest = await env.DB.prepare(
+      `SELECT order_ref, created_at FROM postage_records
+       WHERE status = 'preparing'
+       ORDER BY created_at ASC LIMIT 1`,
+    ).first<{ order_ref: string; created_at: string }>();
+    const oldestDays = oldest
+      ? Math.floor((Date.now() - Date.parse(oldest.created_at + "Z")) / (24 * 3600 * 1000))
+      : null;
+    return json({
+      month: monthFS,
+      by_status: Object.fromEntries((byStatus ?? []).map((r) => [r.status, r.n])),
+      oldest_preparing: oldest ? { order_ref: oldest.order_ref, days: oldestDays } : null,
+    });
+  }
   if (path === "/revenue/target" && method === "POST") {
     // v1.4.90: monthly sales KPI target — leadership only.
     if (!["super_admin", "admin", "ceo", "coo"].includes(user.role)) {

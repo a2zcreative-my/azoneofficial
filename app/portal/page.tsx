@@ -12,9 +12,14 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
+/* v1.4.212 (approved architecture review): three NEW isolated cards. */
+import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
+import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
+import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
   AttendanceAdminPanel,
@@ -26,7 +31,6 @@ import {
   ExpensesPanel,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const API = "/api/v1";
 
@@ -359,6 +363,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           the Dashboard so the whole team sees today's live results. */}
       <LiveGmvCard />
 
+      {/* v1.4.212: connection health at a glance (existing status route). */}
+      <ConnectionStatusCard />
+
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
@@ -422,6 +429,11 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
       </div>
 
       {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
+
+      {/* v1.4.212: hourly histogram + fulfilment pipeline, same gate as
+          the revenue card; both render null on an old worker. */}
+      {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
+      {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
 
       <UpcomingEventsCard role={user.role} />
     </div>
@@ -664,7 +676,6 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);

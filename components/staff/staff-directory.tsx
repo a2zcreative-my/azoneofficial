@@ -38,7 +38,7 @@ const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
-function Sub({ t, children }: { t: string; children: ReactNode }) {
+export function Sub({ t, children }: { t: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
