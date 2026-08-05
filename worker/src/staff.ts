@@ -2449,6 +2449,54 @@ export async function handleStaff(
     }
   }
 
+  /* v1.4.226 (CEO: "add commission which is 1.5% for me to pay"): the
+     month's all-channel sales as a commission base — SAME four bases as
+     /revenue (TikTok TT- order amounts excl. returned; payments received
+     in-month; other shipments; manual sales), self-contained here because
+     /revenue's helpers are scoped inside that route. */
+  if (path === "/payroll/commission-base" && method === "GET") {
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const mCB = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mCB)) return err("invalid_input", "month must be YYYY-MM", 400);
+    // Queries mirror /revenue verbatim (v1.4.169/172 bases).
+    const tt = await env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents FROM postage_records
+       WHERE order_ref LIKE 'TT-%' AND status != 'returned'
+         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+    ).bind(mCB).first<{ cents: number }>();
+    const inv = await env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS cents
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'
+         AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = ?1`,
+    ).bind(mCB).first<{ cents: number }>();
+    const oth = await env.DB.prepare(
+      `SELECT COALESCE(SUM(order_amount_cents), 0) AS cents FROM postage_records
+       WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned'
+         AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+    ).bind(mCB).first<{ cents: number }>();
+    let man: { cents: number } | null = null;
+    try {
+      man = await env.DB.prepare(
+        `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
+         WHERE (CASE WHEN out_date IS NOT NULL THEN substr(out_date, 1, 7)
+                     ELSE strftime('%Y-%m', created_at, '+8 hours') END) = ?1`,
+      ).bind(mCB).first<{ cents: number }>();
+    } catch {
+      try {
+        man = await env.DB.prepare(
+          `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM manual_sales
+           WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+        ).bind(mCB).first<{ cents: number }>();
+      } catch { man = { cents: 0 }; }
+    }
+    const total = (tt?.cents ?? 0) + (inv?.cents ?? 0) + (oth?.cents ?? 0) + (man?.cents ?? 0);
+    return json({
+      month: mCB,
+      total_cents: total,
+      breakdown: { tiktok_cents: tt?.cents ?? 0, invoiced_cents: inv?.cents ?? 0, other_cents: oth?.cents ?? 0, manual_cents: man?.cents ?? 0 },
+    });
+  }
+
   /* ================= v1.4.219: CEO tab access control =================
      One system_meta row (key tab_access) holds { [tab]: role[] } overrides.
      Absent tab = built-in default. Safety rails: Dashboard + Profile are

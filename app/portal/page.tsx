@@ -1694,7 +1694,7 @@ function Announcements({ user }: { user: User }) {
             {/* v1.4.224 (CEO): order = Category → Subject → To | From → Body. */}
             <Sub t="Category">
               <select className={`${inputClass} sm:max-w-44`} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-                {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c === "memo" ? "memo dalaman" : c}</option>)}
+                {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Sub>
             <Sub t="Subject">

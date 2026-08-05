@@ -301,6 +301,11 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [m2eCid, setM2eCid] = useState("");
   const [m2eAcc, setM2eAcc] = useState("");
   const [m2eCbid, setM2eCbid] = useState("");
+  /* v1.4.226 (CEO: "add commission which is 1.5%"): month sales base +
+     rate + target staff for the commission helper. */
+  const [commBase, setCommBase] = useState<number | null>(null);
+  const [commRate, setCommRate] = useState("1.5");
+  const [commWho, setCommWho] = useState("");
   const [m2eHasTpl, setM2eHasTpl] = useState<boolean | null>(null);
   const loadM2e = useCallback(async () => {
     const r = await api<{ corporate_id?: string; payer_account?: string; client_batch_id?: string; has_template?: boolean }>(`/payroll/m2e-settings`);
@@ -496,6 +501,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const entry = (id: number): Entry =>
     entries[id] ?? { user_id: id, basic_cents: base[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
 
+  useEffect(() => {
+    setCommBase(null);
+    void fetch(`/api/v1/staff/payroll/commission-base?month=${month}`, { credentials: "include" })
+      .then(async (r) => (r.ok ? await r.json() : null))
+      .then((d) => { if (d && typeof d === "object" && "total_cents" in d) setCommBase((d as { total_cents: number }).total_cents); })
+      .catch(() => { /* old worker: helper hides itself */ });
+  }, [month]);
+
   const setField = (id: number, key: keyof Entry, rmValue: string) => {
     const cents = Math.max(0, Math.round(Number(rmValue || 0) * 100));
     setEntries((m) => ({ ...m, [id]: { ...entry(id), [key]: cents } }));
@@ -631,6 +644,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
       {!readOnly && (
+        <>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
@@ -674,6 +688,46 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </p>
           </div>
         </details>
+
+        {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
+            member's COMMISSION box. Draft only: he reviews, then Save all.
+            Hidden entirely on an old worker (no base fetched). */}
+        {commBase !== null && (
+          <details className="text-xs">
+            <summary className="cursor-pointer select-none font-medium">
+              💰 Commission helper — {month.split("-").reverse().join("-")} sales {rm(commBase)} × rate
+            </summary>
+            <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
+              <label className="block">
+                <span className="text-muted-foreground">Rate %</span>
+                <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
+                  value={commRate} onChange={(e) => setCommRate(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Pay to</span>
+                <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
+                  onChange={(e) => setCommWho(e.target.value)}>
+                  <option value="">— choose staff —</option>
+                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </label>
+              <p className="pb-1.5 font-semibold">
+                = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
+              </p>
+              <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
+                disabled={!commWho || !Number(commRate)}
+                onClick={() => {
+                  const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
+                  const id = Number(commWho);
+                  setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
+                  showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
+                }}>
+                Fill commission box
+              </button>
+            </div>
+          </details>
+        )}
+        </>
       )}
 
       {release && (

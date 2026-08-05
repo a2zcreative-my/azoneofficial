@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.226] — 2026-08-05 — 💰 Commission helper (1.5% of the month's sales)
+
+### Added (CEO: "add commission which is 1.5% for me to pay the commission")
+- New GET /staff/payroll/commission-base?month= (PAYROLL_PROC): the month's all-channel sales as a commission base — queries mirror /revenue verbatim (TikTok TT- excl. returned, paid INV documents by payment-landed month, other shipments, manual sales by out_date). Returns total + breakdown.
+- Payroll tab gains "💰 Commission helper — {month} sales RM X × rate": rate box (default 1.5%), staff picker, live "= RM Y", and **Fill commission box** which writes the amount into that person's COMMISSION draft — CEO reviews the row, then Save all recomputes net and the payslip shows a COMMISSION line as usual. Helper hides itself on an old worker. Worker + frontend.
+
+## [1.4.225] — 2026-08-05 — Category label "memo" (was "memo dalaman")
+
+### Changed (CEO)
+- The category option now reads plain "memo", matching the other lowercase categories. Behaviour unchanged — picking it still switches the boxes to Kepada/Daripada + Tarikh/Perkara. Frontend-only.
+
 ## [1.4.224] — 2026-08-05 — Publish news order: Category → Subject → To → From → Body
 
 ### Changed (CEO: "resort - Category, Subject, To: all the staffs, from: Management and Body")
