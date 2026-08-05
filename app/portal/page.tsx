@@ -20,6 +20,7 @@ import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
+import { AssetsPanel } from "@/components/portal/assets-panel";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
   AttendanceAdminPanel,
@@ -28,8 +29,7 @@ import {
   InventoryPanel,
   OverviewPanel,
   ClaimsPanel,
-  ExpensesPanel,
-} from "@/components/portal/role-panels";
+  ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 
 const API = "/api/v1";
@@ -359,13 +359,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </p>
       </div>
 
-      {/* v1.4.193 (CEO): daily LIVE GMV for every staff member — right on
-          the Dashboard so the whole team sees today's live results. */}
-      <LiveGmvCard />
-
-      {/* v1.4.212: connection health at a glance (existing status route). */}
-      <ConnectionStatusCard />
-
+      {/* v1.4.214 (CEO reorg): LiveGmvCard + ConnectionStatusCard moved to
+          the new Ecommerce tab — the Dashboard is Quick actions → the
+          three-column day view → Upcoming events. */}
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
@@ -428,14 +424,13 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
       </div>
 
-      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
-
-      {/* v1.4.212: hourly histogram + fulfilment pipeline, same gate as
-          the revenue card; both render null on an old worker. */}
-      {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
-      {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
-
       <UpcomingEventsCard role={user.role} />
+
+      {/* v1.4.214: Sales revenue stays on the Dashboard (it is every
+          channel, not just TikTok — the CEO's daily number), below the
+          day-view per the requested order. The TikTok-specific cards
+          moved to the Ecommerce tab. */}
+      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
     </div>
   );
 }
@@ -676,6 +671,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -3024,7 +3020,7 @@ function UsersPanel({ role }: { role: string }) {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Birthdays", "Profile", "Users"] as const;
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -3052,6 +3048,8 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Birthdays: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
   // Employee records: IDs, position, department, staff list, birth dates.
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
+  // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
+  Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   Users: ["super_admin", "ceo", "coo"],
 };
 type TabName = (typeof ALL_TABS)[number];
@@ -3304,7 +3302,7 @@ export default function PortalPage() {
       {/* v1.4.159 (CEO): every tab pill the SAME width; v1.4.187 (CEO: "tabs
           width was not same with card width"): the rows now form a full-width
           GRID — equal columns filling the container exactly, so the pill rows
-          are flush with the card edges below (16 tabs = two perfect rows of
+          are flush with the card edges below (v1.4.213: 17 tabs — the second row
           8). Same standard in /admin and /account. */}
       <nav className="mt-6 hidden gap-2 md:grid" aria-label="Portal sections"
         style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 8)}, minmax(0, 1fr))` }}>
@@ -3433,6 +3431,19 @@ export default function PortalPage() {
         {tab === "Payroll" && <PayrollPanel />}
         {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
         {tab === "Inventory" && <InventoryPanel role={user.role} />}
+        {tab === "Ecommerce" && (
+          <div className="space-y-3 md:space-y-6">
+            {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
+                connection health, the order tracker, LIVE GMV, the hourly
+                histogram and the fulfilment pipeline. */}
+            <ConnectionStatusCard />
+            <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
+            <LiveGmvCard />
+            {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
+            {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
+          </div>
+        )}
+        {tab === "Assets" && <AssetsPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
         {tab === "Users" && <UsersPanel role={user.role} />}

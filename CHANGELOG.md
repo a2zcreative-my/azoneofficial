@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.214] — 2026-08-05 — Dashboard slimmed; new Ecommerce tab gathers every TikTok card
+
+### Changed (CEO: "Resort and make it like this … Create new Ecommerce tabs and move all the below card into it")
+- Dashboard order is now exactly: **Quick actions → Pending leave | My open tasks | News → Upcoming events**, with Sales revenue (all channels — the CEO's daily number, not TikTok-specific, so it was not on the move list) below.
+- New **Ecommerce** tab (between Inventory and Assets, visible to all staff): 🔌 TikTok connection → TikTok Orders → Live GMV → 🕐 Sales by hour → 📮 Fulfilment. The revenue-gated cards keep their role gate inside the tab.
+- TikTokOrdersCard exported from role-panels and MOVED out of the Inventory tab (tombstone comment left); Sync now lives on Ecommerce, Inventory keeps the stock views. Frontend-only (`pnpm build`).
+
+## [1.4.213] — 2026-08-05 — Assets tab (team feedback) + Staff Details becomes a profile
+
+### Added — 🧰 Assets tab (MIGRATION 0058)
+- New `assets` table + routes: GET /staff/assets (list + assigned name), POST /staff/assets (auto asset-tag AZOA-001… when left blank; UNIQUE-tag guard), PATCH /staff/assets/:id. View/edit = the Staff-Details tier (hr_admin/coo/cco/ceo/admin/super_admin; CEO reads via exec_view, edits via hr tier rules on the routes). Assets are never deleted — status moves to lost/disposed so history and audit survive. All writes audited.
+- New AssetsPanel (new file): summary chips (In use / Spare / In repair / Lost / Disposed + active value), collapsed "+ New asset" form SECTIONED per the CEO's ask — 🏷 Identification (tag, name*, category, brand & model, serial) → 🧾 Purchase (date, price RM, vendor, warranty until) → 📍 Assignment & status (assigned-to staff dropdown, location, status, condition note) — and a sticky-footer register table with per-row Edit. Tab registered after Inventory, same role tier as Staff Details.
+
+### Changed — 👤 Staff Details profile look (MIGRATION 0059)
+- The flat 15-field grid becomes a PROFILE: three subhead sections — 👤 Personal → 💼 Employment → 🏦 Bank & statutory — same inputs, same fill-then-lock policy, easier for HR to scan and update.
+- Seven fields the record was missing (the "important details"): home address + emergency contact (name/phone/relationship) for duty of care, and EPF (KWSP) / SOCSO (PERKESO) / income-tax (LHDN) numbers — ready for the moment the pending statutory registration completes. Added to users, the GET /users select, and the PATCH allow-list with the same lock policy as everything else.
+
 ## [1.4.212] — 2026-08-05 — Three new cards from the approved architecture review (extension-only)
 
 ### Added (CEO APPROVED the review's recommended build order; zero existing components/layouts/routes altered)

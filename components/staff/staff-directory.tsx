@@ -70,6 +70,14 @@ interface Staff {
   photo_key?: string | null;
   is_active: number;
   employment_status?: string | null;
+  /* v1.4.213 profile fields */
+  address?: string | null;
+  emergency_name?: string | null;
+  emergency_phone?: string | null;
+  emergency_relation?: string | null;
+  epf_no?: string | null;
+  socso_no?: string | null;
+  tax_no?: string | null;
 }
 
 interface ErrShape { error?: { message?: string } }
@@ -229,28 +237,66 @@ function printBadges(list: Staff[]) {
 
 /* ---------------- directory ---------------- */
 
-const RECORD_FIELDS: [keyof Staff, string][] = [
-  ["full_name", "Full name (as per IC)"],
-  ["ic_number", "IC number (NRIC)"],
-  ["phone", "Phone number"],
-  ["employee_id", "Employee ID"],
-  ["position", "Position"],
-  ["department", "Department"],
-  ["birthday", "Birth date"],
-  ["id_issued_on", "ID issued"],
-  ["blood_type", "Blood type (not on badge)"],
-  ["employment_status", "Employment status"],
-  ["left_on", "End date (resign/terminate)"],
-  ["rejoined_on", "Re-joined on"],
-  ["joined_on", "Joined on"],
-  ["bank_name", "Bank (Malaysia)"],
-  ["bank_account", "Bank account no."],
+/* v1.4.213 (CEO: "minimalist … like a profile looks which is easier for my
+   hr to update"): the flat field grid becomes a PROFILE — three sections
+   with subheads, personal first the way a profile reads. New fields the
+   record was missing: emergency contact + home address (duty of care) and
+   EPF / SOCSO / income-tax numbers (payroll needs them the moment the
+   pending statutory registration completes). Same inputs, same lock
+   policy — only the grouping and the seven additions are new. */
+const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
+  {
+    title: "👤 Personal",
+    fields: [
+      ["full_name", "Full name (as per IC)"],
+      ["ic_number", "IC number (NRIC)"],
+      ["birthday", "Birth date"],
+      ["blood_type", "Blood type (not on badge)"],
+      ["phone", "Phone number"],
+      ["address", "Home address"],
+      ["emergency_name", "Emergency contact — name"],
+      ["emergency_phone", "Emergency contact — phone"],
+      ["emergency_relation", "Emergency contact — relationship"],
+    ],
+  },
+  {
+    title: "💼 Employment",
+    fields: [
+      ["employee_id", "Employee ID"],
+      ["position", "Position"],
+      ["department", "Department"],
+      ["employment_status", "Employment status"],
+      ["joined_on", "Joined on"],
+      ["id_issued_on", "ID issued"],
+      ["left_on", "End date (resign/terminate)"],
+      ["rejoined_on", "Re-joined on"],
+    ],
+  },
+  {
+    title: "🏦 Bank & statutory",
+    fields: [
+      ["bank_name", "Bank (Malaysia)"],
+      ["bank_account", "Bank account no."],
+      ["epf_no", "EPF (KWSP) no."],
+      ["socso_no", "SOCSO (PERKESO) no."],
+      ["tax_no", "Income tax no. (LHDN)"],
+    ],
+  },
 ];
+
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
     field expects without long labels. Empty boxes show the example; long
     explanations moved to hover titles so labels stay short. */
 const FIELD_PLACEHOLDERS: Partial<Record<keyof Staff, string>> = {
+  /* v1.4.213 profile fields */
+  address: "e.g. 12, Jalan Mawar 3, 81100 Johor Bahru",
+  emergency_name: "e.g. SITI BINTI AHMAD",
+  emergency_phone: "+60 1X-XXX XXXX",
+  emergency_relation: "e.g. mother / spouse",
+  epf_no: "KWSP member no.",
+  socso_no: "PERKESO no. (usually = IC)",
+  tax_no: "e.g. SG 12345678090",
   full_name: "e.g. MOHD ALIF FARHAN BIN NAZARUDIN",
   ic_number: "XXXXXX-XX-XXXX",
   phone: "+60 12-345 6789",
@@ -701,9 +747,11 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 </button>
               </span>
             </div>
-            {open.has(u.id) && (
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-              {RECORD_FIELDS.map(([key, label]) => (
+            {open.has(u.id) && RECORD_SECTIONS.map((sec) => (
+            <div key={sec.title}>
+            <p className="text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide">{sec.title}</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {sec.fields.map(([key, label]) => (
                 <label key={key} className="block">
                   <span className="text-muted-foreground mb-0.5 block text-[11px]">
                     {label}
@@ -735,7 +783,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 </label>
               ))}
             </div>
-            )}
+            </div>
+            ))}
             {open.has(u.id) && <StaffVault userId={u.id} name={properName(u.name)} />}
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">

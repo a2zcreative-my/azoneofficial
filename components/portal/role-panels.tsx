@@ -349,7 +349,7 @@ interface Material {
  * stock, so the tracker belongs beside the stock it moves. Status line
  * explains any pending setup; Sync backfills the last 30 days.
  */
-function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) {
+export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) { // v1.4.214: exported — MOVED to the Ecommerce tab
   interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
   interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null; courier?: string | null; tracking_no?: string | null; buyer_city?: string | null }
   const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
@@ -480,7 +480,7 @@ function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => 
 
 const rmR = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function InventoryPanel({ role = "" }: { role?: string }) {
+export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -671,7 +671,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           </div>
         </div>
       )}
-      <TikTokOrdersCard role={role} onChanged={() => void load()} />
+      {/* v1.4.214 (CEO reorg): TikTok Orders moved to the new Ecommerce
+          tab with the rest of the TikTok cards. Inventory keeps the stock
+          views; the tracker follows the channel. */}
       <div className={card}>
         <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -2149,6 +2151,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
+
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -3111,7 +3114,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]!} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

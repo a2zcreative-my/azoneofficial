@@ -507,6 +507,7 @@ export async function handleStaff(
     }
     const { results } = await env.DB.prepare(
       `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
+              address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no,
               CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
        FROM users ORDER BY name`,
     ).all();
@@ -541,9 +542,12 @@ export async function handleStaff(
         return err("invalid_input", "A live host is part-time, contract or permanent — probation is not a live-host status (CEO rule)", 400);
       }
     }
-    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number", "left_on", "rejoined_on"] as const;
+    // v1.4.213 profile fields: emergency contact + address (duty of care)
+    // and EPF/SOCSO/tax numbers (ready for the pending statutory registration).
+    const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number", "left_on", "rejoined_on", "address", "emergency_name", "emergency_phone", "emergency_relation", "epf_no", "socso_no", "tax_no"] as const;
     const current = await env.DB.prepare(
-      `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
+      `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type,
+              address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no
        FROM users WHERE id = ?1`,
     ).bind(id).first<Record<string, string | null>>();
     if (!current) return err("not_found", "Staff not found", 404);
@@ -2339,6 +2343,92 @@ export async function handleStaff(
       by_status: Object.fromEntries((byStatus ?? []).map((r) => [r.status, r.n])),
       oldest_preparing: oldest ? { order_ref: oldest.order_ref, days: oldestDays } : null,
     });
+  }
+
+  /* ================= v1.4.213: company asset register =================
+     Team feedback via the CEO. View = the Staff-Details tier; edits =
+     the same tier (HR keeps the register). Assets are never deleted —
+     status moves to lost/disposed so history and audit survive. */
+
+  if (path === "/assets" && method === "GET") {
+    if (!can(user, "hr_manage") && !can(user, "exec_view")) return err("forbidden", "HR access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT a.*, u.name AS assigned_name FROM assets a
+       LEFT JOIN users u ON u.id = a.assigned_to
+       ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`,
+    ).all();
+    return json({ assets: results ?? [] });
+  }
+
+  if (path === "/assets" && method === "POST") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const nameA = str(body?.name, 120) ? (body!.name as string).trim() : null;
+    if (!nameA) return err("invalid_input", "Asset name is required", 400);
+    const CATS = ["electronics", "furniture", "vehicle", "studio", "other"];
+    const cat = CATS.includes(String(body?.category)) ? String(body!.category) : "other";
+    let tag = str(body?.asset_tag, 30) ? (body!.asset_tag as string).trim().toUpperCase() : "";
+    if (!tag) {
+      // auto tag AZOA-001, 002 … from the highest existing number
+      const maxRow = await env.DB.prepare(
+        `SELECT asset_tag FROM assets WHERE asset_tag LIKE 'AZOA-%' ORDER BY LENGTH(asset_tag) DESC, asset_tag DESC LIMIT 1`,
+      ).first<{ asset_tag: string }>();
+      const n = maxRow ? parseInt(maxRow.asset_tag.slice(5), 10) + 1 : 1;
+      tag = `AZOA-${String(Number.isFinite(n) ? n : 1).padStart(3, "0")}`;
+    }
+    const priceC = body?.purchase_price != null && String(body.purchase_price).trim() !== ""
+      ? Math.round(Number(body.purchase_price) * 100) : null;
+    if (priceC !== null && (!Number.isFinite(priceC) || priceC < 0)) return err("invalid_input", "purchase_price must be a number", 400);
+    const asgn = body?.assigned_to != null && String(body.assigned_to) !== "" ? Number(body.assigned_to) : null;
+    try {
+      const r = await env.DB.prepare(
+        `INSERT INTO assets (asset_tag, name, category, brand_model, serial_no, purchase_date, purchase_price_cents, vendor, warranty_until, location, assigned_to, status, condition_note, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+      ).bind(
+        tag, nameA, cat,
+        str(body?.brand_model, 120) ? (body!.brand_model as string).trim() : null,
+        str(body?.serial_no, 120) ? (body!.serial_no as string).trim() : null,
+        str(body?.purchase_date, 10) ? (body!.purchase_date as string) : null,
+        priceC,
+        str(body?.vendor, 120) ? (body!.vendor as string).trim() : null,
+        str(body?.warranty_until, 10) ? (body!.warranty_until as string) : null,
+        str(body?.location, 120) ? (body!.location as string).trim() : null,
+        asgn,
+        ["in_use", "spare", "repair", "lost", "disposed"].includes(String(body?.status)) ? String(body!.status) : "in_use",
+        str(body?.condition_note, 300) ? (body!.condition_note as string).trim() : null,
+        user.id,
+      ).run();
+      await audit(env, user.id, "asset.create", "assets", String(r.meta.last_row_id), { tag });
+      return json({ ok: true, id: r.meta.last_row_id, asset_tag: tag });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("UNIQUE")) return err("invalid_input", `Asset tag ${tag} already exists`, 400);
+      throw e;
+    }
+  }
+
+  const assetPatch = path.match(/^\/assets\/(\d+)$/);
+  if (assetPatch && method === "PATCH") {
+    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const idA = assetPatch[1]!;
+    const sets: string[] = []; const vals: (string | number | null)[] = [];
+    const put = (col: string, v: string | number | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(v); };
+    for (const f of ["name", "brand_model", "serial_no", "purchase_date", "vendor", "warranty_until", "location", "condition_note"] as const) {
+      if (typeof body?.[f] === "string") put(f, (body[f] as string).trim() || null);
+    }
+    if (typeof body?.category === "string" && ["electronics", "furniture", "vehicle", "studio", "other"].includes(body.category)) put("category", body.category);
+    if (typeof body?.status === "string" && ["in_use", "spare", "repair", "lost", "disposed"].includes(body.status)) put("status", body.status);
+    if (body && "assigned_to" in body) put("assigned_to", body.assigned_to != null && String(body.assigned_to) !== "" ? Number(body.assigned_to) : null);
+    if (body && "purchase_price" in body) {
+      const pc = String(body.purchase_price ?? "").trim() === "" ? null : Math.round(Number(body.purchase_price) * 100);
+      if (pc !== null && !Number.isFinite(pc)) return err("invalid_input", "purchase_price must be a number", 400);
+      put("purchase_price_cents", pc);
+    }
+    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+    put("updated_at", new Date().toISOString().slice(0, 19).replace("T", " "));
+    vals.push(idA);
+    await env.DB.prepare(`UPDATE assets SET ${sets.join(", ")} WHERE id = ?${vals.length}`).bind(...vals).run();
+    await audit(env, user.id, "asset.update", "assets", idA, body as Record<string, unknown>);
+    return json({ ok: true });
   }
   if (path === "/revenue/target" && method === "POST") {
     // v1.4.90: monthly sales KPI target — leadership only.
