@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.230] — 2026-08-05 — Donut rendering artifacts fixed
+
+### Fixed (CEO screenshot: "why it is looks like this???!")
+- The black vertical line through the donut was the browser's default focus RECTANGLE around the clicked slice's bounding box — killed with outline:none; selection is already communicated by the slice growing and the centre readout (aria-pressed added for accessibility).
+- The smeared joins were round linecaps extending strokeWidth/2 past each slice's angles and overlapping neighbours — now butt caps, with the gap angle providing the clean separation.
+- Inactive-slice dimming softened 0.3 → 0.45 so colours stay recognisable while the selected slice still stands out. Frontend-only (`pnpm build`).
+
 ## [1.4.229] — 2026-08-05 — ⬇ Inventory stock-count CSV
 
 ### Added (CEO: "csv button to download the inventory list for me to perform Stock Count")

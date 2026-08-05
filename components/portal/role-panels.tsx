@@ -3049,14 +3049,23 @@ function ExpensePie({ slices, active, onSelect, centerTop, centerBottom }: {
       : `M ${x0} ${y0} A ${R} ${R} 0 ${large} 1 ${x1} ${y1}`;
     const isActive = active === cat;
     const dimmed = active !== null && !isActive;
+    /* v1.4.230 (CEO: "why it is looks like this???!"): two artifacts fixed —
+       (1) round linecaps EXTEND strokeWidth/2 past the slice's angles, so
+           neighbouring slices smeared into each other at the joins → butt
+           caps; the gap angle provides the clean separation instead.
+       (2) the clicked path took browser focus and Chrome drew the default
+           focus RECTANGLE around its bounding box — its edge was the black
+           vertical line through the donut → outline none; selection is
+           already shown by the slice growing + the centre readout.
+       Dimming softened 0.3 → 0.45 so inactive slices stay recognisable. */
     return (
       <path key={cat} d={d} fill="none"
         stroke={PIE_COLORS[cat] ?? PIE_COLORS.other}
         strokeWidth={isActive ? 26 : 19}
-        strokeLinecap="round"
-        opacity={dimmed ? 0.3 : 1}
-        role="button" tabIndex={0} aria-label={`${cat} details`}
-        style={{ cursor: "pointer", transition: "stroke-width 150ms, opacity 150ms" }}
+        strokeLinecap="butt"
+        opacity={dimmed ? 0.45 : 1}
+        role="button" tabIndex={0} aria-label={`${cat} details`} aria-pressed={isActive}
+        style={{ cursor: "pointer", outline: "none", transition: "stroke-width 150ms, opacity 150ms" }}
         onClick={() => onSelect(cat)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(cat); }} />
     );
