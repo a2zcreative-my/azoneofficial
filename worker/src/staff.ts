@@ -2434,6 +2434,44 @@ export async function handleStaff(
     }
   }
 
+  /* ================= v1.4.219: CEO tab access control =================
+     One system_meta row (key tab_access) holds { [tab]: role[] } overrides.
+     Absent tab = built-in default. Safety rails: Dashboard + Profile are
+     not configurable (clock-in and payslips must never disappear), and
+     super_admin ignores overrides entirely — the escape hatch if an
+     assignment locks everyone (even the CEO) out of a tab. */
+  const TAB_ACCESS_TABS = ["Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Users"];
+  const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
+
+  if (path === "/tabs/access" && method === "GET") {
+    // Every staff member needs this to compute their own tab strip.
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>();
+    let overrides: Record<string, string[]> = {};
+    try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
+    return json({ overrides });
+  }
+
+  if (path === "/tabs/access" && method === "POST") {
+    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO manages tab access", 403);
+    const tabName = typeof body?.tab === "string" ? body.tab : "";
+    if (!TAB_ACCESS_TABS.includes(tabName)) return err("invalid_input", `tab must be one of: ${TAB_ACCESS_TABS.join(", ")}`, 400);
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>();
+    let overrides: Record<string, string[]> = {};
+    try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
+    if (body?.reset === true || body?.roles == null) {
+      delete overrides[tabName]; // back to the built-in default
+    } else {
+      if (!Array.isArray(body.roles)) return err("invalid_input", "roles must be an array", 400);
+      const roles = (body.roles as unknown[]).map(String).filter((r) => TAB_ACCESS_ROLES.includes(r));
+      overrides[tabName] = roles; // empty array = admin tier only (super_admin bypass)
+    }
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('tab_access', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(overrides)).run();
+    await audit(env, user.id, "tabs.access_change", "system_meta", "tab_access", { tab: tabName, roles: overrides[tabName] ?? "default" });
+    return json({ ok: true, overrides });
+  }
+
   const assetPatch = path.match(/^\/assets\/(\d+)$/);
   if (assetPatch && method === "PATCH") {
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);

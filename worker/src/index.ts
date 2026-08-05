@@ -1141,6 +1141,60 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     });
   }
 
+  /* v1.4.220 (CEO: failures continue AFTER the secret update — waiting is
+     no longer the answer): replay the newest failed webhook against the
+     secret the worker is running RIGHT NOW and return a verdict. Note the
+     ~30-min failure cadence is TikTok RETRYING the same undelivered event
+     (it re-sends until it receives a 200), so the counter climbs until
+     verification passes once. Scheme-B replays skip the 5-minute
+     freshness check — the point is the HMAC, not the age. */
+  if (path === "/api/v1/integrations/tiktok/webhook-debug" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !["ceo", "coo", "admin", "super_admin"].includes(me.role)) {
+      return errorResponse("forbidden", "Management access required", 401);
+    }
+    const ev = await env.DB.prepare(
+      `SELECT created_at, headers, body FROM webhook_events
+       WHERE provider = 'tiktok' AND verified = 0 ORDER BY id DESC LIMIT 1`,
+    ).first<{ created_at: string; headers: string; body: string }>();
+    if (!ev) return json({ state: "no_failures" });
+    let hdrs: { signature?: string; relay?: string } = {};
+    try { hdrs = JSON.parse(ev.headers) as typeof hdrs; } catch { hdrs = {}; }
+    const sig = hdrs.signature ?? "absent";
+    const relayPresent = hdrs.relay === "present";
+    if (sig === "present") {
+      // Legacy row from before this release — the value wasn't stored yet.
+      return json({ state: "insufficient_data", event_at: ev.created_at, relay_header: relayPresent });
+    }
+    if (sig === "absent" || !sig) {
+      return json({ state: "no_signature_header", event_at: ev.created_at, relay_header: relayPresent });
+    }
+    let scheme: "A" | "B" = "A";
+    let hmacOk = false;
+    if (env.TIKTOK_APP_SECRET && env.TIKTOK_APP_KEY) {
+      if (!sig.includes("=")) {
+        const expected = await hmacHex(env.TIKTOK_APP_SECRET, env.TIKTOK_APP_KEY + ev.body);
+        hmacOk = timingSafeEqual(expected, sig.trim());
+      } else {
+        scheme = "B";
+        const parts = Object.fromEntries(
+          sig.trim().split(",").map((kv) => kv.split("=").map((x) => x.trim()) as [string, string]),
+        );
+        if (parts.t && parts.s) {
+          const expected = await hmacHex(env.TIKTOK_APP_SECRET, `${parts.t}${ev.body}`);
+          hmacOk = timingSafeEqual(expected, parts.s);
+        }
+      }
+    }
+    return json({
+      state: "replayed",
+      event_at: ev.created_at,
+      scheme,
+      relay_header: relayPresent,
+      current_secret_verifies: hmacOk,
+    });
+  }
+
   if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
     const me = await getSessionUser(request, env);
     const SYNC_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
@@ -1179,7 +1233,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       String(body?.type ?? "unknown"),
       orderId ? `TT-${orderId}` : null,
       verified ? 1 : 0,
-      JSON.stringify({ signature: sigHeader ? "present" : "absent", relay: relaySecret ? "present" : "absent" }),
+      /* v1.4.220: store the actual signature value — it is derived and
+         public in transit, and without it a failed event can never be
+         replayed against a corrected secret to prove the fix. */
+      JSON.stringify({ signature: sigHeader || "absent", relay: relaySecret ? "present" : "absent" }),
       rawBody.slice(0, 4000),
     ).run();
 

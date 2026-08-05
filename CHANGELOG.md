@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.220] — 2026-08-05 — Webhook failures get a definitive test instead of guesswork
+
+### Added (failures continued AFTER the secret update — 44 at ~30-min spacing = TikTok RETRYING the same undelivered event until it gets a 200)
+- The webhook receipt now stores the actual signature value (derived, public in transit — previously only "present"/"absent" was kept, making any replay impossible).
+- New GET /integrations/tiktok/webhook-debug (ceo/coo/admin/super_admin): replays the newest FAILED event's stored body + signature against the secret the worker holds RIGHT NOW (scheme A or B; B skips the 5-minute freshness check — the HMAC is the question, not the age) and returns a verdict.
+- Connection card, when the last event failed, gains "🔍 Test the current secret against the last failed event" with four honest outcomes: ✅ current secret verifies it (update worked; the next TikTok retry passes and the card greens itself) · ❌ still mismatched (wrong copied value — re-view in Partner Center; or, if a relay header is present, it's Make/Zapier and TIKTOK_WEBHOOK_SECRET is the secret to set) · signature absent entirely (relay or foreign poster) · legacy event predating the diagnostic (test again after the next ~30-min retry). Worker + frontend.
+
+## [1.4.219] — 2026-08-05 — 🔐 CEO tab access control
+
+### Added (CEO: "users access control for CEO to assigned to the roles … which users need to access the tabs")
+- New 🔐 Tab access control card on the Users tab (CEO + super_admin): per tab, click role chips on/off and Save, or Reset to default. Shows each tab's effective access at a glance ("custom" vs "default" badge). Changes apply on each person's next page refresh.
+- Storage: one system_meta row (`tab_access`) of { tab: roles[] } overrides — GET /staff/tabs/access (any staff; the tab strip needs it) + POST (CEO/super_admin only, tab + roles validated, audited tabs.access_change). No migration.
+- The portal tab strip consults overrides first, then the built-in defaults. Safety rails: Dashboard + Profile are not configurable and always visible (clock-in and payslips can never disappear); super_admin ignores overrides entirely — the escape hatch if an assignment locks even the CEO out; a fetch failure (old worker) falls back to defaults so a split deploy can never blank the tab strip. Worker + frontend.
+
 ## [1.4.218] — 2026-08-05 — Staff directory can never blank again on migration skew
 
 ### Fixed (CEO: "all staff details was gone! it is supposed to have their data" — NO DATA WAS LOST)

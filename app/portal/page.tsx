@@ -21,6 +21,7 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import {
   AttendanceAdminPanel,
@@ -3137,6 +3138,14 @@ export default function PortalPage() {
   const [tab, setTab] = useState<TabName>("Dashboard");
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
+  /* v1.4.219: CEO-managed tab access overrides (system_meta). */
+  const [tabOverrides, setTabOverrides] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    void fetch("/api/v1/staff/tabs/access", { credentials: "include" })
+      .then(async (r) => (r.ok ? await r.json() : null))
+      .then((d) => { if (d && typeof d === "object" && "overrides" in d) setTabOverrides((d as { overrides: Record<string, string[]> }).overrides ?? {}); })
+      .catch(() => { /* old worker: defaults apply */ });
+  }, []);
   const [showNotifs, setShowNotifs] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -3272,7 +3281,16 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
   const tabs = ALL_TABS.filter((t) => {
+    if (t === "Dashboard" || t === "Profile") return true;
+    if (user.role === "super_admin") return true;
+    const ov = tabOverrides[t];
+    if (ov !== undefined) return ov.includes(user.role);
     if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
     const allowed = TAB_ROLES[t];
     return !allowed || allowed.includes(user.role);
@@ -3525,7 +3543,12 @@ export default function PortalPage() {
         {tab === "Assets" && <AssetsPanel />}
         {tab === "Birthdays" && <BirthdaysPanel />}
         {tab === "Overview" && <OverviewPanel />}
-        {tab === "Users" && <UsersPanel role={user.role} />}
+        {tab === "Users" && (
+          <div className="space-y-4 md:space-y-6">
+            {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
+            <UsersPanel role={user.role} />
+          </div>
+        )}
         {tab === "Profile" && (
           <div className="space-y-4 md:space-y-6">
             <Profile />
