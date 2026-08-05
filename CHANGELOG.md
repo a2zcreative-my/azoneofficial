@@ -2,6 +2,13 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.228] — 2026-08-05 — The expenses donut becomes interactive and mobile-first
+
+### Changed (CEO: "more beautiful, professional and graphic; click the pie to get details; suitable with the Mobile Apps view")
+- Donut redesigned: gap-separated rounded slices, centre readout (Total RM — or the selected category and its subtotal), the active slice grows while the rest dim, 150ms transitions. Still pure SVG.
+- Clickable everywhere: slices are real buttons (keyboard-accessible) and legend rows are tappable min-height rows; selecting a category opens its records under the chart — amount, vendor/description, date, PAID/outstanding chip — with a count + subtotal header. Click again to close.
+- Mobile: layout stacks (donut centred above a full-width legend) and switches to side-by-side on larger screens; donut sized h-40→h-44. Frontend-only (`pnpm build`).
+
 ## [1.4.227] — 2026-08-05 — 📊 Expenses category pie + Marketing category surfaced
 
 ### Added (CEO: "pie chart for the expenses category… include the marketing expenses")

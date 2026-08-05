@@ -2976,27 +2976,54 @@ const PIE_COLORS: Record<string, string> = {
   rent: "#1A2946", utilities: "#C9A227", software: "#3B82F6", marketing: "#E1568E",
   equipment: "#0E9F6E", logistics: "#F97316", supplies: "#8B5CF6", other: "#94A3B8",
 };
-function ExpensePie({ slices }: { slices: [string, number][] }) {
+/* v1.4.228 (CEO: "more beautiful… professional and also graphic and I can
+   click the pie to get details and suitable with the Mobile Apps view"):
+   interactive donut — gap-separated slices, active slice grows while the
+   rest dim, centre shows the month total (or the selected category), every
+   slice is a real button. Pure SVG, no library. */
+function ExpensePie({ slices, active, onSelect, centerTop, centerBottom }: {
+  slices: [string, number][];
+  active: string | null;
+  onSelect: (cat: string) => void;
+  centerTop: string;
+  centerBottom: string;
+}) {
   const total = slices.reduce((a, [, v]) => a + v, 0);
   if (total <= 0) return null;
+  const R = 44, C = 60;
+  const GAP = slices.length > 1 ? 0.035 : 0; // radians of breathing room per edge
   let acc = 0;
-  const R = 46, C = 60, W = 22; // radius, center, ring width
   const arcs = slices.map(([cat, v]) => {
-    const a0 = (acc / total) * 2 * Math.PI - Math.PI / 2;
+    const f0 = acc / total, f1 = (acc + v) / total;
     acc += v;
-    const a1 = (acc / total) * 2 * Math.PI - Math.PI / 2;
+    const a0 = f0 * 2 * Math.PI - Math.PI / 2 + GAP;
+    const a1 = f1 * 2 * Math.PI - Math.PI / 2 - GAP;
+    if (a1 <= a0) return null; // sliver thinner than the gap
     const large = a1 - a0 > Math.PI ? 1 : 0;
     const x0 = C + R * Math.cos(a0), y0 = C + R * Math.sin(a0);
     const x1 = C + R * Math.cos(a1), y1 = C + R * Math.sin(a1);
-    // Full-circle single slice: two half arcs so the path renders.
     const d = v === total
       ? `M ${C + R} ${C} A ${R} ${R} 0 1 1 ${C - R} ${C} A ${R} ${R} 0 1 1 ${C + R} ${C}`
       : `M ${x0} ${y0} A ${R} ${R} 0 ${large} 1 ${x1} ${y1}`;
-    return <path key={cat} d={d} fill="none" stroke={PIE_COLORS[cat] ?? PIE_COLORS.other} strokeWidth={W} />;
+    const isActive = active === cat;
+    const dimmed = active !== null && !isActive;
+    return (
+      <path key={cat} d={d} fill="none"
+        stroke={PIE_COLORS[cat] ?? PIE_COLORS.other}
+        strokeWidth={isActive ? 26 : 19}
+        strokeLinecap="round"
+        opacity={dimmed ? 0.3 : 1}
+        role="button" tabIndex={0} aria-label={`${cat} details`}
+        style={{ cursor: "pointer", transition: "stroke-width 150ms, opacity 150ms" }}
+        onClick={() => onSelect(cat)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(cat); }} />
+    );
   });
   return (
-    <svg viewBox="0 0 120 120" className="h-36 w-36 shrink-0" role="img" aria-label="Expenses by category">
+    <svg viewBox="0 0 120 120" className="h-40 w-40 shrink-0 sm:h-44 sm:w-44" role="img" aria-label="Expenses by category">
       {arcs}
+      <text x={C} y={C - 3} textAnchor="middle" style={{ fontSize: 9, fontWeight: 600, fill: "currentColor", textTransform: "capitalize" }}>{centerTop}</text>
+      <text x={C} y={C + 9} textAnchor="middle" style={{ fontSize: 8.5, fill: "currentColor", opacity: 0.65 }}>{centerBottom}</text>
     </svg>
   );
 }
@@ -3026,6 +3053,7 @@ export function ExpensesPanel() {
   // Inline edit for typo fixes (staff payroll excluded — computed in Payroll).
   const [editId, setEditId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
+  const [pieCat, setPieCat] = useState<string | null>(null); // v1.4.228 pie drill-down
 
   const load = useCallback(async () => {
     const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
@@ -3335,22 +3363,50 @@ export function ExpensesPanel() {
           for (const r of rows) byCat.set(r.category, (byCat.get(r.category) ?? 0) + r.amount_cents);
           const slices = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
           const totalPie = slices.reduce((a, [, v]) => a + v, 0);
+          const catRows = pieCat ? rows.filter((r) => r.category === pieCat) : [];
+          const catTotal = catRows.reduce((a, r) => a + r.amount_cents, 0);
           return totalPie > 0 ? (
             <div className="border-border mb-3 rounded-lg border p-3">
               <p className="text-sm font-semibold">📊 Expenses by category — {month.split("-").reverse().join("-")}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-4">
-                <ExpensePie slices={slices} />
-                <div className="grid gap-1 text-xs">
+              <p className="text-muted-foreground mt-0.5 text-xs">Tap a slice or a category for its records.</p>
+              <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-5">
+                <ExpensePie slices={slices} active={pieCat}
+                  onSelect={(c) => setPieCat((cur) => (cur === c ? null : c))}
+                  centerTop={pieCat ?? "Total"}
+                  centerBottom={rmc(pieCat ? catTotal : totalPie)} />
+                <div className="grid w-full gap-1 text-xs sm:w-auto">
                   {slices.map(([cat, v]) => (
-                    <p key={cat} className="flex items-center gap-1.5">
-                      <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: PIE_COLORS[cat] ?? PIE_COLORS.other }} />
+                    <button key={cat} type="button"
+                      onClick={() => setPieCat((cur) => (cur === cat ? null : cat))}
+                      className={
+                        "flex min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-left " +
+                        (pieCat === cat ? "bg-secondary font-semibold" : "hover:bg-secondary/60")
+                      }>
+                      <span className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: PIE_COLORS[cat] ?? PIE_COLORS.other }} />
                       <span className="font-medium capitalize">{cat}</span>
-                      <span className="text-muted-foreground">{rmc(v)} · {((v / totalPie) * 100).toFixed(totalPie > 0 && v / totalPie < 0.1 ? 1 : 0)}%</span>
-                    </p>
+                      <span className="text-muted-foreground ml-auto tabular-nums">{rmc(v)} · {((v / totalPie) * 100).toFixed(v / totalPie < 0.1 ? 1 : 0)}%</span>
+                    </button>
                   ))}
-                  <p className="text-muted-foreground mt-1">Expense records only — payroll and claims have their own lines above.</p>
+                  <p className="text-muted-foreground mt-1 px-2">Expense records only — payroll and claims have their own lines above.</p>
                 </div>
               </div>
+              {pieCat && (
+                <div className="border-border mt-2 rounded-lg border p-2">
+                  <p className="text-xs font-semibold capitalize">{pieCat} — {catRows.length} record{catRows.length === 1 ? "" : "s"} · {rmc(catTotal)}</p>
+                  <div className="mt-1 grid gap-1 text-xs">
+                    {catRows.map((r) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-x-2">
+                        <span className="font-semibold tabular-nums">{rmc(r.amount_cents)}</span>
+                        <span>{r.vendor || r.description || "—"}</span>
+                        <span className="text-muted-foreground">{r.expense_date.split("-").reverse().join("-")}</span>
+                        {r.paid_at
+                          ? <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">PAID</span>
+                          : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">outstanding</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : null;
         })()}
