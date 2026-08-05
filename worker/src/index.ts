@@ -1210,7 +1210,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // TikTok signs its own requests (tiktok-signature); a relay such as
     // Make/Zapier can instead send x-webhook-secret. Either proves origin.
     const rawBody = await request.text();
-    const sigHeader = request.headers.get("tiktok-signature") ?? request.headers.get("Tiktok-Signature") ?? request.headers.get("authorization") ?? request.headers.get("Authorization") ?? request.headers.get("x-ttc-signature") ?? "";
+    const sigHeader = request.headers.get("tiktok-signature") ?? request.headers.get("Tiktok-Signature") ?? "";
     const relaySecret = request.headers.get("x-webhook-secret") ?? "";
     const viaTikTok = sigHeader ? await verifyTikTokSignature(env, sigHeader, rawBody) : false;
     const viaRelay = Boolean(env.TIKTOK_WEBHOOK_SECRET) && relaySecret === env.TIKTOK_WEBHOOK_SECRET;

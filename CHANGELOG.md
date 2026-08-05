@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.222] — 2026-08-05 — Fulfilment chips drill into the orders behind them
+
+### Added (CEO: "clickable card which will appear the data of the fulfillment")
+- Every Fulfilment status chip is now a button — click Shipped 4 and a table opens under the chips with those orders: ref, date/time (MYT), courier · tracking, buyer city, amount; sticky-header scroll at 200-row cap; click again (or another chip) to switch/close. Empty statuses say so.
+- GET /staff/fulfilment/summary gains additive `?status=` returning `orders` for that status this month, newest first — existing consumers unaffected. Worker + frontend.
+
 ## [1.4.221] — 2026-08-05 — New panels join the standard save popup
 
 ### Fixed (CEO: "there is no save popup notification" on Tab access control)

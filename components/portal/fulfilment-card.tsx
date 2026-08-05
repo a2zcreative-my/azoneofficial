@@ -17,6 +17,10 @@ interface FulfilSummary {
   by_status: Record<string, number>;
   oldest_preparing: { order_ref: string; days: number | null } | null;
 }
+interface FulfilOrder { // v1.4.222 drill-down row
+  order_ref: string; status: string; courier: string | null; tracking_no: string | null;
+  buyer_city: string | null; order_amount_cents: number | null; created_at: string;
+}
 
 const CHIPS: [key: string, label: string][] = [
   ["preparing", "📦 Preparing"],
@@ -26,9 +30,32 @@ const CHIPS: [key: string, label: string][] = [
   ["returned", "↩ Returned"],
 ];
 
+const rmF = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dmyT = (ts: string) => {
+  const d = new Date(ts.replace(" ", "T") + "Z");
+  if (Number.isNaN(d.getTime())) return ts;
+  const m = new Date(d.getTime() + 8 * 3600 * 1000).toISOString();
+  return `${m.slice(8, 10)}-${m.slice(5, 7)} ${m.slice(11, 16)}`;
+};
+
 export function FulfilmentCard() {
   const [d, setD] = useState<FulfilSummary | null>(null);
   const [err, setErr] = useState("");
+  /* v1.4.222 (CEO): chips are clickable — the orders behind a status. */
+  const [drill, setDrill] = useState<string | null>(null);
+  const [orders, setOrders] = useState<FulfilOrder[] | null>(null);
+  const [drillBusy, setDrillBusy] = useState(false);
+  const toggleDrill = async (k: string) => {
+    if (drill === k) { setDrill(null); setOrders(null); return; }
+    setDrill(k); setOrders(null); setDrillBusy(true);
+    try {
+      const r = await fetch(`/api/v1/staff/fulfilment/summary?status=${k}`, { credentials: "include" });
+      if (r.ok) {
+        const j = (await r.json()) as { orders?: FulfilOrder[] };
+        setOrders(j.orders ?? []);
+      }
+    } finally { setDrillBusy(false); }
+  };
   useEffect(() => {
     let alive = true;
     void fetch("/api/v1/staff/fulfilment/summary", { credentials: "include" })
@@ -52,16 +79,52 @@ export function FulfilmentCard() {
         <>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {CHIPS.map(([k, label]) => (
-              <span key={k}
+              <button key={k} type="button" onClick={() => void toggleDrill(k)}
+                title="Click to show these orders"
                 className={
-                  k === "preparing" && n(k) > 0
+                  (drill === k ? "ring-primary ring-2 " : "") +
+                  (k === "preparing" && n(k) > 0
                     ? "rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800"
-                    : "border-border rounded-full border px-2 py-0.5"
+                    : "border-border rounded-full border px-2 py-0.5")
                 }>
-                {label} <span className="font-semibold">{n(k)}</span>
-              </span>
+                {label} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
+              </button>
             ))}
           </div>
+          {drill && (
+            <div className="mt-2">
+              {drillBusy && <p className="text-muted-foreground text-xs">Loading…</p>}
+              {orders && orders.length === 0 && (
+                <p className="text-muted-foreground text-xs">No orders in this status this month.</p>
+              )}
+              {orders && orders.length > 0 && (
+                <div className="tbl-sticky -mx-1 max-h-64 overflow-auto px-1">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground text-left">
+                        <th className="px-2 py-1">ORDER</th>
+                        <th className="px-2 py-1">DATE</th>
+                        <th className="px-2 py-1">COURIER · TRACKING</th>
+                        <th className="px-2 py-1">CITY</th>
+                        <th className="px-2 py-1 text-right">AMOUNT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.map((o) => (
+                        <tr key={o.order_ref + o.created_at} className="border-border border-t">
+                          <td className="px-2 py-1 font-mono">{o.order_ref}</td>
+                          <td className="px-2 py-1 whitespace-nowrap">{dmyT(o.created_at)}</td>
+                          <td className="px-2 py-1">{o.courier ?? "—"}{o.tracking_no ? ` · ${o.tracking_no}` : ""}</td>
+                          <td className="px-2 py-1">{o.buyer_city ?? "—"}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{o.order_amount_cents != null ? rmF(o.order_amount_cents) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
           {d.oldest_preparing && (
             <p className="mt-2 text-xs font-medium text-amber-700">
               ⏳ Oldest unshipped: {d.oldest_preparing.order_ref}

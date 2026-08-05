@@ -2366,10 +2366,25 @@ export async function handleStaff(
     const oldestDays = oldest
       ? Math.floor((Date.now() - Date.parse(oldest.created_at + "Z")) / (24 * 3600 * 1000))
       : null;
+    /* v1.4.222 (CEO: "clickable card which will appear the data of the
+       fulfillment"): additive ?status= drills into one status — the
+       month's orders behind that chip, newest first. */
+    const drill = url.searchParams.get("status");
+    let orders: unknown[] | undefined;
+    if (drill && ["preparing", "shipped", "in_transit", "delivered", "returned"].includes(drill)) {
+      const { results } = await env.DB.prepare(
+        `SELECT order_ref, status, courier, tracking_no, buyer_city, order_amount_cents, created_at
+         FROM postage_records
+         WHERE status = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
+         ORDER BY created_at DESC LIMIT 200`,
+      ).bind(drill, monthFS).all();
+      orders = results ?? [];
+    }
     return json({
       month: monthFS,
       by_status: Object.fromEntries((byStatus ?? []).map((r) => [r.status, r.n])),
       oldest_preparing: oldest ? { order_ref: oldest.order_ref, days: oldestDays } : null,
+      ...(orders !== undefined ? { status: drill, orders } : {}),
     });
   }
 
