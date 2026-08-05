@@ -1642,8 +1642,11 @@ function MemoBody({ body }: { body: string }) {
 function Announcements({ user }: { user: User }) {
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [draft, setDraft] = useState({ title: "", body: "", category: "news" });
-  /* v1.4.215: memo header boxes (shown when Category = memo). */
-  const [memo, setMemo] = useState({ kepada: "Semua Pekerja @all", daripada: "Pengurusan", tarikh: todayMalay(), perkara: "" });
+  /* v1.4.223 (CEO: "placement textbox I want: Subject, To: From: and
+     Body"): To/From on EVERY post — labels switch to Kepada/Daripada in
+     memo mode, which also adds Tarikh + Perkara (v1.4.215). */
+  const [toFrom, setToFrom] = useState({ to: "Semua Pekerja @all", from: "Pengurusan" });
+  const [memo, setMemo] = useState({ tarikh: todayMalay(), perkara: "" });
   const canPost = MANAGE_ROLES.includes(user.role);
 
   const load = useCallback(async () => {
@@ -1656,17 +1659,18 @@ function Announcements({ user }: { user: User }) {
     if (!draft.title || !draft.body) return;
     /* v1.4.215: a memo publishes with its header lines composed into the
        body — no schema change, and the feed renders them bold. */
-    const body = draft.category === "memo"
-      ? [
-          memo.kepada.trim() && `Kepada: ${memo.kepada.trim()}`,
-          memo.daripada.trim() && `Daripada: ${memo.daripada.trim()}`,
-          memo.tarikh.trim() && `Tarikh: ${memo.tarikh.trim()}`,
-          memo.perkara.trim() && `Perkara: ${memo.perkara.trim()}`,
-        ].filter(Boolean).join("\n") + "\n\n" + draft.body
-      : draft.body;
+    const isMemo = draft.category === "memo";
+    const headerLines = [
+      toFrom.to.trim() && `${isMemo ? "Kepada" : "To"}: ${toFrom.to.trim()}`,
+      toFrom.from.trim() && `${isMemo ? "Daripada" : "From"}: ${toFrom.from.trim()}`,
+      isMemo && memo.tarikh.trim() && `Tarikh: ${memo.tarikh.trim()}`,
+      isMemo && memo.perkara.trim() && `Perkara: ${memo.perkara.trim()}`,
+    ].filter(Boolean);
+    const body = headerLines.length > 0 ? headerLines.join("\n") + "\n\n" + draft.body : draft.body;
     await api(`/staff/announcements`, { method: "POST", body: JSON.stringify({ ...draft, body }) });
     setDraft({ title: "", body: "", category: "news" });
-    setMemo({ kepada: "Semua Pekerja @all", daripada: "Pengurusan", tarikh: todayMalay(), perkara: "" });
+    setToFrom({ to: "Semua Pekerja @all", from: "Pengurusan" });
+    setMemo({ tarikh: todayMalay(), perkara: "" });
     void load();
   };
   const ack = async (id: number) => {
@@ -1687,7 +1691,7 @@ function Announcements({ user }: { user: User }) {
             this feed until they press Acknowledge.
           </p>
           <div className="mt-3 space-y-3">
-            <Sub t="Title">
+            <Sub t="Subject">
               <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </Sub>
             <Sub t="Category">
@@ -1695,25 +1699,26 @@ function Announcements({ user }: { user: User }) {
                 {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c === "memo" ? "memo dalaman" : c}</option>)}
               </select>
             </Sub>
-            {draft.category === "memo" && (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {/* v1.4.215 (CEO's memo format): the header boxes of a
-                    formal internal memo — pre-filled with the usual values
-                    so a standard memo needs only Perkara + the body. */}
-                <Sub t="Kepada">
-                  <input className={inputClass} value={memo.kepada} onChange={(e) => setMemo((m) => ({ ...m, kepada: e.target.value }))} />
-                </Sub>
-                <Sub t="Daripada">
-                  <input className={inputClass} value={memo.daripada} onChange={(e) => setMemo((m) => ({ ...m, daripada: e.target.value }))} />
-                </Sub>
-                <Sub t="Tarikh">
-                  <input className={inputClass} value={memo.tarikh} onChange={(e) => setMemo((m) => ({ ...m, tarikh: e.target.value }))} />
-                </Sub>
-                <Sub t="Perkara">
-                  <input className={inputClass} placeholder="e.g. Hari Pertama Melapor Diri" value={memo.perkara} onChange={(e) => setMemo((m) => ({ ...m, perkara: e.target.value }))} />
-                </Sub>
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {/* v1.4.223: To/From placement boxes on EVERY post; memo mode
+                  relabels to Kepada/Daripada and adds Tarikh + Perkara. */}
+              <Sub t={draft.category === "memo" ? "Kepada (To)" : "To"}>
+                <input className={inputClass} value={toFrom.to} onChange={(e) => setToFrom((m) => ({ ...m, to: e.target.value }))} />
+              </Sub>
+              <Sub t={draft.category === "memo" ? "Daripada (From)" : "From"}>
+                <input className={inputClass} value={toFrom.from} onChange={(e) => setToFrom((m) => ({ ...m, from: e.target.value }))} />
+              </Sub>
+              {draft.category === "memo" && (
+                <>
+                  <Sub t="Tarikh">
+                    <input className={inputClass} value={memo.tarikh} onChange={(e) => setMemo((m) => ({ ...m, tarikh: e.target.value }))} />
+                  </Sub>
+                  <Sub t="Perkara">
+                    <input className={inputClass} placeholder="e.g. Hari Pertama Melapor Diri" value={memo.perkara} onChange={(e) => setMemo((m) => ({ ...m, perkara: e.target.value }))} />
+                  </Sub>
+                </>
+              )}
+            </div>
             <Sub t={draft.category === "memo" ? "Kandungan memo" : "Body"}>
               <textarea className={inputClass} rows={draft.category === "memo" ? 8 : 3}
                 placeholder={draft.category === "memo"

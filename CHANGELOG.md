@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.223] — 2026-08-05 — Publish news: Subject / To / From / Body on every post
+
+### Changed (CEO: "placement textbox I want: Subject, To: From: and Body")
+- The form is now Subject (was Title) → Category → To ("Semua Pekerja @all") | From ("Pengurusan") → Body — the To/From placement boxes appear on EVERY post, not only memos. On publish they compose into the body as "To: … / From: …" lines, rendered with bold labels by the v1.4.215 MemoBody; blank boxes are skipped.
+- Memo dalaman keeps its extras: To/From relabel to Kepada (To) / Daripada (From) and Tarikh + Perkara appear alongside. Frontend-only (`pnpm build`).
+
 ## [1.4.222] — 2026-08-05 — Fulfilment chips drill into the orders behind them
 
 ### Added (CEO: "clickable card which will appear the data of the fulfillment")
