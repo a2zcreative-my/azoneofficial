@@ -1300,7 +1300,7 @@ export async function handleStaff(
     if (!body || !str(body.title, 200) || !str(body.body, 5000)) {
       return err("invalid_input", "title and body are required", 400);
     }
-    const cats = ["news", "meeting", "holiday", "kpi", "training"];
+    const cats = ["news", "meeting", "holiday", "kpi", "training", "memo"]; // v1.4.215: internal memo
     const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "news";
     const res = await env.DB.prepare(
       `INSERT INTO announcements (title, body, category, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,

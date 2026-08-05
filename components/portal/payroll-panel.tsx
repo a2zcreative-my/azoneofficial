@@ -1077,7 +1077,7 @@ export function MyPayslip() {
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
-            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]!} MYT</span>.
+            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
           </p>
           <button
             type="button"

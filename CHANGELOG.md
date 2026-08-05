@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.215] — 2026-08-05 — News gains a proper "memo dalaman" format
+
+### Added (CEO pasted his real internal memo: "I want the placement text box is like this")
+- New category **memo dalaman** on Publish news. Picking it reveals the formal memo header boxes — Kepada (pre-filled "Semua Pekerja @all"), Daripada ("Pengurusan"), Tarikh (today in Malay, e.g. "5 Ogos 2026"), Perkara — so a standard memo needs only Perkara + the content. On publish the headers compose into the body ("Kepada: …" lines); no schema change, worker just allows the new category.
+- New MemoBody renderer for the feed: "Label: value" lines render with a bold label (Kepada, Tarikh, Masa, Lokasi Office — any short label), consecutive "* " lines become a real bullet list, blank lines space paragraphs. His pasted memo renders exactly as written. Plain announcements contain no label/bullet lines and render as before. Verified the parse rules against his actual memo lines. Worker (one word) + frontend.
+
 ## [1.4.214] — 2026-08-05 — Dashboard slimmed; new Ecommerce tab gathers every TikTok card
 
 ### Changed (CEO: "Resort and make it like this … Create new Ecommerce tabs and move all the below card into it")

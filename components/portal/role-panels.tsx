@@ -2464,10 +2464,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
-          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
+          if (!cl.hr_reviewed_at) (pr === "hr_admin" ? (anyWaived = true) : missingSkipped.push("HR review"));
+          if (!cl.pre_approved_at) (pr === "coo" ? (anyWaived = true) : missingSkipped.push("COO pre-approval"));
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
+          (pr === "cco" ? (anyWaived = true) : missingSkipped.push("CCO pre-approval"));
         }
       }
       if (missingSkipped.length > 0) {
@@ -3114,7 +3114,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]!} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

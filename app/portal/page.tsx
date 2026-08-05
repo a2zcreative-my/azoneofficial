@@ -12,10 +12,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
@@ -671,7 +671,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -1597,9 +1597,54 @@ function Tasks({ user }: { user: User }) {
 
 /* ================= Announcements ================= */
 
+/* v1.4.215 (CEO pasted his real internal memo): Malay month names for the
+   memo's default Tarikh line. */
+const MS_MONTHS = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"];
+const todayMalay = () => {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return `${d.getUTCDate()} ${MS_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
+
+/* v1.4.215: renders an announcement body the way the CEO's memo reads —
+   "Label: value" lines get a bold label, consecutive "* " lines become a
+   real bullet list, everything else stays a paragraph. Plain bodies
+   render exactly as before (they simply contain no label/bullet lines). */
+function MemoBody({ body }: { body: string }) {
+  const lines = body.split("\n");
+  const out: ReactNode[] = [];
+  let bullets: string[] = [];
+  const flush = () => {
+    if (bullets.length > 0) {
+      out.push(
+        <ul key={`ul${out.length}`} className="my-1 list-disc space-y-0.5 pl-5">
+          {bullets.map((b, i) => <li key={i}>{b}</li>)}
+        </ul>,
+      );
+      bullets = [];
+    }
+  };
+  lines.forEach((ln, i) => {
+    const bullet = ln.match(/^\s*[*•-]\s+(.*)$/);
+    if (bullet) { bullets.push(bullet[1]!); return; }
+    flush();
+    const label = ln.match(/^([A-Za-z][A-Za-z\s()\/&]{1,30}):\s+(.+)$/);
+    if (label && !label[2]!.startsWith("//")) {
+      out.push(<p key={i}><span className="font-semibold">{label[1]}:</span> {label[2]}</p>);
+    } else if (ln.trim() === "") {
+      out.push(<div key={i} className="h-2" />);
+    } else {
+      out.push(<p key={i}>{ln}</p>);
+    }
+  });
+  flush();
+  return <div className="mt-2 text-sm">{out}</div>;
+}
+
 function Announcements({ user }: { user: User }) {
   const [anns, setAnns] = useState<Announcement[]>([]);
   const [draft, setDraft] = useState({ title: "", body: "", category: "news" });
+  /* v1.4.215: memo header boxes (shown when Category = memo). */
+  const [memo, setMemo] = useState({ kepada: "Semua Pekerja @all", daripada: "Pengurusan", tarikh: todayMalay(), perkara: "" });
   const canPost = MANAGE_ROLES.includes(user.role);
 
   const load = useCallback(async () => {
@@ -1610,8 +1655,19 @@ function Announcements({ user }: { user: User }) {
 
   const post = async () => {
     if (!draft.title || !draft.body) return;
-    await api(`/staff/announcements`, { method: "POST", body: JSON.stringify(draft) });
+    /* v1.4.215: a memo publishes with its header lines composed into the
+       body — no schema change, and the feed renders them bold. */
+    const body = draft.category === "memo"
+      ? [
+          memo.kepada.trim() && `Kepada: ${memo.kepada.trim()}`,
+          memo.daripada.trim() && `Daripada: ${memo.daripada.trim()}`,
+          memo.tarikh.trim() && `Tarikh: ${memo.tarikh.trim()}`,
+          memo.perkara.trim() && `Perkara: ${memo.perkara.trim()}`,
+        ].filter(Boolean).join("\n") + "\n\n" + draft.body
+      : draft.body;
+    await api(`/staff/announcements`, { method: "POST", body: JSON.stringify({ ...draft, body }) });
     setDraft({ title: "", body: "", category: "news" });
+    setMemo({ kepada: "Semua Pekerja @all", daripada: "Pengurusan", tarikh: todayMalay(), perkara: "" });
     void load();
   };
   const ack = async (id: number) => {
@@ -1635,13 +1691,36 @@ function Announcements({ user }: { user: User }) {
             <Sub t="Title">
               <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </Sub>
-            <Sub t="Body">
-              <textarea className={inputClass} rows={3} placeholder="The full announcement text" value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
-            </Sub>
             <Sub t="Category">
               <select className={`${inputClass} sm:max-w-44`} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-                {["news", "meeting", "holiday", "kpi", "training"].map((c) => <option key={c} value={c}>{c}</option>)}
+                {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c === "memo" ? "memo dalaman" : c}</option>)}
               </select>
+            </Sub>
+            {draft.category === "memo" && (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {/* v1.4.215 (CEO's memo format): the header boxes of a
+                    formal internal memo — pre-filled with the usual values
+                    so a standard memo needs only Perkara + the body. */}
+                <Sub t="Kepada">
+                  <input className={inputClass} value={memo.kepada} onChange={(e) => setMemo((m) => ({ ...m, kepada: e.target.value }))} />
+                </Sub>
+                <Sub t="Daripada">
+                  <input className={inputClass} value={memo.daripada} onChange={(e) => setMemo((m) => ({ ...m, daripada: e.target.value }))} />
+                </Sub>
+                <Sub t="Tarikh">
+                  <input className={inputClass} value={memo.tarikh} onChange={(e) => setMemo((m) => ({ ...m, tarikh: e.target.value }))} />
+                </Sub>
+                <Sub t="Perkara">
+                  <input className={inputClass} placeholder="e.g. Hari Pertama Melapor Diri" value={memo.perkara} onChange={(e) => setMemo((m) => ({ ...m, perkara: e.target.value }))} />
+                </Sub>
+              </div>
+            )}
+            <Sub t={draft.category === "memo" ? "Kandungan memo" : "Body"}>
+              <textarea className={inputClass} rows={draft.category === "memo" ? 8 : 3}
+                placeholder={draft.category === "memo"
+                  ? "Isi memo — guna * di awal baris untuk senarai bullet, dan 'Label: nilai' untuk baris tebal (cth. Masa: 9:00 pagi)"
+                  : "The full announcement text"}
+                value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
             </Sub>
             <button type="button" className={btnClass} onClick={() => void post()}>Publish</button>
           </div>
@@ -1671,7 +1750,7 @@ function Announcements({ user }: { user: User }) {
               <button type="button" className={btnGhost} onClick={() => void ack(a.id)}>Acknowledge</button>
             )}
           </div>
-          <p className="mt-2 text-sm whitespace-pre-wrap">{a.body}</p>
+          <MemoBody body={a.body} />
         </article>
       ))}
       </div>
