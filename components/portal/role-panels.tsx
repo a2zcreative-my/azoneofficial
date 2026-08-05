@@ -2966,6 +2966,41 @@ interface ExpenseRec {
 
 const EXPENSE_CATEGORIES = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"] as const;
 
+/* v1.4.227 (CEO: "pie chart for the expenses category for me to monitor on
+   each month… include the marketing expenses"): pure-SVG donut — the
+   system has no chart library by design. Slices = this month's expense
+   ROWS by category (payroll and claims have their own lines above and
+   would drown the categories). Marketing already existed in the category
+   list end-to-end; it now gets a slice like everything else. */
+const PIE_COLORS: Record<string, string> = {
+  rent: "#1A2946", utilities: "#C9A227", software: "#3B82F6", marketing: "#E1568E",
+  equipment: "#0E9F6E", logistics: "#F97316", supplies: "#8B5CF6", other: "#94A3B8",
+};
+function ExpensePie({ slices }: { slices: [string, number][] }) {
+  const total = slices.reduce((a, [, v]) => a + v, 0);
+  if (total <= 0) return null;
+  let acc = 0;
+  const R = 46, C = 60, W = 22; // radius, center, ring width
+  const arcs = slices.map(([cat, v]) => {
+    const a0 = (acc / total) * 2 * Math.PI - Math.PI / 2;
+    acc += v;
+    const a1 = (acc / total) * 2 * Math.PI - Math.PI / 2;
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    const x0 = C + R * Math.cos(a0), y0 = C + R * Math.sin(a0);
+    const x1 = C + R * Math.cos(a1), y1 = C + R * Math.sin(a1);
+    // Full-circle single slice: two half arcs so the path renders.
+    const d = v === total
+      ? `M ${C + R} ${C} A ${R} ${R} 0 1 1 ${C - R} ${C} A ${R} ${R} 0 1 1 ${C + R} ${C}`
+      : `M ${x0} ${y0} A ${R} ${R} 0 ${large} 1 ${x1} ${y1}`;
+    return <path key={cat} d={d} fill="none" stroke={PIE_COLORS[cat] ?? PIE_COLORS.other} strokeWidth={W} />;
+  });
+  return (
+    <svg viewBox="0 0 120 120" className="h-36 w-36 shrink-0" role="img" aria-label="Expenses by category">
+      {arcs}
+    </svg>
+  );
+}
+
 /** Company operating expenses — CEO and COO record what the company spends
     (rent, software, ads, logistics …). Separate from CLAIMS, which are staff
     reimbursements routed to the CEO for approval. */
@@ -3293,6 +3328,31 @@ export function ExpensesPanel() {
               </div>
             </div>
           );
+        })()}
+        {(() => {
+          /* v1.4.227: category donut + legend for the month on screen. */
+          const byCat = new Map<string, number>();
+          for (const r of rows) byCat.set(r.category, (byCat.get(r.category) ?? 0) + r.amount_cents);
+          const slices = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+          const totalPie = slices.reduce((a, [, v]) => a + v, 0);
+          return totalPie > 0 ? (
+            <div className="border-border mb-3 rounded-lg border p-3">
+              <p className="text-sm font-semibold">📊 Expenses by category — {month.split("-").reverse().join("-")}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-4">
+                <ExpensePie slices={slices} />
+                <div className="grid gap-1 text-xs">
+                  {slices.map(([cat, v]) => (
+                    <p key={cat} className="flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: PIE_COLORS[cat] ?? PIE_COLORS.other }} />
+                      <span className="font-medium capitalize">{cat}</span>
+                      <span className="text-muted-foreground">{rmc(v)} · {((v / totalPie) * 100).toFixed(totalPie > 0 && v / totalPie < 0.1 ? 1 : 0)}%</span>
+                    </p>
+                  ))}
+                  <p className="text-muted-foreground mt-1">Expense records only — payroll and claims have their own lines above.</p>
+                </div>
+              </div>
+            </div>
+          ) : null;
         })()}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>

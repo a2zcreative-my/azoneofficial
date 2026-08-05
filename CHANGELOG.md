@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.227] — 2026-08-05 — 📊 Expenses category pie + Marketing category surfaced
+
+### Added (CEO: "pie chart for the expenses category… include the marketing expenses")
+- "📊 Expenses by category — {month}" donut above the expense list: pure-SVG ring (no chart library, by design), slices sorted largest-first with a colour legend showing RM + % per category, following the month picker. Expense records only — payroll and claims keep their own lines above so the categories aren't drowned. Renders only when the month has expenses.
+- Marketing: already existed end-to-end (frontend EXPENSE_CATEGORIES + worker catsE both include "marketing" since v1.4.87) — the dropdown lists it between Software and Equipment; it now gets its own pie slice (pink) like every category. Use it for platform ads, marketing materials, any marketing spend. Frontend-only (`pnpm build`).
+
 ## [1.4.226] — 2026-08-05 — 💰 Commission helper (1.5% of the month's sales)
 
 ### Added (CEO: "add commission which is 1.5% for me to pay the commission")
