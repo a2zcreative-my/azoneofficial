@@ -505,12 +505,30 @@ export async function handleStaff(
     if (!can(user, "hr_manage") && !can(user, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
-    const { results } = await env.DB.prepare(
-      `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
-              address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no,
-              CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-       FROM users ORDER BY name`,
-    ).all();
+    /* v1.4.218 MIGRATION-SKEW ARMOR (the Staff tab went BLANK when the
+       v1.4.213 code deployed before migrations 0058/0059 ran — "no such
+       column: address" killed the whole SELECT and with it the entire
+       directory). The staff list is too important to die over optional
+       columns: if the profile columns don't exist yet, fall back to the
+       pre-0059 column list so the directory always renders; the seven
+       profile fields simply arrive after `wrangler d1 migrations apply`. */
+    let results: unknown[];
+    try {
+      ({ results } = await env.DB.prepare(
+        `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
+                address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no,
+                CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+         FROM users ORDER BY name`,
+      ).all());
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+      await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
+      ({ results } = await env.DB.prepare(
+        `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
+                CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+         FROM users ORDER BY name`,
+      ).all());
+    }
     return json({ users: results, staff: results });
   }
   const staffUser = path.match(/^\/users\/(\d+)$/);
@@ -545,11 +563,21 @@ export async function handleStaff(
     // v1.4.213 profile fields: emergency contact + address (duty of care)
     // and EPF/SOCSO/tax numbers (ready for the pending statutory registration).
     const fields = ["employee_id", "position", "department", "employment_status", "birthday", "id_issued_on", "full_name", "phone", "blood_type", "bank_name", "bank_account", "joined_on", "ic_number", "left_on", "rejoined_on", "address", "emergency_name", "emergency_phone", "emergency_relation", "epf_no", "socso_no", "tax_no"] as const;
-    const current = await env.DB.prepare(
-      `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type,
-              address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no
-       FROM users WHERE id = ?1`,
-    ).bind(id).first<Record<string, string | null>>();
+    let current: Record<string, string | null> | null;
+    try {
+      current = await env.DB.prepare(
+        `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type,
+                address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no
+         FROM users WHERE id = ?1`,
+      ).bind(id).first<Record<string, string | null>>();
+    } catch (e) {
+      // v1.4.218 migration-skew armor — see GET /users above.
+      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+      current = await env.DB.prepare(
+        `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
+         FROM users WHERE id = ?1`,
+      ).bind(id).first<Record<string, string | null>>();
+    }
     if (!current) return err("not_found", "Staff not found", 404);
     const sets: string[] = [];
     const vals: string[] = [];

@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.218] — 2026-08-05 — Staff directory can never blank again on migration skew
+
+### Fixed (CEO: "all staff details was gone! it is supposed to have their data" — NO DATA WAS LOST)
+- Root cause: the v1.4.213 worker deployed BEFORE migrations 0058/0059 were applied, so GET /users selected columns that don't exist yet ("no such column: address") — the whole query failed and the directory rendered empty. The data was untouched the entire time.
+- Migration-skew armor: GET /users (and the PATCH lock-policy SELECT) now catch "no such column" and fall back to the pre-0059 column list, logging error tag `migration_skew` with the exact fix. The directory always renders; the seven profile fields simply appear once migrations run.
+- The directory itself now says WHY it's empty on a failed load (amber line: data is safe, worker/database out of step, run migrations + deploy) instead of silently showing nothing.
+- THE ACTUAL FIX on your side: `cd worker && npx wrangler d1 migrations apply azoneofficial --remote` then `wrangler deploy`. Worker + frontend.
+
 ## [1.4.217] — 2026-08-05 — Ecommerce order per CEO; connection card learns "fixed, waiting for next event"
 
 ### Changed

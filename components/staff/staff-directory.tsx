@@ -349,8 +349,16 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [existing, setExisting] = useState<Staff | null>(null);
 
+  const [loadError, setLoadError] = useState("");
   const load = useCallback(async () => {
     const res = await api<{ users?: Staff[]; staff?: Staff[] }>(`/users`);
+    /* v1.4.218: a failed load previously rendered a silently EMPTY
+       directory — which read as "all staff details was gone!". Say why. */
+    if (!res.ok) {
+      setLoadError("Couldn't load the staff list from the server — the data is safe. Usually this means the worker and database are out of step: run the pending migrations + deploy, then refresh.");
+      return;
+    }
+    setLoadError("");
     if (res.ok && res.data) {
       const list = res.data.users ?? res.data.staff ?? [];
       setAllStaff(list);
@@ -628,6 +636,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         </select>
       </div>
 
+      {loadError && (
+        <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900">⚠ {loadError}</p>
+      )}
       {(sortBy === "rank"
         ? staff
         : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
