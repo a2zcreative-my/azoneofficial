@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.224] — 2026-08-05 — Publish news order: Category → Subject → To → From → Body
+
+### Changed (CEO: "resort - Category, Subject, To: all the staffs, from: Management and Body")
+- Form order now Category first, then Subject, then To | From, then Body. Defaults per his wording: To = "All the staffs", From = "Management" (memo dalaman still relabels to Kepada/Daripada with Tarikh + Perkara). Frontend-only.
+
 ## [1.4.223] — 2026-08-05 — Publish news: Subject / To / From / Body on every post
 
 ### Changed (CEO: "placement textbox I want: Subject, To: From: and Body")

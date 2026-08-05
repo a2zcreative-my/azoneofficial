@@ -1645,7 +1645,7 @@ function Announcements({ user }: { user: User }) {
   /* v1.4.223 (CEO: "placement textbox I want: Subject, To: From: and
      Body"): To/From on EVERY post — labels switch to Kepada/Daripada in
      memo mode, which also adds Tarikh + Perkara (v1.4.215). */
-  const [toFrom, setToFrom] = useState({ to: "Semua Pekerja @all", from: "Pengurusan" });
+  const [toFrom, setToFrom] = useState({ to: "All the staffs", from: "Management" }); // v1.4.224 defaults per CEO
   const [memo, setMemo] = useState({ tarikh: todayMalay(), perkara: "" });
   const canPost = MANAGE_ROLES.includes(user.role);
 
@@ -1669,7 +1669,7 @@ function Announcements({ user }: { user: User }) {
     const body = headerLines.length > 0 ? headerLines.join("\n") + "\n\n" + draft.body : draft.body;
     await api(`/staff/announcements`, { method: "POST", body: JSON.stringify({ ...draft, body }) });
     setDraft({ title: "", body: "", category: "news" });
-    setToFrom({ to: "Semua Pekerja @all", from: "Pengurusan" });
+    setToFrom({ to: "All the staffs", from: "Management" });
     setMemo({ tarikh: todayMalay(), perkara: "" });
     void load();
   };
@@ -1691,13 +1691,14 @@ function Announcements({ user }: { user: User }) {
             this feed until they press Acknowledge.
           </p>
           <div className="mt-3 space-y-3">
-            <Sub t="Subject">
-              <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-            </Sub>
+            {/* v1.4.224 (CEO): order = Category → Subject → To | From → Body. */}
             <Sub t="Category">
               <select className={`${inputClass} sm:max-w-44`} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
                 {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c === "memo" ? "memo dalaman" : c}</option>)}
               </select>
+            </Sub>
+            <Sub t="Subject">
+              <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </Sub>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {/* v1.4.223: To/From placement boxes on EVERY post; memo mode
