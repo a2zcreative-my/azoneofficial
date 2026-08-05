@@ -7,6 +7,7 @@
    status. Assets are never deleted; status moves to lost/disposed. */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "border-border bg-background mt-0.5 h-8 w-full rounded-lg border px-2 text-sm";
@@ -47,6 +48,7 @@ export function AssetsPanel() {
   const [editId, setEditId] = useState<number | null>(null);
   const [openForm, setOpenForm] = useState(false);
   const [msg, setMsg] = useState("");
+  const { show: showToast, node: toastNode } = useSaveToast(); // v1.4.221 standard save popup
 
   const load = useCallback(() => {
     void fetch("/api/v1/staff/assets", { credentials: "include" })
@@ -84,13 +86,12 @@ export function AssetsPanel() {
       ? await fetch(`/api/v1/staff/assets/${editId}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body })
       : await fetch("/api/v1/staff/assets", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body });
     if (res.ok) {
-      setMsg(editId ? "Asset updated ✓" : "Asset added ✓");
+      showToast(editId ? "Asset updated" : "Asset added", editId ? "Changes saved to the register" : "New asset in the register");
       setForm({ ...EMPTY }); setEditId(null); setOpenForm(false); load();
     } else {
       const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setMsg(j?.error?.message ?? "Save failed");
+      showToast("Save failed", j?.error?.message ?? "Please try again", "notice");
     }
-    window.setTimeout(() => setMsg(""), 3500);
   };
 
   const counts = STATUSES.map(([k, label]) => [label, assets.filter((a) => a.status === k).length] as const);
@@ -164,6 +165,7 @@ export function AssetsPanel() {
           </div>
         )}
         {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+        {toastNode}
       </div>
 
       <div className={card}>

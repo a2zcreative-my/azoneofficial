@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.221] — 2026-08-05 — New panels join the standard save popup
+
+### Fixed (CEO: "there is no save popup notification" on Tab access control)
+- Tab access control and the Assets panel confirmed saves with a quiet inline line only — every other Save in the portal pops the v1.4.87 animated toast. Both now use the same useSaveToast: "Access saved — takes effect on each person's next refresh" / "Back to default" on tab access; "Asset added" / "Asset updated" (and a notice-variant popup on failure with the server's message) on assets. Inline detail lines kept as secondary. Frontend-only (`pnpm build`).
+
 ## [1.4.220] — 2026-08-05 — Webhook failures get a definitive test instead of guesswork
 
 ### Added (failures continued AFTER the secret update — 44 at ~30-min spacing = TikTok RETRYING the same undelivered event until it gets a 200)

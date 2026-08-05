@@ -9,6 +9,7 @@
    the escape hatch exists. Self-contained new file. */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 
@@ -67,6 +68,9 @@ export function TabAccessCard() {
   const [openTab, setOpenTab] = useState<string | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
   const [msg, setMsg] = useState("");
+  /* v1.4.221 (CEO: "there is no save popup notification"): the standard
+     v1.4.87 save toast — same popup as every other Save in the portal. */
+  const { show: showToast, node: toastNode } = useSaveToast();
 
   const load = useCallback(() => {
     void fetch("/api/v1/staff/tabs/access", { credentials: "include" })
@@ -88,9 +92,11 @@ export function TabAccessCard() {
       const d = (await res.json()) as { overrides: Record<string, string[]> };
       setOverrides(d.overrides ?? {});
       setOpenTab(null);
-      setMsg(roles === null ? `${tab} — back to default ✓` : `${tab} — access saved ✓ (takes effect on each person's next refresh)`);
-    } else setMsg("Save failed");
-    window.setTimeout(() => setMsg(""), 3500);
+      showToast(
+        roles === null ? "Back to default" : "Access saved",
+        roles === null ? `${tab} uses the built-in default again` : `${tab} — takes effect on each person's next refresh`,
+      );
+    } else showToast("Save failed", "Please try again", "notice");
   };
 
   return (
@@ -160,6 +166,7 @@ export function TabAccessCard() {
         })}
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+      {toastNode}
     </div>
   );
 }
