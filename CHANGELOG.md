@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.229] — 2026-08-05 — ⬇ Inventory stock-count CSV
+
+### Added (CEO: "csv button to download the inventory list for me to perform Stock Count")
+- "⬇ CSV — stock count" button in the Inventory live-status header: downloads azoo-stock-count-{date}.csv with the list in its on-screen sort — SKU, Item, Price/unit, Live rebate, Net, System stock, Status — plus the three columns a physical count needs, left blank to fill in: **Counted qty, Variance, Note**. Header rows carry the generation timestamp (MYT) so the sheet records when the system snapshot was taken; TOTAL units row at the bottom; UTF-8 BOM so Excel opens it cleanly. Client-side, no server change. Frontend-only (`pnpm build`).
+
 ## [1.4.228] — 2026-08-05 — The expenses donut becomes interactive and mobile-first
 
 ### Changed (CEO: "more beautiful, professional and graphic; click the pie to get details; suitable with the Mobile Apps view")

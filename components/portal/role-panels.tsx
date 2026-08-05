@@ -675,7 +675,49 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
           tab with the rest of the TikTok cards. Inventory keeps the stock
           views; the tracker follows the channel. */}
       <div className={card}>
-        <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
+          {/* v1.4.229 (CEO: "csv button to download the inventory list for
+              me to perform Stock Count"): client-side CSV of the current
+              list in its on-screen sort, PLUS the three columns a physical
+              stock count needs — Counted qty / Variance / Note — left
+              blank for the person walking the shelves. */}
+          <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+            onClick={() => {
+              const esc = (v: string | number) => {
+                const t = String(v);
+                return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+              };
+              const now = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
+              const stamp = `${now.slice(8, 10)}-${now.slice(5, 7)}-${now.slice(0, 4)} ${now.slice(11, 16)} MYT`;
+              const lines: string[] = [
+                `# AZ ONE OFFICIAL — Inventory stock count sheet`,
+                `# Generated ${stamp} — system stock as of this moment; count, write Counted qty, note variances`,
+                ["SKU", "Item", "Price/unit (RM)", "Live rebate (RM)", "Net (RM)", "System stock", "Status", "Counted qty", "Variance", "Note"].join(","),
+              ];
+              let units = 0;
+              for (const it of sortedItems) {
+                const price = it.unit_price_cents ?? 0;
+                const rebate = it.live_rebate_cents ?? 0;
+                const net = Math.max(0, price - rebate);
+                units += it.stock;
+                lines.push([
+                  esc(it.sku), esc(it.name), (price / 100).toFixed(2),
+                  rebate > 0 ? `-${(rebate / 100).toFixed(2)}` : "",
+                  (net / 100).toFixed(2), it.stock, it.status ?? "", "", "", "",
+                ].join(","));
+              }
+              lines.push(["TOTAL", "", "", "", "", units, "", "", "", ""].join(","));
+              const url = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" }));
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `azoo-stock-count-${now.slice(0, 10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>
+            ⬇ CSV — stock count
+          </button>
+        </div>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Stock moves automatically: a postage record with an item deducts it;
           a returned shipment adds it back. Use In/Out for manual corrections.
