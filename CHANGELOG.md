@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.217] — 2026-08-05 — Ecommerce order per CEO; connection card learns "fixed, waiting for next event"
+
+### Changed
+- Ecommerce tab order (CEO): TikTok Orders → Live GMV → Sales by hour → Fulfilment → 🔌 TikTok connection last.
+- CEO reported the ⚠ signature warning "still got this error even after insert the API" — the card was reporting HISTORY: the 7-day counter and the last event's verdict stay red until TikTok sends the NEXT webhook, regardless of the fixed secret. Status route gains two additive keys (last_verified_at, last_failed_at) and the card now has three honest states: newest event verified with old failures still in the window → green "✅ Secret fixed — failures age out"; newest event failed → amber explains it stays until the next event arrives and how to trigger one (small test order); no failures → nothing. Worker + frontend.
+
+## [1.4.216] — 2026-08-05 — Sales revenue moves above Upcoming events
+
+### Changed (CEO)
+- Dashboard order: Quick actions → Pending leave | My open tasks | News → **Sales revenue** → Upcoming events. One-mount swap; frontend-only.
+
 ## [1.4.215] — 2026-08-05 — News gains a proper "memo dalaman" format
 
 ### Added (CEO pasted his real internal memo: "I want the placement text box is like this")

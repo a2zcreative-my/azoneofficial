@@ -9,13 +9,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
@@ -424,13 +424,11 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
       </div>
 
-      <UpcomingEventsCard role={user.role} />
-
-      {/* v1.4.214: Sales revenue stays on the Dashboard (it is every
-          channel, not just TikTok — the CEO's daily number), below the
-          day-view per the requested order. The TikTok-specific cards
-          moved to the Ecommerce tab. */}
+      {/* v1.4.216 (CEO): Sales revenue sits ABOVE Upcoming events — the
+          daily number outranks the calendar. */}
       {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
+
+      <UpcomingEventsCard role={user.role} />
     </div>
   );
 }
@@ -3515,11 +3513,13 @@ export default function PortalPage() {
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
                 connection health, the order tracker, LIVE GMV, the hourly
                 histogram and the fulfilment pipeline. */}
-            <ConnectionStatusCard />
+            {/* v1.4.217 (CEO's order): Orders → GMV → by-hour → Fulfilment
+                → Connection status last (plumbing below the business). */}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
             {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
+            <ConnectionStatusCard />
           </div>
         )}
         {tab === "Assets" && <AssetsPanel />}

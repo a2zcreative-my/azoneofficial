@@ -1117,6 +1117,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       `SELECT COUNT(*) AS n FROM webhook_events
        WHERE provider = 'tiktok' AND verified = 0 AND created_at >= datetime('now', '-7 days')`,
     ).first<{ n: number }>();
+    /* v1.4.217: the CEO fixed the secret but the card still showed the
+       warning — the 7-day counter and "last event" verdict are HISTORY and
+       stay red until the NEXT webhook arrives. These two additive keys let
+       the card tell "fixed, waiting for the next event" apart from "still
+       broken": if the newest VERIFIED event is more recent than the newest
+       failure, the secret is provably working again. */
+    const lastOk = await env.DB.prepare(
+      `SELECT MAX(created_at) AS at FROM webhook_events WHERE provider = 'tiktok' AND verified = 1`,
+    ).first<{ at: string | null }>();
+    const lastFail = await env.DB.prepare(
+      `SELECT MAX(created_at) AS at FROM webhook_events WHERE provider = 'tiktok' AND verified = 0`,
+    ).first<{ at: string | null }>();
     return json({
       configured: Boolean(env.TIKTOK_APP_KEY && env.TIKTOK_APP_SECRET),
       authorized: Boolean(tok),
@@ -1124,6 +1136,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       last_event_verified: last ? Boolean(last.verified) : null,
       last_order_at: lastOrder?.at ?? null,
       failed_events_7d: failed7?.n ?? 0,
+      last_verified_at: lastOk?.at ?? null,
+      last_failed_at: lastFail?.at ?? null,
     });
   }
 
