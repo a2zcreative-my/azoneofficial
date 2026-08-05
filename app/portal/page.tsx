@@ -3141,7 +3141,33 @@ type TabName = (typeof ALL_TABS)[number];
 export default function PortalPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
+  /* v1.4.231 (CEO: "when I refresh the tabs back to Dashboard instead of
+     last tab that I open"): the active tab was plain useState — a refresh
+     rebuilds the page and lands on the default. Now the last tab persists
+     per device (localStorage azone-tab), restored on load and validated:
+     if the saved tab isn't visible to this account (role change, 🔐 tab
+     access change), the guard effect below falls back to Dashboard. */
   const [tab, setTab] = useState<TabName>("Dashboard");
+  /* v1.4.232 (CEO: "does it will accidentally appear the full tabs roles by
+     accidents?"): his question exposed a shared-device edge in v1.4.231 —
+     the remembered tab was stored per DEVICE, so a lower-role account
+     signing in after the CEO could restore a restricted tab for one render
+     frame (the server 403s all data, but even a panel skeleton must not
+     flash). Two fixes: the key is per USER (azone-tab:{id} — accounts never
+     inherit each other's tab), and the render below clamps through
+     activeTab so an out-of-scope tab can never mount, not even one frame. */
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
+      if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
+    } catch { /* private mode */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user) return;
+    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
@@ -3261,6 +3287,31 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
+  const tabs = ALL_TABS.filter((t) => {
+    if (t === "Dashboard" || t === "Profile") return true;
+    if (!user) return true;
+    if (user.role === "super_admin") return true;
+    const ov = tabOverrides[t];
+    if (ov !== undefined) return ov.includes(user.role);
+    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+    const allowed = TAB_ROLES[t];
+    return !allowed || allowed.includes(user.role);
+  });
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
+  useEffect(() => {
+    if (user && !tabs.includes(tab)) setTab("Dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.join("|"), tab, user]);
+  /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
+     alone still allowed one frame; every panel below renders off activeTab,
+     which can never name a tab outside this account's visible list. */
+  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
+
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
@@ -3287,20 +3338,6 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
-  const tabs = ALL_TABS.filter((t) => {
-    if (t === "Dashboard" || t === "Profile") return true;
-    if (user.role === "super_admin") return true;
-    const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user.role);
-    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
-    const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user.role);
-  });
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
@@ -3502,10 +3539,10 @@ export default function PortalPage() {
       )}
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
-        {tab === "Dashboard" && <Dashboard user={user} go={setTab} />}
-        {tab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
-        {tab === "Expenses" && <ExpensesPanel />}
-        {tab === "Attendance" && (
+        {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} />}
+        {activeTab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
+        {activeTab === "Expenses" && <ExpensesPanel />}
+        {activeTab === "Attendance" && (
           <div className="space-y-4 md:space-y-6">
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) && <OtApprovalsCard />}
@@ -3513,26 +3550,26 @@ export default function PortalPage() {
             {["ceo", "super_admin", "admin"].includes(user.role) && <AttendanceAdminPanel />}
           </div>
         )}
-        {tab === "Leave" && <Leave user={user} />}
-        {tab === "Tasks" && <Tasks user={user} />}
-        {tab === "Announcements" && <Announcements user={user} />}
-        {tab === "Sales" && SALES_ROLES.includes(user.role) && (
+        {activeTab === "Leave" && <Leave user={user} />}
+        {activeTab === "Tasks" && <Tasks user={user} />}
+        {activeTab === "Announcements" && <Announcements user={user} />}
+        {activeTab === "Sales" && SALES_ROLES.includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
             <Sales user={user} />
             <ClientsCard />
             <CustomerEnquiriesCard />
           </div>
         )}
-        {tab === "HR" && (
+        {activeTab === "HR" && (
           <div className="space-y-4 md:space-y-6">
             <HrPanel />
             {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
           </div>
         )}
-        {tab === "Payroll" && <PayrollPanel />}
-        {tab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {tab === "Inventory" && <InventoryPanel role={user.role} />}
-        {tab === "Ecommerce" && (
+        {activeTab === "Payroll" && <PayrollPanel />}
+        {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
+        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
+        {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
                 connection health, the order tracker, LIVE GMV, the hourly
@@ -3546,16 +3583,16 @@ export default function PortalPage() {
             <ConnectionStatusCard />
           </div>
         )}
-        {tab === "Assets" && <AssetsPanel />}
-        {tab === "Birthdays" && <BirthdaysPanel />}
-        {tab === "Overview" && <OverviewPanel />}
-        {tab === "Users" && (
+        {activeTab === "Assets" && <AssetsPanel />}
+        {activeTab === "Birthdays" && <BirthdaysPanel />}
+        {activeTab === "Overview" && <OverviewPanel />}
+        {activeTab === "Users" && (
           <div className="space-y-4 md:space-y-6">
             {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
             <UsersPanel role={user.role} />
           </div>
         )}
-        {tab === "Profile" && (
+        {activeTab === "Profile" && (
           <div className="space-y-4 md:space-y-6">
             <Profile />
             <MyPayslip />

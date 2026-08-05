@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.232] — 2026-08-05 — Remembered tab hardened per user (CEO's security question)
+
+### Fixed (CEO: "does it will accidentally appear the full tabs roles by accidents?")
+- Straight answers first: the tab strip is computed per signed-in role + 🔐 overrides on every render, and every route re-checks permissions server-side — no role can see another role's tab list, and no data can leak regardless of what the browser shows.
+- But the question exposed a shared-device edge in v1.4.231: the remembered tab was stored per DEVICE, so a lower-role account signing in after the CEO could restore a restricted tab for one render frame (server 403s everything, yet even a panel skeleton must not flash). Two fixes: the storage key is now per USER (`azone-tab:{id}` — accounts never inherit each other's last tab), and all 18 panel renders clamp through `activeTab`, which can never name a tab outside the account's visible list — effects run after a render, so the clamp lives in the render itself. Zero frames of an out-of-scope panel, ever. Frontend-only (`pnpm build`).
+
+## [1.4.231] — 2026-08-05 — The portal remembers your last tab across refreshes
+
+### Fixed (CEO: "when I refresh the tabs back to Dashboard instead of last tab that I open. is it due to what reason?")
+- Reason: the active tab lived only in React state with "Dashboard" as the default — a refresh rebuilds the page, so it always started over. The last tab now persists per device (localStorage `azone-tab`), restores on load, and a guard falls back to Dashboard if the remembered tab isn't visible to the signed-in account (role change or a 🔐 tab-access change), so nobody lands on a tab they can no longer see. Private-browsing storage failures are swallowed harmlessly. Frontend-only (`pnpm build`).
+
 ## [1.4.230] — 2026-08-05 — Donut rendering artifacts fixed
 
 ### Fixed (CEO screenshot: "why it is looks like this???!")
