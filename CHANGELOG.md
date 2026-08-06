@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.259] — 2026-08-06 — Field rows stack on a phone (audited)
+
+### Fixed (CEO: "Placement text should be the better width size for mobile view … Audit all the files and ensure that it is globally")
+- **The postage form put three fields on one line at every width.** On a 390px screen that is ~110px each, so every placeholder was clipped mid-word — `e.g. J&T, Po:` — and the hint telling you what to type was the first thing lost, exactly when you need it most. Its item lines had the same fault, where the item **name** select is the widest thing on the row and the first to be squeezed.
+- NEW `fieldRow` in `lib/ui-styles.ts` — two columns on a phone, a flowing row from `sm` up. This is the v1.4.154 width standard with a name, so the next form inherits it instead of re-deriving it. Any field needing full width on a phone gets `col-span-2 sm:col-span-1`; the postage form's Order amount does.
+
+### The audit
+- Swept every `.tsx` in `app/` and `components/` for rows holding two or more fields that never stack. **Four candidates, one real offender** — the postage form. The others were already correct: the expense inline editor is `w-full sm:w-auto`, the staff vault row is a select and a button, and the payroll commission helper uses fixed narrow widths that wrap.
+- Also checked every placeholder over 30 characters: all of them sit in textareas or full-width inputs, where they have the room.
+- Frontend-only, no migrations.
+
+## [1.4.258] — 2026-08-06 — Wrapped rows line up, and the last links become buttons
+
+### Fixed (CEO: "I still can see the improper layout. And also edit/remove not globally using the same as before aligned")
+- **Send PDF was filled.** A quotation row carried **two** dark blocks — → Invoice and Send PDF — which breaks v1.4.253's own rule of at most one fill per row: with two, neither reads as the main action. Send PDF is now a normal bordered button. → Invoice stays the filled one on a quotation, because converting is what that row is *for*.
+- **A wrapped action group no longer strands its last button.** `rowActions` was right-aligned always, so when the group wrapped onto its own line — which is the normal case on a phone — the final button sat alone against the right edge and the row read as two ragged fragments. It now aligns left on phones (under the text, sharing its gutter) and right from `sm` up, where it still sits opposite the text.
+- **Expenses Edit and Remove** were still bare underlined words sitting beside a bordered **Mark paid** — the same row, two different kinds of control. Both are now the global buttons, and the expense action group wraps like every other row.
+- Also converted: the two event-list Remove buttons and the attendance-correction Save. The one remaining hand-rolled filled row button (payroll Mark paid) now imports the shared string instead of repeating it.
+- Frontend-only, no migrations.
+
 ## [1.4.257] — 2026-08-06 — The payslip as a real file (tier 5, in part)
 
 ### Added (CEO: "Tier 5")

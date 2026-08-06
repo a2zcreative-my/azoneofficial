@@ -18,7 +18,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -812,7 +812,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
               {ev.created_by_name && <p className="text-muted-foreground mt-0.5 text-[11px]">Added by {ev.created_by_name}</p>}
             </div>
             {canManage && (
-              <button type="button" className="text-destructive text-xs underline" onClick={() => void removeEvent(ev.id)}>Remove</button>
+              <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
             )}
           </div>
         ))}
@@ -966,7 +966,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                   {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
                 </div>
                 {canManage && (
-                  <button type="button" className="text-destructive text-xs underline" onClick={() => onRemove(ev.id)}>Remove</button>
+                  <button type="button" className={rowBtnDanger} onClick={() => onRemove(ev.id)}>Remove</button>
                 )}
               </div>
             ))
@@ -2898,7 +2898,10 @@ function Sales({ user }: { user: User }) {
               }}>Edit</button>
             <button type="button" className={rowBtn}
               onClick={() => void printDoc(d.id)}>PDF</button>
-            <button type="button" className={rowBtnPrimary}
+            {/* v1.4.258: NOT primary. A quotation row already has → Invoice
+                filled, and v1.4.253's own rule is at most ONE fill per row —
+                two dark blocks and neither reads as the main action. */}
+            <button type="button" className={rowBtn}
               title="Send the PDF to the customer — opens your phone's share sheet with the file attached"
               onClick={() => void shareDoc(d)}>Send PDF</button>
             {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is

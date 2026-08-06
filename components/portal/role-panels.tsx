@@ -24,10 +24,10 @@ import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger, rowBtnGood, rowActions } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
-import { card, inputClass, btnClass, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { dmy, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1/staff";
@@ -1411,7 +1411,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
             <SubR t="Order reference">
             <input className={inputClass} placeholder="e.g. SHP-10023 / WA order" value={postDraft.order_ref}
               onChange={(e) => setPostDraft((d) => ({ ...d, order_ref: e.target.value }))} /></SubR>
-            <div className="flex gap-2">
+            <div className={fieldRow}>
               <SubR t="Courier">
               <input className={inputClass} placeholder="e.g. J&T, Pos Laju" value={postDraft.courier}
                 onChange={(e) => setPostDraft((d) => ({ ...d, courier: e.target.value }))} /></SubR>
@@ -1421,15 +1421,15 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
               {/* v1.4.169: sales value of the non-TikTok order — counts in
                   Total sales + KPI (leave empty for RM 0 shipments like
                   replacements, which stay out of the totals) */}
-              <SubR t="Order amount (RM)">
+              <SubR t="Order amount (RM)" className="col-span-2 sm:col-span-1">
               <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00"
                 title="What the customer paid for this order — counted in Total sales. Leave empty for replacements / non-sales shipments."
                 value={postDraft.order_amount}
                 onChange={(e) => setPostDraft((d) => ({ ...d, order_amount: e.target.value }))} /></SubR>
             </div>
             {postLines.map((line, idx) => (
-              <div key={idx} className="flex gap-2">
-                <select className={inputClass} value={line.inventory_item_id}
+              <div key={idx} className={fieldRow}>
+                <select className={`${inputClass} col-span-2 sm:col-span-1 sm:flex-1`} value={line.inventory_item_id}
                   onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, inventory_item_id: Number(e.target.value) } : l))}>
                   <option value={0}>Select item…</option>
                   {items.map((it) => (
@@ -2217,7 +2217,7 @@ export function AttendanceAdminPanel() {
                   {r.manual_by ? "manual" : r.amended_by ? "amended" : "punch"}
                 </td>
                 <td className={`${td} whitespace-nowrap`}>
-                  <button type="button" className="text-xs underline"
+                  <button type="button" className={rowBtn}
                     onClick={() => {
                       const current = edit[r.id] ?? utcToMytLocal(r.created_at);
                       if (current === utcToMytLocal(r.created_at)) {
@@ -3384,7 +3384,7 @@ export function ExpensesPanel() {
                         {payrollDue.released
                           ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">RELEASED</span>
                           : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>}
-                        <button type="button" className="bg-primary text-primary-foreground inline-flex h-7 items-center rounded-lg px-2.5 text-xs font-medium"
+                        <button type="button" className={rowBtnPrimary}
                           title="Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed"
                           onClick={async () => {
                             const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
@@ -3654,7 +3654,7 @@ export function ExpensesPanel() {
                       : null}
                 </p>
               </div>
-              <span className="flex items-center gap-2">
+              <span className={rowActions}>
                 {/* v1.4.208 (CEO: "track that I have paid and how many more
                     outstanding … remaining amount I should clear off"):
                     paid state is set right on the row; Undo covers a
@@ -3666,12 +3666,14 @@ export function ExpensesPanel() {
                   <button type="button" className={rowBtnGood} title="Record that this expense has been paid"
                     onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({}) }); if (res.ok) { showToast("Saved", "Marked paid ✓"); void load(); } }}>Mark paid</button>
                 )}
-                <button type="button" className="text-xs underline"
+                {/* v1.4.258: these two sat beside a bordered Mark paid as bare
+                    underlined words — the same row, two different controls. */}
+                <button type="button" className={rowBtn}
                   onClick={() => {
                     setEditId(r.id);
                     setEdit({ expense_date: r.expense_date, category: r.category, amount: (r.amount_cents / 100).toString(), vendor: r.vendor ?? "", description: r.description ?? "" });
                   }}>Edit</button>
-                <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
+                <button type="button" className={rowBtnDanger} onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
               </span>
               {openExp === r.id && (
                 <DetailGrid items={[

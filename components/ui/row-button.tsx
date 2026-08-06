@@ -43,5 +43,11 @@ export const rowBtnGood =
    rule: it gets a button if it acts on a RECORD, a link if it acts on the
    FORM you are filling in. */
 
-/** The wrapper every row's action group uses (v1.4.247: it must wrap). */
-export const rowActions = "flex flex-wrap items-center justify-end gap-1.5";
+/** The wrapper every row's action group uses (v1.4.247: it must wrap).
+ *
+ * v1.4.258: left-aligned on phones, right-aligned from `sm` up. Right-aligning
+ * a group that has WRAPPED onto its own line strands the last button alone
+ * against the right edge — the row reads as two ragged fragments instead of
+ * one block. On a phone the buttons sit under the text, so they should start
+ * where the text starts; on a desktop they still sit opposite it. */
+export const rowActions = "flex flex-wrap items-center justify-start gap-1.5 sm:justify-end";
