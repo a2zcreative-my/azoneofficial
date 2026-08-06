@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.238] — 2026-08-06 — Service documents carry no Delivery / postage (CEO's conflict check)
+
+### Fixed (CEO: "for Service, there is no Delivery / postage right? do check on both function to avoid any conflict")
+- Correct — and both functions had the gap. Create: the delivery fee is now forced to 0 on service documents before the total computes. Edit: the route reads the document's stored kind and applies the same rule, so a service document can't gain delivery through an edit either (with migration-skew armor: on a pre-0061 database the kind lookup falls back gracefully and editing keeps working).
+- Form: the Delivery / postage box hides in Service mode and any typed value zeroes on the switch, so nothing stale is submitted. The printed document's Delivery row only appears when the amount is non-zero, so service documents never show it. Worker + frontend, no migrations.
+
+## [1.4.237] — 2026-08-06 — Documents: Delete with confirmation; aging follows
+
+### Added (CEO: "once I delete then Outstanding invoices — aging will disappear following to the invoice that deleted… popup notification… before it is deleted")
+- New DELETE /docs/:id (finance roles) + red **Delete** on every document row. A confirmation popup names the document and — for invoices — states it will disappear from Outstanding invoices — aging too (the aging card reads the same list, so it updates the moment the list reloads).
+- ONE guard: a **PAID invoice cannot be deleted** — it's an accounting record; the message says to unmark the payment first if it's truly a mistake. Unpaid invoices, quotations and DOs delete freely. Every delete is audited with the document number and type. Worker + frontend, no migrations.
+
 ## [1.4.236] — 2026-08-06 — Printed documents: "Accepted by" aligned level with "Prepared by"
 
 ### Fixed (CEO screenshot: "accepted by was not aligned side by side to prepared by")

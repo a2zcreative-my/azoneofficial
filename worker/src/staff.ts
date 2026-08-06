@@ -2813,7 +2813,10 @@ export async function handleStaff(
     // never on a DO (Malaysian standard: the DO carries goods only, no
     // charges). Added AFTER discount + tax: delivery is a pass-through
     // charge, not part of the taxable goods value.
-    const deliveryFee = docType !== "DO" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
+    /* v1.4.238 (CEO conflict check: "for Service, there is no Delivery /
+       postage right?"): correct — a service ships nothing, so delivery is
+       forced 0 on service documents BEFORE the total computes. */
+    const deliveryFee = docType !== "DO" && kindD !== "service" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
       ? Math.round(body.delivery_cents) : 0;
     const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100))) + deliveryFee;
 
@@ -2989,14 +2992,43 @@ export async function handleStaff(
     await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from });
     return json({ ok: true });
   }
+
+  /* v1.4.237 (CEO: delete a document so the aging card follows, with a
+     confirm first): general document delete. ONE guard — a PAID invoice is
+     an accounting record and cannot be deleted; unmark the payment first
+     if it is truly a mistake. Unpaid INV / QT / DO delete freely; the
+     aging card recomputes from the list, so a deleted unpaid invoice
+     disappears from it immediately. Audited with the document number. */
+  const docDel = path.match(/^\/docs\/(\d+)$/);
+  if (docDel && method === "DELETE") {
+    if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+    const dd = await env.DB.prepare(
+      `SELECT id, doc_type, doc_number, payment_status FROM sales_documents WHERE id = ?1`,
+    ).bind(docDel[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null }>();
+    if (!dd) return err("not_found", "Document not found", 404);
+    if (dd.doc_type === "INV" && dd.payment_status === "paid") {
+      return err("invalid_input", "A PAID invoice is an accounting record and cannot be deleted — unmark the payment first if this is truly a mistake", 400);
+    }
+    await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(dd.id).run();
+    await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type });
+    return json({ ok: true });
+  }
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
     // v1.4.94: fix typos on an existing document — items, amounts, customer,
     // salesperson, date. The document NUMBER never changes; totals recompute;
     // audited. Invoice edits need finance rights, like invoice creation.
     const idE = docEdit[1]!;
-    const docE = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
-      .bind(idE).first<{ doc_type: string }>();
+    let docE: { doc_type: string; kind?: string | null } | null;
+    try {
+      docE = await env.DB.prepare(`SELECT doc_type, kind FROM sales_documents WHERE id = ?1`)
+        .bind(idE).first<{ doc_type: string; kind?: string | null }>();
+    } catch {
+      // v1.4.238 migration-skew armor (v1.4.218 lesson): pre-0061 DB has no
+      // kind column — editing must keep working; kind treated as absent.
+      docE = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
+        .bind(idE).first<{ doc_type: string }>();
+    }
     if (!docE) return err("not_found", "Document not found", 404);
     if (docE.doc_type === "INV" ? !can(user, "finance") : !can(user, "sales")) {
       return err("forbidden", "Insufficient rights to edit this document type", 403);
@@ -3012,7 +3044,8 @@ export async function handleStaff(
     const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
     // v1.4.160: delivery fee editable like the rest; never on a DO.
-    const delE = docE.doc_type !== "DO" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
+    // v1.4.238: a service document can't gain delivery through an edit either.
+    const delE = docE.doc_type !== "DO" && docE.kind !== "service" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
       ? Math.round(body.delivery_cents) : 0;
     const totalE = Math.max(0, Math.round((subE - discE) * (1 + taxE / 100))) + delE;
     let custE: number | null = typeof body.customer_id === "number" && body.customer_id > 0 ? body.customer_id : null;

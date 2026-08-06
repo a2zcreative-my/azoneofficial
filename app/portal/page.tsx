@@ -2678,7 +2678,7 @@ function Sales({ user }: { user: User }) {
                       "h-9 flex-1 rounded-lg border px-3 text-xs font-medium " +
                       (doc.kind === k ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary")
                     }
-                    onClick={() => setDoc((d) => ({ ...d, kind: k, doc_type: k === "service" && d.doc_type === "DO" ? "QT" : d.doc_type }))}>
+                    onClick={() => setDoc((d) => ({ ...d, kind: k, doc_type: k === "service" && d.doc_type === "DO" ? "QT" : d.doc_type, delivery_cents: k === "service" ? 0 : d.delivery_cents }))}>
                     {label}
                   </button>
                 ))}
@@ -2748,7 +2748,10 @@ function Sales({ user }: { user: User }) {
               {/* v1.4.160: delivery / postage fee — quoted on the QT, billed on
                   the INV; a Delivery Order carries goods only (Malaysian
                   standard), so the field hides for DO. */}
-              {doc.doc_type !== "DO" && (
+              {/* v1.4.238: no Delivery / postage on a service document —
+                  the box hides and the value zeroes when Service is picked;
+                  the server forces 0 regardless. */}
+              {doc.doc_type !== "DO" && doc.kind !== "service" && (
                 <label className="block">
                   <span className="text-muted-foreground mb-1 block text-xs">Delivery / postage (RM, optional)</span>
                   <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
@@ -2904,6 +2907,18 @@ function Sales({ user }: { user: User }) {
               }}>Edit</button>
             <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
               onClick={() => void printDoc(d.id)}>PDF</button>
+            {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is
+                refused by the server. Aging recomputes from this list, so
+                a deleted unpaid invoice drops out of it immediately. */}
+            {canInvoice && (
+              <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                onClick={async () => {
+                  if (!window.confirm(`Delete ${d.doc_number}?\n\n${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging. " : "It will disappear from Documents. "}This cannot be undone.`)) return;
+                  const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}`, { method: "DELETE" });
+                  if (res.ok) { showToast("Deleted", `${d.doc_number} removed`); await load(); }
+                  else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");
+                }}>Delete</button>
+            )}
             </span>
           </div>
         ))}
