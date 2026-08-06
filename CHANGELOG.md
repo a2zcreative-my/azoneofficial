@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.236] — 2026-08-06 — Printed documents: "Accepted by" aligned level with "Prepared by"
+
+### Fixed (CEO screenshot: "accepted by was not aligned side by side to prepared by")
+- The signature image made the Prepared-by block much taller, and the signature row wasn't bottom-aligned — so "Accepted by" floated to the top of its column. The QT signature row (.split2) is now bottom-aligned like the DO's, and both partner blocks ("Accepted by", DO's "Received in good order") carry the same three-line depth under the rule as the signer block — the signature lines land on the same baseline. Labels also standardised to the small-caps .lbl style. Frontend-only (`pnpm build`).
+
 ## [1.4.235] — 2026-08-06 — Customers: address on file + edit / update / delete
 
 ### Added (CEO: "I want to have address of customer and also the existing data I can edit and update or delete if require")

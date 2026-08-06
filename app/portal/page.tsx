@@ -1924,7 +1924,7 @@ async function printDoc(id: number) {
     : doc.doc_type === "DO"
       ? `<div class="split">
            <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Delivered by</span>${signerLines}</div>
-           <div class="sig"><div class="line"></div>Received in good order<br/><span class="tiny">Name / Company chop &amp; date</span></div>
+           <div class="sig"><div class="line"></div><span class="lbl">Received in good order</span><div class="signer"><span class="nm">&nbsp;</span><br/><span class="tiny">Name / Company chop &amp; date</span><br/><span class="tiny">&nbsp;</span></div></div>
          </div>`
       : `<div class="split">
            <div class="pay">
@@ -1933,7 +1933,7 @@ async function printDoc(id: number) {
            </div>
            <div class="split2">
              <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Prepared by</span>${signerLines}</div>
-             <div class="sig"><div class="line"></div>Accepted by<br/><span class="tiny">Signature, company chop &amp; date</span></div>
+             <div class="sig"><div class="line"></div><span class="lbl">Accepted by</span><div class="signer"><span class="nm">&nbsp;</span><br/><span class="tiny">Signature, company chop &amp; date</span><br/><span class="tiny">&nbsp;</span></div></div>
            </div>
          </div>`;
 
@@ -1978,7 +1978,7 @@ async function printDoc(id: number) {
     .split { display: flex; gap: 16px; margin-top: auto; padding-top: 26px; justify-content: space-between; flex-wrap: wrap; align-items: flex-end; }
     /* margin-top:auto = the payment details + authorised signature sit at the
        BOTTOM of the A4 page on every document type, uniformly. */
-    .split2 { display: flex; gap: 16px; flex: 1; justify-content: flex-end; flex-wrap: wrap; }
+    .split2 { display: flex; gap: 16px; flex: 1; justify-content: flex-end; flex-wrap: wrap; align-items: flex-end; } /* v1.4.236: Prepared by / Accepted by lines level */
     .pay { background: #f6f7fa; border-radius: 6px; padding: 10px 12px; max-width: 320px; }
     .pay p { margin: 2px 0; }
     .pay .bt { font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
