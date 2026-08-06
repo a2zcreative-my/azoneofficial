@@ -2801,12 +2801,34 @@ export async function handleStaff(
       }
       if (!customerId) return err("server_error", "Could not prepare the walk-in customer record", 500);
     }
-    const items = (body.items as { name?: unknown; qty?: unknown; unit_price_cents?: unknown }[])
+    /* v1.4.243 (CEO's Malaysian-standard document): a line may now carry a
+       SKU, a unit of measure, its own discount and up to 10 detail lines —
+       the inclusions that used to be typed as separate RM 0.00 rows. All
+       optional; a line without them is exactly the old shape, so every
+       existing document still parses. */
+    const lineExtras = (i: Record<string, unknown>, qty: number, unit: number) => {
+      const o: { sku?: string; uom?: string; disc_cents?: number; sub?: string[] } = {};
+      if (str(i.sku, 60)) o.sku = String(i.sku).slice(0, 60);
+      if (str(i.uom, 12)) o.uom = String(i.uom).slice(0, 12).toUpperCase();
+      if (typeof i.disc_cents === "number" && i.disc_cents > 0) {
+        o.disc_cents = Math.min(Math.round(i.disc_cents), qty * unit); // never below zero
+      }
+      if (Array.isArray(i.sub)) {
+        const s = (i.sub as unknown[]).filter((x) => str(x, 160)).slice(0, 10).map((x) => String(x).slice(0, 160));
+        if (s.length) o.sub = s;
+      }
+      return o;
+    };
+    const items = (body.items as Record<string, unknown>[])
       .filter((i) => str(i.name, 200) && typeof i.qty === "number" && i.qty > 0 && typeof i.unit_price_cents === "number" && i.unit_price_cents >= 0)
-      .map((i) => ({ name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number }));
+      .map((i) => ({
+        name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number,
+        ...lineExtras(i, i.qty as number, i.unit_price_cents as number),
+      }));
     if (items.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
 
-    const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents, 0);
+    // Line discounts come off before the document-level discount.
+    const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
     const discount = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxPct = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
     // v1.4.160: delivery / postage fee — quoted on the QT, billed on the INV,
@@ -2829,14 +2851,16 @@ export async function handleStaff(
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const docDate = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayMyt
       ? body.doc_date : null;
+    // v1.4.243: buyer's own PO reference + ship-to address (migration 0062).
+    const referenceD = str(body.reference, 60) ? String(body.reference).slice(0, 60) : null;
+    const shipToD = docType !== "DO" && kindD === "service" ? null
+      : (str(body.delivery_address, 300) ? String(body.delivery_address).slice(0, 300) : null);
     let res: { id: number } | null = null;
-    try {
-      res = await env.DB.prepare(
-        `INSERT INTO sales_documents
+    const insertCols = (extra: boolean) => `INSERT INTO sales_documents
          (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
-          notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at, kind)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(?16, datetime('now')), ?17) RETURNING id`,
-      ).bind(
+          notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at, kind${extra ? ", reference, delivery_address" : ""})
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(?16, datetime('now')), ?17${extra ? ", ?18, ?19" : ""}) RETURNING id`;
+    const insertArgs = [
         docType, number, customerId, JSON.stringify(items), discount, taxPct, deliveryFee, total,
         str(body.notes, 2000) ? body.notes : null,
         docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
@@ -2847,12 +2871,25 @@ export async function handleStaff(
         user.id,
         docDate ? `${docDate} 00:00:00` : null,
         kindD, // v1.4.234
-      ).first<{ id: number }>();
+    ];
+    try {
+      res = await env.DB.prepare(insertCols(true))
+        .bind(...insertArgs, referenceD, shipToD).first<{ id: number }>();
     } catch (e) {
+      /* v1.4.218 lesson — never let an OPTIONAL column take down a critical
+         write: on a database that has not had 0062 applied yet the document
+         is still created, just without its reference / ship-to. */
       if (String(e).includes("no such column")) {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0045_delivery_fee)", 500);
-      }
-      throw e;
+        try {
+          res = await env.DB.prepare(insertCols(false)).bind(...insertArgs).first<{ id: number }>();
+          await logError(env, "migration_skew", "sales_documents missing 0062 columns (reference/delivery_address)");
+        } catch (e2) {
+          if (String(e2).includes("no such column")) {
+            return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote", 500);
+          }
+          throw e2;
+        }
+      } else throw e;
     }
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
@@ -2870,13 +2907,24 @@ export async function handleStaff(
   const docGet = path.match(/^\/docs\/(\d+)$/);
   if (docGet && method === "GET") {
     if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
-    const d = await env.DB.prepare(
+    /* v1.4.243: the customer's default ship-to rides along so the printed
+       document can fall back to it when the document itself carries none.
+       Wrapped for 0062 skew (v1.4.218 lesson) — a pre-0062 database must
+       still be able to print. */
+    const docSelect = (extra: boolean) =>
       `SELECT d.*, c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone, c.address,
+              ${extra ? "c.delivery_address AS customer_delivery_address," : ""}
               sp.name AS salesperson_name, cb.role AS created_by_role
        FROM sales_documents d JOIN customers c ON c.id = d.customer_id
        LEFT JOIN users sp ON sp.id = d.salesperson_id
-       LEFT JOIN users cb ON cb.id = d.created_by WHERE d.id = ?1`,
-    ).bind(docGet[1]).first<Record<string, unknown>>();
+       LEFT JOIN users cb ON cb.id = d.created_by WHERE d.id = ?1`;
+    let d: Record<string, unknown> | null;
+    try {
+      d = await env.DB.prepare(docSelect(true)).bind(docGet[1]).first<Record<string, unknown>>();
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      d = await env.DB.prepare(docSelect(false)).bind(docGet[1]).first<Record<string, unknown>>();
+    }
     if (!d) return err("not_found", "Document not found", 404);
     /* v1.4.233 signer rule (CEO): a document prepared by the CEO, COO or
        CCO carries THAT officer's uploaded signature. Prepared by anyone
@@ -3036,11 +3084,25 @@ export async function handleStaff(
     if (!body || !Array.isArray(body.items) || body.items.length === 0) {
       return err("invalid_input", "items are required", 400);
     }
-    const itemsE = (body.items as { name?: unknown; qty?: unknown; unit_price_cents?: unknown }[])
+    const extrasE = (i: Record<string, unknown>, qty: number, unit: number) => {
+      const o: { sku?: string; uom?: string; disc_cents?: number; sub?: string[] } = {};
+      if (str(i.sku, 60)) o.sku = String(i.sku).slice(0, 60);
+      if (str(i.uom, 12)) o.uom = String(i.uom).slice(0, 12).toUpperCase();
+      if (typeof i.disc_cents === "number" && i.disc_cents > 0) o.disc_cents = Math.min(Math.round(i.disc_cents), qty * unit);
+      if (Array.isArray(i.sub)) {
+        const s = (i.sub as unknown[]).filter((x) => str(x, 160)).slice(0, 10).map((x) => String(x).slice(0, 160));
+        if (s.length) o.sub = s;
+      }
+      return o;
+    };
+    const itemsE = (body.items as Record<string, unknown>[])
       .filter((i) => str(i.name, 200) && typeof i.qty === "number" && i.qty > 0 && typeof i.unit_price_cents === "number" && i.unit_price_cents >= 0)
-      .map((i) => ({ name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number }));
+      .map((i) => ({
+        name: i.name as string, qty: i.qty as number, unit_price_cents: i.unit_price_cents as number,
+        ...extrasE(i, i.qty as number, i.unit_price_cents as number),
+      }));
     if (itemsE.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
-    const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
+    const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
     const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
     // v1.4.160: delivery fee editable like the rest; never on a DO.
@@ -3057,17 +3119,28 @@ export async function handleStaff(
     const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const dateE = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayE
       ? `${body.doc_date} 00:00:00` : null;
-    try {
-      await env.DB.prepare(
-        `UPDATE sales_documents SET items = ?1, discount_cents = ?2, tax_percent = ?3, delivery_cents = ?4, total_cents = ?5,
+    const refE = str(body.reference, 60) ? String(body.reference).slice(0, 60) : null;
+    const shipE = docE.kind === "service" ? null
+      : (str(body.delivery_address, 300) ? String(body.delivery_address).slice(0, 300) : null);
+    const baseSet = `items = ?1, discount_cents = ?2, tax_percent = ?3, delivery_cents = ?4, total_cents = ?5,
          customer_id = COALESCE(?6, customer_id), salesperson_id = COALESCE(?7, salesperson_id),
-         created_at = COALESCE(?8, created_at) WHERE id = ?9`,
-      ).bind(JSON.stringify(itemsE), discE, taxE, delE, totalE, custE, spE, dateE, idE).run();
+         created_at = COALESCE(?8, created_at)`;
+    const baseArgs = [JSON.stringify(itemsE), discE, taxE, delE, totalE, custE, spE, dateE];
+    try {
+      await env.DB.prepare(`UPDATE sales_documents SET ${baseSet}, reference = ?10, delivery_address = ?11 WHERE id = ?9`)
+        .bind(...baseArgs, idE, refE, shipE).run();
     } catch (e) {
+      // 0062 skew: the edit still saves, minus the two optional fields.
       if (String(e).includes("no such column")) {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0045_delivery_fee)", 500);
-      }
-      throw e;
+        try {
+          await env.DB.prepare(`UPDATE sales_documents SET ${baseSet} WHERE id = ?9`).bind(...baseArgs, idE).run();
+        } catch (e2) {
+          if (String(e2).includes("no such column")) {
+            return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote", 500);
+          }
+          throw e2;
+        }
+      } else throw e;
     }
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
     return json({ ok: true, total_cents: totalE });

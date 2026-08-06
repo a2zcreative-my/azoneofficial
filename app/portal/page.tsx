@@ -1846,97 +1846,192 @@ function printSOA(company: string, docs: SalesDoc[]) {
   </body></html>`);
   w.document.close();
 }
-interface DocItem { name: string; qty: number; unit_price_cents: number }
+/* v1.4.243: a line may carry a SKU, a unit of measure, its own discount and
+   up to 10 detail sub-lines (the inclusions that used to be typed as separate
+   RM 0.00 rows). All optional — an old document parses unchanged. */
+interface DocItem {
+  name: string; qty: number; unit_price_cents: number;
+  sku?: string; uom?: string; disc_cents?: number; sub?: string[];
+}
 
 
 /** Fetch a full document and open a branded, print-ready PDF window. */
+/* v1.4.243 — Malaysian-standard sales document (CEO's approved layout).
+
+   Structure, one template for all three document types:
+     gold rule → letterhead + type → borderless meta strip → BILLING |
+     DELIVERY(/SERVICE) address → line items (UOM, per-line discount, detail
+     sub-lines) → amount in words + totals ladder → closing block.
+
+   Notes that matter:
+   - No tax line. AZ ONE OFFICIAL is not SST-registered, and charging service
+     tax before registration is an offence — the document says so in words
+     instead. When registration happens, the ladder gains an SST row and the
+     letterhead gains the SST number; nothing else moves.
+   - The signature ZONE is a fixed height for every block, signed or blank.
+     That is what keeps "Prepared by" and "Accepted & confirmed by" on one
+     baseline whether or not an officer's signature PNG is present — the
+     image drops into reserved space instead of growing its own column.
+   - Sized for A4: printable width is 182mm ≈ 688px, so no row may exceed it
+     (v1.4.241 lesson — the popup window is nearly twice as wide and hides
+     wrapping bugs).
+*/
 async function printDoc(id: number) {
-  // v1.4.90: branded AZOO template for QT / DO / INV — navy + gold, doc-type
-  // specific blocks (validity & acceptance for QT, received-in-good-order for
-  // DO, payment details + PAID stamp for INV). Mobile-friendly: responsive
-  // viewport for on-phone viewing, strict A4 when printed / saved to PDF.
   const res = await fetch(`/api/v1/staff/docs/${id}`, { credentials: "include" });
   if (!res.ok) return;
   const { doc } = (await res.json()) as { doc: DocFull };
-  const items: { name: string; qty: number; unit_price_cents: number }[] = (() => {
+  const items: DocItem[] = (() => {
     try { return JSON.parse(doc.items); } catch { return []; }
   })();
-  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+  const rm = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dOnly = (v: string) => dmy(v.slice(0, 10));
   const title = { QT: "QUOTATION", DO: "DELIVERY ORDER", INV: "INVOICE" }[doc.doc_type] ?? doc.doc_type;
-  const dOnly = (v: string) => dmy(v.slice(0, 10)); // printed docs show dates without times
-  const subtotal = items.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
-  const taxAmt = Math.round((subtotal - (doc.discount_cents ?? 0)) * ((doc.tax_percent ?? 0) / 100));
-  // v1.4.160: Malaysian standard — the DELIVERY ORDER lists goods and
-  // quantities ONLY (no prices, no totals); it is proof of delivery, not a
-  // bill. QT/INV keep full pricing and gain the Delivery / postage row.
   const isDO = doc.doc_type === "DO";
-  const rows = items.map((it, i) => isDO
-    ? `<tr>
-      <td class="c">${i + 1}</td>
-      <td>${it.name}</td>
-      <td class="c">${it.qty}</td>
-    </tr>`
-    : `<tr>
-      <td class="c">${i + 1}</td>
-      <td>${it.name}</td>
-      <td class="c">${it.qty}</td>
-      <td class="r">${rm(it.unit_price_cents)}</td>
-      <td class="r">${rm(it.qty * it.unit_price_cents)}</td>
-    </tr>`).join("");
-  const isPaid = doc.doc_type === "INV" && doc.payment_status === "paid";
-  // v1.4.97: authorised signature auto-assigned by creator — the COO's own
-  // documents carry the COO's signature; everyone else's (CEO, CCO, HR,
-  // sales & marketing) carry the CEO's. Transparent PNGs incl. company chop.
-  /* v1.4.233: signer_role === null (new worker) means the preparer is not
-     the CEO/COO/CCO — the block shows THEIR name over a blank line to sign
-     in ink; no officer signature is borrowed. undefined (old worker) keeps
-     the legacy coo/ceo fallback so a split deploy prints like before. */
-  const manualSig = doc.signer_role === null;
-  const sigSrc = `${location.origin}/signatures/${(doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo"))}-sign.png`;
-  const sigImg = manualSig
-    ? `<div style="height:96px"></div>`
-    : `<img src="${sigSrc}" alt="" style="height:112px;max-width:250px;object-fit:contain;display:block;margin:0 auto -16px;" />`;
-  // Standardized signer identity under the line: FULL NAME → Position → company.
-  const signerLines = `<div class="signer"><span class="nm">${(doc.signer_name ?? "").toUpperCase()}</span><br/>${doc.signer_position ?? ""}<br/><span class="tiny">AZ ONE OFFICIAL${manualSig ? " · sign &amp; date above" : ""}</span></div>`;
-  const metaRows = [
-    ["No.", doc.doc_number],
-    ["Date", dOnly(doc.created_at)],
-    ...(doc.doc_type === "QT" && doc.valid_until ? [["Valid until", dOnly(doc.valid_until)]] : []),
-    ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dOnly(doc.due_date)]] : []),
-    ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
-    ...(doc.salesperson_name ? [["Sales person", firstName(doc.salesperson_name)]] : []),
-    // v1.4.234: the business line, stated on the document itself.
-    ...(doc.kind ? [["For", doc.kind === "service" ? "Services" : "Products"]] : []),
-  ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
+  const isINV = doc.doc_type === "INV";
+  const isService = doc.kind === "service";
+  const isPaid = isINV && doc.payment_status === "paid";
 
-  const bottom = doc.doc_type === "INV"
-    ? `<div class="split">
-         <div class="pay">
-           <p class="bt">PAYMENT DETAILS</p>
-           <p>Method &nbsp;: <strong>Bank transfer</strong></p>
-           <p>Bank &nbsp;&nbsp;&nbsp;&nbsp;: MAYBANK</p>
-           <p>Name &nbsp;&nbsp;&nbsp;: AZ ONE OFFICIAL</p>
-           <p>A/C No &nbsp;: <strong>5516 2328 7032</strong></p>
-           <p class="tiny">Please send the transfer receipt via WhatsApp +60 12-383 4821 with the invoice number as reference.</p>
-           ${isPaid ? `<p class="paidline">✔ PAID${doc.paid_at ? " · " + dOnly(doc.paid_at) : ""}${doc.payment_ref ? " · Ref: " + doc.payment_ref : ""}</p>` : ""}
-         </div>
-         <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Authorised signature</span>${signerLines}</div>
-       </div>`
-    : doc.doc_type === "DO"
-      ? `<div class="split">
-           <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Delivered by</span>${signerLines}</div>
-           <div class="sig"><div class="line"></div><span class="lbl">Received in good order</span><div class="signer"><span class="nm">&nbsp;</span><br/><span class="tiny">Name / Company chop &amp; date</span><br/><span class="tiny">&nbsp;</span></div></div>
-         </div>`
-      : `<div class="split qt">
-           <div class="pay">
-             <p class="bt">TERMS</p>
-             <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dOnly(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
-           </div>
-           <div class="split2">
-             <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Prepared by</span>${signerLines}</div>
-             <div class="sig"><div class="line"></div><span class="lbl">Accepted by</span><div class="signer"><span class="nm">&nbsp;</span><br/><span class="tiny">Signature, company chop &amp; date</span><br/><span class="tiny">&nbsp;</span></div></div>
-           </div>
-         </div>`;
+  /* ---- amount in words (Malaysian convention: RINGGIT MALAYSIA … ONLY) ---- */
+  const ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
+    "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
+  const TENS = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
+  const under1000 = (n: number): string => {
+    const out: string[] = [];
+    if (n >= 100) { out.push(`${ONES[Math.floor(n / 100)]} HUNDRED`); n %= 100; if (n) out.push("AND"); }
+    if (n >= 20) out.push(TENS[Math.floor(n / 10)]! + (n % 10 ? ` ${ONES[n % 10]}` : ""));
+    else if (n) out.push(ONES[n]!);
+    return out.join(" ");
+  };
+  const inWords = (n: number): string => {
+    if (n === 0) return "ZERO";
+    const parts: string[] = [];
+    for (const [v, name] of [[1e9, "BILLION"], [1e6, "MILLION"], [1e3, "THOUSAND"]] as [number, string][]) {
+      if (n >= v) { parts.push(`${under1000(Math.floor(n / v))} ${name}`); n %= v; }
+    }
+    if (n) { if (parts.length && n < 100) parts.push("AND"); parts.push(under1000(n)); }
+    return parts.join(" ");
+  };
+  const amountWords = (cents: number) => {
+    const ringgit = Math.floor(cents / 100), sen = cents % 100;
+    return `RINGGIT MALAYSIA : ${inWords(ringgit)}${sen ? ` AND SEN ${inWords(sen)}` : ""} ONLY`;
+  };
+
+  /* ---- money ---- */
+  const gross = items.reduce((a, i) => a + i.qty * i.unit_price_cents, 0);
+  const lineDisc = items.reduce((a, i) => a + (i.disc_cents ?? 0), 0);
+  const docDisc = doc.discount_cents ?? 0;
+  const taxAmt = Math.round((gross - lineDisc - docDisc) * ((doc.tax_percent ?? 0) / 100));
+  const delivery = doc.delivery_cents ?? 0;
+
+  /* ---- line items ---- */
+  const rows = items.map((it, i) => {
+    const subs = (it.sub ?? []).length
+      ? `<ul>${(it.sub ?? []).map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : "";
+    const sku = it.sku ? `<div class="sku">SKU ${esc(it.sku)}</div>` : "";
+    const desc = `<td><div class="nm">${esc(it.name)}</div>${sku}${subs}</td>`;
+    if (isDO) {
+      return `<tr><td class="c">${i + 1}</td>${desc}<td class="c">${it.uom ?? ""}</td><td class="c">${it.qty.toLocaleString()}</td></tr>`;
+    }
+    return `<tr>
+      <td class="c">${i + 1}</td>${desc}
+      <td class="c">${it.uom ?? ""}</td>
+      <td class="c">${it.qty.toLocaleString()}</td>
+      <td class="r">${rm(it.unit_price_cents)}</td>
+      <td class="r">${it.disc_cents ? rm(it.disc_cents) : "&mdash;"}</td>
+      <td class="r">${rm(it.qty * it.unit_price_cents - (it.disc_cents ?? 0))}</td>
+    </tr>`;
+  }).join("");
+
+  /* ---- meta strip: no cell borders (CEO), one hairline under the row ---- */
+  const meta: [string, string, string][] = [
+    ["Sales person", doc.salesperson_name ? firstName(doc.salesperson_name) : "&mdash;", "15%"],
+    ["Doc no.", doc.doc_number, "23%"],
+    ["Date", dOnly(doc.created_at), "14%"],
+  ];
+  if (doc.doc_type === "QT") meta.push(["Valid until", doc.valid_until ? dOnly(doc.valid_until) : "14 days", "14%"]);
+  else if (isINV) meta.push(["Payment due", doc.due_date ? dOnly(doc.due_date) : "On receipt", "14%"]);
+  else meta.push(["Delivery", doc.delivery_status === "delivered" ? "Delivered" : "Pending", "14%"]);
+  meta.push(["Reference", doc.reference ? esc(doc.reference) : "N/A", "22%"]);
+  meta.push(["Page", "1 of 1", "12%"]);
+  const metaTds = meta.map(([k, v, w]) =>
+    `<td style="width:${w}"><span class="mk">${k}</span><span class="mv">${v}</span></td>`).join("");
+
+  /* ---- billing | ship-to. Identical (or absent) ship-to collapses rather
+       than printing the same block twice. ---- */
+  const billLines = [doc.address, doc.customer_phone, doc.customer_email].filter(Boolean) as string[];
+  const shipTo = doc.delivery_address || doc.customer_delivery_address || "";
+  const shipLabel = isService ? "SERVICE ADDRESS" : "DELIVERY ADDRESS";
+  const shipBlock = shipTo && shipTo.trim() !== (doc.address ?? "").trim()
+    ? `<div class="party"><p class="bt">${shipLabel}</p><p class="co">${esc(doc.company)}</p>
+       <p>${esc(shipTo).replace(/\n/g, "<br/>")}</p></div>`
+    : `<div class="party"><p class="bt">${shipLabel}</p><p class="co">Same as billing address</p>
+       <p class="tiny" style="margin-top:4px">${isService
+         ? "Work is carried out at, or delivered to, the address on the left."
+         : "Goods are delivered to the address on the left."}</p></div>`;
+
+  /* ---- signer (v1.4.233 rule kept verbatim) ---- */
+  const manualSig = doc.signer_role === null;
+  const sigSrc = `${location.origin}/signatures/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
+  /* The zone is the same height signed or not — that is what holds the two
+     columns level once the auto signature drops in. */
+  const zone = (img: boolean) =>
+    `<div class="sigzone">${img ? `<img src="${sigSrc}" alt="" onerror="this.style.display='none'"/>` : ""}</div>`;
+  const signerLines = `<div class="who"><span class="nm">${esc((doc.signer_name ?? "").toUpperCase())}</span><br/>
+    ${esc(doc.signer_position ?? "")}<br/><span class="tiny">AZ ONE OFFICIAL${manualSig ? " &middot; sign &amp; date above" : ""}</span></div>`;
+  const partnerBlock = (label: string, l1: string, l2: string) =>
+    `<div class="sig blank">${zone(false)}<span class="lbl">${label}</span>
+     <div class="who"><span class="nm">${l1}</span><br/>${l2}<br/><span class="tiny">Date</span></div></div>`;
+
+  const preparedBy = (label: string) =>
+    `<div class="sig">${zone(!manualSig)}<span class="lbl">${label}</span>${signerLines}</div>`;
+
+  /* One closing shape for all three types — heading, a short clause on the
+     left, signer + counterparty on the right — so the three documents read as
+     one family and the signature rules land identically on every one. */
+  let bottom: string;
+  if (isINV) {
+    bottom = `<div class="accept">
+      <div class="hdr">PAYMENT</div>
+      <div class="split">
+        <div>
+          <p class="body">Payment by bank transfer to <strong>MAYBANK 5516 2328 7032</strong> (AZ ONE OFFICIAL).
+          Please send the transfer receipt via WhatsApp +60 12-383 4821 quoting the invoice number.</p>
+          ${isPaid ? `<p class="paidline">&#10004; PAID${doc.paid_at ? ` &middot; ${dOnly(doc.paid_at)}` : ""}${doc.payment_ref ? ` &middot; Ref: ${esc(doc.payment_ref)}` : ""}</p>` : ""}
+        </div>
+        <div class="split2">${preparedBy("Authorised signature")}
+          ${partnerBlock("Received &amp; acknowledged by", "Name &amp; designation", "Company chop")}</div>
+      </div>
+    </div>`;
+  } else if (isDO) {
+    bottom = `<div class="accept">
+      <div class="hdr">DELIVERY CONFIRMATION</div>
+      <div class="split">
+        <p class="body">The goods listed above were delivered in the quantities stated.
+        Please sign and return one copy as proof of receipt.</p>
+        <div class="split2">${preparedBy("Delivered by")}
+          ${partnerBlock("Received in good order", "Name &amp; designation", "Company chop")}</div>
+      </div>
+    </div>`;
+  } else {
+    bottom = `<div class="accept">
+      <div class="hdr">COMMITMENT ORDER CONFIRMATION</div>
+      <div class="split">
+        <p class="body">We hereby accept the quoted items and agree that this signed
+        document shall be deemed our official Purchase Order, subject to the terms above.</p>
+        <div class="split2">${preparedBy("Prepared by")}
+          ${partnerBlock("Accepted &amp; confirmed by", "Name &amp; designation", "Company chop")}</div>
+      </div>
+    </div>`;
+  }
+
+  let ladder = `<tr><td>Gross</td><td>${rm(gross)}</td></tr>`;
+  if (lineDisc) ladder += `<tr><td>Less: line discounts</td><td>&minus; ${rm(lineDisc)}</td></tr>`;
+  if (docDisc) ladder += `<tr><td>Less: discount</td><td>&minus; ${rm(docDisc)}</td></tr>`;
+  ladder += `<tr class="sub"><td>Subtotal</td><td>${rm(gross - lineDisc - docDisc)}</td></tr>`;
+  if (doc.tax_percent) ladder += `<tr><td>Tax (${doc.tax_percent}%)</td><td>${rm(taxAmt)}</td></tr>`;
+  if (delivery) ladder += `<tr><td>Delivery / postage</td><td>${rm(delivery)}</td></tr>`;
+  ladder += `<tr class="grand"><td>TOTAL (RM)</td><td>${rm(doc.total_cents)}</td></tr>`;
 
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
@@ -1944,109 +2039,128 @@ async function printDoc(id: number) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${doc.doc_number}</title>
   <style>
-    /* v1.4.239 PRINT FIDELITY (CEO: saved PDF showed browser junk + lost the
-       navy/gold): @page margin 0 + body padding in @media print makes
-       Chrome/Edge drop their own date / about:blank / page-number headers
-       (they only render when the page has a margin), and print-color-adjust
-       forces the branded fills to print even with "Background graphics" off. */
+    /* v1.4.239 print pipeline: margin lives on the body inside @media print so
+       Chrome prints no header strip; print-color-adjust keeps the navy + gold. */
     @page { size: A4; margin: 0; }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto;
-           display: flex; flex-direction: column; min-height: 268mm; } /* content height — bottom block pinned to the page foot */
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11px; margin: 0;
+           padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
+    @media print { body { padding: 14mm; min-height: 296mm; } }
     .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
-    .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
+    .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 0 9px; border-bottom: 2.5px solid #1a2946; }
     .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }
-    .brand small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
-    .brand .addr { font-size: 9.5px; color: #5b6472; font-weight: 400; letter-spacing: 0; margin-top: 6px; line-height: 1.5; }
-    .docbox { text-align: right; min-width: 200px; }
-    .docbox h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: .12em; color: #1a2946; }
-    .meta { border-collapse: collapse; margin-left: auto; }
-    .meta td { padding: 2px 0 2px 12px; font-size: 11px; text-align: right; }
-    .meta .mk { color: #8a93a6; text-transform: uppercase; font-size: 9px; letter-spacing: .08em; }
-    .meta .mv { font-weight: 700; }
-    .parties { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-    .party { flex: 1; min-width: 220px; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 6px; padding: 10px 12px; }
-    .party .bt { margin: 0 0 4px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
-    .party p { margin: 2px 0; }
-    .party .co { font-weight: 800; font-size: 13px; }
-    table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
-    .items th { background: #1a2946; color: #fff; padding: 7px 9px; text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
-    .items th.c, .items td.c { text-align: center; width: 8%; }
-    .items th.r, .items td.r { text-align: right; }
-    .items td { padding: 7px 9px; border-bottom: 1px solid #e8ebf1; }
-    .items tr:nth-child(even) td { background: #fafbfd; }
-    .totwrap { display: flex; justify-content: flex-end; margin-top: 10px; }
-    .tot { width: 260px; border-collapse: collapse; }
-    .tot td { padding: 4px 10px; font-size: 12px; }
+    .brand small { display: block; font-size: 7.5px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    .brand .addr { font-size: 9px; color: #5b6472; font-weight: 400; letter-spacing: 0; margin-top: 6px; line-height: 1.55; }
+    .docbox { text-align: right; }
+    .docbox h2 { margin: 0; font-size: 23px; letter-spacing: .12em; }
+    .docbox .kindchip { display: inline-block; margin-top: 5px; font-size: 8px; letter-spacing: .16em;
+      border: 1px solid #C9A227; color: #8a6d12; border-radius: 3px; padding: 2px 7px; font-weight: 700; }
+    table.meta { width: 100%; border-collapse: collapse; margin-top: 9px; table-layout: fixed; border-bottom: 1px solid #e8ebf1; }
+    .meta td { padding: 0 10px 7px 0; vertical-align: top; }
+    .meta .mk { display: block; font-size: 7.5px; letter-spacing: .1em; color: #8a93a6; text-transform: uppercase; }
+    .meta .mv { font-weight: 700; font-size: 11px; white-space: nowrap; }
+    .parties { display: flex; gap: 10px; margin-top: 10px; }
+    .party { flex: 1 1 0; min-width: 0; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 5px; padding: 8px 10px; }
+    .party .bt { margin: 0 0 3px; font-size: 8px; letter-spacing: .16em; color: #8a93a6; font-weight: 700; }
+    .party p { margin: 1px 0; line-height: 1.45; }
+    .party .co { font-weight: 800; font-size: 12.5px; }
+    table.items { width: 100%; border-collapse: collapse; margin-top: 11px; }
+    .items th { background: #1a2946; color: #fff; padding: 6px 7px; text-align: left; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; }
+    .items td { padding: 6px 7px; border-bottom: 1px solid #e8ebf1; vertical-align: top; }
+    .items .c { text-align: center; }
+    .items .r { text-align: right; font-variant-numeric: tabular-nums; }
+    .items .nm { font-weight: 700; }
+    .items .sku { font-size: 9px; color: #8a93a6; font-weight: 400; }
+    .items ul { margin: 3px 0 0; padding-left: 13px; color: #5b6472; font-size: 10px; line-height: 1.5; }
+    .mid { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
+    .words { flex: 1 1 0; min-width: 0; border: 1px solid #1a2946; border-radius: 5px; padding: 7px 9px; }
+    .words .bt { font-size: 7.5px; letter-spacing: .14em; color: #8a93a6; font-weight: 700; }
+    .words .val { font-weight: 700; font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
+    .words .sst { margin-top: 6px; font-size: 8.5px; color: #8a93a6; line-height: 1.45; }
+    table.tot { width: 240px; flex: none; border-collapse: collapse; }
+    .tot td { padding: 3px 9px; font-size: 11px; }
     .tot td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; font-size: 14px; padding: 8px 10px; }
-    .tot tr.grand td:first-child { border-radius: 6px 0 0 6px; } .tot tr.grand td:last-child { border-radius: 0 6px 6px 0; }
-    .split { display: flex; gap: 16px; margin-top: auto; padding-top: 26px; justify-content: space-between; flex-wrap: wrap; align-items: flex-end; }
-    /* margin-top:auto = the payment details + authorised signature sit at the
-       BOTTOM of the A4 page on every document type, uniformly. */
-    .split2 { display: flex; gap: 16px; flex: 1; justify-content: flex-end; flex-wrap: wrap; align-items: flex-end; } /* v1.4.236: Prepared by / Accepted by lines level */
-    .pay { background: #f6f7fa; border-radius: 6px; padding: 10px 12px; max-width: 320px; }
+    .tot tr.sub td { border-top: 1px solid #e8ebf1; font-weight: 700; }
+    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; font-size: 13px; padding: 7px 9px; }
+    .tot tr.grand td:first-child { border-radius: 5px 0 0 5px; }
+    .tot tr.grand td:last-child { border-radius: 0 5px 5px 0; }
+    .notes { margin-top: 10px; font-size: 10.5px; color: #5b6472; white-space: pre-wrap; }
+    .accept { margin-top: auto; padding-top: 18px; }
+    .accept .hdr { text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-top: 1px solid #1a2946; padding-top: 7px; }
+    .accept .body { font-size: 10px; color: #5b6472; margin: 4px 0 0; line-height: 1.5; flex: none; width: 300px; }
+    .split { display: flex; gap: 12px; margin-top: 10px; justify-content: space-between; align-items: flex-end; }
+    /* flex-start: both signature rules sit on ONE baseline whatever the block
+       holds — a long name wraps downward instead of lifting its own rule. */
+    .split2 { display: flex; gap: 12px; flex: 1; justify-content: flex-end; align-items: flex-start; }
+    .pay { background: #f6f7fa; border-radius: 5px; padding: 9px 11px; max-width: 300px; margin-top: auto; }
     .pay p { margin: 2px 0; }
-    .pay .bt { font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
+    .pay .bt { font-size: 8px; letter-spacing: .16em; color: #8a93a6; font-weight: 700; }
     .paidline { color: #15803d; font-weight: 800; margin-top: 6px !important; }
-    .sig { text-align: center; min-width: 200px; font-size: 10.5px; }
-    /* v1.4.241 (CEO: saved PDF vs popup — "what is the different that cause
-       this format incorrect"): NOTHING in the CSS differed; the WIDTH did.
-       The popup window is ~1240px, A4's printable width is 182mm ≈ 688px.
-       TERMS (320) + Prepared by (200) + Accepted by (200) + 2 gaps = 752px,
-       so on paper .split2 wrapped and stacked the two signature blocks while
-       TERMS dropped to the bottom-left. The quotation row is now sized to fit
-       688px; phones still wrap, which is correct there. */
-    .split.qt { gap: 12px; }
-    .split.qt .split2 { gap: 12px; }
-    .split.qt .pay { max-width: 250px; }
-    .split.qt .sig { min-width: 168px; }
-    .sig .line { border-bottom: 1px solid #1a2946; height: 18px; margin-bottom: 5px; }
-    .sig .lbl { display: block; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #8a93a6; margin-bottom: 3px; }
-    .signer .nm { font-weight: 800; font-size: 11.5px; letter-spacing: .02em; }
-    .signer { line-height: 1.5; }
-    .tiny { font-size: 9px; color: #8a93a6; }
-    .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
-    .notes { margin-top: 12px; font-size: 11px; color: #5b6472; white-space: pre-wrap; }
-    .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d; color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
-    @media print { body { padding: 14mm; min-height: 296mm; } } /* v1.4.239: the 14mm now lives here, not in @page */
+    .sig { text-align: center; flex: 1 1 0; min-width: 168px; font-size: 10px; }
+    /* RESERVED AUTO-SIGNATURE SPACE — identical height in every block so the
+       officer's PNG never shifts the layout, and a blank block lines up with
+       a signed one exactly. */
+    .sigzone { height: 74px; display: flex; align-items: flex-end; justify-content: center;
+               border-bottom: 1px solid #1a2946; margin-bottom: 4px; overflow: hidden; }
+    .sigzone img { max-height: 72px; max-width: 100%; object-fit: contain; display: block; }
+    .sig .lbl { display: block; font-size: 8px; letter-spacing: .13em; text-transform: uppercase; color: #8a93a6; margin-bottom: 3px; }
+    .sig .who { margin-top: 1px; line-height: 1.5; }
+    .sig .nm { font-weight: 800; font-size: 10px; letter-spacing: -.01em; }
+    .sig.blank .who { color: #8a93a6; }
+    .sig.blank .who .nm { font-weight: 700; }
+    .tiny { font-size: 8.5px; color: #8a93a6; }
+    .foot { margin-top: 12px; font-size: 8px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 7px; text-align: center; line-height: 1.5; }
+    .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d;
+      color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
   </style></head><body onload="window.print()">
   ${isPaid ? '<div class="stamp">PAID</div>' : ""}
   <div class="goldbar"></div>
   <div class="hd">
     <div class="brand">AZ ONE OFFICIAL
-      <small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
-      <div class="addr">Live Commerce Agency · SSM 202603168673 (JM1046169-H)<br/>
+      <small>LIVE &nbsp;&middot;&nbsp; CONNECT &nbsp;&middot;&nbsp; GROW</small>
+      <div class="addr">Live Commerce Agency &middot; SSM 202603168673 (JM1046169-H)<br/>
       34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>
       81200 Johor Bahru, Johor, Malaysia<br/>
-      admin@azoneofficial.com · WhatsApp +60 12-383 4821</div>
+      admin@azoneofficial.com &middot; WhatsApp +60 12-383 4821</div>
     </div>
-    <div class="docbox"><h2>${title}</h2><table class="meta">${metaRows}</table></div>
+    <div class="docbox"><h2>${title}</h2>
+      ${doc.kind ? `<div class="kindchip">${isService ? "SERVICES" : "PRODUCTS"}</div>` : ""}
+    </div>
   </div>
+  <table class="meta"><tr>${metaTds}</tr></table>
   <div class="parties">
     <div class="party">
-      <p class="bt">${doc.doc_type === "DO" ? "DELIVER TO" : "BILL TO"}</p>
-      <p class="co">${doc.company}</p>
-      ${doc.contact_person ? `<p>${doc.contact_person}</p>` : ""}
-      ${doc.address ? `<p>${doc.address}</p>` : ""}
-      ${doc.customer_phone ? `<p>${doc.customer_phone}</p>` : ""}
-      ${doc.customer_email ? `<p>${doc.customer_email}</p>` : ""}
+      <p class="bt">BILLING ADDRESS</p>
+      <p class="co">${esc(doc.company)}</p>
+      ${doc.contact_person ? `<p>${esc(doc.contact_person)}</p>` : ""}
+      ${billLines.map((l) => `<p>${esc(l).replace(/\n/g, "<br/>")}</p>`).join("")}
     </div>
+    ${shipBlock}
   </div>
   <table class="items">
-    <thead><tr><th class="c">#</th><th>${doc.kind === "service" ? "Description of services" : "Description"}</th><th class="c">Qty</th>${isDO ? "" : '<th class="r">Unit price</th><th class="r">Amount</th>'}</tr></thead>
-    <tbody>${rows || `<tr><td colspan="${isDO ? 3 : 5}" style="padding:10px;color:#999">No line items</td></tr>`}</tbody>
+    <thead><tr>
+      <th class="c" style="width:5%">No</th>
+      <th>${isService ? "Description of services" : "Description"}</th>
+      <th class="c" style="width:8%">UOM</th>
+      <th class="c" style="width:8%">Qty</th>
+      ${isDO ? "" : `<th class="r" style="width:13%">Unit price</th>
+      <th class="r" style="width:12%">Discount</th>
+      <th class="r" style="width:15%">Amount (RM)</th>`}
+    </tr></thead>
+    <tbody>${rows || `<tr><td colspan="${isDO ? 4 : 7}" style="padding:10px;color:#999">No line items</td></tr>`}</tbody>
   </table>
-  ${isDO ? "" : `<div class="totwrap"><table class="tot">
-    <tr><td>Subtotal</td><td>${rm(subtotal)}</td></tr>
-    ${doc.discount_cents ? `<tr><td>Discount</td><td>− ${rm(doc.discount_cents)}</td></tr>` : ""}
-    ${doc.tax_percent ? `<tr><td>Tax (${doc.tax_percent}%)</td><td>${rm(taxAmt)}</td></tr>` : ""}
-    ${doc.delivery_cents ? `<tr><td>Delivery / postage</td><td>${rm(doc.delivery_cents)}</td></tr>` : ""}
-    <tr class="grand"><td>TOTAL</td><td>${rm(doc.total_cents)}</td></tr>
-  </table></div>`}
-  ${doc.notes ? `<p class="notes">${doc.notes}</p>` : ""}
+  ${isDO ? "" : `<div class="mid">
+    <div class="words">
+      <div class="bt">AMOUNT IN WORDS</div>
+      <div class="val">${amountWords(doc.total_cents)}</div>
+      <div class="sst">Prices are in Ringgit Malaysia and exclude SST. AZ ONE OFFICIAL is not
+      registered for Sales &amp; Service Tax; no service tax is charged on this document.</div>
+    </div>
+    <table class="tot">${ladder}</table>
+  </div>`}
+  ${doc.notes ? `<p class="notes">${esc(doc.notes)}</p>` : ""}
   ${bottom}
-  <div class="foot">AZ ONE OFFICIAL · Empowering Brands Through Live Commerce and Digital Connections · azoneofficial.com<br/>
+  <div class="foot">AZ ONE OFFICIAL &middot; Empowering Brands Through Live Commerce and Digital Connections &middot; azoneofficial.com<br/>
   This is a computer-generated document; no signature is required unless indicated above.</div>
   </body></html>`);
   w.document.close();
@@ -2061,6 +2175,10 @@ interface DocFull {
   created_by_role?: string | null;
   converted_from?: number | null; // v1.4.233
   kind?: string | null; // v1.4.234 — 'product' | 'service'
+  delivery_status?: string | null;
+  reference?: string | null;          // v1.4.243 — buyer's PO / their own ref
+  delivery_address?: string | null;   // v1.4.243 — ship-to on THIS document
+  customer_delivery_address?: string | null; // customer's default ship-to
   signer_role?: string | null;
   signer_name?: string | null;
   signer_position?: string | null;
@@ -2492,8 +2610,13 @@ function Sales({ user }: { user: User }) {
   const [editingCust, setEditingCust] = useState<{ id: number; company: string } | null>(null); // v1.4.235
   // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
   // salesperson_id: 0 = "me" (worker defaults to the creator).
-  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; kind: "product" | "service"; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean }>({
-    doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false,
+  const [doc, setDoc] = useState<{
+    doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[];
+    discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean;
+    reference: string; delivery_address: string;
+  }>({
+    doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }],
+    discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "",
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -2546,7 +2669,8 @@ function Sales({ user }: { user: User }) {
     void load();
   };
   const resetDocForm = () => {
-    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false });
+    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }],
+      discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "" });
     setDocDate(""); setPaidDate(""); setEditingDoc(null);
   };
 
@@ -2736,30 +2860,66 @@ function Sales({ user }: { user: User }) {
                 {staffList.filter((u) => u.name !== user.name).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)} — {u.role.replace(/_/g, " ")}</option>)}
               </select>
             </label>
-            <div className="text-muted-foreground grid grid-cols-[1fr_70px_110px_auto] gap-2 text-xs">
-              <span>Item / service description</span><span>Qty</span><span>Unit price (RM)</span><span />
+            {/* v1.4.243 (CEO's Malaysian-standard document): the buyer's own
+                reference prints in the meta strip — "N/A" when blank — and a
+                ship-to address prints beside the billing block. A service
+                delivers nothing physical, so the address box is product-only
+                (same rule as Delivery / postage since v1.4.238). */}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-xs">Their reference / PO no. (optional)</span>
+                <input className={inputClass} placeholder="e.g. PO-2608" maxLength={60} value={doc.reference}
+                  onChange={(e) => setDoc((d) => ({ ...d, reference: e.target.value }))} />
+              </label>
+              {doc.kind === "product" ? (
+                <label className="block">
+                  <span className="text-muted-foreground mb-1 block text-xs">Delivery address (only if different)</span>
+                  <input className={inputClass} placeholder="Leave blank — same as billing" maxLength={300} value={doc.delivery_address}
+                    onChange={(e) => setDoc((d) => ({ ...d, delivery_address: e.target.value }))} />
+                </label>
+              ) : <span />}
             </div>
-            {doc.items.map((item, i) => (
-              <div key={i} className="grid grid-cols-[1fr_70px_110px_auto] items-center gap-2">
-                <input className={inputClass} placeholder={doc.kind === "service" ? "e.g. TikTok LIVE hosting — 8 sessions" : "e.g. Tudung Bawal Premium"} value={item.name} list={doc.kind === "service" ? undefined : "inv-item-suggestions"}
+            <div className="text-muted-foreground hidden gap-2 text-xs sm:grid sm:grid-cols-[1fr_66px_66px_100px_100px_auto]">
+              <span>Item / service description</span><span>UOM</span><span>Qty</span><span>Unit price (RM)</span><span>Discount (RM)</span><span />
+            </div>
+            {doc.items.map((item, i) => {
+              // one helper so every field on the line edits the same way
+              const patch = (p: Partial<DocItem>) =>
+                setDoc((d) => ({ ...d, items: d.items.map((x, xi) => (xi === i ? { ...x, ...p } : x)) }));
+              return (
+              <div key={i} className="border-border grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_66px_66px_100px_100px_auto] sm:border-0 sm:p-0">
+                <input className={`${inputClass} col-span-2 sm:col-span-1`} placeholder={doc.kind === "service" ? "e.g. TikTok LIVE hosting — 8 sessions" : "e.g. Tudung Bawal Premium"} value={item.name} list={doc.kind === "service" ? undefined : "inv-item-suggestions"}
                   onChange={(e) => {
                     const v = e.target.value;
                     const hit = invItems.find((it) => it.name === v);
-                    setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i
-                      ? { ...x, name: v, unit_price_cents: hit?.unit_price_cents && !x.unit_price_cents ? hit.unit_price_cents : x.unit_price_cents }
-                      : x) }));
+                    patch({ name: v, sku: hit?.sku ?? item.sku,
+                      unit_price_cents: hit?.unit_price_cents && !item.unit_price_cents ? hit.unit_price_cents : item.unit_price_cents });
                   }} />
+                <input className={inputClass} placeholder="UOM" maxLength={12} value={item.uom ?? ""}
+                  title="Unit of measure — PCS, UNIT, SET, VIDEO, SESSION…"
+                  onChange={(e) => patch({ uom: e.target.value.toUpperCase() })} />
                 <input type="number" min={1} className={inputClass} value={item.qty}
-                  onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, qty: Number(e.target.value) } : x) }))} />
+                  onChange={(e) => patch({ qty: Number(e.target.value) })} />
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
                   value={item.unit_price_cents ? (item.unit_price_cents / 100).toString() : ""}
-                  onChange={(e) => setDoc((d) => ({ ...d, items: d.items.map((x, xi) => xi === i ? { ...x, unit_price_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) } : x) }))} />
+                  onChange={(e) => patch({ unit_price_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} />
+                <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
+                  title="Discount on THIS line — the document-level discount stays separate"
+                  value={item.disc_cents ? (item.disc_cents / 100).toString() : ""}
+                  onChange={(e) => patch({ disc_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} />
                 {doc.items.length > 1
                   ? <button type="button" className="text-destructive text-xs underline" title="Remove this line"
                       onClick={() => setDoc((d) => ({ ...d, items: d.items.filter((_, xi) => xi !== i) }))}>✕</button>
                   : <span className="w-4" />}
+                {/* v1.4.243: inclusions belong UNDER their line, not as extra
+                    RM 0.00 rows — they print as bullets beneath the item. */}
+                <textarea className={`${inputClass} col-span-2 min-h-[4rem] sm:col-span-6`}
+                  placeholder="Detail lines — one inclusion per line (optional). e.g. Storyboard"
+                  value={(item.sub ?? []).join("\n")}
+                  onChange={(e) => patch({ sub: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 10) })} />
               </div>
-            ))}
+              );
+            })}
             <datalist id="inv-item-suggestions">
               {invItems.map((it) => <option key={it.sku} value={it.name}>{`SKU ${it.sku}${it.unit_price_cents ? ` · RM ${(it.unit_price_cents / 100).toFixed(2)}` : ""}`}</option>)}
             </datalist>
@@ -2927,12 +3087,14 @@ function Sales({ user }: { user: User }) {
                 let its: DocItem[] = [];
                 try { its = JSON.parse(full.items); } catch { its = []; }
                 setDoc({
-                  kind: (full as { kind?: "product" | "service" }).kind || "product",
                   doc_type: full.doc_type, customer_id: (full as { customer_id?: number }).customer_id ?? -1,
                   salesperson_id: (full as { salesperson_id?: number | null }).salesperson_id ?? 0,
                   items: its.length ? its : [{ name: "", qty: 1, unit_price_cents: 0 }],
                   discount_cents: full.discount_cents ?? 0, tax_percent: full.tax_percent ?? 0,
                   delivery_cents: (full as { delivery_cents?: number }).delivery_cents ?? 0, paid_received: false,
+                  kind: (full as { kind?: string | null }).kind ?? "product",
+                  reference: (full as { reference?: string | null }).reference ?? "",
+                  delivery_address: (full as { delivery_address?: string | null }).delivery_address ?? "",
                 });
                 setDocDate(full.created_at.slice(0, 10));
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });

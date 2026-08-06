@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.243] — 2026-08-06 — Malaysian-standard sales documents (MIGRATION 0062)
+
+### Added (CEO: "can we make it like this? include invoice and delivery order based on both service and product requirement")
+- **Quotation, Invoice and Delivery Order rebuilt on one template**, in the shape approved from the samples: gold rule → letterhead → borderless meta strip (Sales person · Doc no. · Date · Valid until/Payment due/Delivery · Reference · Page) → BILLING | DELIVERY-or-SERVICE address → line items → amount in words + totals ladder → closing block.
+- **Line items** now carry a unit of measure, a SKU, their own discount, and up to ten detail sub-lines — the inclusions that used to be typed as extra RM 0.00 rows now print as bullets under the item they belong to.
+- **Amount in words** in the Malaysian convention ("RINGGIT MALAYSIA : … ONLY"), sen included.
+- **Their reference / PO no.** prints in the meta strip, "N/A" when blank. **Delivery address** prints beside the billing block, collapsing to "Same as billing address" when it matches or is empty; product documents only, since a service delivers nothing physical.
+- MIGRATION 0062 adds `sales_documents.reference`, `sales_documents.delivery_address` and `customers.delivery_address`. All nullable; every existing document still parses and prints.
+
+### Fixed
+- **The signature area now reserves a fixed-height zone in every block**, signed or blank. The officer's signature PNG drops into reserved space instead of growing its own column, so "Prepared by" and "Accepted & confirmed by" sit on one baseline whether or not an auto signature is present. The counterparty block carries the same three lines, muted, so the two columns line up exactly.
+- No tax line anywhere: AZ ONE OFFICIAL is not SST-registered, and charging service tax before registration is an offence. The document states the position in words instead. When registration happens the ladder gains an SST row and the letterhead an SST number; nothing else moves.
+- The create-document form's state type never declared `kind`, which v1.4.234 had been setting — a type error on every build. Declared.
+- Writes are armored for migration skew both ways (v1.4.218 lesson): on a database without 0062 the document still saves, minus reference and ship-to, and logs `migration_skew`.
+
 ## [1.4.242] — 2026-08-06 — Print audit across every generated document
 
 ### Checked (CEO: "all this being implemented to all the generate PDF? include, Delivery Order, Invoice, Claim, Leave Form")
