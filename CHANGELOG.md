@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.257] — 2026-08-06 — The payslip as a real file (tier 5, in part)
+
+### Added (CEO: "Tier 5")
+- **Send PDF on the payslip**, in three places: the payroll processing row, the staff member's own payslip card, and the HR path that already fetched the detail. NEW `lib/payslip-pdf.ts`, drawn with the same writer as the sales documents and the HR forms.
+- **The arithmetic is now shared, even though the layout isn't.** NEW `payslipData()` computes every figure once — v1.4.183's hourly rule, v1.4.79's unpaid-leave deduction, v1.4.82's incomplete-month adjustment — and both the printed slip and the PDF read from it. Payroll is the one place where two implementations drifting apart isn't cosmetic; it's two different answers to "what was I paid".
+- Long labels now shrink to fit their column before they can run under the next column's figures, and truncate only if 5.5pt still won't do. A number is never crowded by a label.
+
+### Fixed
+- **`×` was silently vanishing from every PDF.** "6 HRS × 1.5" printed as "6 HRS 1.5" — which on a payslip reads as a different calculation. Anything the Latin-1 fold map misses is dropped by the ASCII filter, so a missing entry is invisible rather than obviously broken. Added `× ÷ ± ≤ ≥ ≈ ™ ©`.
+
+### Not built, deliberately
+- **The ID badge and the HR attendance summary stay print-only.** A badge is a card you print on stock, and the HR summary is an internal multi-page report nobody sends. Each would have bought a fourth and fifth hand-maintained layout for no real errand.
+- **The Cloudflare Browser Rendering fork is not mine to take.** It costs a Workers Paid plan (~USD 5/month) and would collapse all three PDF writers back into one template each. Until then three files mirror three templates, and every document change has to be made twice.
+- Frontend-only, no migrations.
+
+## [1.4.256] — 2026-08-06 — The row pattern reaches /admin (tier 3)
+
+### Changed (CEO: "Tier 3")
+- **Enquiries** — the enquirer's name opens the record. Every enquiry used to print its whole message inline, so ten enquiries was a wall of text and the status control — the thing you came to change — sat somewhere in the middle of it. The panel now holds email, phone, company, received date and the message; the status picker stays on the row, because it *is* the row.
+- **Services / packages / anything on CrudPanel** — the title opens the record and the panel shows every field's value. Until now the only way to read a single field was to press Edit and load the whole record into the form, which risks saving something you only meant to look at.
+- **Staff directory** — the staff member's name is now the toggle, and the separate "Details ▾" button is gone. That also frees a slot in the row v1.4.209 had to teach to wrap, because with a record open it held five buttons. Multiple records stay open at once here on purpose: HR compares people side by side, which is the one place the one-at-a-time rule doesn't serve the work.
+
+### Deliberately not converted
+- **/admin Users rows** — already minimal. Name, email, a suspended chip, and the controls. There is nothing hidden behind them worth revealing, and a panel would only add a click.
+- **The admin staff directory** is an always-open editing grid, not a list of records to read. Collapsing it would hide the fields that are the entire point of the panel.
+- Frontend-only, no migrations.
+
 ## [1.4.255] — 2026-08-06 — Every save says what happened (tier 2)
 
 ### Changed (CEO: "Tier 2")

@@ -12,8 +12,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { properName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { buildPayslipPdf, type PayslipData } from "@/lib/payslip-pdf";
+import { sharePdfFile } from "@/lib/doc-pdf";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { card } from "@/lib/ui-styles";
+import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 
 const API = "/api/v1/staff";
 
@@ -134,62 +137,100 @@ function monthDMY(m: string): string {
 
 /** Branded A4 payslip print — shared by the processing panel and every
     staff member's read-only "My payslip" card. */
+/* v1.4.257: the slip's FIGURES, computed once and used by both the printed
+   slip and the PDF. Payroll is the one place where two implementations
+   drifting apart is not a cosmetic bug — it is two different answers to
+   "what was I paid". So the layout may exist twice; the arithmetic does not. */
+export type SlipExtras = { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null;
+
+export function payslipData(
+  u: StaffRow & { employment_status?: string | null },
+  e: Entry,
+  month: string,
+  x?: SlipExtras,
+): PayslipData {
+  const hourlySlip = isHourly(u) || (e.hourly_minutes != null && e.hourly_rate_cents != null);
+  const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
+  const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
+  const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
+  const incompAdj = hourlySlip ? 0 : incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
+  const totalDed = e.deduction_cents + unpaidDed + incompAdj;
+  const n2v = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const hrs = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
+
+  const earnings: [string, number][] = hourlySlip
+    ? [[`HOURLY PAY (${hrs} × RM ${(((e.hourly_rate_cents ?? 1500)) / 100).toFixed(2)}/HOUR)`, e.basic_cents]]
+    : [["BASIC PAY", e.basic_cents]];
+  if (e.commission_cents > 0) earnings.push(["COMMISSION", e.commission_cents]);
+  if (e.allowance_cents > 0) earnings.push(["ALLOWANCE", e.allowance_cents]);
+  if (otCents > 0) earnings.push([`OVERTIME (${e.ot_hours ?? 0} HRS × 1.5 × HOURLY ORP)`, otCents]);
+
+  const deductions: [string, number][] = [];
+  if (e.deduction_cents > 0) deductions.push(["LATE / OTHER DEDUCTION", e.deduction_cents]);
+  if (unpaidDed > 0) {
+    const d = x?.unpaid_leave ?? 0;
+    deductions.push([`UNPAID LEAVE (${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE)`, unpaidDed]);
+  }
+  if (incompAdj > 0) deductions.push([`INCOMPLETE MONTH (WORKED ${e.worked_days} OF ${e.month_working_days} PAYABLE DAYS)`, incompAdj]);
+
+  const others: [string, number][] = [];
+  if (x) {
+    others.push(["WORKING DAYS (TOTAL CLOCKED IN)", x.working_day]);
+    if (x.public_holiday > 0) others.push(["PUBLIC HOLIDAY", x.public_holiday]);
+    if (x.annual_leave > 0) others.push(["ANNUAL LEAVE", x.annual_leave]);
+    if (x.medical_leave > 0) others.push(["MEDICAL LEAVE", x.medical_leave]);
+    if ((x.emergency_leave ?? 0) > 0) others.push(["EMERGENCY LEAVE (PAID)", x.emergency_leave!]);
+    if ((x.unpaid_leave ?? 0) > 0) others.push(["UNPAID LEAVE", x.unpaid_leave!]);
+  }
+
+  return {
+    name: u.full_name || u.name,
+    employee_id: u.employee_id, department: u.department, position: u.position,
+    ic_number: u.ic_number, employment_status: u.employment_status,
+    bank_name: u.bank_name, bank_account: u.bank_account,
+    month, earnings, deductions, others,
+    gross_cents: gross, deduction_cents: totalDed, net_cents: Math.max(0, gross - totalDed),
+    note: e.note ?? null,
+    annual_bal: x ? x.annual_bal : null, sick_bal: x ? x.sick_bal : null,
+  };
+}
+
+/* v1.4.257: hand the slip to the phone's share sheet as a real file — the
+   errand is a staff member standing at a bank counter being asked for one. */
+export async function sendPayslipPdf(
+  u: StaffRow & { employment_status?: string | null }, e: Entry, month: string, x?: SlipExtras,
+) {
+  const d = payslipData(u, e, month, x);
+  const blob = await buildPayslipPdf(d);
+  await sharePdfFile(blob, `Payslip-${(u.employee_id || u.name).replace(/\s+/g, "-")}-${month}.pdf`,
+    `Payslip ${d.name} ${month}`);
+}
+
 export function printPayslip(
   u: StaffRow & { employment_status?: string | null },
   e: Entry,
   month: string,
-  x?: { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null,
+  x?: SlipExtras,
 ) {
-  /* v1.4.183: PART-TIME LIVE HOST slips are hourly — the stored
-     hourly_minutes × RM15.00/h IS the pay; no OT, no unpaid-leave maths, no
-     incomplete-month adjustment (there is no salary to prorate). */
-  const hourlySlip = isHourly(u) || (e.hourly_minutes != null && e.hourly_rate_cents != null);
-  const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
-  const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
-  // v1.4.79: unpaid leave deducts EXPLICITLY on the slip (Employment Act
-  // ordinary rate: basic ÷ 26 per day) — basic stays full, the reason shows.
-  const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
-  // v1.4.82: incomplete month (joining month / absent days) is ALSO an
-  // explicit deduction against the FULL basic — never a shrunken basic.
-  const incompAdj = hourlySlip ? 0 : incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
-  const totalDed = e.deduction_cents + unpaidDed + incompAdj;
-  const net = Math.max(0, gross - totalDed);
+  /* v1.4.257: every figure below comes from payslipData() — the SAME function
+     the PDF uses. v1.4.183's hourly rule, v1.4.79's unpaid-leave deduction and
+     v1.4.82's incomplete-month adjustment all live there now. */
+  const D = payslipData(u, e, month, x);
+  const gross = D.gross_cents;
+  const totalDed = D.deduction_cents;
+  const net = D.net_cents;
   const [yy, mm] = month.split("-");
   const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
   const period = { from: `01-${mm}-${yy}`, to: `${String(lastDay).padStart(2, "0")}-${mm}-${yy}` };
   const amt = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const n2 = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // Earnings: basic always; commission/allowance only when present.
-  const hrsLabel = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
-  const earn: [string, number][] = hourlySlip
-    ? [[`HOURLY PAY (${hrsLabel} × RM ${(((e.hourly_rate_cents ?? 1500)) / 100).toFixed(2)}/HOUR)`, e.basic_cents]]
-    : [["BASIC PAY", e.basic_cents]];
-  if (e.commission_cents > 0) earn.push(["COMMISSION", e.commission_cents]);
-  if (e.allowance_cents > 0) earn.push(["ALLOWANCE", e.allowance_cents]);
-  if (otCents > 0) earn.push([`OVERTIME (${e.ot_hours ?? 0} HRS × 1.5 × HOURLY ORP)`, otCents]);
-  // Deduction lines: manual deduction (lateness etc.) + automatic unpaid
-  // leave. Emergency leave is PAID — it never appears here.
-  const dedLines: string[] = [];
-  if (e.deduction_cents > 0) dedLines.push(`<tr><td>LATE / OTHER DEDUCTION</td><td class="amt">${amt(e.deduction_cents)}</td></tr>`);
-  if (unpaidDed > 0) {
-    const d = x?.unpaid_leave ?? 0;
-    dedLines.push(`<tr><td>UNPAID LEAVE (${n2(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE)</td><td class="amt">${amt(unpaidDed)}</td></tr>`);
-  }
-  if (incompAdj > 0) {
-    dedLines.push(`<tr><td>INCOMPLETE MONTH (WORKED ${e.worked_days} OF ${e.month_working_days} PAYABLE DAYS)</td><td class="amt">${amt(incompAdj)}</td></tr>`);
-  }
-  const dedRows = dedLines.length > 0 ? dedLines.join("") : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
-  const othersRow = (label: string, v: number) =>
-    v > 0 ? `<tr><td>${label}</td><td class="amt">${n2(v)}</td></tr>` : "";
-  const othersRows = x
-    ? `<tr><td>WORKING DAYS (TOTAL CLOCKED IN)</td><td class="amt">${n2(x.working_day)}</td></tr>
-       ${othersRow("PUBLIC HOLIDAY", x.public_holiday)}
-       ${othersRow("ANNUAL LEAVE", x.annual_leave)}
-       ${othersRow("MEDICAL LEAVE", x.medical_leave)}
-       ${othersRow("EMERGENCY LEAVE (PAID)", x.emergency_leave ?? 0)}
-       ${othersRow("UNPAID LEAVE", x.unpaid_leave ?? 0)}`
-    : "";
+  // The same three columns the PDF draws, rendered as table rows.
+  const earn = D.earnings;
+  const dedRows = D.deductions.length > 0
+    ? D.deductions.map(([label, v]) => `<tr><td>${label}</td><td class="amt">${amt(v)}</td></tr>`).join("")
+    : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
+  const othersRows = D.others.map(([label, v]) => `<tr><td>${label}</td><td class="amt">${n2(v)}</td></tr>`).join("");
 
   const w = window.open("", "_blank", "width=900,height=950");
   if (!w) return;
@@ -540,8 +581,15 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const printSlip = async (u: StaffRow) => {
-    const d = await api<{ extras: Parameters<typeof printPayslip>[3] }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
+    const d = await api<{ extras: SlipExtras }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
     printPayslip(u, entry(u.id), month, d.data?.extras ?? null);
+  };
+  /* v1.4.257: same fetch, a real file instead of a print dialog — for the
+     staff member who needs the slip somewhere the portal can't follow. */
+  const sendSlip = async (u: StaffRow) => {
+    const d = await api<{ extras: SlipExtras }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
+    await sendPayslipPdf(u, entry(u.id), month, d.data?.extras ?? null);
+    showToast("Saved", `Payslip ready to send — ${properName(u.name)} ${month}`);
   };
 
   return (
@@ -1011,8 +1059,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         </button>
                       </>
                     )}
-                    <button type="button" className="ml-2 text-xs underline" onClick={() => void printSlip(u)}>
+                    <button type="button" className={`${rowBtn} ml-2`} onClick={() => void printSlip(u)}>
                       Payslip
+                    </button>
+                    <button type="button" className={`${rowBtn} ml-1.5`} title="Send this payslip as a PDF file"
+                      onClick={() => void sendSlip(u)}>
+                      Send PDF
                     </button>
                   </td>
                 </tr>
@@ -1171,13 +1223,18 @@ export function MyPayslip() {
             Deductions {rm(entry.deduction_cents + autoDed)} ·{" "}
             <span className="font-semibold">Net {rm(Math.max(0, net))}</span>
           </span>
-          <button
-            type="button"
-            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-            onClick={() => printPayslip(entry, entry, month, extras)}
-          >
-            Print payslip
-          </button>
+          <span className={rowActions}>
+            <button type="button" className={rowBtn}
+              onClick={() => printPayslip(entry, entry, month, extras)}>
+              Print payslip
+            </button>
+            {/* v1.4.257: the errand this exists for is a bank or a landlord
+                asking for a payslip while you are standing at their counter. */}
+            <button type="button" className={rowBtnPrimary} title="Send the payslip as a PDF file"
+              onClick={() => void sendPayslipPdf(entry, entry, month, extras)}>
+              Send PDF
+            </button>
+          </span>
         </div>
       ) : (
         <p className="text-muted-foreground mt-3 text-sm">

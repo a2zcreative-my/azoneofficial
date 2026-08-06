@@ -19,6 +19,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { card } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
+import { RecordToggle } from "@/components/ui/record-row";
 
 const API = "/api/v1/staff";
 
@@ -656,7 +657,18 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   onChange={() => toggleSelect(u.id)}
                   title="Select for multi-badge printing"
                 />
-                {properName(u.name)}
+                {/* v1.4.256: the staff member's name opens the record — the
+                    same affordance as every other list. That also frees a slot
+                    in this row, which v1.4.209 had to teach to wrap because it
+                    held five buttons with a record open. */}
+                <RecordToggle open={open.has(u.id)} title="Full staff record"
+                  onToggle={() => setOpen((o) => {
+                    const next = new Set(o);
+                    if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
+                    return next;
+                  })}>
+                  {properName(u.name)}
+                </RecordToggle>
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
                     {u.employment_status}{u.left_on ? ` · ${u.left_on.split("-").reverse().join("-")}` : ""}
@@ -746,17 +758,6 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   />
                 </label>
                 )}
-                <button
-                  type="button"
-                  className={`${btn} border-border border hover:bg-secondary`}
-                  onClick={() => setOpen((o) => {
-                    const next = new Set(o);
-                    if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
-                    return next;
-                  })}
-                >
-                  {open.has(u.id) ? "Hide details ▴" : "Details ▾"}
-                </button>
               </span>
             </div>
             {open.has(u.id) && RECORD_SECTIONS.map((sec) => (

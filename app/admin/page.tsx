@@ -21,6 +21,7 @@ import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { inputClass, btnClass } from "@/lib/ui-styles";
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
+import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
@@ -73,6 +74,7 @@ const btnGhost =
 const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
 
 function Enquiries() {
+  const [openEnq, setOpenEnq] = useState<number | null>(null);
   const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<Enquiry[]>([]);
   const load = useCallback(async () => {
@@ -100,8 +102,15 @@ function Enquiries() {
       {items.map((e) => (
         <article key={e.id} className="rounded-xl border border-border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* v1.4.256: the enquirer's name opens the record. Every enquiry
+                used to print its whole message inline, so ten enquiries was a
+                wall of text and the status control — the thing you actually
+                came to change — sat somewhere in the middle of it. */}
             <p className="text-sm font-semibold">
-              {e.name}
+              <RecordToggle open={openEnq === e.id} title="Contact details and the message"
+                onToggle={() => setOpenEnq(openEnq === e.id ? null : e.id)}>
+                {e.name}
+              </RecordToggle>
               {e.company ? ` — ${e.company}` : ""}
             </p>
             <select
@@ -116,10 +125,15 @@ function Enquiries() {
               ))}
             </select>
           </div>
-          <p className="text-muted-foreground mt-1 text-xs">
-            {e.email ?? "no email"} · {e.phone ?? "no phone"} · {dmyMyt(e.created_at)}
-          </p>
-          <p className="mt-2 text-sm">{e.message}</p>
+          {openEnq === e.id && (
+            <DetailGrid items={[
+              { label: "Email", value: e.email ?? "" },
+              { label: "Phone", value: e.phone ?? "" },
+              { label: "Company", value: e.company ?? "" },
+              { label: "Received", value: dmyMyt(e.created_at) },
+              { label: "Message", wide: true, value: <span className="whitespace-pre-line">{e.message}</span> },
+            ]} />
+          )}
         </article>
       ))}
     </div>
@@ -143,6 +157,7 @@ function CrudPanel({
   fields: FieldDef[];
   titleKey: string;
 }) {
+  const [openItem, setOpenItem] = useState<number | null>(null);
   const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<CrudItem[]>([]);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
@@ -248,12 +263,14 @@ function CrudPanel({
           <p className="text-muted-foreground text-sm">Nothing here yet.</p>
         )}
         {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-          >
-            <span className="truncate text-sm">
-              #{item.id} — {String(item[titleKey] ?? "(untitled)")}
+          <div key={item.id} className="rounded-lg border border-border px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="min-w-0 text-sm">
+              <RecordToggle open={openItem === item.id} title="What this record contains"
+                onToggle={() => setOpenItem(openItem === item.id ? null : item.id)}>
+                {String(item[titleKey] ?? "(untitled)")}
+              </RecordToggle>
+              <span className="text-muted-foreground"> · #{item.id}</span>
             </span>
             <span className="flex shrink-0 gap-2">
               <button
@@ -276,6 +293,18 @@ function CrudPanel({
                 Delete
               </button>
             </span>
+            </div>
+            {/* v1.4.256: reading a record no longer means loading it into the
+                edit form — which was the only way to see a single field. */}
+            {openItem === item.id && (
+              <DetailGrid items={fields.map((f) => ({
+                label: f.label,
+                wide: f.type === "textarea",
+                value: f.type === "checkbox"
+                  ? (item[f.key] ? "Yes" : "No")
+                  : String(item[f.key] ?? ""),
+              }))} />
+            )}
           </div>
         ))}
       </div>

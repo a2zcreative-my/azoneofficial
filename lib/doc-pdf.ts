@@ -40,6 +40,11 @@ const FOLD: Record<string, string> = {
   "—": "-", "–": "-", "·": "-", "•": "-", "→": "->", "⇒": "=>", "✔": "OK",
   "…": "...", "“": '"', "”": '"', "‘": "'", "’": "'", "&nbsp;": " ",
   "&amp;": "&", "&middot;": "-", "&mdash;": "-", "&minus;": "-", "&#10004;": "OK",
+  /* v1.4.257: × was silently VANISHING — "6 HRS × 1.5" printed as "6 HRS 1.5",
+     which on a payslip reads as a different calculation. Anything the fold map
+     misses is dropped by the ASCII filter below, so a missing entry is
+     invisible rather than obviously broken. */
+  "×": "x", "÷": "/", "±": "+/-", "≤": "<=", "≥": ">=", "≈": "~", "™": "(TM)", "©": "(c)",
 };
 function ascii(s: string): string {
   let out = s;
