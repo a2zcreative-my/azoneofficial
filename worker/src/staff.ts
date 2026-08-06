@@ -3061,6 +3061,47 @@ export async function handleStaff(
     await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type });
     return json({ ok: true });
   }
+  /* v1.4.244 (CEO: "if I click on PDF button I want the format can be deliver
+     to my customer using mobile instead of I need to download"): minting a
+     share token turns the document into a link the customer can open on any
+     phone — no sign-in, no download, no app. Sending the link is one tap in
+     the phone's own share sheet, which is where WhatsApp lives.
+     Body {revoke:true} clears the token and the link dies immediately. */
+  const docShare = path.match(/^\/docs\/(\d+)\/share$/);
+  if (docShare && method === "POST") {
+    const idS = docShare[1]!;
+    const dS = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
+      .bind(idS).first<{ doc_type: string }>();
+    if (!dS) return err("not_found", "Document not found", 404);
+    if (dS.doc_type === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+      return err("forbidden", "Insufficient rights for this document type", 403);
+    }
+    const origin = env.ALLOWED_ORIGIN;
+    try {
+      if (body && body.revoke === true) {
+        await env.DB.prepare(`UPDATE sales_documents SET share_token = NULL WHERE id = ?1`).bind(idS).run();
+        await audit(env, user.id, "doc.share_revoke", "sales_documents", idS);
+        return json({ ok: true, token: null, url: null });
+      }
+      const existing = await env.DB.prepare(`SELECT share_token FROM sales_documents WHERE id = ?1`)
+        .bind(idS).first<{ share_token: string | null }>();
+      let token = existing?.share_token ?? null;
+      if (!token) {
+        // 32 hex characters — unguessable, and short enough to sit in a URL.
+        token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+          .map((b) => b.toString(16).padStart(2, "0")).join("");
+        await env.DB.prepare(`UPDATE sales_documents SET share_token = ?1 WHERE id = ?2`).bind(token, idS).run();
+        await audit(env, user.id, "doc.share", "sales_documents", idS);
+      }
+      return json({ ok: true, token, url: `${origin}/doc?t=${token}` });
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0063_doc_share_token)", 500);
+      }
+      throw e;
+    }
+  }
+
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
     // v1.4.94: fix typos on an existing document — items, amounts, customer,

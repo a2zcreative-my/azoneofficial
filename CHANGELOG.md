@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.244] — 2026-08-06 — Send a document to the customer from your phone (MIGRATION 0063)
+
+### Added (CEO: "on mobile view, if I click on PDF button I want the format can be deliver to my customer using mobile instead of I need to download using web view")
+- **Send button** on every document row, beside PDF. It mints a share link and hands it straight to the phone's own share sheet — WhatsApp, Telegram, email, whichever they use. Two taps, no download, no file manager. Desktop has no share sheet, so the link goes to the clipboard with a toast instead.
+- **The customer's page** (`/doc?t=…`) needs no sign-in and no app: the document renders on their phone exactly as it prints, scaled to fit the screen rather than pinch-zoomed, with a **Save as PDF** button that prints the real A4 document rather than a screenshot of the page. Invalid or revoked links get a plain message and the WhatsApp number, not an error.
+- MIGRATION 0063 adds `sales_documents.share_token` with a unique index. The token is 32 random hex characters, minted on first Send and reused after that, so re-sending never changes the customer's link. `POST /docs/:id/share {revoke:true}` clears it and the link dies immediately. Both actions audited (`doc.share`, `doc.share_revoke`).
+- The public read route is deliberately outside `/staff` and unauthenticated — the token is the only credential. It returns one document, exposes no internal ids, sends `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`, and `/doc` is disallowed in robots.txt so a customer's prices never reach a search engine.
+
+### Changed
+- The printed document moved out of `page.tsx` into **`lib/doc-template.ts`**, so the portal's PDF popup and the customer's link render from one template and can never drift apart. `buildDocHtml(doc, autoPrint)` — the popup raises the print dialog on open, the customer's page does not.
+- Frontend + worker. Migration-skew armored (v1.4.218 lesson): on a database without 0062/0063 the share link simply does not resolve rather than throwing a 500 at a customer.
+
 ## [1.4.243] — 2026-08-06 — Malaysian-standard sales documents (MIGRATION 0062)
 
 ### Added (CEO: "can we make it like this? include invoice and delivery order based on both service and product requirement")

@@ -1371,6 +1371,64 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     );
   }
 
+  /* v1.4.244 PUBLIC DOCUMENT — deliberately unauthenticated, deliberately
+     NOT under /staff. The customer opens this on their phone straight from
+     WhatsApp; the long random token is the only credential. Read-only, one
+     document, no ids that could be walked. Revoked the moment the token is
+     cleared in the portal. */
+  const pubDoc = path.match(/^\/api\/v1\/public\/doc\/([a-f0-9]{32})$/);
+  if (pubDoc && method === "GET") {
+    const token = pubDoc[1]!;
+    let d: Record<string, unknown> | null = null;
+    try {
+      d = await env.DB.prepare(
+        `SELECT d.doc_type, d.doc_number, d.items, d.discount_cents, d.tax_percent, d.delivery_cents,
+                d.total_cents, d.notes, d.valid_until, d.due_date, d.created_at, d.kind, d.reference,
+                d.delivery_address, d.delivery_status, d.payment_status, d.payment_ref, d.paid_at,
+                c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone,
+                c.address, c.delivery_address AS customer_delivery_address,
+                sp.name AS salesperson_name, cb.role AS created_by_role
+         FROM sales_documents d JOIN customers c ON c.id = d.customer_id
+         LEFT JOIN users sp ON sp.id = d.salesperson_id
+         LEFT JOIN users cb ON cb.id = d.created_by
+         WHERE d.share_token = ?1`,
+      ).bind(token).first<Record<string, unknown>>();
+    } catch (e) {
+      // Migration skew (v1.4.218 lesson): without 0062/0063 the link simply
+      // does not resolve rather than throwing a 500 at a customer.
+      if (!String(e).includes("no such column")) throw e;
+      d = null;
+    }
+    if (!d) return errorResponse("not_found", "This link is no longer valid — please ask for a new one", 404);
+    /* Same signer rule as the portal (v1.4.233): an officer's document shows
+       that officer's signature; anyone else's is signed in ink. */
+    const MGMT = ["ceo", "coo", "cco"];
+    const creatorRole = String(d.created_by_role ?? "");
+    const signRole = MGMT.includes(creatorRole) ? creatorRole : (d.doc_type === "INV" ? "ceo" : null);
+    let signer: { signer_name: string; position: string | null } | null = null;
+    if (signRole) {
+      signer = await env.DB.prepare(
+        `SELECT COALESCE(full_name, name) AS signer_name, position FROM users
+         WHERE role = ?1 AND is_active = 1 ORDER BY id LIMIT 1`,
+      ).bind(signRole).first<{ signer_name: string; position: string | null }>();
+    } else if (d.salesperson_name) {
+      signer = await env.DB.prepare(
+        `SELECT COALESCE(full_name, name) AS signer_name, position FROM users WHERE name = ?1 LIMIT 1`,
+      ).bind(d.salesperson_name).first<{ signer_name: string; position: string | null }>();
+    }
+    delete d.created_by_role;
+    return new Response(JSON.stringify({
+      doc: { ...d, signer_role: signRole, signer_name: signer?.signer_name ?? null, signer_position: signer?.position ?? null },
+    }), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow", // a customer's prices stay out of search
+        ...corsHeaders(env),
+      },
+    });
+  }
+
   if (path === "/api/v1/auth/login" && method === "POST") {
     const allowed = await checkRateLimit(env, `login:${clientIp(request)}`, 10, 900);
     if (!allowed) {
