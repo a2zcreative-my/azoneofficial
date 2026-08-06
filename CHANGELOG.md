@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.233] — 2026-08-06 — Quotation signatures follow the preparer; accidental → Invoice gets an ↩ Undo (MIGRATION 0060)
+
+### Changed — signer rule (CEO: "if prepared by CCO, then signature is CCO… other roles… the signature of prepared by need to fill by them")
+- GET /docs/:id signer logic: prepared by CEO/COO/CCO → that officer's own uploaded signature + name + position (CCO was previously mis-signed as CEO). Prepared by any other role → the "Prepared by" block shows the PREPARER's own name and position over a BLANK line with "sign & date above" — they sign in ink; no officer's signature is borrowed. Invoices are the exception by design: "Authorised signature" is an authorisation act, so a non-officer's invoice still carries the CEO's signature. Old-worker split deploys print exactly as before (undefined vs null distinction in printDoc).
+
+### Added — ↩ Undo conversion
+- Migration 0060: sales_documents.converted_from — an invoice created via → Invoice remembers its source quotation.
+- POST /docs/:id/unconvert (finance roles): allowed ONLY while the invoice is doc_type INV + carries converted_from + still 'unpaid' — a PAID invoice can never be reversed. Deletes the accidental invoice (audited doc.unconvert with the number and source QT); the quotation was never modified by conversion so it simply stands.
+- Documents list: eligible invoices show an amber "↩ Undo" with a confirm; quotation rows unchanged. Worker + frontend.
+
 ## [1.4.232] — 2026-08-05 — Remembered tab hardened per user (CEO's security question)
 
 ### Fixed (CEO: "does it will accidentally appear the full tabs roles by accidents?")

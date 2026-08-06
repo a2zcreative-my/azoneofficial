@@ -1770,6 +1770,7 @@ interface Customer { id: number; company: string; contact_person: string | null;
 interface SalesDoc {
   id: number; doc_type: string; doc_number: string; company: string; total_cents: number;
   payment_status: string | null; delivery_status: string | null; created_at: string;
+  converted_from?: number | null; // v1.4.233 — set when this INV came from a QT
   payment_ref?: string | null; paid_at?: string | null; salesperson_name?: string | null;
   customer_id?: number; customer_phone?: string | null;
 }
@@ -1884,10 +1885,17 @@ async function printDoc(id: number) {
   // v1.4.97: authorised signature auto-assigned by creator — the COO's own
   // documents carry the COO's signature; everyone else's (CEO, CCO, HR,
   // sales & marketing) carry the CEO's. Transparent PNGs incl. company chop.
+  /* v1.4.233: signer_role === null (new worker) means the preparer is not
+     the CEO/COO/CCO — the block shows THEIR name over a blank line to sign
+     in ink; no officer signature is borrowed. undefined (old worker) keeps
+     the legacy coo/ceo fallback so a split deploy prints like before. */
+  const manualSig = doc.signer_role === null;
   const sigSrc = `${location.origin}/signatures/${(doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo"))}-sign.png`;
-  const sigImg = `<img src="${sigSrc}" alt="" style="height:112px;max-width:250px;object-fit:contain;display:block;margin:0 auto -16px;" />`;
+  const sigImg = manualSig
+    ? `<div style="height:96px"></div>`
+    : `<img src="${sigSrc}" alt="" style="height:112px;max-width:250px;object-fit:contain;display:block;margin:0 auto -16px;" />`;
   // Standardized signer identity under the line: FULL NAME → Position → company.
-  const signerLines = `<div class="signer"><span class="nm">${(doc.signer_name ?? "").toUpperCase()}</span><br/>${doc.signer_position ?? ""}<br/><span class="tiny">AZ ONE OFFICIAL</span></div>`;
+  const signerLines = `<div class="signer"><span class="nm">${(doc.signer_name ?? "").toUpperCase()}</span><br/>${doc.signer_position ?? ""}<br/><span class="tiny">AZ ONE OFFICIAL${manualSig ? " · sign &amp; date above" : ""}</span></div>`;
   const metaRows = [
     ["No.", doc.doc_number],
     ["Date", dOnly(doc.created_at)],
@@ -2031,6 +2039,7 @@ interface DocFull {
   payment_status?: string | null; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null;
   salesperson_name?: string | null;
   created_by_role?: string | null;
+  converted_from?: number | null; // v1.4.233
   signer_role?: string | null;
   signer_name?: string | null;
   signer_position?: string | null;
@@ -2786,6 +2795,20 @@ function Sales({ user }: { user: User }) {
               <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.delivery_status ?? "pending"} onChange={(e) => void setStatus(d, e.target.value)}>
                 {["pending", "delivered"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
               </select>
+            )}
+            {/* v1.4.233 (CEO: "reversal button … if accidentally click
+                invoice"): only on an INV that came from a QT and is still
+                unpaid — a paid invoice can never be reversed. Deletes the
+                accidental invoice; the quotation stands untouched. */}
+            {d.doc_type === "INV" && d.converted_from != null && d.payment_status !== "paid" && canInvoice && (
+              <button type="button" className="inline-flex h-7 items-center rounded-lg border border-amber-700 px-2.5 text-xs font-medium text-amber-800"
+                title="Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched"
+                onClick={async () => {
+                  if (!window.confirm(`Reverse ${d.doc_number}?\n\nThis deletes the invoice (it was created from a quotation and is still unpaid). The quotation itself is not touched.`)) return;
+                  const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}/unconvert`, { method: "POST", body: JSON.stringify({}) });
+                  if (res.ok) { showToast("Reversed", `${d.doc_number} deleted — the quotation stands`); await load(); }
+                  else showToast("No changes", res.data?.error?.message ?? "Reversal failed", "notice");
+                }}>↩ Undo</button>
             )}
             {d.doc_type === "QT" && canInvoice && (
               <button type="button" className="inline-flex h-7 items-center rounded-lg bg-[#1A2946] px-2.5 text-xs font-medium text-white"

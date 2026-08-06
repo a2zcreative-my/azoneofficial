@@ -2839,18 +2839,35 @@ export async function handleStaff(
        LEFT JOIN users cb ON cb.id = d.created_by WHERE d.id = ?1`,
     ).bind(docGet[1]).first<Record<string, unknown>>();
     if (!d) return err("not_found", "Document not found", 404);
-    // v1.4.99: the printed signature block names the signer — the COO on the
-    // COO's own documents, otherwise the CEO — full name + position.
-    const signRole = d.created_by_role === "coo" ? "coo" : "ceo";
-    const signer = await env.DB.prepare(
-      `SELECT COALESCE(full_name, name) AS signer_name, position FROM users
-       WHERE role = ?1 AND is_active = 1 ORDER BY id LIMIT 1`,
-    ).bind(signRole).first<{ signer_name: string; position: string | null }>();
+    /* v1.4.233 signer rule (CEO): a document prepared by the CEO, COO or
+       CCO carries THAT officer's uploaded signature. Prepared by anyone
+       else (hr_admin, sales_marketing, …) → the "Prepared by" block shows
+       the PREPARER's own name and position with a BLANK line — they sign
+       in ink themselves; no officer's signature is borrowed.
+       Exception: an INVOICE's block is "Authorised signature" — an
+       authorisation act, so a non-officer preparer's invoice still carries
+       the CEO's signature (raising invoices already needs finance rights). */
+    const MGMT_SIGNERS = ["ceo", "coo", "cco"];
+    const roleOfCreator = String(d.created_by_role ?? "");
+    let signRole: string | null;
+    if (MGMT_SIGNERS.includes(roleOfCreator)) signRole = roleOfCreator;
+    else signRole = d.doc_type === "INV" ? "ceo" : null; // null = manual ink signature
+    let signer: { signer_name: string; position: string | null } | null;
+    if (signRole) {
+      signer = await env.DB.prepare(
+        `SELECT COALESCE(full_name, name) AS signer_name, position FROM users
+         WHERE role = ?1 AND is_active = 1 ORDER BY id LIMIT 1`,
+      ).bind(signRole).first<{ signer_name: string; position: string | null }>();
+    } else {
+      signer = await env.DB.prepare(
+        `SELECT COALESCE(full_name, name) AS signer_name, position FROM users WHERE id = ?1`,
+      ).bind(d.created_by as number).first<{ signer_name: string; position: string | null }>();
+    }
     return json({ doc: {
       ...d,
       signer_role: signRole,
       signer_name: signer?.signer_name ?? "AZ ONE OFFICIAL",
-      signer_position: signer?.position ?? (signRole === "coo" ? "Chief Operating Officer" : "Chief Executive Officer"),
+      signer_position: signer?.position ?? (signRole === "coo" ? "Chief Operating Officer" : signRole === "cco" ? "Chief Commercial Officer" : signRole === "ceo" ? "Chief Executive Officer" : ""),
     } });
   }
 
@@ -2905,15 +2922,35 @@ export async function handleStaff(
     const resC = await env.DB.prepare(
       `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
-        notes, payment_status, salesperson_id, created_by)
-       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10) RETURNING id`,
+        notes, payment_status, salesperson_id, created_by, converted_from)
+       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11) RETURNING id`,
     ).bind(
       numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
       (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
-      qt.notes ?? null, qt.salesperson_id ?? user.id, user.id,
+      qt.notes ?? null, qt.salesperson_id ?? user.id, user.id, qt.id,
     ).first<{ id: number }>();
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
     return json({ id: resC?.id, doc_number: numberC }, 201);
+  }
+
+  /* v1.4.233 (CEO: "reversal button for the Quotation if accidentally click
+     invoice"): undo a conversion — allowed ONLY while the invoice is still
+     an untouched result of the click: doc_type INV, carries converted_from,
+     and payment_status is 'unpaid'. The invoice row is deleted (audited
+     with its number); the quotation was never modified by the conversion,
+     so it simply stands as before. A paid invoice can never be reversed. */
+  const docUnconv = path.match(/^\/docs\/(\d+)\/unconvert$/);
+  if (docUnconv && method === "POST") {
+    if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+    const inv = await env.DB.prepare(
+      `SELECT id, doc_type, doc_number, payment_status, converted_from FROM sales_documents WHERE id = ?1`,
+    ).bind(docUnconv[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null; converted_from: number | null }>();
+    if (!inv || inv.doc_type !== "INV") return err("not_found", "Invoice not found", 404);
+    if (!inv.converted_from) return err("invalid_input", "This invoice was not created from a quotation", 400);
+    if (inv.payment_status === "paid") return err("invalid_input", "A PAID invoice cannot be reversed — unmark the payment first if this is truly a mistake", 400);
+    await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(inv.id).run();
+    await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from });
+    return json({ ok: true });
   }
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
