@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.235] — 2026-08-06 — Customers: address on file + edit / update / delete
+
+### Added (CEO: "I want to have address of customer and also the existing data I can edit and update or delete if require")
+- Add customer gains an **Address** box (multi-line) — it stores to the existing customers.address column and prints on that customer's documents/SOA as before.
+- Every customer row now has **✎ Edit** (loads the record into the form — title becomes "Editing {company}" with cancel, button becomes Update customer; emptying a box clears the stored value) and **Delete** (confirm first). PUT now supports clearing fields ("" → NULL; company itself can never be emptied) and both update + delete are audited.
+- Deletion is REFUSED while the customer has any quotation/invoice/DO — records must keep their party; the message states the document count and suggests editing instead. Worker + frontend, no migrations.
+
+## [1.4.234] — 2026-08-06 — Every sales document is for ONE business line: Product or Service (MIGRATION 0061)
+
+### Added (CEO: "2 services which is 1 for product and 1 for service … details just filled by one details")
+- Create document gains a required "This document is for" toggle: 📦 Product — ELFIA goods / 🛠 Service — agency work. One line per document, chosen up front.
+- The choice steers everything: the item placeholder (Tudung Bawal Premium vs TikTok LIVE hosting — 8 sessions), inventory item suggestions (products only — service lines are free text), and **Delivery Order availability — product-only**, since a service ships nothing physical (hidden in the form, refused by the server, and picking Service while DO is selected flips the type to Quotation).
+- Migration 0061: sales_documents.kind; stored on create, inherited by Quotation → Invoice conversion. The printed document states it ("For: Products / Services") and a service document's items table is headed "Description of services". Both document lists show a 📦/🛠 chip. Existing documents (kind NULL) print exactly as before. Worker + frontend.
+
 ## [1.4.233] — 2026-08-06 — Quotation signatures follow the preparer; accidental → Invoice gets an ↩ Undo (MIGRATION 0060)
 
 ### Changed — signer rule (CEO: "if prepared by CCO, then signature is CCO… other roles… the signature of prepared by need to fill by them")

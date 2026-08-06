@@ -2711,15 +2711,42 @@ export async function handleStaff(
   const custMatch = path.match(/^\/customers\/(\d+)$/);
   if (custMatch && method === "PUT") {
     if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    /* v1.4.235: sending "" clears a field (→ NULL) — before, a field could
+       never be emptied once set. company itself can't be cleared. */
     const fields = ["company", "contact_person", "phone", "email", "address", "notes"] as const;
     const sets: string[] = [];
-    const vals: string[] = [];
+    const vals: (string | null)[] = [];
     for (const f of fields) {
-      if (str(body?.[f], 2000)) { sets.push(`${f} = ?${sets.length + 1}`); vals.push(body![f] as string); }
+      const v = body?.[f];
+      if (v === undefined) continue;
+      if (v === "" || v === null) {
+        if (f === "company") return err("invalid_input", "Company name cannot be empty", 400);
+        sets.push(`${f} = ?${sets.length + 1}`); vals.push(null);
+      } else if (str(v, 2000)) {
+        sets.push(`${f} = ?${sets.length + 1}`); vals.push(v as string);
+      }
     }
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE customers SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
       .bind(...vals, custMatch[1]!).run();
+    await audit(env, user.id, "customer.update", "customers", custMatch[1]!);
+    return json({ ok: true });
+  }
+  if (custMatch && method === "DELETE") {
+    /* v1.4.235 (CEO: "delete if require"): a customer with documents is
+       NEVER deleted — quotations/invoices must keep their party for
+       records; the message tells him what blocks it. */
+    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    const refs = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM sales_documents WHERE customer_id = ?1`,
+    ).bind(custMatch[1]!).first<{ n: number }>();
+    if ((refs?.n ?? 0) > 0) {
+      return err("invalid_input", `This customer has ${refs!.n} document${refs!.n === 1 ? "" : "s"} (quotation/invoice/DO) — records must keep their customer. Edit the details instead.`, 409);
+    }
+    const gone = await env.DB.prepare(`SELECT company FROM customers WHERE id = ?1`).bind(custMatch[1]!).first<{ company: string }>();
+    if (!gone) return err("not_found", "Customer not found", 404);
+    await env.DB.prepare(`DELETE FROM customers WHERE id = ?1`).bind(custMatch[1]!).run();
+    await audit(env, user.id, "customer.delete", "customers", custMatch[1]!, { company: gone.company });
     return json({ ok: true });
   }
 
@@ -2745,6 +2772,14 @@ export async function handleStaff(
     const docType = body.doc_type as "QT" | "DO" | "INV";
     if (docType === "INV" ? !can(user, "finance") : !can(user, "sales")) {
       return err("forbidden", "Insufficient rights for this document type", 403);
+    }
+    /* v1.4.234 (CEO: two business lines — "details just filled by one
+       details"): every document is for ONE line, product or service.
+       Delivery Orders are product-only — a service delivers nothing
+       physical, so a service DO is refused outright. */
+    const kindD = typeof body.kind === "string" && ["product", "service"].includes(body.kind) ? body.kind : "product";
+    if (docType === "DO" && kindD === "service") {
+      return err("invalid_input", "A Delivery Order is for goods — services have nothing to physically deliver. Use a Quotation or Invoice for the service.", 400);
     }
     if (typeof body.customer_id !== "number" || !Array.isArray(body.items) || body.items.length === 0) {
       return err("invalid_input", "customer_id and items are required", 400);
@@ -2796,8 +2831,8 @@ export async function handleStaff(
       res = await env.DB.prepare(
         `INSERT INTO sales_documents
          (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
-          notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(?16, datetime('now'))) RETURNING id`,
+          notes, valid_until, delivery_status, payment_status, due_date, salesperson_id, created_by, created_at, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(?16, datetime('now')), ?17) RETURNING id`,
       ).bind(
         docType, number, customerId, JSON.stringify(items), discount, taxPct, deliveryFee, total,
         str(body.notes, 2000) ? body.notes : null,
@@ -2808,6 +2843,7 @@ export async function handleStaff(
         salespersonId,
         user.id,
         docDate ? `${docDate} 00:00:00` : null,
+        kindD, // v1.4.234
       ).first<{ id: number }>();
     } catch (e) {
       if (String(e).includes("no such column")) {
@@ -2922,12 +2958,13 @@ export async function handleStaff(
     const resC = await env.DB.prepare(
       `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
-        notes, payment_status, salesperson_id, created_by, converted_from)
-       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11) RETURNING id`,
+        notes, payment_status, salesperson_id, created_by, converted_from, kind)
+       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11, ?12) RETURNING id`,
     ).bind(
       numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
       (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
       qt.notes ?? null, qt.salesperson_id ?? user.id, user.id, qt.id,
+      (qt as { kind?: string | null }).kind ?? "product", // v1.4.234: the invoice inherits the quotation's line
     ).first<{ id: number }>();
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
     return json({ id: resC?.id, doc_number: numberC }, 201);

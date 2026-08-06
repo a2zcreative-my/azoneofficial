@@ -1766,13 +1766,14 @@ function Announcements({ user }: { user: User }) {
 
 /* ================= Sales (CRM + documents) ================= */
 
-interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null }
+interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; address?: string | null }
 interface SalesDoc {
   id: number; doc_type: string; doc_number: string; company: string; total_cents: number;
   payment_status: string | null; delivery_status: string | null; created_at: string;
   converted_from?: number | null; // v1.4.233 — set when this INV came from a QT
   payment_ref?: string | null; paid_at?: string | null; salesperson_name?: string | null;
   customer_id?: number; customer_phone?: string | null;
+  kind?: string | null; // v1.4.234
 }
 
 /** v1.4.101: printable Statement of Account per customer — same branded
@@ -1903,6 +1904,8 @@ async function printDoc(id: number) {
     ...(doc.doc_type === "INV" && doc.due_date ? [["Payment due", dOnly(doc.due_date)]] : []),
     ...(doc.doc_type === "INV" ? [["Terms", "Bank transfer"]] : []),
     ...(doc.salesperson_name ? [["Sales person", firstName(doc.salesperson_name)]] : []),
+    // v1.4.234: the business line, stated on the document itself.
+    ...(doc.kind ? [["For", doc.kind === "service" ? "Services" : "Products"]] : []),
   ].map(([k, v]) => `<tr><td class="mk">${k}</td><td class="mv">${v}</td></tr>`).join("");
 
   const bottom = doc.doc_type === "INV"
@@ -2014,7 +2017,7 @@ async function printDoc(id: number) {
     </div>
   </div>
   <table class="items">
-    <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th>${isDO ? "" : '<th class="r">Unit price</th><th class="r">Amount</th>'}</tr></thead>
+    <thead><tr><th class="c">#</th><th>${doc.kind === "service" ? "Description of services" : "Description"}</th><th class="c">Qty</th>${isDO ? "" : '<th class="r">Unit price</th><th class="r">Amount</th>'}</tr></thead>
     <tbody>${rows || `<tr><td colspan="${isDO ? 3 : 5}" style="padding:10px;color:#999">No line items</td></tr>`}</tbody>
   </table>
   ${isDO ? "" : `<div class="totwrap"><table class="tot">
@@ -2040,6 +2043,7 @@ interface DocFull {
   salesperson_name?: string | null;
   created_by_role?: string | null;
   converted_from?: number | null; // v1.4.233
+  kind?: string | null; // v1.4.234 — 'product' | 'service'
   signer_role?: string | null;
   signer_name?: string | null;
   signer_position?: string | null;
@@ -2467,11 +2471,12 @@ function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "" });
+  const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "", address: "" });
+  const [editingCust, setEditingCust] = useState<{ id: number; company: string } | null>(null); // v1.4.235
   // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
   // salesperson_id: 0 = "me" (worker defaults to the creator).
-  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean }>({
-    doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false,
+  const [doc, setDoc] = useState<{ doc_type: string; customer_id: number; salesperson_id: number; kind: "product" | "service"; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean }>({
+    doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false,
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -2503,12 +2508,23 @@ function Sales({ user }: { user: User }) {
 
   const addCustomer = async () => {
     if (!cust.company) return;
-    await api(`/staff/customers`, { method: "POST", body: JSON.stringify(cust) });
-    setCust({ company: "", contact_person: "", phone: "", email: "" });
+    /* v1.4.235 (CEO: "existing data I can edit and update or delete"):
+       the same form saves a new customer OR updates the one being edited
+       (PUT sends every field; empty boxes clear the stored value). */
+    if (editingCust) {
+      const res = await api<{ error?: { message?: string } }>(`/staff/customers/${editingCust.id}`, { method: "PUT", body: JSON.stringify(cust) });
+      if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Update failed", "notice"); return; }
+      showToast("Saved", `${cust.company} updated`);
+    } else {
+      await api(`/staff/customers`, { method: "POST", body: JSON.stringify(cust) });
+      showToast("Saved", `${cust.company} added`);
+    }
+    setCust({ company: "", contact_person: "", phone: "", email: "", address: "" });
+    setEditingCust(null);
     void load();
   };
   const resetDocForm = () => {
-    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false });
+    setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }], discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false });
     setDocDate(""); setPaidDate(""); setEditingDoc(null);
   };
 
@@ -2560,7 +2576,9 @@ function Sales({ user }: { user: User }) {
     <div className="space-y-4 md:space-y-6">
       <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Add customer</p>
+          <p className="text-sm font-semibold">
+            {editingCust ? <>Editing {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); }}>cancel</button></> : "Add customer"}
+          </p>
           <div className="mt-3 space-y-3">
             <Sub t="Company *">
               <input className={inputClass} placeholder="e.g. ELFIA Official Store" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
@@ -2576,7 +2594,11 @@ function Sales({ user }: { user: User }) {
             <Sub t="Email">
               <input className={inputClass} placeholder="name@company.com" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
             </Sub>
-            <button type="button" className={btnClass} onClick={() => void addCustomer()}>Save customer</button>
+            <Sub t="Address">
+              {/* v1.4.235: prints on the customer's documents. */}
+              <textarea className={`${inputClass} min-h-16`} placeholder={"No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"} value={cust.address} onChange={(e) => setCust((c) => ({ ...c, address: e.target.value }))} />
+            </Sub>
+            <button type="button" className={btnClass} onClick={() => void addCustomer()}>{editingCust ? "Update customer" : "Save customer"}</button>
           </div>
           <div className="mt-3 max-h-56 overflow-y-auto">
             {customers.length === 0 && (
@@ -2590,11 +2612,28 @@ function Sales({ user }: { user: User }) {
                     <span className="text-muted-foreground"> · {c.contact_person}</span>
                   )}
                 </span>
-                {docs.some((d) => d.doc_type === "INV" && d.company === c.company) && (
-                  <button type="button" className="border-border inline-flex h-7 shrink-0 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
-                    title="Statement of Account — all invoices, paid + outstanding, printable"
-                    onClick={() => printSOA(c.company, docs)}>SOA</button>
-                )}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {docs.some((d) => d.doc_type === "INV" && d.company === c.company) && (
+                    <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
+                      title="Statement of Account — all invoices, paid + outstanding, printable"
+                      onClick={() => printSOA(c.company, docs)}>SOA</button>
+                  )}
+                  {/* v1.4.235: edit loads the record into the form above;
+                      delete is refused by the server while documents exist. */}
+                  <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
+                    onClick={() => {
+                      setEditingCust({ id: c.id, company: c.company });
+                      setCust({ company: c.company, contact_person: c.contact_person ?? "", phone: c.phone ?? "", email: c.email ?? "", address: (c as { address?: string | null }).address ?? "" });
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}>✎ Edit</button>
+                  <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${c.company}?\n\nOnly possible when they have no documents — quotations and invoices must keep their customer for records.`)) return;
+                      const res = await api<{ error?: { message?: string } }>(`/staff/customers/${c.id}`, { method: "DELETE" });
+                      if (res.ok) { showToast("Deleted", `${c.company} removed`); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); } void load(); }
+                      else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");
+                    }}>Delete</button>
+                </span>
               </div>
             ))}
           </div>
@@ -2611,7 +2650,9 @@ function Sales({ user }: { user: User }) {
                 <span className="text-muted-foreground mb-1 block text-xs">Document type</span>
                 <select className={inputClass} value={doc.doc_type} onChange={(e) => setDoc((d) => ({ ...d, doc_type: e.target.value }))}>
                   <option value="QT">Quotation</option>
-                  <option value="DO">Delivery Order</option>
+                  {/* v1.4.234: a Delivery Order is product-only — nothing
+                      physical ships for a service, so the option hides. */}
+                  {doc.kind !== "service" && <option value="DO">Delivery Order</option>}
                   {canInvoice && <option value="INV">Invoice</option>}
                 </select>
               </label>
@@ -2624,6 +2665,25 @@ function Sales({ user }: { user: User }) {
                 </select>
               </label>
             </div>
+            <label className="block">
+              <span className="text-muted-foreground mb-1 block text-xs">This document is for</span>
+              {/* v1.4.234 (CEO: 2 business lines — product vs service; "details
+                  just filled by one details"): ONE line per document. The
+                  choice tags the document, steers the item placeholder, and
+                  removes Delivery Order for services. */}
+              <div className="flex gap-2">
+                {([["product", "📦 Product — ELFIA goods"], ["service", "🛠 Service — agency work"]] as const).map(([k, label]) => (
+                  <button key={k} type="button"
+                    className={
+                      "h-9 flex-1 rounded-lg border px-3 text-xs font-medium " +
+                      (doc.kind === k ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary")
+                    }
+                    onClick={() => setDoc((d) => ({ ...d, kind: k, doc_type: k === "service" && d.doc_type === "DO" ? "QT" : d.doc_type }))}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-muted-foreground mb-1 block text-xs">Document date (backdate allowed)</span>
@@ -2653,7 +2713,7 @@ function Sales({ user }: { user: User }) {
             </div>
             {doc.items.map((item, i) => (
               <div key={i} className="grid grid-cols-[1fr_70px_110px_auto] items-center gap-2">
-                <input className={inputClass} placeholder="e.g. Tudung Bawal Premium" value={item.name} list="inv-item-suggestions"
+                <input className={inputClass} placeholder={doc.kind === "service" ? "e.g. TikTok LIVE hosting — 8 sessions" : "e.g. Tudung Bawal Premium"} value={item.name} list={doc.kind === "service" ? undefined : "inv-item-suggestions"}
                   onChange={(e) => {
                     const v = e.target.value;
                     const hit = invItems.find((it) => it.name === v);
@@ -2735,7 +2795,7 @@ function Sales({ user }: { user: User }) {
                 return (
                   <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0">
                     <span className="min-w-0 flex-1 basis-56">
-                      <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
+                      <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
                       <span className="text-muted-foreground"> · {n} days</span>
                     </span>
                     <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -2766,7 +2826,7 @@ function Sales({ user }: { user: User }) {
             {/* v1.4.100: standardized row — info left (grows), one aligned
                 controls group right: chip · status · Edit · PDF, all h-7. */}
             <span className="min-w-0 flex-1 basis-64">
-              <span className="font-medium">{d.doc_number}</span> · {d.company} · {fmtRM(d.total_cents)}
+              <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
               <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.salesperson_name ? ` · sales: ${firstName(d.salesperson_name)}` : ""}</span>
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -2831,6 +2891,7 @@ function Sales({ user }: { user: User }) {
                 let its: DocItem[] = [];
                 try { its = JSON.parse(full.items); } catch { its = []; }
                 setDoc({
+                  kind: (full as { kind?: "product" | "service" }).kind || "product",
                   doc_type: full.doc_type, customer_id: (full as { customer_id?: number }).customer_id ?? -1,
                   salesperson_id: (full as { salesperson_id?: number | null }).salesperson_id ?? 0,
                   items: its.length ? its : [{ name: "", qty: 1, unit_price_cents: 0 }],
