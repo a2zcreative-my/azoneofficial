@@ -25,23 +25,31 @@ interface PromptOpts {
   cancelLabel?: string;
   /** false (the default) lets the user submit an empty value */
   required?: boolean;
+  /* v1.4.250 (CEO: "a calendar for me to pick which date they make the
+     payment for accurate tracking"): an optional second field, a real date
+     input so the phone raises its own picker. */
+  date?: { label: string; initial?: string; max?: string };
 }
+
+export interface PromptResult { value: string; date: string }
 
 export function usePrompt() {
   const [opts, setOpts] = useState<PromptOpts | null>(null);
   const [value, setValue] = useState("");
-  const resolver = useRef<((v: string | null) => void) | null>(null);
+  const [date, setDate] = useState("");
+  const resolver = useRef<((v: PromptResult | null) => void) | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  const prompt = useCallback((o: PromptOpts): Promise<string | null> => {
+  const prompt = useCallback((o: PromptOpts): Promise<PromptResult | null> => {
     setValue(o.initial ?? "");
+    setDate(o.date?.initial ?? "");
     setOpts(o);
-    return new Promise<string | null>((resolve) => { resolver.current = resolve; });
+    return new Promise<PromptResult | null>((resolve) => { resolver.current = resolve; });
   }, []);
 
   useEffect(() => { if (opts) input.current?.focus(); }, [opts]);
 
-  const close = (v: string | null) => {
+  const close = (v: PromptResult | null) => {
     resolver.current?.(v);
     resolver.current = null;
     setOpts(null);
@@ -49,7 +57,7 @@ export function usePrompt() {
 
   const submit = () => {
     if (opts?.required && !value.trim()) return;
-    close(value.trim());
+    close({ value: value.trim(), date });
   };
 
   const node = opts ? (
@@ -74,6 +82,15 @@ export function usePrompt() {
               if (e.key === "Escape") close(null);
             }} />
         </label>
+        {opts.date && (
+          <label className="mt-3 block">
+            <span className="text-muted-foreground mb-1 block text-xs">{opts.date.label}</span>
+            <input type="date" className="border-input bg-background h-10 w-full rounded-lg border px-3 text-sm"
+              value={date} max={opts.date.max}
+              onChange={(e) => setDate(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} />
+          </label>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="border-border hover:bg-secondary inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium"
             onClick={() => close(null)}>{opts.cancelLabel ?? "Cancel"}</button>

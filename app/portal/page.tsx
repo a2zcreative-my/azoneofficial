@@ -2485,10 +2485,10 @@ function Sales({ user }: { user: User }) {
       showToast("Link ready", `${d.doc_number} — link copied, paste it to your customer`);
     } catch { showToast("Link ready", url); }
   };
-  const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
+  const setStatus = async (d: SalesDoc, value: string, paymentRef?: string, paidOn?: string) => {
     const body = d.doc_type === "INV"
       ? value === "paid"
-        ? { payment_status: "paid", payment_method: "bank_transfer", payment_ref: paymentRef || undefined }
+        ? { payment_status: "paid", payment_method: "bank_transfer", payment_ref: paymentRef || undefined, paid_on: paidOn || undefined }
         : { payment_status: value }
       : { delivery_status: value };
     await api(`/staff/docs/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -2832,15 +2832,22 @@ function Sales({ user }: { user: User }) {
                   const v = e.target.value;
                   if (v === "paid") {
                     void (async () => {
-                      const ref = await askText({
+                      /* v1.4.250: the DATE the money actually landed, not the
+                          moment the box was ticked. Revenue counts invoices by
+                          paid_at, so a Friday transfer entered on Monday used
+                          to land in the wrong day — and, at a month boundary,
+                          the wrong month. Defaults to today, capped at today. */
+                      const today = mytToday();
+                      const got = await askText({
                         title: "Payment received",
                         message: `${d.doc_number} — ${fmtRM(d.total_cents)}`,
                         label: "Bank transfer reference (optional)",
                         placeholder: "e.g. MBB240726-8891",
                         confirmLabel: "Mark paid",
+                        date: { label: "Date the payment was received", initial: today, max: today },
                       });
-                      if (ref === null) return;          // cancelled — status unchanged
-                      await setStatus(d, "paid", ref || undefined);
+                      if (got === null) return;          // cancelled — status unchanged
+                      await setStatus(d, "paid", got.value || undefined, got.date || undefined);
                     })();
                   } else {
                     void setStatus(d, v);
@@ -2942,6 +2949,24 @@ function Sales({ user }: { user: User }) {
                   <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-green-700">PAID · bank transfer</span>
                   {d.paid_at && <span className="text-muted-foreground">{dmy(d.paid_at.slice(0, 10))}</span>}
                   {d.payment_ref && <span className="text-muted-foreground">Ref {d.payment_ref}</span>}
+                  {/* v1.4.250: the date is correctable without unmarking the
+                      invoice — unmarking would clear the reference too. */}
+                  {canInvoice && (
+                    <button type="button" className="underline" title="Correct the date the payment was received"
+                      onClick={async () => {
+                        const today = mytToday();
+                        const got = await askText({
+                          title: "Correct the payment date",
+                          message: `${d.doc_number} — ${fmtRM(d.total_cents)}`,
+                          label: "Bank transfer reference (optional)",
+                          initial: d.payment_ref ?? "",
+                          confirmLabel: "Save",
+                          date: { label: "Date the payment was received", initial: d.paid_at ? d.paid_at.slice(0, 10) : today, max: today },
+                        });
+                        if (got === null) return;
+                        await setStatus(d, "paid", got.value || undefined, got.date || undefined);
+                      }}>✎ change date</button>
+                  )}
                 </span>
               ) : <span className="text-amber-700">{d.payment_status ?? "unpaid"}</span> },
               { label: "Origin", wide: true, value: d.converted_from != null ? "Converted from a quotation" : "" },

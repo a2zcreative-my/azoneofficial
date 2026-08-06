@@ -2975,10 +2975,29 @@ export async function handleStaff(
         const methodP = typeof body!.payment_method === "string" && methods.includes(body!.payment_method)
           ? (body!.payment_method as string) : "bank_transfer";
         const refP = typeof body!.payment_ref === "string" ? body!.payment_ref.slice(0, 120) : null;
-        await env.DB.prepare(
-          `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2,
-           paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?3`,
-        ).bind(methodP, refP, id).run();
+        /* v1.4.250 (CEO: "a calendar for me to pick which date they make the
+           payment for accurate tracking"): the day the money actually landed,
+           not the moment the box was ticked. Revenue buckets invoices by
+           paid_at (+8 hours), so it is stored at 04:00 UTC = midday MYT —
+           that way the shift can never move it onto the neighbouring day.
+           An explicit date OVERRIDES an earlier one; without it the old
+           COALESCE-to-now behaviour stands, so nothing existing changes.
+           Future dates are refused: you cannot receive tomorrow's money. */
+        const rawOn = typeof body!.paid_on === "string" ? body!.paid_on : "";
+        const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(rawOn) && rawOn <= todayMyt ? rawOn : null;
+        if (rawOn && !paidOn) return err("invalid_input", "Payment date must be a real date, today or earlier", 400);
+        if (paidOn) {
+          await env.DB.prepare(
+            `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2,
+             paid_at = ?3 WHERE id = ?4`,
+          ).bind(methodP, refP, `${paidOn} 04:00:00`, id).run();
+        } else {
+          await env.DB.prepare(
+            `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2,
+             paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?3`,
+          ).bind(methodP, refP, id).run();
+        }
       } else {
         await env.DB.prepare(
           `UPDATE sales_documents SET payment_status = ?1, payment_method = NULL, payment_ref = NULL, paid_at = NULL WHERE id = ?2`,

@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.250] — 2026-08-06 — Pick the date the payment landed
+
+### Added (CEO: "I want to have a calendar for me to pick which date they make the payment for accurate tracking")
+- Marking an invoice paid now asks for **the date the money was received**, not just the reference. The dialog carries a real date input, so a phone raises its own calendar. It defaults to today and cannot be set past today — you can't receive tomorrow's money.
+- The date is **correctable afterwards** without unmarking the invoice: **✎ change date** sits in the payment row of the document's detail panel. Unmarking would have cleared the reference along with the date, which is why it needed its own control.
+- `usePrompt()` gained an optional second field (`date: { label, initial, max }`) and now resolves to `{ value, date }`, so any future dialog needing a date gets it from the same component rather than a new one.
+
+### Why it matters
+- Revenue buckets invoices by `paid_at`. A Friday transfer entered on Monday used to count on Monday — and at a month boundary, in the wrong month. That fed the P&L, the 🔥 Today box and the commission helper.
+- The chosen date is stored at **04:00 UTC — midday Malaysia**, so the `+8 hours` shift every revenue query applies can never move it onto the neighbouring day.
+- An explicit date **overrides** an earlier one; without one the old COALESCE-to-now behaviour stands, so every existing invoice is untouched.
+- Worker + frontend, no migrations.
+
 ## [1.4.249] — 2026-08-06 — The minimalist row, portal-wide
 
 ### Changed (CEO: "do the same pattern to the rest which is my objective is globally and standardize")
