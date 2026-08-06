@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.245] — 2026-08-06 — Send PDF: a real file into the share sheet
+
+### Added (CEO: "maybe we open the pdf then I can share to customer as a pdf instead of a link via mobile apps view")
+- **Send PDF** now builds a genuine PDF in the browser and hands the *file* to the phone's share sheet, so the customer receives a proper attachment in WhatsApp rather than a link. Three rungs, best first: share the file (iOS 15+ / Android Chrome) → download the file (desktop, older phones) → share the v1.4.244 link if the PDF could not be built at all.
+- NEW `lib/doc-pdf.ts` — a dependency-free PDF writer, a few KB rather than the ~400KB a PDF library would add to a 4G page load, and nothing new to install in the deploy loop. Real vector text (selectable, searchable), the branded navy and gold, and the officer's signature PNG embedded with its transparency intact and deflate-compressed, so a 1MB chop travels as ~50KB.
+- Text is folded to Latin-1 on the way in (— · ✔ and friends become ASCII equivalents) so a document can never print gibberish.
+
+### Known trade-off
+- This is a **second implementation of the document layout**. `lib/doc-template.ts` still drives the screen and print versions; `lib/doc-pdf.ts` draws the same design in PDF primitives. A change to one must be made in the other. That is the price of a shareable file without a paid rendering service — if we move to Cloudflare Browser Rendering later, this file goes and the HTML template becomes the only source again.
+
+### Fixed
+- PDF object numbers are fixed rather than positional. An earlier draft appended the signature image before the fonts, so a document *without* a signature shifted `/F1` and `/F2` onto the wrong objects and printed bold and regular swapped. Caught by rendering an unsigned invoice.
+- The closing block reserved too little height, so the third signer line collided with the page footer. Widened.
+
 ## [1.4.244] — 2026-08-06 — Send a document to the customer from your phone (MIGRATION 0063)
 
 ### Added (CEO: "on mobile view, if I click on PDF button I want the format can be deliver to my customer using mobile instead of I need to download using web view")

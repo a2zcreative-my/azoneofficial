@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
+import { buildDocPdf } from "@/lib/doc-pdf";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -2386,26 +2387,58 @@ function Sales({ user }: { user: User }) {
      and handing it straight to the phone's share sheet — WhatsApp, Telegram,
      email, whatever they use — is two taps. No download, no file manager.
      Desktop has no share sheet, so the link goes to the clipboard instead. */
+  /* v1.4.245 (CEO: "maybe we open the pdf then I can share to customer as a
+     pdf instead of a link"): Send now builds the REAL PDF in the browser and
+     hands the FILE to the phone's share sheet — one tap into WhatsApp, the
+     customer receives a proper attachment. Three rungs, best first:
+       1. share the file          (iOS 15+/Android Chrome)
+       2. download the file       (desktop, older phones)
+       3. share the v1.4.244 link (if the PDF could not be built at all) */
   const shareDoc = async (d: SalesDoc) => {
+    const kind = { QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[d.doc_type] ?? "Document";
+    const filename = `${d.doc_number}.pdf`;
+    let blob: Blob | null = null;
+    try {
+      const r = await fetch(`/api/v1/staff/docs/${d.id}`, { credentials: "include" });
+      if (r.ok) {
+        const { doc: full } = (await r.json()) as { doc: DocFull };
+        blob = await buildDocPdf(full);
+      }
+    } catch { blob = null; }
+
+    if (blob && typeof navigator.canShare === "function") {
+      const file = new File([blob], filename, { type: "application/pdf" });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: `${kind} ${d.doc_number}` });
+          return;
+        } catch { /* the sheet was dismissed — don't fall through to a download */ 
+          return;
+        }
+      }
+    }
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      showToast("PDF ready", `${filename} saved — attach it from your files`);
+      return;
+    }
+
     const res = await api<{ url?: string; error?: { message?: string } }>(`/staff/docs/${d.id}/share`, { method: "POST", body: JSON.stringify({}) });
     if (!res.ok || !res.data?.url) {
-      showToast("No changes", res.data?.error?.message ?? "Could not create the link", "notice");
+      showToast("No changes", res.data?.error?.message ?? "Could not prepare the document", "notice");
       return;
     }
     const url = res.data.url;
-    const kind = { QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[d.doc_type] ?? "Document";
     if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title: `${kind} ${d.doc_number}`, text: `${kind} ${d.doc_number} from AZ ONE OFFICIAL`, url });
-        return; // the sheet handled it
-      } catch { /* dismissed — fall through to the clipboard */ }
+      try { await navigator.share({ title: `${kind} ${d.doc_number}`, url }); return; } catch { /* dismissed */ }
     }
     try {
       await navigator.clipboard.writeText(url);
       showToast("Link ready", `${d.doc_number} — link copied, paste it to your customer`);
-    } catch {
-      showToast("Link ready", url);
-    }
+    } catch { showToast("Link ready", url); }
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string) => {
     const body = d.doc_type === "INV"
@@ -2808,8 +2841,8 @@ function Sales({ user }: { user: User }) {
             <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
               onClick={() => void printDoc(d.id)}>PDF</button>
             <button type="button" className="inline-flex h-7 items-center rounded-lg border border-[#1A2946] px-2.5 text-xs font-medium text-[#1A2946] hover:bg-secondary"
-              title="Send this document to the customer — opens your phone's share sheet"
-              onClick={() => void shareDoc(d)}>Send</button>
+              title="Send the PDF to the customer — opens your phone's share sheet with the file attached"
+              onClick={() => void shareDoc(d)}>Send PDF</button>
             {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is
                 refused by the server. Aging recomputes from this list, so
                 a deleted unpaid invoice drops out of it immediately. */}
