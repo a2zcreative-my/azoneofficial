@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.241] — 2026-08-06 — Quotation signature row no longer wraps on A4
+
+### Fixed (CEO: saved PDF vs the popup — "what is the different that cause this format incorrect")
+- Nothing in the CSS differed between the two; the available width did. The popup window is around 1240px wide, while A4's printable width is 182mm — roughly 688px. The quotation's bottom row asks for TERMS (max 320px) + Prepared by (min 200px) + Accepted by (min 200px) plus two 16px gaps = 752px, so on paper `.split2` wrapped: the two signature blocks stacked vertically and TERMS dropped to the bottom-left corner. On screen there was room, so it looked right.
+- The quotation row now carries a `qt` modifier sized to fit 688px — TERMS capped at 250px, signature blocks at 168px minimum, 12px gaps (610px total, comfortably inside A4). Invoice (536px) and delivery order (416px) rows already fitted and are untouched.
+- Narrow viewports still wrap, which is correct on a phone.
+- Frontend-only, no migrations.
+
 ## [1.4.240] — 2026-08-06 — Every confirmation is the branded dialog (and a build-breaking import)
 
 ### Fixed (CEO: "why the popup card was not standardize like the current use")

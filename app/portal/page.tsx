@@ -1927,7 +1927,7 @@ async function printDoc(id: number) {
            <div class="sig">${sigImg}<div class="line"></div><span class="lbl">Delivered by</span>${signerLines}</div>
            <div class="sig"><div class="line"></div><span class="lbl">Received in good order</span><div class="signer"><span class="nm">&nbsp;</span><br/><span class="tiny">Name / Company chop &amp; date</span><br/><span class="tiny">&nbsp;</span></div></div>
          </div>`
-      : `<div class="split">
+      : `<div class="split qt">
            <div class="pay">
              <p class="bt">TERMS</p>
              <p class="tiny">This quotation is valid ${doc.valid_until ? "until " + dOnly(doc.valid_until) : "for 14 days"}. Prices in RM. Work begins upon written acceptance${doc.tax_percent ? "" : "; prices exclude tax unless stated"}.</p>
@@ -1990,6 +1990,17 @@ async function printDoc(id: number) {
     .pay .bt { font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
     .paidline { color: #15803d; font-weight: 800; margin-top: 6px !important; }
     .sig { text-align: center; min-width: 200px; font-size: 10.5px; }
+    /* v1.4.241 (CEO: saved PDF vs popup — "what is the different that cause
+       this format incorrect"): NOTHING in the CSS differed; the WIDTH did.
+       The popup window is ~1240px, A4's printable width is 182mm ≈ 688px.
+       TERMS (320) + Prepared by (200) + Accepted by (200) + 2 gaps = 752px,
+       so on paper .split2 wrapped and stacked the two signature blocks while
+       TERMS dropped to the bottom-left. The quotation row is now sized to fit
+       688px; phones still wrap, which is correct there. */
+    .split.qt { gap: 12px; }
+    .split.qt .split2 { gap: 12px; }
+    .split.qt .pay { max-width: 250px; }
+    .split.qt .sig { min-width: 168px; }
     .sig .line { border-bottom: 1px solid #1a2946; height: 18px; margin-bottom: 5px; }
     .sig .lbl { display: block; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #8a93a6; margin-bottom: 3px; }
     .signer .nm { font-weight: 800; font-size: 11.5px; letter-spacing: .02em; }
