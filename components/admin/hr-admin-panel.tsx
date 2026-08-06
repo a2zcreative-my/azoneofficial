@@ -211,7 +211,10 @@ function printPayslip(p: PayslipData) {
   const row = (k: string, v: string | number) =>
     `<tr><td style="padding:4px 8px;color:#5b6472">${k}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${v}</td></tr>`;
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Payslip ${p.staff.name} ${p.month}</title>
-  <style>@page{size:A4;margin:0}/* v1.4.239 */*{-webkit-print-color-adjust: exact; print-color-adjust: exact;}body{font-family:Arial,Helvetica,sans-serif;color:#1a2946;padding:18mm}
+  <style>/* v1.4.242: this report is a staff TABLE that can run to several pages,
+  so it keeps a real @page margin — page 2+ would otherwise print edge to edge.
+  Trade-off accepted: the browser's own header/footer strip may appear here. */
+  @page{size:A4;margin:18mm}*{-webkit-print-color-adjust: exact; print-color-adjust: exact;}body{font-family:Arial,Helvetica,sans-serif;color:#1a2946}
   h1{font-size:16px;margin:0}small{color:#8a93a6;letter-spacing:.3em;font-size:9px}
   table{width:100%;border-collapse:collapse;margin-top:8px}
   .hd{border-bottom:2px solid #1a2946;padding-bottom:8px;margin-bottom:12px}

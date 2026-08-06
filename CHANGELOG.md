@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.242] — 2026-08-06 — Print audit across every generated document
+
+### Checked (CEO: "all this being implemented to all the generate PDF? include, Delivery Order, Invoice, Claim, Leave Form")
+- The v1.4.239 print-pipeline fix (no browser header strip, branded fills print) was applied to every template from the start: quotation, delivery order, invoice, statement of account, claim form, leave form, both payslips and the ID badges.
+- The v1.4.241 width fix is quotation-only by measurement, not by oversight. Only the quotation's bottom row asks for three blocks (752px). The invoice needs 536px and the delivery order 416px, both inside A4's 688px. The claim form and leave form build their signature panels as real HTML tables with fixed column percentages, so they cannot wrap at any width.
+
+### Fixed
+- The HR "Attendance & Payroll Summary" is a staff table that can run to several pages, so v1.4.239's `@page { margin: 0 }` would have printed page 2 onward edge to edge. Reverted to a real 18mm page margin; it keeps `print-color-adjust` and accepts that the browser's header strip may still appear. Same reasoning already applied to the A4 badge sheet.
+- Rule now documented in both files: margin-zero only for templates that are single-page by design; multi-page output keeps a real page margin.
+- Frontend-only, no migrations.
+
 ## [1.4.241] — 2026-08-06 — Quotation signature row no longer wraps on A4
 
 ### Fixed (CEO: saved PDF vs the popup — "what is the different that cause this format incorrect")
