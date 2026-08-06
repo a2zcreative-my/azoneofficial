@@ -308,6 +308,7 @@ interface ManualOut { // v1.4.170 — traceability row for a manual stock out
   unit_sale_cents?: number | null; remark: string;
   created_at: string; created_by_name?: string | null;
   out_date?: string | null; reverted?: number | null; // v1.4.172
+  direction?: string | null; // v1.4.251 — 'in' | 'out' (absent = out)
 }
 
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
@@ -523,38 +524,63 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [invSort, setInvSort] = useState<"sku" | "sku-desc" | "az" | "za">("sku");
   const [ttSort, setTtSort] = useState<"hot" | "hot-asc" | "sku" | "sku-desc" | "az" | "za">("hot");
   // edit_id null = new stock out; set = editing that traceability row.
-  const [outModal, setOutModal] = useState<{ edit_id: number | null; item_id: number; qty: string; price: string; remark: string; out_date: string } | null>(null);
+  /* v1.4.251 (CEO: "In + seem doesnt popup notifications … if I want to
+     adjust the variance … what should remark I need to indicate?"): the SAME
+     modal now handles both directions, and the reason is a picked list rather
+     than a blank box — so a variance is always described the same way and can
+     be reported on later. */
+  const REASONS: Record<"in" | "out", string[]> = {
+    out: ["Stock count variance — missing", "Damaged / defective", "Sample or giveaway",
+          "Internal use", "Sold offline", "Data entry correction", "Other"],
+    in: ["Stock count variance — found extra", "Restock from supplier", "Customer return",
+         "Returned from sample / event", "Data entry correction", "Other"],
+  };
+  const [outModal, setOutModal] = useState<{ dir: "in" | "out"; edit_id: number | null; item_id: number; qty: string; price: string; reason: string; remark: string; out_date: string } | null>(null);
+  /* v1.4.252 (CEO: "I want the details inside while the button outside for me
+     to know what is this details for"): these two audit lists packed date,
+     SKU, item, qty and the whole remark onto one truncated line, so on a
+     phone every row read "06-08…" and nothing else. Same fix as v1.4.249 —
+     the date + SKU identify the row, the rest opens underneath. */
+  const [openMove, setOpenMove] = useState<number | null>(null);
+  const [openRet, setOpenRet] = useState<number | null>(null);
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
   // traceability, optional Sold @ that records it as a SALE in the totals.
-  const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
+  const _adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
     setInvMsg("");
     const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
     if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
-    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean }>(`/inventory/${id}/adjust`, {
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
       method: "POST",
       body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
     });
     if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales`);
-    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs — logged with your remark`);
+    /* v1.4.251: an IN used to save in silence — no toast at all — so there was
+       no way to know the stock had actually moved. Every movement now says so,
+       and quotes the NEW stock level the server came back with. */
+    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
+    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
+    else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
     void load();
     return true;
   };
-  // v1.4.172: create-path wrapper adding the backdatable out date.
-  const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string) => {
+  // v1.4.172: create-path wrapper adding the backdatable date.
+  // v1.4.251: signed — the same path records a stock IN.
+  const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
     setInvMsg("");
-    const sale = price.trim() !== "" ? Number(price) : undefined;
+    const sale = dir === "out" && price.trim() !== "" ? Number(price) : undefined;
     if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
-    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean }>(`/inventory/${id}/adjust`, {
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
       method: "POST",
-      body: JSON.stringify({ delta: -qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(outDate ? { out_date: outDate } : {}) }),
+      body: JSON.stringify({ delta: dir === "out" ? -qty : qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(outDate ? { out_date: outDate } : {}) }),
     });
     if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${sale!.toFixed(2)} — counted in total sales`);
-    else invToast("Stock out recorded", `${qty} pcs — logged with your remark`);
+    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
+    else invToast(dir === "in" ? "Stock in recorded" : "Stock out recorded", `${qty} pcs${level} — logged with your remark`);
     void load();
     return true;
   };
@@ -603,10 +629,12 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
       {outModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOutModal(null)}>
           <div className="bg-background w-full max-w-md rounded-xl border p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-semibold">{outModal.edit_id ? "Edit manual stock out" : "Manual stock out"}</p>
+            <p className="text-sm font-semibold">
+              {outModal.edit_id ? "Edit manual stock movement" : outModal.dir === "in" ? "Manual stock in" : "Manual stock out"}
+            </p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              The remark is required — every manual out is logged with who,
-              when and why. Fill Sold @ only when this out is a sale
+              The reason is required — every manual movement is logged with who,
+              when and why.{outModal.dir === "out" ? " Fill Sold @ only when this out is a sale" : ""}
               {outModal.edit_id ? "; clearing it removes the sale from the totals. A qty change moves stock by the difference." : "."}
             </p>
             <div className="mt-3 space-y-2">
@@ -620,24 +648,43 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                 </select>
               </SubR>
               <div className="grid grid-cols-2 gap-2">
-                <SubR t="Quantity out">
+                <SubR t={outModal.dir === "in" ? "Quantity in" : "Quantity out"}>
                   <input type="number" min={1} className={inputClass} value={outModal.qty}
                     onChange={(e) => setOutModal((m) => m && ({ ...m, qty: e.target.value }))} />
                 </SubR>
-                <SubR t="Sold @ (RM/unit, optional)">
-                  <input type="number" min={0} step="0.01" className={inputClass} placeholder="empty = correction"
-                    value={outModal.price}
-                    onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
-                </SubR>
+                {/* nothing is sold on the way IN, so the price box only exists
+                    on an out (v1.4.169: a price is what makes an out a sale). */}
+                {outModal.dir === "out" ? (
+                  <SubR t="Sold @ (RM/unit, optional)">
+                    <input type="number" min={0} step="0.01" className={inputClass} placeholder="empty = correction"
+                      value={outModal.price}
+                      onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
+                  </SubR>
+                ) : <span />}
               </div>
               {/* v1.4.172 (CEO): the DATE the stock went out — backdatable;
                   sales totals follow this date. */}
-              <SubR t="Date of stock out">
+              <SubR t={outModal.dir === "in" ? "Date of stock in" : "Date of stock out"}>
                 <input type="date" className={`${inputClass} sm:max-w-44`} value={outModal.out_date}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, out_date: e.target.value }))} />
               </SubR>
-              <SubR t="Remark — reason for stock out *">
-                <textarea className={inputClass} rows={2} placeholder="e.g. Damaged in storage / sample for client / sold at event"
+              {/* v1.4.251: a picked reason, so a stock-count variance is
+                  always worded the same way and can be reported on later;
+                  the note underneath carries the specifics. */}
+              {!outModal.edit_id && (
+                <SubR t="Reason *">
+                  <select className={inputClass} value={outModal.reason}
+                    onChange={(e) => setOutModal((m) => m && ({ ...m, reason: e.target.value }))}>
+                    <option value="">— pick a reason —</option>
+                    {REASONS[outModal.dir].map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </SubR>
+              )}
+              <SubR t={outModal.edit_id ? "Remark *" : "Note — the specifics (optional)"}>
+                <textarea className={inputClass} rows={2}
+                  placeholder={outModal.edit_id ? "Reason for this movement"
+                    : outModal.dir === "in" ? "e.g. counted 21, system said 20 — 1 found on the top shelf"
+                    : "e.g. counted 19, system said 21 — 2 missing after the JB event"}
                   value={outModal.remark}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, remark: e.target.value }))} />
               </SubR>
@@ -646,9 +693,13 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   onClick={async () => {
                     const qtyN = Math.floor(Number(outModal.qty));
                     if (!qtyN || qtyN <= 0) { invToast("Not saved", "Quantity must be at least 1", "notice"); return; }
-                    if (!outModal.remark.trim()) { invToast("Not saved", "The remark (reason) is required for traceability", "notice"); return; }
+                    if (!outModal.edit_id && !outModal.reason) { invToast("Not saved", "Pick a reason — it is what makes the movement traceable", "notice"); return; }
+                    if (outModal.edit_id && !outModal.remark.trim()) { invToast("Not saved", "The remark (reason) is required for traceability", "notice"); return; }
+                    // reason first, specifics after — one readable line in the trail
+                    const note = outModal.remark.trim();
+                    const full = outModal.edit_id ? note : note ? `${outModal.reason} — ${note}` : outModal.reason;
                     if (!outModal.edit_id) {
-                      const ok = await adjust2(outModal.item_id, qtyN, outModal.price, outModal.remark.trim(), outModal.out_date);
+                      const ok = await adjust2(outModal.item_id, qtyN, outModal.price, full, outModal.out_date, outModal.dir);
                       if (ok) setOutModal(null);
                       return;
                     }
@@ -658,7 +709,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       method: "POST",
                       body: JSON.stringify({
                         qty: qtyN, sale_price: outModal.price.trim() === "" ? "" : Number(outModal.price),
-                        remark: outModal.remark.trim(), out_date: outModal.out_date || undefined,
+                        remark: full, out_date: outModal.out_date || undefined,
                       }),
                     });
                     if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
@@ -666,7 +717,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                     setOutModal(null);
                     void load();
                   }}>
-                  {outModal.edit_id ? "Save changes" : "Record stock out"}
+                  {outModal.edit_id ? "Save changes" : outModal.dir === "in" ? "Record stock in" : "Record stock out"}
                 </button>
                 <button type="button" className="text-xs underline" onClick={() => setOutModal(null)}>Cancel</button>
               </div>
@@ -826,14 +877,16 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       <input type="number" min={1} className="border-input bg-background w-14 rounded border px-1.5 py-0.5 text-xs"
                         value={adjQty[it.id] ?? 1}
                         onChange={(e) => setAdjQty((q) => ({ ...q, [it.id]: Math.max(1, Number(e.target.value)) }))} />
+                      {/* v1.4.251: an IN is a movement like any other — same
+                          form, same mandatory reason, same confirmation. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
-                        title="Stock in (restock)"
-                        onClick={() => void adjust(it.id, adjQty[it.id] ?? 1)}>In +</button>
+                        title="Stock in — opens the form (reason required for traceability)"
+                        onClick={() => setOutModal({ dir: "in", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>In +</button>
                       {/* v1.4.170 (CEO): Out goes through the modal — item,
                           qty, optional Sold @, MANDATORY remark. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
                         title="Stock out — opens the form (remark required for traceability)"
-                        onClick={() => setOutModal({ edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", remark: "", out_date: todayMYT() })}>Out −</button>
+                        onClick={() => setOutModal({ dir: "out", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>Out −</button>
                     </span>
                   </td>
                   <td className={td}>
@@ -1030,11 +1083,14 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
       {/* v1.4.170 (CEO): the traceability card — every manual stock out with
           the mandatory remark, who and when. Scrollable like the rest. */}
       <div className={card}>
-        <p className="text-sm font-semibold">🛠 Manual stock out — traceability</p>
+        <p className="text-sm font-semibold">🛠 Manual stock movements — traceability</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Every manual Out − with its reason, recorded by whom and when. Rows
-          with a sold price also count in Total sales (Manual sales channel);
-          rows without are corrections — excluded from sales by design.
+          Every manual In + and Out − with its reason, recorded by whom and
+          when. Rows with a sold price also count in Total sales (Manual sales
+          channel); rows without are corrections — excluded from sales by
+          design. To settle a stock count, record the difference here: pick
+          <span className="font-medium"> Stock count variance</span> and write
+          what you counted against what the system said.
         </p>
         {manualOuts.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">No manual stock outs yet — they appear here the moment one is recorded.</p>
@@ -1043,14 +1099,19 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
           <DetailsToggle label={`Show records (${manualOuts.length})`}>
           <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
             {manualOuts.map((o) => (
-              <div key={o.id} className={`border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
-                <span className={`min-w-0 flex-1 truncate ${o.reverted ? "line-through" : ""}`}>
-                  {/* v1.4.172: out DATE leads (backdatable); recording time on hover */}
-                  <span className="text-muted-foreground text-xs" title={`Recorded ${dmyMYT(o.created_at)}`}>{o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)}</span>
-                  <span className="font-mono text-xs"> · {o.sku}</span>
-                  <span className="font-medium"> — {o.item_name}</span>
-                  <span> · {o.qty} pcs</span>
-                  <span className="text-muted-foreground text-xs"> · {o.remark}</span>
+              <div key={o.id} className={`border-border border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                <span className={`min-w-0 ${o.reverted ? "line-through" : ""}`}>
+                  {/* v1.4.172: the movement DATE leads (backdatable) and, with
+                      the SKU, is what identifies the row — v1.4.252 makes the
+                      pair the toggle so the item, reason and who recorded it
+                      open underneath instead of being truncated away. */}
+                  <RecordToggle open={openMove === o.id} title="Item, reason, and who recorded it"
+                    onToggle={() => setOpenMove(openMove === o.id ? null : o.id)}>
+                    {o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)} · {o.sku}
+                  </RecordToggle>
+                  {/* v1.4.251: direction is the first thing you should see */}
+                  <span className={o.direction === "in" ? "font-medium text-green-700" : ""}> · {o.direction === "in" ? "+" : "−"}{o.qty} pcs</span>
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
@@ -1066,9 +1127,10 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                     <>
                       <button type="button" className="text-xs underline" title="Edit qty / Sold @ / remark / date — stock and sales totals follow"
                         onClick={() => setOutModal({
+                          dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
                           edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
                           price: o.unit_sale_cents != null ? (o.unit_sale_cents / 100).toFixed(2) : "",
-                          remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
+                          reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
                         })}>Edit</button>
                       <button type="button" className="text-xs underline" title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
                         onClick={async () => {
@@ -1099,6 +1161,19 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       void load();
                     }}>Delete</button>
                 </span>
+              </div>
+              {openMove === o.id && (
+                <DetailGrid items={[
+                  { label: "Item", wide: true, value: `${o.sku} — ${o.item_name}` },
+                  { label: "Movement", value: `${o.direction === "in" ? "Stock in" : "Stock out"} · ${o.qty} pcs` },
+                  { label: "Date", value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
+                  { label: "Sold @", value: o.unit_sale_cents != null ? `RM ${(o.unit_sale_cents / 100).toFixed(2)} — counts as a sale` : "— correction, not a sale" },
+                  { label: "Recorded by", value: o.created_by_name ?? "" },
+                  { label: "Recorded at", value: dmyMYT(o.created_at) },
+                  { label: "Reason", wide: true, value: o.remark },
+                  { label: "State", wide: true, value: o.reverted ? "↩ Reverted — the stock was put back" : "" },
+                ]} />
+              )}
               </div>
             ))}
           </div>
@@ -1183,10 +1258,16 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
         <div className="mt-1 max-h-72 space-y-1.5 overflow-y-auto pr-1">
           {returns.length === 0 && <p className="text-muted-foreground text-sm">No supplier returns recorded.</p>}
           {returns.map((r) => (
-            <div key={r.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+            <div key={r.id} className="border-border border-b py-1.5 text-sm last:border-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="min-w-0">
-                <span className="font-medium">{dmy(r.return_date)}</span> · {r.sku} — {r.item_name} · {r.qty} × {rmR(r.unit_cost_cents)} = <span className="font-semibold">{rmR(r.total_cents)}</span>
-                <span className="text-muted-foreground"> · {r.supplier}{r.reason ? ` · ${r.reason}` : ""}</span>
+                {/* v1.4.252: date + SKU identify the return; the item, supplier
+                    and defect reason open underneath. */}
+                <RecordToggle open={openRet === r.id} title="Item, supplier and the defect reason"
+                  onToggle={() => setOpenRet(openRet === r.id ? null : r.id)}>
+                  {dmy(r.return_date)} · {r.sku}
+                </RecordToggle>
+                {" · "}<span className="font-semibold">{rmR(r.total_cents)}</span>
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
                 {r.status === "credited" ? (
@@ -1320,6 +1401,20 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   <button type="button" className="text-xs underline" onClick={() => setRetEditId(null)}>Cancel</button>
                 </div>
               )}
+            </div>
+            {openRet === r.id && (
+              <DetailGrid items={[
+                { label: "Item", wide: true, value: `${r.sku} — ${r.item_name}` },
+                { label: "Quantity", value: `${r.qty} pcs` },
+                { label: "Unit cost", value: rmR(r.unit_cost_cents) },
+                { label: "Total claim", value: rmR(r.total_cents) },
+                { label: "Supplier", value: r.supplier },
+                { label: "Returned on", value: dmy(r.return_date) },
+                { label: "Replaced", value: (r.replaced_qty ?? 0) > 0 ? `${r.replaced_qty} of ${r.qty} pcs` : "" },
+                { label: "Credited", value: r.credited_cents != null ? rmR(r.credited_cents) : "" },
+                { label: "Reason", wide: true, value: r.reason ?? "" },
+              ]} />
+            )}
             </div>
           ))}
         </div>
@@ -3252,7 +3347,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]!} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

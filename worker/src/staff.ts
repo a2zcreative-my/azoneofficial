@@ -4619,8 +4619,12 @@ export async function handleStaff(
        purposes"): every manual OUT must say why — remark is MANDATORY and
        logged to manual_stockouts, so no stock leaves the shelf unexplained. */
     const remark = str(body?.remark, 300) ? (body!.remark as string).trim() : null;
-    if (delta < 0 && !remark) {
-      return err("invalid_input", "A remark (reason for the stock out) is required — for traceability", 400);
+    /* v1.4.251 (CEO: "if I want to adjust the variance … what should remark I
+       need to indicate?"): a stock movement is only traceable if BOTH
+       directions say why. An IN with no reason is how a stock count quietly
+       becomes a guess, so the remark is now mandatory either way. */
+    if (!remark) {
+      return err("invalid_input", `A remark (reason for the stock ${delta < 0 ? "out" : "in"}) is required — for traceability`, 400);
     }
     if (saleC !== null) {
       const tbl = await env.DB.prepare(
@@ -4628,7 +4632,7 @@ export async function handleStaff(
       ).first<{ name: string }>();
       if (!tbl) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0048_manual_sales)", 500);
     }
-    if (delta < 0) {
+    {
       const tbl2 = await env.DB.prepare(
         `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'manual_stockouts'`,
       ).first<{ name: string }>();
@@ -4668,19 +4672,36 @@ export async function handleStaff(
         saleRowId = sr?.id ?? null;
       }
     }
-    if (delta < 0) {
-      // v1.4.170: the traceability trail — one row per manual out, with WHY.
+    /* v1.4.170: the traceability trail — one row per manual movement, with
+       WHY. v1.4.251: ins are logged here too, marked by `direction`. */
+    {
+      const args = [Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, outDate, saleRowId, user.id];
       try {
         await env.DB.prepare(
-          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-        ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, outDate, saleRowId, user.id).run();
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by, direction)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+        ).bind(...args, delta > 0 ? "in" : "out").run();
       } catch (e) {
         if (!String(e).includes("no such column")) throw e;
-        await env.DB.prepare(
-          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, created_by)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-        ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, user.id).run();
+        /* 0064 skew: an OUT still logs the old way, but an IN must NOT — an
+           unmarked row would read as a stock OUT and corrupt the totals. The
+           stock still moves; only its trail row waits for the migration. */
+        if (delta < 0) {
+          try {
+            await env.DB.prepare(
+              `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+            ).bind(...args).run();
+          } catch (e2) {
+            if (!String(e2).includes("no such column")) throw e2;
+            await env.DB.prepare(
+              `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, created_by)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+            ).bind(Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, user.id).run();
+          }
+        } else {
+          await logError(env, "migration_skew", "manual_stockouts missing 0064 direction — stock in not logged");
+        }
       }
     }
     await audit(env, user.id, delta > 0 ? "inventory.in" : "inventory.out", "inventory_items", invAdjust[1],

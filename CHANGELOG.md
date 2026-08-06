@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.252] — 2026-08-06 — The audit lists join the row pattern
+
+### Fixed (CEO: "I want the details inside while the button outside for me to know what is this details for")
+- **Manual stock movements** and **Supplier returns** were the two lists v1.4.249 didn't reach. Both packed the date, SKU, item name, quantity and the whole reason onto one `truncate`d line, so on a phone every row read `06-08…` and nothing else — the reason you record for traceability was the first thing the screen threw away.
+- Both now follow the standard: **date · SKU** identifies the row and opens it; buttons stay outside.
+  - **Movements** — the panel holds item, direction and quantity, date, whether it counted as a sale, who recorded it, when, the reason in full, and whether it was reverted.
+  - **Returns** — item, quantity, unit cost, total claim, supplier, return date, replaced quantity, credited amount and the defect reason.
+- The chips that carry the state of the row — Sold @ / correction / ↩ reverted, Outstanding / Credited / Replaced — stay visible, per the v1.4.249 rule that a chip which *is* the point of the row doesn't hide.
+- Frontend-only, no migrations.
+
+## [1.4.251] — 2026-08-06 — Stock in confirms itself, and variances have a reason (MIGRATION 0064)
+
+### Fixed (CEO: "In + seem doesnt popup notifications which is I should aware if the stock has been updated in")
+- **In + saved in silence.** `adjust()` only raised a toast when the delta was negative, so an out announced itself and an in did not. Both directions now confirm, and both quote **the new stock level** the server came back with — so you see `now 26 in stock`, not just "saved".
+
+### Added (CEO: "if I want to adjust the variance … Manual Out − and what should remark I need to indicate?")
+- **In + now opens the same form as Out −**, with the same mandatory reason. An unexplained stock increase was the one movement in the system that left no trail — which is exactly the case a stock count creates when the shelf holds *more* than the system says.
+- **The reason is now a picked list, not a blank box**, so a variance is always worded the same way and can be reported on later. Out: stock count variance (missing) · damaged/defective · sample or giveaway · internal use · sold offline · data entry correction · other. In: stock count variance (found extra) · restock from supplier · customer return · returned from sample/event · data entry correction · other. A free-text note underneath carries the specifics.
+- MIGRATION 0064 adds `manual_stockouts.direction`, defaulting to `'out'` — every existing row keeps exactly the meaning it had, so the stock-out totals and the weighted Avg sold @ are unchanged. The traceability card is now "Manual stock movements" and shows `+21` or `−2` per row.
+- Skew armor (v1.4.218 lesson) with a deliberate asymmetry: without 0064 an **out** still logs the old way, but an **in** does not log at all and records `migration_skew` instead — an unmarked row would read as an out and corrupt the totals. The stock still moves either way.
+- The remark is now required on **both** directions server-side, not just outs.
+- Worker + frontend.
+
 ## [1.4.250] — 2026-08-06 — Pick the date the payment landed
 
 ### Added (CEO: "I want to have a calendar for me to pick which date they make the payment for accurate tracking")
