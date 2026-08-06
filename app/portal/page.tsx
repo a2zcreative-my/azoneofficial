@@ -16,6 +16,8 @@ import { buildLeavePdf } from "@/lib/form-pdf";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePrompt } from "@/components/ui/prompt-dialog";
+import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -1068,7 +1070,7 @@ function Attendance({ user }: { user: User }) {
                     <span className="font-medium">{properName(st.name)}</span>
                     <span className="text-muted-foreground text-xs capitalize"> · {st.role.replace(/_/g, " ")}{st.employment_status === "part_time" ? " (part-time)" : ""}</span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1">
+                  <span className="flex flex-wrap items-center justify-end gap-1">
                     {st.in_at
                       ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">In {hm(st.in_at)}</span>
                       : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">⚠ not clocked in</span>}
@@ -1375,7 +1377,15 @@ function printLeaveForm(l: LeaveReq, meName: string) {
   w.document.close();
 }
 
+/* v1.4.249: the same number the printed form and the PDF carry, so a row, a
+   printout and a shared file all name the record identically. */
+function leaveNoOf(l: { created_at?: string | null; day_seq?: number | null; id: number }) {
+  const dd = (l.created_at ?? "").slice(0, 10);
+  return `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
+}
+
 function Leave({ user }: { user: User }) {
+  const [openLeave, setOpenLeave] = useState<number | null>(null);
   const [balances, setBalances] = useState<Record<string, { entitled: number; used: number; accrued?: number }>>({});
   const [mine, setMine] = useState<LeaveReq[]>([]);
   const [all, setAll] = useState<LeaveReq[]>([]);
@@ -1463,13 +1473,17 @@ function Leave({ user }: { user: User }) {
           {mine.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No requests yet.</p>}
           <div className="max-h-72 overflow-y-auto">
           {mine.map((l) => (
-            <div key={l.id} className="border-border flex items-center justify-between border-b py-2 text-sm last:border-0">
-              <span>
-                {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d) —{" "}
+            <div key={l.id} className="border-border border-b py-2 text-sm last:border-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0">
+                {/* v1.4.249: the leave number opens the record; type, period,
+                    reason and the reviewer's comment moved into the panel. */}
+                <RecordToggle open={openLeave === l.id} title="Type, period, reason and comments"
+                  onToggle={() => setOpenLeave(openLeave === l.id ? null : l.id)}>{leaveNoOf(l)}</RecordToggle>
+                {" · "}{l.days}d ·{" "}
                 <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
-                {l.review_comment ? <span className="text-muted-foreground"> · &quot;{l.review_comment}&quot;</span> : null}
               </span>
-              <span className="flex shrink-0 items-center gap-2">
+              <span className="flex flex-wrap items-center justify-end gap-2">
                 <button type="button" className="text-xs underline" title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
                 {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
                 <button type="button" className="text-xs underline" title="Send the leave form as a PDF file"
@@ -1478,6 +1492,16 @@ function Leave({ user }: { user: User }) {
                   <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
                 )}
               </span>
+            </div>
+            {openLeave === l.id && (
+              <DetailGrid items={[
+                { label: "Type", value: l.type },
+                { label: "Period", value: `${dmy(l.start_date)} → ${dmy(l.end_date)}` },
+                { label: "Days", value: `${l.days}` },
+                { label: "Reason", wide: true, value: l.reason ?? "" },
+                { label: "Reviewer note", wide: true, value: l.review_comment ?? "" },
+              ]} />
+            )}
             </div>
           ))}
           </div>
@@ -2253,7 +2277,7 @@ function CustomerEnquiriesCard() {
                   {e.company ? <span className="text-muted-foreground text-xs"> · {e.company}</span> : null}
                   {e.category ? <span className="bg-secondary ml-1.5 rounded-full px-2 py-0.5 text-[10px]">{CAT[e.category] ?? e.category}</span> : null}
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                <span className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
                   {e.phone && (
                     <a className="underline" target="_blank" rel="noopener noreferrer"
                       href={`https://wa.me/${e.phone.replace(/[^0-9]/g, "")}`}>WhatsApp</a>
@@ -2317,6 +2341,15 @@ function Sales({ user }: { user: User }) {
      "azoneofficial.com says" box — every destructive action here now uses the
      branded useConfirm() dialog, same family as the toasts. */
   const { confirm: askConfirm, node: confirmNode } = useConfirm();
+  /* v1.4.248: the v1.4.240 sweep replaced every window.confirm but left the
+     payment-reference prompt standing — the last native browser panel
+     in the portal. */
+  const { prompt: askText, node: promptNode } = usePrompt();
+  /* v1.4.248 minimalist rows (CEO: "click at the document number can appear
+     the details. the button remain at outside"): one document open at a time
+     — opening another closes the first, so the list never grows tall. */
+  const [openDoc, setOpenDoc] = useState<number | null>(null);
+  const [openCust, setOpenCust] = useState<number | null>(null);
   // v1.4.94: backdating + typo edits. editingDoc = the document being fixed
   // (its number never changes); doc_date/paid_date allow true past dates for
   // payments received before this system existed.
@@ -2501,14 +2534,18 @@ function Sales({ user }: { user: User }) {
               <p className="text-muted-foreground text-sm">No customers yet.</p>
             )}
             {customers.map((c) => (
-              <div key={c.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+              <div key={c.id} className="border-border border-b py-1.5 text-sm last:border-0">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0">
-                  <span className="font-medium">{c.company}</span>
+                  {/* v1.4.249: the company name opens the record — contact
+                      details and both addresses were invisible in this list. */}
+                  <RecordToggle open={openCust === c.id} title="Contact and addresses"
+                    onToggle={() => setOpenCust(openCust === c.id ? null : c.id)}>{c.company}</RecordToggle>
                   {c.contact_person && (
                     <span className="text-muted-foreground"> · {c.contact_person}</span>
                   )}
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5">
+                <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {docs.some((d) => d.doc_type === "INV" && d.company === c.company) && (
                     <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
                       title="Statement of Account — all invoices, paid + outstanding, printable"
@@ -2536,6 +2573,16 @@ function Sales({ user }: { user: User }) {
                     }}>Delete</button>
                 </span>
               </div>
+              {openCust === c.id && (
+                <DetailGrid items={[
+                  { label: "Contact", value: c.contact_person ?? "" },
+                  { label: "Phone", value: c.phone ?? "" },
+                  { label: "Email", value: c.email ?? "" },
+                  { label: "Billing address", wide: true, value: (c as { address?: string | null }).address ?? "" },
+                  { label: "Delivery address", wide: true, value: (c as { delivery_address?: string | null }).delivery_address ?? "" },
+                ]} />
+              )}
+              </div>
             ))}
           </div>
         </div>
@@ -2543,6 +2590,7 @@ function Sales({ user }: { user: User }) {
         <div className={card}>
           {toastNode}
           {confirmNode}
+          {promptNode}
           <p className="text-sm font-semibold">
             {editingDoc ? <>Editing {editingDoc.doc_number} <button type="button" className="ml-1 text-xs font-normal underline" onClick={resetDocForm}>cancel</button></> : "Create document"}
           </p>
@@ -2739,7 +2787,7 @@ function Sales({ user }: { user: User }) {
                       <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
                       <span className="text-muted-foreground"> · {n} days</span>
                     </span>
-                    <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                       <span className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}>{label}</span>
                       {phone
                         ? <a className="inline-flex h-7 items-center rounded-lg bg-green-600 px-2.5 text-xs font-medium text-white" target="_blank" rel="noreferrer"
@@ -2763,28 +2811,37 @@ function Sales({ user }: { user: User }) {
         {!docsError && docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
         <div className="max-h-96 overflow-y-auto">
         {docs.map((d) => (
-          <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b py-2 text-sm last:border-0">
-            {/* v1.4.100: standardized row — info left (grows), one aligned
-                controls group right: chip · status · Edit · PDF, all h-7. */}
+          <div key={d.id} className="border-border border-b py-2 text-sm last:border-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {/* v1.4.248 (CEO: "a minimalist version … click at the document
+                number can appear the details. the button remain at outside"):
+                the row carries only what identifies the document. Status
+                chips, the payment/delivery pickers and the dates live in the
+                panel below, opened by clicking the number. Actions stay on
+                the row so nothing needs opening to be done. */}
             <span className="min-w-0 flex-1 basis-64">
-              <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
-              <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.salesperson_name ? ` · sales: ${firstName(d.salesperson_name)}` : ""}</span>
+              <RecordToggle open={openDoc === d.id} title="Payment, dates and reference"
+                onToggle={() => setOpenDoc(openDoc === d.id ? null : d.id)}>{d.doc_number}</RecordToggle>
+              {d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
             </span>
-            <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            {d.doc_type === "INV" && d.payment_status === "paid" && (
-              <span className="inline-flex h-7 items-center rounded-full bg-green-100 px-2.5 text-xs font-semibold whitespace-nowrap text-green-700"
-                title={`Payment received${d.paid_at ? " " + dmy(d.paid_at.slice(0, 10)) : ""}${d.payment_ref ? " · Ref " + d.payment_ref : ""}`}>
-                PAID · bank transfer
-              </span>
-            )}
+            <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             {d.doc_type === "INV" && canInvoice && (
               <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.payment_status ?? "unpaid"}
                 title="Mark paid when the bank transfer lands — revenue counts payments received"
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === "paid") {
-                    const ref = window.prompt("Payment received — bank transfer reference (optional):", "") ?? undefined;
-                    void setStatus(d, "paid", ref);
+                    void (async () => {
+                      const ref = await askText({
+                        title: "Payment received",
+                        message: `${d.doc_number} — ${fmtRM(d.total_cents)}`,
+                        label: "Bank transfer reference (optional)",
+                        placeholder: "e.g. MBB240726-8891",
+                        confirmLabel: "Mark paid",
+                      });
+                      if (ref === null) return;          // cancelled — status unchanged
+                      await setStatus(d, "paid", ref || undefined);
+                    })();
                   } else {
                     void setStatus(d, v);
                   }
@@ -2873,6 +2930,23 @@ function Sales({ user }: { user: User }) {
                 }}>Delete</button>
             )}
             </span>
+          </div>
+          {openDoc === d.id && (
+            <DetailGrid items={[
+              { label: "Type", value: `${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[d.doc_type] ?? d.doc_type}${d.kind ? ` · ${d.kind === "service" ? "Service" : "Product"}` : ""}` },
+              { label: "Date", value: dmy(d.created_at.slice(0, 10)) },
+              { label: "Sales person", value: d.salesperson_name ? firstName(d.salesperson_name) : "" },
+              { label: "Customer phone", value: d.customer_phone ?? "" },
+              { label: "Payment", wide: true, value: d.doc_type !== "INV" ? "" : d.payment_status === "paid" ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-green-700">PAID · bank transfer</span>
+                  {d.paid_at && <span className="text-muted-foreground">{dmy(d.paid_at.slice(0, 10))}</span>}
+                  {d.payment_ref && <span className="text-muted-foreground">Ref {d.payment_ref}</span>}
+                </span>
+              ) : <span className="text-amber-700">{d.payment_status ?? "unpaid"}</span> },
+              { label: "Origin", wide: true, value: d.converted_from != null ? "Converted from a quotation" : "" },
+            ]} />
+          )}
           </div>
         ))}
         </div>
@@ -3062,7 +3136,7 @@ function UsersPanel({ role }: { role: string }) {
               <span className="font-medium">{properName(u.full_name || u.name)}</span>
               <span className="text-muted-foreground text-xs"> · {u.email}</span>
             </span>
-            <span className="flex shrink-0 items-center gap-1">
+            <span className="flex flex-wrap items-center justify-end gap-1">
               <span className="bg-secondary rounded-full px-1.5 py-px text-[10px] capitalize">{u.role.replace(/_/g, " ")}</span>
               {(u.employment_status ?? "permanent") !== "permanent" && (
                 <span className={`rounded-full px-1.5 py-px text-[10px] capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}
@@ -3110,7 +3184,7 @@ function UsersPanel({ role }: { role: string }) {
                 <span className="font-medium">{properName(u.full_name || u.name)}</span>
                 <span className="text-muted-foreground text-xs"> · {u.email}</span>
               </span>
-              <span className="flex shrink-0 items-center gap-1">
+              <span className="flex flex-wrap items-center justify-end gap-1">
                 {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">disabled</span>}
                 {canEdit && editId !== u.id && (
                   <button type="button" className="text-[11px] underline"
@@ -3138,7 +3212,7 @@ function UsersPanel({ role }: { role: string }) {
                 <span className="font-medium">{properName(e.name ?? "")}</span>
                 <span className="text-muted-foreground"> · {e.email ?? ""}</span>
               </span>
-              <span className="flex shrink-0 items-center gap-2">
+              <span className="flex flex-wrap items-center justify-end gap-2">
                 <span className={`rounded-full px-1.5 py-px text-[10px] ${e.action.includes("2fa_enabled") ? "bg-green-100 text-green-700" : e.action.includes("2fa") ? "bg-blue-100 text-blue-800" : e.action.includes("password") ? "bg-amber-100 text-amber-800" : "bg-secondary"}`}>
                   {e.action.replace("auth.", "").replace(/_/g, " ")}
                 </span>

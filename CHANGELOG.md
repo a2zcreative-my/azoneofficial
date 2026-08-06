@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.249] — 2026-08-06 — The minimalist row, portal-wide
+
+### Changed (CEO: "do the same pattern to the rest which is my objective is globally and standardize")
+- NEW `components/ui/record-row.tsx` — `RecordToggle` and `DetailGrid`, the pattern as one shared pair so every list opens the same way and looks the same doing it. **Identity on the row · actions on the row · everything else one tap away.**
+- **Documents** — refactored onto the shared pair (it was hand-rolled in v1.4.248).
+- **Customers** — the company name opens contact, phone, email, billing address and delivery address. Those were in the database and invisible in this list.
+- **Leave** — rows now lead with the **leave number**, the same one printed on AZOO-HR-LVE-001 and on the shared PDF, so a row, a printout and a file all name the record identically. Type, period, reason and the reviewer's note moved into the panel.
+- **Claims** — the **claim number** is now the thing you click, replacing the "Details ▾" text link. The number was not even shown on the row before. The payee mark stays visible without opening the record.
+- **Expenses** — the amount opens date, category, vendor, who recorded it and the recurring detail. The PAID / DUE chip stays on the row, because the paid state is the thing being tracked (v1.4.208).
+
+### Deliberately not converted
+- **Inventory, Payroll, Attendance and the Assets register are tables.** They are dense on purpose and are read by scanning and sorting columns; collapsing their rows would remove the thing that makes them useful. The rule is written into `record-row.tsx` so it survives the next sweep.
+- Frontend-only, no migrations.
+
+## [1.4.248] — 2026-08-06 — Branded prompt, and minimalist document rows
+
+### Fixed (CEO: "still found with not standardize popup notification")
+- The v1.4.240 sweep replaced every `window.confirm` but missed the one `window.prompt` — the bank transfer reference asked for when marking an invoice paid. NEW `components/ui/prompt-dialog.tsx` (`usePrompt()`), same family as the confirm dialog and the save toast: gold accent, navy card, Enter submits, Escape cancels, Cancel now leaves the status untouched rather than marking paid with no reference. No native browser panel remains anywhere in the portal.
+
+### Changed (CEO: "a minimalist version … click at the document number can appear the details. the button remain at outside")
+- A Documents row now carries only what identifies the document — number, product/service mark, customer, amount — plus its action buttons. The PAID chip, the payment and delivery pickers, the date, the sales person, the payment reference and the converted-from origin moved into a panel that opens when you click the document number.
+- One document opens at a time; opening another closes the first, so the list can never grow taller than the screen.
+- Actions stay on the row on purpose. Nothing has to be opened before it can be done — the panel is for reading, the row is for acting.
+
+## [1.4.247] — 2026-08-06 — Row buttons wrap instead of running off the phone
+
+### Fixed (CEO: "Why Invoice dont have send pdf button?")
+- It did have one — it was off the right edge of the screen. The Documents row's action group carried `shrink-0` and no wrap, so it laid its buttons out in a single line whatever the screen width. A quotation row shows five controls and just fits a phone; an invoice row shows seven (the PAID chip and the payment-status select as well), and the last two — **Send PDF** and **Delete** — were pushed past the edge and clipped by the list's own scroll container.
+- Every row action group in `/portal` now wraps and right-aligns instead: twelve of them across the Sales, Leave, Claims, Attendance, Inventory and Users lists. On a phone the buttons drop onto a second line; on desktop nothing moves because there was always room.
+- This is the v1.4.209 lesson again, one layer out: that release fixed a non-wrapping action span in the staff directory. The rule now holds portal-wide — **a row's action group wraps; it never relies on the screen being wide enough.**
+- Frontend-only, no migrations.
+
 ## [1.4.246] — 2026-08-06 — Send PDF on the claim and leave forms
 
 ### Added (CEO: "do same implementation for invoice and delivery order, claim and leave form also!")

@@ -23,6 +23,7 @@ import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
 
@@ -1051,7 +1052,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   <span> · {o.qty} pcs</span>
                   <span className="text-muted-foreground text-xs"> · {o.remark}</span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5">
+                <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
                     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">↩ reverted — stock restored</span>
                   ) : o.unit_sale_cents != null
@@ -1187,7 +1188,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                 <span className="font-medium">{dmy(r.return_date)}</span> · {r.sku} — {r.item_name} · {r.qty} × {rmR(r.unit_cost_cents)} = <span className="font-semibold">{rmR(r.total_cents)}</span>
                 <span className="text-muted-foreground"> · {r.supplier}{r.reason ? ` · ${r.reason}` : ""}</span>
               </span>
-              <span className="flex shrink-0 items-center gap-2">
+              <span className="flex flex-wrap items-center justify-end gap-2">
                 {r.status === "credited" ? (
                   <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
                     Credited {rmR(r.credited_cents ?? r.total_cents)}
@@ -2582,6 +2583,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     <div key={c.id} className="border-border rounded-lg border px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
+          {/* v1.4.249 (CEO: "globally and standardize"): the claim number is
+              the identifier and the only thing you click to open the record —
+              same affordance as a document number or a company name. */}
+          <RecordToggle open={expanded === c.id} title="Purpose, items, receipt and decision"
+            onToggle={() => setExpanded((e) => e === c.id ? null : c.id)}>{claimNoOf(c)}</RecordToggle>{" · "}
           {c.claimant && <span className="font-medium">{properName(c.claimant)} · </span>}
           <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
           {claimItems(c).length > 1
@@ -2670,11 +2676,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               {" · "}
             </>
           )}
-          <button type="button" className="underline" onClick={() => setExpanded((e) => e === c.id ? null : c.id)}>
-            Details {expanded === c.id ? "▴" : "▾"}{c.payee_user_id === userId
-              ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title="This claim was raised on your behalf — the payment comes to you; track its status here">💰 pays to you</span>
-              : c.payee_name ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`Pay to ${properName(c.payee_full || c.payee_name)} — internal remark`}>💰 → {firstName(c.payee_name)}</span> : null}
-          </button>
+          {/* the payee mark stays visible without opening the record */}
+          {c.payee_user_id === userId
+            ? <span className="rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title="This claim was raised on your behalf — the payment comes to you; track its status here">💰 pays to you</span>
+            : c.payee_name ? <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`Pay to ${properName(c.payee_full || c.payee_name)} — internal remark`}>💰 → {firstName(c.payee_name)}</span> : null}
         </p>
       </div>
       {expanded === c.id && (
@@ -2995,7 +3000,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                     ? <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">PAID {dmy(c.paid_at)}</span>
                     : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">payment due</span>}
                 </span>
-                <span className="flex shrink-0 items-center gap-2 text-xs">
+                <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
                   <button type="button" className="underline" onClick={() => void printClaimForm(c)}>Print claim form</button>
                   {c.payment_proof_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
                 </span>
@@ -3103,6 +3108,7 @@ function ExpensePie({ slices, active, onSelect, centerTop, centerBottom }: {
 interface ClaimExp { id: number; amount_cents: number; paid_at?: string | null; decided_at?: string | null; claim_date?: string | null; claimant?: string | null }
 
 export function ExpensesPanel() {
+  const [openExp, setOpenExp] = useState<number | null>(null);
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<ExpenseRec[]>([]);
   const [draft, setDraft] = useState({ expense_date: "", category: "software", amount: "", vendor: "", description: "", recurring: false, due_day: "" });
@@ -3556,22 +3562,21 @@ export function ExpensesPanel() {
               </div>
             </div>
           ) : (
-            <div key={r.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
+            <div key={r.id} className="border-border flex flex-wrap items-start justify-between gap-x-2 gap-y-1 rounded-lg border px-3 py-2 [&>dl]:basis-full">
               <div className="min-w-0">
                 <p className="text-sm">
-                  <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
+                  {/* v1.4.249: the amount opens the record — date, description,
+                      who recorded it and the recurring mark live in the panel;
+                      the paid state stays on the row because it is the thing
+                      being tracked (v1.4.208). */}
+                  <RecordToggle open={openExp === r.id} title="Date, description and who recorded it"
+                    className="font-semibold" onToggle={() => setOpenExp(openExp === r.id ? null : r.id)}>{rmc(r.amount_cents)}</RecordToggle>{" "}
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
                   {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
-                </p>
-                <p className="text-muted-foreground mt-0.5 text-xs">
-                  {dmy(r.expense_date)}
-                  {r.description ? ` · ${r.description}` : ""}
-                  {r.created_by_name ? ` · by ${r.created_by_name}` : ""}
-                  {r.recurring === 1 && <span className="ml-1 rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-700">↻</span>}
                   {r.paid_at
-                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
+                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
+                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>
@@ -3594,6 +3599,16 @@ export function ExpensesPanel() {
                   }}>Edit</button>
                 <button type="button" className="text-destructive text-xs underline" onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
               </span>
+              {openExp === r.id && (
+                <DetailGrid items={[
+                  { label: "Date", value: dmy(r.expense_date) },
+                  { label: "Category", value: <span className="capitalize">{r.category}</span> },
+                  { label: "Vendor", value: r.vendor ?? "" },
+                  { label: "Recorded by", value: r.created_by_name ?? "" },
+                  { label: "Recurring", value: r.recurring === 1 ? `Yes${r.due_day ? ` · due day ${r.due_day}` : ""}` : "" },
+                  { label: "Description", wide: true, value: r.description ?? "" },
+                ]} />
+              )}
             </div>
           ))}
         </div>
