@@ -146,7 +146,7 @@ function BadgePreview({ s }: { s: Staff }) {
 
 /** Print at true PORTRAIT dimensions — same layout as the preview. */
 const BADGE_CSS = `
-    html,body{margin:0;padding:0;background:transparent}
+    html,body{margin:0;padding:0;background:transparent;-webkit-print-color-adjust: exact; print-color-adjust: exact;} /* v1.4.239 */
     /* v1.4.167 (CEO): content lowered + spacing spread so the card has no
        big white block above the footer — logo sits lower, photo/name/rows
        breathe more; the footer stays pinned by margin-top:auto. */

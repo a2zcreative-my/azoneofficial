@@ -9,10 +9,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import { properName, firstName } from "@/lib/names";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -1301,8 +1301,8 @@ function printLeaveForm(l: LeaveReq, meName: string) {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">
   <title>${lvNo} — Leave Application Form</title>
   <style>
-    @page { size: A4; margin: 9mm; }
-    * { box-sizing: border-box; }
+    @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
            display: flex; flex-direction: column; min-height: 274mm; }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
@@ -1325,6 +1325,7 @@ function printLeaveForm(l: LeaveReq, meName: string) {
     .esub { display: block; font-size: 8px; color: #8a93a6; }
     .sigimg { height: 46px; max-width: 150px; object-fit: contain; object-position: left center; display: block; margin-top: 1px; }
     .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; }
+    @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body>
   <div class="goldbar"></div>
   <h1>AZ ONE OFFICIAL<small>LIVE · CONNECT · GROW</small></h1>
@@ -1798,7 +1799,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SOA — ${company}</title>
   <style>
-    @page { size: A4; margin: 14mm; } * { box-sizing: border-box; }
+    @page { size: A4; margin: 0; } * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* v1.4.239 */
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
     .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
     .hd { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
@@ -1819,7 +1820,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
     .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; padding: 8px 10px; }
     .pay { margin-top: auto; padding-top: 20px; font-size: 11px; }
     .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; }
-    @media print { body { padding: 0; } }
+    @media print { body { padding: 14mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body onload="window.print()">
   <div class="goldbar"></div>
   <div class="hd">
@@ -1943,10 +1944,15 @@ async function printDoc(id: number) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${doc.doc_number}</title>
   <style>
-    @page { size: A4; margin: 14mm; }
-    * { box-sizing: border-box; }
+    /* v1.4.239 PRINT FIDELITY (CEO: saved PDF showed browser junk + lost the
+       navy/gold): @page margin 0 + body padding in @media print makes
+       Chrome/Edge drop their own date / about:blank / page-number headers
+       (they only render when the page has a margin), and print-color-adjust
+       forces the branded fills to print even with "Background graphics" off. */
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto;
-           display: flex; flex-direction: column; min-height: 268mm; } /* A4 minus @page margins — bottom block pinned to the page foot */
+           display: flex; flex-direction: column; min-height: 268mm; } /* content height — bottom block pinned to the page foot */
     .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
     .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
     .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }
@@ -1992,7 +1998,7 @@ async function printDoc(id: number) {
     .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; letter-spacing: .02em; }
     .notes { margin-top: 12px; font-size: 11px; color: #5b6472; white-space: pre-wrap; }
     .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d; color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
-    @media print { body { padding: 0; } }
+    @media print { body { padding: 14mm; min-height: 296mm; } } /* v1.4.239: the 14mm now lives here, not in @page */
   </style></head><body onload="window.print()">
   ${isPaid ? '<div class="stamp">PAID</div>' : ""}
   <div class="goldbar"></div>
@@ -2480,6 +2486,11 @@ function Sales({ user }: { user: User }) {
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.4.240 (CEO: "why the popup card was not standardize like the current
+     use"): the Sales tab was the last place still raising the browser's own
+     "azoneofficial.com says" box — every destructive action here now uses the
+     branded useConfirm() dialog, same family as the toasts. */
+  const { confirm: askConfirm, node: confirmNode } = useConfirm();
   // v1.4.94: backdating + typo edits. editingDoc = the document being fixed
   // (its number never changes); doc_date/paid_date allow true past dates for
   // payments received before this system existed.
@@ -2628,7 +2639,12 @@ function Sales({ user }: { user: User }) {
                     }}>✎ Edit</button>
                   <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
                     onClick={async () => {
-                      if (!window.confirm(`Delete ${c.company}?\n\nOnly possible when they have no documents — quotations and invoices must keep their customer for records.`)) return;
+                      if (!(await askConfirm({
+                        title: `Delete ${c.company}?`,
+                        message: "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
+                        confirmLabel: "Delete customer",
+                        variant: "danger",
+                      }))) return;
                       const res = await api<{ error?: { message?: string } }>(`/staff/customers/${c.id}`, { method: "DELETE" });
                       if (res.ok) { showToast("Deleted", `${c.company} removed`); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); } void load(); }
                       else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");
@@ -2641,6 +2657,7 @@ function Sales({ user }: { user: User }) {
 
         <div className={card}>
           {toastNode}
+          {confirmNode}
           <p className="text-sm font-semibold">
             {editingDoc ? <>Editing {editingDoc.doc_number} <button type="button" className="ml-1 text-xs font-normal underline" onClick={resetDocForm}>cancel</button></> : "Create document"}
           </p>
@@ -2867,7 +2884,12 @@ function Sales({ user }: { user: User }) {
               <button type="button" className="inline-flex h-7 items-center rounded-lg border border-amber-700 px-2.5 text-xs font-medium text-amber-800"
                 title="Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched"
                 onClick={async () => {
-                  if (!window.confirm(`Reverse ${d.doc_number}?\n\nThis deletes the invoice (it was created from a quotation and is still unpaid). The quotation itself is not touched.`)) return;
+                  if (!(await askConfirm({
+                    title: `Reverse ${d.doc_number}?`,
+                    message: "This deletes the invoice (it was created from a quotation and is still unpaid).\nThe quotation itself is not touched.",
+                    confirmLabel: "Reverse invoice",
+                    variant: "danger",
+                  }))) return;
                   const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}/unconvert`, { method: "POST", body: JSON.stringify({}) });
                   if (res.ok) { showToast("Reversed", `${d.doc_number} deleted — the quotation stands`); await load(); }
                   else showToast("No changes", res.data?.error?.message ?? "Reversal failed", "notice");
@@ -2913,7 +2935,12 @@ function Sales({ user }: { user: User }) {
             {canInvoice && (
               <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
                 onClick={async () => {
-                  if (!window.confirm(`Delete ${d.doc_number}?\n\n${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging. " : "It will disappear from Documents. "}This cannot be undone.`)) return;
+                  if (!(await askConfirm({
+                    title: `Delete ${d.doc_number}?`,
+                    message: `${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging." : "It will disappear from Documents."}\nThis cannot be undone.`,
+                    confirmLabel: "Delete document",
+                    variant: "danger",
+                  }))) return;
                   const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}`, { method: "DELETE" });
                   if (res.ok) { showToast("Deleted", `${d.doc_number} removed`); await load(); }
                   else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");

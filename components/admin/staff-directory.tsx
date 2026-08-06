@@ -55,7 +55,7 @@ function printBadge(s: Staff) {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badge — ${s.name}</title>
   <style>
     @page { size: 85.6mm 54mm; margin: 0; }
-    html,body{margin:0;padding:0}
+    html,body{margin:0;padding:0;-webkit-print-color-adjust: exact; print-color-adjust: exact;} /* v1.4.239 */
     .card{width:85.6mm;height:54mm;box-sizing:border-box;padding:5mm;
       font-family:Arial,Helvetica,sans-serif;color:#1a2946;
       background:linear-gradient(135deg,#fff 60%,#f4f6fb);position:relative;

@@ -2290,8 +2290,8 @@ async function printClaimForm(c: Claim) {
   <title>${claimNo} — Employee Claim Form</title>
   <style>
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
-    @page { size: A4; margin: 9mm; }
-    * { box-sizing: border-box; }
+    @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
            display: flex; flex-direction: column; min-height: 274mm; /* A4 297mm − 2×9mm page margin − rounding safety */ }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
@@ -2326,7 +2326,7 @@ async function printClaimForm(c: Claim) {
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
     .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
     .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
-    @media print { body { padding: 0; } }
+    @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
   <h1>AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>

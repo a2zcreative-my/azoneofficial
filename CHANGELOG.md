@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.240] — 2026-08-06 — Every confirmation is the branded dialog (and a build-breaking import)
+
+### Fixed (CEO: "why the popup card was not standardize like the current use")
+- The Sales tab still raised the browser's own "azoneofficial.com says" box for Delete document, Undo (reverse invoice) and Delete customer. All three now use the branded `useConfirm()` dialog introduced in v1.4.142 — navy card, gold accent, red confirm button on destructive actions.
+- Swept the rest of the tree for the same slip: the payslip early-release warning (Payroll) and Suspend user (/admin Users) were also still native. Both converted. `window.confirm` now appears nowhere in the codebase outside the dialog component's own documentation.
+
+### Fixed — latent build break
+- `app/portal/page.tsx` called `useConfirm()` in the OT approvals card (v1.4.191) but never imported it, so `pnpm build` fails type-checking with "Cannot find name 'useConfirm'". Import added. Any frontend build attempted since v1.4.191 would have stopped here — which is consistent with v1.4.236's signature alignment not showing on printed quotations.
+- Frontend-only, no migrations.
+
+## [1.4.239] — 2026-08-06 — Printed PDFs: browser headers gone, branding restored
+
+### Fixed (CEO: "when I save from the popup print, this is the results! it is not correct actually")
+- The saved PDF carried the browser's own furniture — date and time top-left, the document number top-right, `about:blank` bottom-left, `1/1` bottom-right — and the branding was gone: the navy table header, the navy TOTAL bar, the gold bar and the shaded BILL TO panel all printed as plain white. Neither was the template's fault; both were the print pipeline.
+- **Browser headers.** Chrome and Edge only draw their header/footer strip when the page has a margin, so every A4 template moved its margin off `@page` and onto the body inside `@media print` (quotation/DO/invoice and SOA 14mm, leave form and claim form 9mm, both payslips 14/18mm). Same white space on the paper, no browser furniture.
+- **Lost branding.** Chrome's *Background graphics* checkbox is off by default and it suppresses every background fill. All print templates now set `print-color-adjust: exact`, so the navy/gold prints whether or not that box is ticked — the ID badges and badge sheet included.
+- Caveat: the A4 badge sheet keeps its 8mm `@page` margin on purpose (it can run to several pages and the cards must stay clear of the printer's non-printable edge), so browser headers may still appear there.
+- Frontend-only, no migrations.
+
 ## [1.4.238] — 2026-08-06 — Service documents carry no Delivery / postage (CEO's conflict check)
 
 ### Fixed (CEO: "for Service, there is no Delivery / postage right? do check on both function to avoid any conflict")

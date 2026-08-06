@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { properName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const API = "/api/v1/staff";
 
@@ -194,8 +195,9 @@ export function printPayslip(
   if (!w) return;
   w.document.write(`<!doctype html><html><head><title>Payslip ${u.name} ${monthDMY(month)}</title>
 <style>
-  @page { size: A4; margin: 14mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; font-size: 12px; }
+  @page { size: A4; margin: 0; } /* v1.4.239 — margin as body padding so the browser prints no headers */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 14mm; font-size: 12px; }
   .sheet { border: 1.5px solid #000; }
   .info { width: 100%; border-collapse: collapse; }
   .info td { padding: 3px 8px; vertical-align: top; }
@@ -294,6 +296,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   // net RM807.69. Same money as the old proration, but visible and fair.
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
+  const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
 
   /* v1.4.203 — M2E: filled-.xlsm download + one-time setup (template upload,
      Corporate ID, payer account). The M2E USER ID/password are login
@@ -544,6 +547,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   return (
     <div className={`${card} mt-4 md:mt-6`}>
       {toastNode}
+      {payConfirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">Payroll processing</p>
@@ -798,12 +802,17 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                     const autoD = release.available_from.split(" ")[0]!.split("-").reverse().join("-");
                     const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
                     const ok = month === cycleM
-                      ? window.confirm(
-                          `Release ${monthDMY(month)} payslips to staff now, ahead of the automatic date (${autoD} 10:00 MYT)?\n\nThis is the normal early release when you pay salaries before the 5th.`,
-                        )
-                      : window.confirm(
-                          `⚠ Early release!\n\n${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.\n\nRelease ${monthDMY(month)} EARLY anyway?`,
-                        );
+                      ? await payConfirm({
+                          title: `Release ${monthDMY(month)} payslips now?`,
+                          message: `Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`,
+                          confirmLabel: "Release now",
+                        })
+                      : await payConfirm({
+                          title: "⚠ Early release — check the month",
+                          message: `${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`,
+                          confirmLabel: `Release ${monthDMY(month)} anyway`,
+                          variant: "danger",
+                        });
                     if (!ok) return;
                   }
                   const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });

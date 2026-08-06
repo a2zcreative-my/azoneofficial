@@ -15,6 +15,7 @@ import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
 import { PasswordInput } from "@/components/ui/password-input";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 
@@ -569,6 +570,7 @@ function dmyMyt(iso: string): string {
 const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
 
 function UsersPanel({ me }: { me: User }) {
+  const { confirm: userConfirm, node: userConfirmNode } = useConfirm(); // v1.4.240
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
   const [error, setError] = useState("");
@@ -634,6 +636,7 @@ function UsersPanel({ me }: { me: User }) {
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
+      {userConfirmNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">Add user</h3>
         <input className={inputClass} placeholder="Email" value={draft.email}
@@ -716,8 +719,13 @@ function UsersPanel({ me }: { me: User }) {
                       <button
                         type="button"
                         className={u.is_active ? "text-destructive text-xs font-medium underline" : "text-xs underline"}
-                        onClick={() => {
-                          if (u.is_active && !window.confirm(`Suspend ${u.email}? They are signed out everywhere immediately and cannot sign back in until reinstated.`)) return;
+                        onClick={async () => {
+                          if (u.is_active && !(await userConfirm({
+                            title: `Suspend ${u.email}?`,
+                            message: "They are signed out everywhere immediately and cannot sign back in until reinstated.",
+                            confirmLabel: "Suspend",
+                            variant: "danger",
+                          }))) return;
                           void patch(u.id, { is_active: u.is_active ? 0 : 1 });
                         }}
                       >
