@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { whatsappUrl } from "@/constants/content";
+import { inputClassLg as inputClass } from "@/lib/ui-styles";
 
 const API_BASE = "/api/v1";
 
@@ -48,8 +49,6 @@ export function ContactForm() {
     );
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm";
 
   return (
     <div className="space-y-4">

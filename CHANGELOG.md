@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.255] — 2026-08-06 — Every save says what happened (tier 2)
+
+### Changed (CEO: "Tier 2")
+- **22 save sites across eight files now use the branded toast.** Until this release, /admin and the account panels saved in silence — the same complaint raised about In + in v1.4.251, just in places visited less often. Wired one site at a time, not swept, because a toast attached to the wrong branch says "Saved" on a failure and that is worse than the silence it replaces.
+- **/admin** — enquiry status, every CRUD panel (create · update · remove), media upload and delete, site content, user create, and the four things `patch()` drives: role change, suspend, reinstate, force sign-out. Suspend now says *"…suspended — signed out everywhere"* rather than nothing at all.
+- **Site editor** — each field names itself: *"Hero headline updated — live on the website now"*.
+- **HR admin** — adding or removing a public holiday now says so, and adds why it matters: *"payroll working days recount from this"*.
+- **Staff panel** — leave approve/reject. **System health** — backup complete with table and row counts. **2FA** — on, off, and setup failure. **Change password** — confirmation, since the form otherwise just empties itself.
+- **Admin staff directory** — a failed save previously did **nothing at all**: no message, no toast, the edit just sat there looking saved-but-not. It now says so.
+
+### Deliberately excluded
+- **Sign-in and the public contact form.** A toast on sign-in is pointless — the page navigates away — and the contact form's inline thank-you is the right pattern for a visitor who has never seen this system before. Both keep their own inline states.
+- Frontend-only, no migrations. Existing inline messages were kept alongside the toasts rather than ripped out, so nothing that worked before stops working.
+
+## [1.4.254] — 2026-08-06 — Two shared modules: the look and the formatting
+
+### Changed (CEO: "Proceed this improvement so that everything is globally")
+- NEW **`lib/ui-styles.ts`** — `card`, `inputClass`, `btnClass`, `th`/`td`/`thR2`/`tdR2`. These strings had been copy-pasted into **eighteen files**, and `card` had already drifted into three different paddings: the portal's own page rendered cards at `p-3.5 md:p-4` while its panels used `p-4 md:p-5`, so two cards on the *same tab* were different sizes. Everything is now the roomier value. That is what a duplicated constant does — it doesn't break, it drifts, and nobody notices until the set sits side by side.
+- NEW **`lib/format.ts`** — `dmy`, `dmyMYT`, `mytToday`, `mytDateOf`, `rm`, `fmtRM`. `dmy` was defined identically in four files, and /admin and the staff panel each had their own copy under a different name (`dmyMyt`, `dmyD`). Identical today; one edit away from a portal showing `06-08-2026` in one card and `2026-08-06` in the next. The house rules — DD-MM-YYYY display, MYT everywhere, sen in / RM out — now live in the functions instead of in the habit of whoever writes the next card.
+- Two deliberate variants kept and named: `inputClassLg` for the public marketing pages (bigger type and touch target for visitors arriving cold on a phone) and `btnClassBlock` for the full-width sign-in button.
+- **Row buttons finished.** The last non-standard row actions — /admin (6), assets register, tab access, HR admin, staff vault Download — now use `rowBtn` / `rowBtnDanger`. No list in either app still uses a bare underlined word as a row action.
+- Boundary written into `row-button.tsx` so a later sweep doesn't overreach: **a button if it acts on a RECORD, a link if it acts on the FORM you are filling in.** Cancel beside a Save, "+ Add line", and "Refresh" stay links on purpose.
+- Frontend-only, no migrations, no behaviour change — every edit is a class string or an import.
+
+## [1.4.253] — 2026-08-06 — One button style, portal-wide
+
+### Changed (CEO: "Make the button standardize like my own button global … Claim also need to use global button but ensure that minimalist")
+- NEW `components/ui/row-button.tsx` — `rowBtn`, `rowBtnDanger`, `rowBtnGood`, `rowBtnPrimary` and the `rowActions` wrapper. The Documents list settled on this shape months ago (28px tall, rounded, bordered, 12px text) but the audit and claim lists were still bare underlined links, so the same action looked like two different controls depending on the card. On a phone an underlined word has no tap target at all.
+- Converted: manual stock movements (Edit · ↩ Revert · Delete), supplier returns (Credit · Replace · Edit · Delete), inventory items (Edit · Delete), claims (📎 Attach receipt · Delete · Edit, and View receipt · Print form · Send PDF inside the record), the HR approved-claims list, expenses (Mark paid · Undo paid), and leave (Print form · Send PDF · Cancel). The Documents row now imports the shared strings instead of repeating them.
+- The claim row's second line was a run-on sentence — date, then underlined words joined by `·`. It is now the date plus a proper wrapping button group, which is what makes it work at both widths.
+- Kept minimalist deliberately: no shadows, and a fill only on the one action a row is *for*. Five bordered buttons on a 390px screen is already dense; five filled ones would be unreadable.
+
+### Fixed (CEO: "the text on area total should not wrapped text")
+- Numeric table columns never wrap. The stock-out TOTAL row was breaking its 🔥 chip across two lines on a phone, which read as two separate numbers. `whitespace-nowrap` now sits on the shared `thR2`/`tdR2` classes, so every numeric column in every table inherits it, and on the chip itself.
+- Frontend-only, no migrations.
+
 ## [1.4.252] — 2026-08-06 — The audit lists join the row pattern
 
 ### Fixed (CEO: "I want the details inside while the button outside for me to know what is this details for")

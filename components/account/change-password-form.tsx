@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { PasswordInput } from "@/components/ui/password-input";
+import { inputClass } from "@/lib/ui-styles";
+import { useSaveToast } from "@/components/ui/save-toast";
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 /**
  * Self-service password change. Used in /admin (Account tab) and /portal
@@ -16,6 +16,7 @@ const inputClass =
  * and this form explains instead of failing cryptically.
  */
 export function ChangePasswordForm() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -42,6 +43,7 @@ export function ChangePasswordForm() {
         setNext("");
         setConfirm("");
         setState({ kind: "done" });
+        showToast("Saved", "Password changed — use the new one next time you sign in");
         return;
       }
       const data = (await res.json().catch(() => null)) as {
@@ -65,6 +67,7 @@ export function ChangePasswordForm() {
 
   return (
     <div className="max-w-sm space-y-3">
+      {toastNode}
       <label className="block">
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
           Current password

@@ -13,6 +13,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
 
@@ -29,7 +31,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
@@ -87,6 +88,7 @@ function printBadge(s: Staff) {
 }
 
 export function StaffDirectory() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [draft, setDraft] = useState<Record<number, Partial<Staff>>>({});
   const [saved, setSaved] = useState<number | null>(null);
@@ -110,7 +112,12 @@ export function StaffDirectory() {
       setSaved(id);
       setDraft((s) => ({ ...s, [id]: {} }));
       window.setTimeout(() => setSaved(null), 3000);
+      showToast("Saved", "Staff record updated");
       void load();
+    } else {
+      // v1.4.255: a failed save used to do NOTHING — no message, no toast,
+      // the edit simply stayed on screen looking unsaved-but-fine.
+      showToast("No changes", "Could not save that record — try again", "notice");
     }
   };
 
@@ -121,6 +128,7 @@ export function StaffDirectory() {
 
   return (
     <div className="space-y-3">
+      {toastNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
         <p className="text-sm font-medium">Staff directory &amp; ID badges</p>
         <p className="text-muted-foreground text-xs">

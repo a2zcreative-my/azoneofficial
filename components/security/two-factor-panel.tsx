@@ -9,6 +9,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
@@ -26,7 +28,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-5";
 const input =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm";
 const btn =
@@ -35,6 +36,7 @@ const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-3 text-sm font-medium hover:bg-secondary";
 
 export function TwoFactorPanel() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [status, setStatus] = useState<{ enabled: boolean; eligible: boolean; backup_codes_left: number } | null>(null);
   const [secret, setSecret] = useState("");
   const [otpauth, setOtpauth] = useState("");
@@ -62,6 +64,7 @@ export function TwoFactorPanel() {
       setOtpauth(res.data.otpauth);
     } else {
       setErr("Could not start setup — try again.");
+      showToast("No changes", "Could not start two-factor setup — try again", "notice");
     }
   };
 
@@ -76,9 +79,12 @@ export function TwoFactorPanel() {
       setSecret("");
       setCode("");
       setMsg("Two-factor authentication is on.");
+      showToast("Saved", "Two-factor is ON — save your backup codes before leaving this page");
       void load();
     } else {
-      setErr(res.data?.error?.message ?? "That code is not correct.");
+      const m = res.data?.error?.message ?? "That code is not correct.";
+      setErr(m);
+      showToast("No changes", m, "notice");
     }
   };
 
@@ -91,14 +97,18 @@ export function TwoFactorPanel() {
     if (res.ok) {
       setPassword("");
       setMsg("Two-factor authentication is off.");
+      showToast("Saved", "Two-factor is OFF for this account");
       void load();
     } else {
-      setErr(res.data?.error?.message ?? "Your current password is required.");
+      const m = res.data?.error?.message ?? "Your current password is required.";
+      setErr(m);
+      showToast("No changes", m, "notice");
     }
   };
 
   return (
     <div className={card}>
+      {toastNode}
       <p className="text-sm font-semibold">
         Two-factor authentication
         {status.enabled ? (

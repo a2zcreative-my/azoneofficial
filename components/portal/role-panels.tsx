@@ -24,8 +24,11 @@ import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
+import { rowBtn, rowBtnDanger, rowBtnGood, rowActions } from "@/components/ui/row-button";
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
+import { card, inputClass, btnClass, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { dmy, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1/staff";
 
@@ -56,41 +59,16 @@ function SubR({ t, children, className = "" }: { t: string; children: ReactNode;
   );
 }
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
-const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
-function dmy(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = iso.slice(0, 10).split("-");
-  if (d.length !== 3) return iso;
-  const date = `${d[2]}-${d[1]}-${d[0]}`;
-  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
-  return date + time;
-}
 
 /** v1.4.156: DB timestamps are UTC — full timestamps shown in the UI must be
     shifted to Malaysia time (+8) before formatting. Date-only values are
     already business dates and pass through untouched. (The TikTok Orders card
     showed webhook/order times 8 hours behind — the CEO spotted it.) */
-function dmyMYT(iso: string | null | undefined): string {
-  if (!iso) return "";
-  if (iso.length <= 10) return dmy(iso);
-  const d = new Date(new Date(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z")).getTime() + 8 * 3600 * 1000);
-  if (Number.isNaN(d.getTime())) return dmy(iso);
-  const i = d.toISOString();
-  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
-}
 
-const th = "px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase text-muted-foreground";
-const td = "px-3 py-2 text-sm";
 // v1.4.198 (CEO: "properly aligned the text in table"): numeric columns —
 // right-aligned header/cells with tabular figures so digits line up.
-const thR2 = "px-3 py-2 text-right text-xs font-semibold tracking-wide uppercase text-muted-foreground";
-const tdR2 = "px-3 py-2 text-right text-sm tabular-nums";
 
 function Badge({ value }: { value: string }) {
   const tone =
@@ -912,9 +890,9 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         </>
                       ) : (
                         <>
-                          <button type="button" className="text-xs underline" title="Edit SKU / item name"
+                          <button type="button" className={rowBtn} title="Edit SKU / item name"
                             onClick={() => { setInvEditId(it.id); setInvEditDraft({ sku: it.sku, name: it.name }); }}>Edit</button>
-                          <button type="button" className="text-destructive text-xs underline" title="Delete a wrongly inserted item"
+                          <button type="button" className={rowBtnDanger} title="Delete a wrongly inserted item"
                             onClick={async () => {
                               if (!(await invConfirm({
                                 title: "Delete this item?",
@@ -1025,7 +1003,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                     <td className={`${td} font-medium`}>{t.name}</td>
                     <td className={tdR2}>
                       {t.today_qty > 0
-                        ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">🔥 {t.today_qty}</span>
+                        ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {t.today_qty}</span>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className={tdR2}>{t.month_qty}</td>
@@ -1063,7 +1041,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   return (
                     <tr className="border-border border-t-2 font-semibold">
                       <td className={td} colSpan={2}>TOTAL</td>
-                      <td className={tdR2}>{today > 0 ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">🔥 {today}</span> : "—"}</td>
+                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
                       <td className={tdR2} title="Weighted by units sold (Σ price × qty ÷ Σ qty)">{wAvg != null ? `RM ${(wAvg / 100).toFixed(2)}` : "—"}</td>
@@ -1125,14 +1103,14 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       sale removed + row gone). */}
                   {!o.reverted && (
                     <>
-                      <button type="button" className="text-xs underline" title="Edit qty / Sold @ / remark / date — stock and sales totals follow"
+                      <button type="button" className={rowBtn} title="Edit qty / Sold @ / remark / date — stock and sales totals follow"
                         onClick={() => setOutModal({
                           dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
                           edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
                           price: o.unit_sale_cents != null ? (o.unit_sale_cents / 100).toFixed(2) : "",
                           reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
                         })}>Edit</button>
-                      <button type="button" className="text-xs underline" title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
+                      <button type="button" className={rowBtn} title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
                         onClick={async () => {
                           if (!(await invConfirm({
                             title: "Revert this stock out?",
@@ -1146,7 +1124,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         }}>↩ Revert</button>
                     </>
                   )}
-                  <button type="button" className="text-destructive text-xs underline" title="Wrong record: stock restored (unless already reverted), any sale removed, row deleted"
+                  <button type="button" className={rowBtnDanger} title="Wrong record: stock restored (unless already reverted), any sale removed, row deleted"
                     onClick={async () => {
                       if (!(await invConfirm({
                         title: "Delete this stock-out record?",
@@ -1319,18 +1297,18 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       </span>
                     ) : (
                       <>
-                        <button type="button" className="text-xs underline" title="Enter the amount the supplier refunded (blank = full amount)"
+                        <button type="button" className={rowBtn} title="Enter the amount the supplier refunded (blank = full amount)"
                           onClick={() => { setCreditingId(r.id); setCreditAmt(""); }}>
                           Mark credited
                         </button>
-                        <button type="button" className="text-xs underline" title="Replacement goods arrived — qty goes back into stock (blank = all remaining)"
+                        <button type="button" className={rowBtn} title="Replacement goods arrived — qty goes back into stock (blank = all remaining)"
                           onClick={() => { setReplacingId(r.id); setReplaceQty(""); }}>
                           Replaced
                         </button>
                       </>
                     )}
                     {(r.replaced_qty ?? 0) === 0 && retEditId !== r.id && (
-                      <button type="button" className="text-xs underline" title="Fix a wrongly entered return — qty change moves stock by the difference"
+                      <button type="button" className={rowBtn} title="Fix a wrongly entered return — qty change moves stock by the difference"
                         onClick={() => {
                           setRetEditId(r.id);
                           setRetEditDraft({
@@ -1339,7 +1317,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                           });
                         }}>Edit</button>
                     )}
-                    {(r.replaced_qty ?? 0) === 0 && <button type="button" className="text-destructive text-xs underline"
+                    {(r.replaced_qty ?? 0) === 0 && <button type="button" className={rowBtnDanger}
                       onClick={async () => {
                         if (!(await invConfirm({
                           title: "Delete this supplier return?",
@@ -2706,11 +2684,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               title="Payment released by the CEO">💸 PAID {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
-        <p className="text-muted-foreground text-xs">
-          {dmy(c.claim_date)}{" · "}
+        {/* v1.4.253: date on the left, real buttons in the standard wrapping
+            group — no more underlined words strung together with dots. */}
+        <div className={`${rowActions} text-muted-foreground mt-1.5 justify-start text-xs`}>
+          <span>{dmy(c.claim_date)}</span>
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
             <>
-              <label className="cursor-pointer underline" title="Attach the receipt photo/PDF directly — no need to edit the claim">
+              <label className={`${rowBtn} cursor-pointer`} title="Attach the receipt photo/PDF directly — no need to edit the claim">
                 📎 Attach receipt
                 <input type="file" accept="image/*,application/pdf" className="hidden"
                   onChange={async (e) => {
@@ -2738,12 +2718,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                     }
                   }} />
               </label>
-              {" · "}
             </>
           )}
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
             <>
-              <button type="button" className="text-destructive underline" title="Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records"
+              <button type="button" className={rowBtnDanger} title="Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records"
                 onClick={async () => {
                   if (!(await confirm({
                     title: `Delete claim ${claimNoOf(c)}?`,
@@ -2756,8 +2735,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 }}>
                 Delete
               </button>
-              {" · "}
-              <button type="button" className="underline" title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
+              <button type="button" className={rowBtn} title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
                 onClick={() => {
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
                   setPayeeId(c.payee_user_id ?? 0); // v1.4.173
@@ -2768,14 +2746,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 }}>
                 {c.status === "rejected" ? "Edit & resubmit" : "Edit"}
               </button>
-              {" · "}
             </>
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
             ? <span className="rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title="This claim was raised on your behalf — the payment comes to you; track its status here">💰 pays to you</span>
             : c.payee_name ? <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`Pay to ${properName(c.payee_full || c.payee_name)} — internal remark`}>💰 → {firstName(c.payee_name)}</span> : null}
-        </p>
+        </div>
       </div>
       {expanded === c.id && (
         <>
@@ -2832,24 +2809,25 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               </p>
             ))}
           </div>
-          <p className="text-muted-foreground mt-1 text-xs">
+          {/* v1.4.253 (CEO: "Claim also need to use global button but ensure
+              that minimalist"): the record's actions are real buttons in the
+              standard row group, not a run-on sentence of underlined words —
+              an underlined word has no tap target on a phone. */}
+          <div className={`${rowActions} mt-1.5 justify-start`}>
             {c.receipt_key
-              ? <a className="underline" href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
-              : "No receipt attached"}
-            {" · "}
-            <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
-              onClick={() => void printClaimForm(c)}>
-              Print claim form
-            </button>
-            {" · "}
-            {/* v1.4.246 (CEO: "do same implementation for … claim and leave form also"):
-                the real PDF file, straight into the phone's share sheet. */}
-            <button type="button" className="underline" title="Send the claim form as a PDF file"
-              onClick={() => void sendClaimPdf(c)}>
-              Send PDF
-            </button>
-            {c.decided_by_name && <> · decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
-          </p>
+              ? <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
+              : <span className="text-muted-foreground text-xs">No receipt attached</span>}
+            <button type="button" className={rowBtn} title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
+              onClick={() => void printClaimForm(c)}>Print form</button>
+            {/* v1.4.246: the real PDF file, straight into the phone's share sheet. */}
+            <button type="button" className={rowBtn} title="Send the claim form as a PDF file"
+              onClick={() => void sendClaimPdf(c)}>Send PDF</button>
+          </div>
+          {c.decided_by_name && (
+            <p className="text-muted-foreground mt-1 text-xs">
+              Decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}
+            </p>
+          )}
           {canDecide && c.paid_at && !c.payment_proof_key && (
             <label className="border-border mt-2 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
               title="Attach the bank-transfer slip as payout proof — the claimant is notified">
@@ -3096,8 +3074,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                     : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">payment due</span>}
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                  <button type="button" className="underline" onClick={() => void printClaimForm(c)}>Print claim form</button>
-                  {c.payment_proof_key && <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
+                  <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>Print form</button>
+                  <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c)}>Send PDF</button>
+                  {c.payment_proof_key && <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
                 </span>
               </div>
             ))}
@@ -3681,10 +3660,10 @@ export function ExpensesPanel() {
                     paid state is set right on the row; Undo covers a
                     misclick (toggle route). */}
                 {r.paid_at ? (
-                  <button type="button" className="text-muted-foreground text-xs underline" title="Clear the paid mark (misclick)"
+                  <button type="button" className={rowBtn} title="Clear the paid mark (misclick)"
                     onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({ paid: false }) }); if (res.ok) { showToast("Saved", "Paid mark cleared — back to outstanding"); void load(); } }}>Undo paid</button>
                 ) : (
-                  <button type="button" className="inline-flex h-7 items-center rounded-lg border border-green-700 px-2.5 text-xs font-medium text-green-700" title="Record that this expense has been paid"
+                  <button type="button" className={rowBtnGood} title="Record that this expense has been paid"
                     onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({}) }); if (res.ok) { showToast("Saved", "Marked paid ✓"); void load(); } }}>Mark paid</button>
                 )}
                 <button type="button" className="text-xs underline"

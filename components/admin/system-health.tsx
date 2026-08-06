@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
@@ -35,6 +36,7 @@ function myt(iso: string): string {
 }
 
 export function SystemHealthCard() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [health, setHealth] = useState<Health | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,9 +56,12 @@ export function SystemHealthCard() {
     setBusy(false);
     if (res.ok && res.data?.key) {
       setMsg(`Backup saved: ${res.data.key} (${res.data.tables} tables, ${res.data.rows} rows)`);
+      showToast("Saved", `Backup complete — ${res.data.tables} tables, ${res.data.rows} rows`);
       void load();
     } else {
-      setMsg(res.data?.error?.message ?? "Backup failed — see the error list below");
+      const m = res.data?.error?.message ?? "Backup failed — see the error list below";
+      setMsg(m);
+      showToast("No changes", m, "notice");
     }
   };
 
@@ -66,6 +71,7 @@ export function SystemHealthCard() {
 
   return (
     <div className="border-border bg-card rounded-lg border p-4 md:p-5">
+      {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">System health</p>

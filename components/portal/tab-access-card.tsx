@@ -10,8 +10,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { card } from "@/lib/ui-styles";
+import { rowBtn } from "@/components/ui/row-button";
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 
 const TABS: { name: string; label: string; hint: string }[] = [
   { name: "Overview", label: "Overview", hint: "company monitor" },
@@ -131,7 +132,7 @@ export function TabAccessCard() {
                   {overridden && !isOpen && (
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => void save(name, null)}>Reset to default</button>
                   )}
-                  <button type="button" className="text-xs underline"
+                  <button type="button" className={rowBtn}
                     onClick={() => { setOpenTab(isOpen ? null : name); setDraft(eff === null ? ROLES.map(([r]) => r) : [...eff]); }}>
                     {isOpen ? "Close" : "Edit"}
                   </button>

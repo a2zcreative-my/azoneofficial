@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { inputClass, btnClassBlock as btnClass } from "@/lib/ui-styles";
 
 const API = "/api/v1";
 
@@ -39,10 +40,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors disabled:opacity-50";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");

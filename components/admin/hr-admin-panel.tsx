@@ -8,6 +8,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
+import { dmy } from "@/lib/format";
+import { rowBtnDanger } from "@/components/ui/row-button";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
 
@@ -24,7 +28,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btn = "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium";
 
@@ -35,16 +38,9 @@ interface Holiday { id: number; holiday_date: string; name: string; kind: string
 
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
-function dmy(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = iso.slice(0, 10).split("-");
-  if (d.length !== 3) return iso;
-  const date = `${d[2]}-${d[1]}-${d[0]}`;
-  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
-  return date + time;
-}
 
 export function HrAdminPanel() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [holDraft, setHolDraft] = useState({ holiday_date: "", name: "", kind: "public" });
@@ -81,6 +77,7 @@ export function HrAdminPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {toastNode}
       {/* Holidays */}
       <div className={card}>
         <p className="text-sm font-semibold">Public holidays &amp; company calendar</p>
@@ -103,8 +100,13 @@ export function HrAdminPanel() {
           </select>
           <button type="button" className={btn}
             onClick={async () => {
-              if (!holDraft.holiday_date || !holDraft.name.trim()) return;
-              await api(`/holidays`, { method: "POST", body: JSON.stringify(holDraft) });
+              if (!holDraft.holiday_date || !holDraft.name.trim()) {
+                showToast("No changes", "A holiday needs both a date and a name", "notice");
+                return;
+              }
+              const r = await api(`/holidays`, { method: "POST", body: JSON.stringify(holDraft) });
+              if (!r.ok) { showToast("No changes", "Could not add that holiday — try again", "notice"); return; }
+              showToast("Saved", `${holDraft.name} added — payroll working days recount from this`);
               setHolDraft({ holiday_date: "", name: "", kind: "public" });
               void load();
             }}>Add</button>
@@ -113,8 +115,14 @@ export function HrAdminPanel() {
           {holidays.map((h) => (
             <li key={h.id} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm">
               <span>{dmy(h.holiday_date)} · {h.name}</span>
-              <button type="button" className="text-destructive text-xs underline"
-                onClick={async () => { await api(`/holidays/${h.id}`, { method: "DELETE" }); void load(); }}>
+              <button type="button" className={rowBtnDanger}
+                onClick={async () => {
+                  const r = await api(`/holidays/${h.id}`, { method: "DELETE" });
+                  showToast(r.ok ? "Saved" : "No changes",
+                    r.ok ? `${h.name} removed — payroll working days recount` : "Could not remove that holiday",
+                    r.ok ? undefined : "notice");
+                  void load();
+                }}>
                 Remove
               </button>
             </li>

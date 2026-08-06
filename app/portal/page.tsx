@@ -18,6 +18,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
+import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -37,6 +38,8 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
+import { card, inputClass, btnClass } from "@/lib/ui-styles";
+import { dmy, mytToday, mytDateOf } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -55,13 +58,8 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 // v1.4.146: header controls — compact on phones so avatar + title + all four
 // controls share ONE row (the old full-size buttons wrapped to a second row
 // and pushed the whole screen down).
@@ -84,14 +82,6 @@ function mytDateTime(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
   const i = d.toISOString();
   return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
-}
-function mytToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kuala_Lumpur" });
-}
-function mytDateOf(iso: string): string {
-  return new Date(iso.replace(" ", "T") + "Z").toLocaleDateString("en-CA", {
-    timeZone: "Asia/Kuala_Lumpur",
-  });
 }
 
 const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"]; // v1.4.153: CEO posts news too
@@ -120,14 +110,6 @@ interface LeaveReq { id: number; type: string; start_date: string; end_date: str
  */
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
-function dmy(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = iso.slice(0, 10).split("-");
-  if (d.length !== 3) return iso;
-  const date = `${d[2]}-${d[1]}-${d[0]}`;
-  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
-  return date + time;
-}
 
 function PunchToast({ title, sub, variant = "success" }: { title: string; sub: string; variant?: "success" | "notice" }) {
   const colour = variant === "success" ? "#1a2946" : "#d97706";
@@ -1484,12 +1466,12 @@ function Leave({ user }: { user: User }) {
                 <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
-                <button type="button" className="text-xs underline" title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
+                <button type="button" className={rowBtn} title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
                 {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
-                <button type="button" className="text-xs underline" title="Send the leave form as a PDF file"
+                <button type="button" className={rowBtn} title="Send the leave form as a PDF file"
                   onClick={() => void sendLeavePdf(l)}>Send PDF</button>
                 {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
-                  <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
+                  <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>Cancel</button>
                 )}
               </span>
             </div>
@@ -2914,9 +2896,9 @@ function Sales({ user }: { user: User }) {
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}>Edit</button>
-            <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
+            <button type="button" className={rowBtn}
               onClick={() => void printDoc(d.id)}>PDF</button>
-            <button type="button" className="inline-flex h-7 items-center rounded-lg border border-[#1A2946] px-2.5 text-xs font-medium text-[#1A2946] hover:bg-secondary"
+            <button type="button" className={rowBtnPrimary}
               title="Send the PDF to the customer — opens your phone's share sheet with the file attached"
               onClick={() => void shareDoc(d)}>Send PDF</button>
             {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is

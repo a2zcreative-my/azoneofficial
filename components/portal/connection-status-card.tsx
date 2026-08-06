@@ -9,8 +9,8 @@
    altered. All staff may view (the route already allows any non-customer). */
 
 import { useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 
 interface TtStatus {
   configured: boolean;

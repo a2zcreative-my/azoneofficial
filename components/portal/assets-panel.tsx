@@ -8,8 +8,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { card } from "@/lib/ui-styles";
+import { rowBtn } from "@/components/ui/row-button";
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "border-border bg-background mt-0.5 h-8 w-full rounded-lg border px-2 text-sm";
 const td = "px-2 py-1.5 align-top";
 
@@ -193,7 +194,7 @@ export function AssetsPanel() {
                     <td className={td}>{a.location ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className={td}><span className={STATUS_CHIP[a.status] ?? STATUS_CHIP.spare}>{STATUSES.find(([v]) => v === a.status)?.[1] ?? a.status}</span></td>
                     <td className={`${td} text-right tabular-nums`}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
-                    <td className={td}><button type="button" className="text-xs underline" onClick={() => startEdit(a)}>Edit</button></td>
+                    <td className={td}><button type="button" className={rowBtn} onClick={() => startEdit(a)}>Edit</button></td>
                   </tr>
                 ))}
               </tbody>

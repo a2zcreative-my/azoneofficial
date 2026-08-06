@@ -10,8 +10,8 @@
    lesson): staff routes are called with the /staff/ prefix EXPLICIT. */
 
 import { useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 
 interface Bucket { hour: number; cents: number; orders: number }
 

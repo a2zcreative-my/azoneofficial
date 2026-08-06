@@ -17,6 +17,8 @@ import { properName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
+import { card } from "@/lib/ui-styles";
+import { rowBtn } from "@/components/ui/row-button";
 
 const API = "/api/v1/staff";
 
@@ -33,7 +35,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-3.5 md:p-4";
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
@@ -879,7 +880,7 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
                 <span className="text-muted-foreground"> · {d.created_at.slice(0, 10).split("-").reverse().join("-")}{d.uploaded_by_name ? ` · by ${properName(d.uploaded_by_name)}` : ""}</span>
               </span>
               <span className="flex items-center gap-2">
-                <a className="underline" href={`${API}/staff-documents/${d.id}`}>Download</a>
+                <a className={rowBtn} href={`${API}/staff-documents/${d.id}`}>Download</a>
                 <button type="button" className="text-destructive underline"
                   onClick={async () => { await api(`/staff-documents/${d.id}`, { method: "DELETE" }); void load(); }}>Delete</button>
               </span>

@@ -5,6 +5,8 @@
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { card, inputClass, btnClass } from "@/lib/ui-styles";
+import { dmy } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -33,24 +35,11 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-4 md:p-5";
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
-function dmy(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = iso.slice(0, 10).split("-");
-  if (d.length !== 3) return iso;
-  const date = `${d[2]}-${d[1]}-${d[0]}`;
-  const time = iso.length >= 16 ? ` ${iso.slice(11, 16)}` : "";
-  return date + time;
-}
 
 export default function AccountPage() {
   const [user, setUser] = useState<User | null>(null);

@@ -14,6 +14,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { card } from "@/lib/ui-styles";
+import { dmy as dmyD } from "@/lib/format";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1/staff";
 
@@ -34,7 +37,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 const btnSmall =
   "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors disabled:opacity-50";
 
@@ -75,12 +77,9 @@ function StatusBadge({ value }: { value: string }) {
 }
 
 /** ISO date → DD-MM-YYYY. */
-function dmyD(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split("-");
-  return `${d}-${m}-${y}`;
-}
 
 export function StaffPanel() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [comment, setComment] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState<number | null>(null);
@@ -103,10 +102,13 @@ export function StaffPanel() {
     });
     setBusy(null);
     if (!res.ok) {
-      setError(res.data?.error?.message ?? "Could not update the request — try again.");
+      const m = res.data?.error?.message ?? "Could not update the request — try again.";
+      setError(m);
+      showToast("No changes", m, "notice");
       return;
     }
     setComment((c) => ({ ...c, [id]: "" }));
+    showToast("Saved", action === "approve" ? "Leave request approved" : "Leave request rejected");
     void load();
   };
 
@@ -165,6 +167,7 @@ export function StaffPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {toastNode}
       <div className={card}>
         <p className="text-sm font-semibold">
           Leave administration

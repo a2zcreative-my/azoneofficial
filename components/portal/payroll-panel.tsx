@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { properName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { card } from "@/lib/ui-styles";
 
 const API = "/api/v1/staff";
 
@@ -30,7 +31,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
 

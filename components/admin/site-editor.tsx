@@ -14,6 +14,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { inputClass, btnClass } from "@/lib/ui-styles";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
@@ -34,10 +36,6 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 
 interface Field {
   key: string;
@@ -122,6 +120,7 @@ const GROUPS: Group[] = [
 ];
 
 export function SiteEditor() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [values, setValues] = useState<Record<string, string>>({});
   const [initial, setInitial] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -171,14 +170,17 @@ export function SiteEditor() {
     setSaving(null);
     if (!res.ok) {
       setError("Save failed — check your connection and try again.");
+      showToast("No changes", `${field.label} was not saved — check your connection and try again`, "notice");
       return;
     }
     setInitial((s) => ({ ...s, [field.key]: raw }));
     setSavedAt((s) => ({ ...s, [field.key]: Date.now() }));
+    showToast("Saved", `${field.label} updated — live on the website now`);
   };
 
   return (
     <div className="space-y-8">
+      {toastNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3">
         <p className="text-sm font-medium">This tab edits the live website.</p>
         <p className="text-muted-foreground mt-0.5 text-xs">

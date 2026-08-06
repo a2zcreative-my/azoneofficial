@@ -18,6 +18,10 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { inputClass, btnClass } from "@/lib/ui-styles";
+import { dmyMYT as dmyMyt } from "@/lib/format";
+import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
+import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
@@ -61,10 +65,6 @@ async function api<T>(
   }
 }
 
-const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
@@ -73,6 +73,7 @@ const btnGhost =
 const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
 
 function Enquiries() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<Enquiry[]>([]);
   const load = useCallback(async () => {
     const res = await api<{ enquiries: Enquiry[] }>("/enquiries");
@@ -83,7 +84,10 @@ function Enquiries() {
   }, [load]);
 
   const setStatus = async (id: number, status: string) => {
-    await api(`/enquiries/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    const r = await api(`/enquiries/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    showToast(r.ok ? "Saved" : "No changes",
+      r.ok ? `Marked ${status}` : "Could not update that enquiry — try again",
+      r.ok ? undefined : "notice");
     void load();
   };
 
@@ -92,6 +96,7 @@ function Enquiries() {
 
   return (
     <div className="space-y-4">
+      {toastNode}
       {items.map((e) => (
         <article key={e.id} className="rounded-xl border border-border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -138,6 +143,7 @@ function CrudPanel({
   fields: FieldDef[];
   titleKey: string;
 }) {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<CrudItem[]>([]);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -158,20 +164,27 @@ function CrudPanel({
       : await api(`/${resource}`, { method: "POST", body: JSON.stringify(draft) });
     if (!res.ok) {
       setError("Save failed — check required fields.");
+      showToast("No changes", "Save failed — check the required fields", "notice");
       return;
     }
     setDraft({});
     setEditingId(null);
+    const title = String(draft[titleKey] ?? "Record");
+    showToast("Saved", editingId ? `${title} updated` : `${title} created`);
     void load();
   };
 
   const remove = async (id: number) => {
-    await api(`/${resource}/${id}`, { method: "DELETE" });
+    const r = await api(`/${resource}/${id}`, { method: "DELETE" });
+    const title = String(draft[titleKey] ?? "Record");
+    showToast(r.ok ? "Saved" : "No changes",
+      r.ok ? `${title} removed` : "Could not remove that record", r.ok ? undefined : "notice");
     void load();
   };
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
+      {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">
           {editingId ? `Edit #${editingId}` : "Add new"}
@@ -245,7 +258,7 @@ function CrudPanel({
             <span className="flex shrink-0 gap-2">
               <button
                 type="button"
-                className="text-xs underline"
+                className={rowBtn}
                 onClick={() => {
                   setEditingId(item.id);
                   const d: Record<string, unknown> = {};
@@ -257,7 +270,7 @@ function CrudPanel({
               </button>
               <button
                 type="button"
-                className="text-destructive text-xs underline"
+                className={rowBtnDanger}
                 onClick={() => void remove(item.id)}
               >
                 Delete
@@ -339,6 +352,7 @@ interface MediaItem {
 }
 
 function MediaPanel() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -363,21 +377,26 @@ function MediaPanel() {
         `${API}/media?filename=${encodeURIComponent(file.name)}&kind=${kind}`,
         { method: "POST", credentials: "include", headers: { "Content-Type": payload.type || file.type }, body: payload },
       );
-      if (!res.ok) setError("Upload failed.");
+      if (!res.ok) { setError("Upload failed."); showToast("No changes", "Upload failed — try again", "notice"); }
+      else showToast("Saved", `${file.name} uploaded`);
     } catch {
       setError("Upload failed — is the API reachable?");
+      showToast("No changes", "Upload failed — is the API reachable?", "notice");
     }
     setBusy(false);
     void load();
   };
 
   const remove = async (id: number) => {
-    await api(`/media/${id}`, { method: "DELETE" });
+    const r = await api(`/media/${id}`, { method: "DELETE" });
+    showToast(r.ok ? "Saved" : "No changes",
+      r.ok ? "File removed" : "Could not remove that file", r.ok ? undefined : "notice");
     void load();
   };
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {toastNode}
       <label className="block">
         <span className="mb-2 block text-sm font-semibold">Upload file</span>
         <input
@@ -413,14 +432,14 @@ function MediaPanel() {
             <div className="mt-1 flex justify-between">
               <button
                 type="button"
-                className="text-xs underline"
+                className={rowBtn}
                 onClick={() => void navigator.clipboard.writeText(`${API}/media/file/${encodeURIComponent(m.r2_key)}`)}
               >
                 Copy URL
               </button>
               <button
                 type="button"
-                className="text-destructive text-xs underline"
+                className={rowBtnDanger}
                 onClick={() => void remove(m.id)}
               >
                 Delete
@@ -443,6 +462,7 @@ interface ContentRow {
 }
 
 function ContentPanel() {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [rows, setRows] = useState<ContentRow[]>([]);
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
@@ -471,15 +491,18 @@ function ContentPanel() {
     });
     if (!res.ok) {
       setError("Save failed.");
+      showToast("No changes", "Save failed — check the key and value", "notice");
       return;
     }
     setKey("");
     setValue("");
+    showToast("Saved", `${key.trim()} updated — live on the website now`);
     void load();
   };
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
+      {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">Set content</h3>
         <p className="text-muted-foreground text-xs">
@@ -555,11 +578,6 @@ interface AdminUser {
 }
 
 /** UTC DB timestamp → DD-MM-YYYY HH:mm in Malaysia time. */
-function dmyMyt(iso: string): string {
-  const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
-  const i = d.toISOString();
-  return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
-}
 
 // customer included deliberately: demoting a personal-email account back to
 // customer is the cleanup path the domain policy (v1.4.42) depends on.
@@ -570,6 +588,7 @@ function dmyMyt(iso: string): string {
 const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
 
 function UsersPanel({ me }: { me: User }) {
+  const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: userConfirm, node: userConfirmNode } = useConfirm(); // v1.4.240
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
@@ -596,19 +615,28 @@ function UsersPanel({ me }: { me: User }) {
           : (res.data?.error?.message ??
             "Check all fields — password needs 10+ characters."),
       );
+      showToast("No changes", "User not created — see the message on the form", "notice");
       return;
     }
+    showToast("Saved", `${draft.email} created`);
     setDraft({ email: "", name: "", role: "editor", password: "" });
     void load();
   };
 
-  const patch = async (id: number, body: Record<string, unknown>) => {
-    await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  /* v1.4.255: patch() drives suspend / reinstate / role change / promote —
+     four different actions that all used to complete in silence. The caller
+     passes what happened so the toast can say it. */
+  const patch = async (id: number, body: Record<string, unknown>, said = "Updated") => {
+    const r = await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+    showToast(r.ok ? "Saved" : "No changes",
+      r.ok ? said : "Could not update that account — try again", r.ok ? undefined : "notice");
     void load();
   };
 
   const forceLogout = async (id: number) => {
-    await api(`/users/${id}/revoke-sessions`, { method: "POST" });
+    const r = await api(`/users/${id}/revoke-sessions`, { method: "POST" });
+    showToast(r.ok ? "Saved" : "No changes",
+      r.ok ? "Signed out of every device" : "Could not revoke those sessions", r.ok ? undefined : "notice");
     void load();
   };
 
@@ -637,6 +665,7 @@ function UsersPanel({ me }: { me: User }) {
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       {userConfirmNode}
+      {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">Add user</h3>
         <input className={inputClass} placeholder="Email" value={draft.email}
@@ -687,7 +716,7 @@ function UsersPanel({ me }: { me: User }) {
                     className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
                     value={u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role}
                     disabled={u.id === me.id || locked}
-                    onChange={(e) => void patch(u.id, { role: e.target.value })}
+                    onChange={(e) => void patch(u.id, { role: e.target.value }, `Role changed to ${e.target.value.replace(/_/g, " ")}`)}
                   >
                     {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin" || u.role === "super_admin").map(
                       (r) => <option key={r} value={r}>{r}</option>,
@@ -699,14 +728,14 @@ function UsersPanel({ me }: { me: User }) {
                           account. First response to "this account looks odd". */}
                       <button
                         type="button"
-                        className="text-xs underline"
+                        className={rowBtn}
                         onClick={() => void forceLogout(u.id)}
                       >
                         Force logout
                       </button>
                       <button
                         type="button"
-                        className="text-xs underline"
+                        className={rowBtn}
                         onClick={() => {
                           setResetId(resetId === u.id ? null : u.id);
                           setResetPw("");
@@ -726,7 +755,7 @@ function UsersPanel({ me }: { me: User }) {
                             confirmLabel: "Suspend",
                             variant: "danger",
                           }))) return;
-                          void patch(u.id, { is_active: u.is_active ? 0 : 1 });
+                          void patch(u.id, { is_active: u.is_active ? 0 : 1 }, u.is_active ? `${u.email} suspended — signed out everywhere` : `${u.email} reinstated`);
                         }}
                       >
                         {u.is_active ? "Suspend" : "Reinstate"}
