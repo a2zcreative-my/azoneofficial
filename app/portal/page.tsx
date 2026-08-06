@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
-import { buildDocPdf } from "@/lib/doc-pdf";
+import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
+import { buildLeavePdf } from "@/lib/form-pdf";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -1269,6 +1270,14 @@ function Sub({ t, children, className = "" }: { t: string; children: ReactNode; 
   );
 }
 
+/* v1.4.246: AZOO-HR-LVE-001 as a real PDF, handed to the phone's share sheet. */
+async function sendLeavePdf(l: LeaveReq) {
+  const dd = (l.created_at ?? "").slice(0, 10);
+  const no = `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
+  const blob = await buildLeavePdf(l, no);
+  await sharePdfFile(blob, `${no}.pdf`, `Leave form ${no}`);
+}
+
 function printLeaveForm(l: LeaveReq, meName: string) {
   const w = window.open("", "_blank", "width=900,height=950");
   if (!w) return;
@@ -1462,6 +1471,9 @@ function Leave({ user }: { user: User }) {
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <button type="button" className="text-xs underline" title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
+                {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
+                <button type="button" className="text-xs underline" title="Send the leave form as a PDF file"
+                  onClick={() => void sendLeavePdf(l)}>Send PDF</button>
                 {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
                   <button type="button" className="text-xs underline" onClick={() => void act(l.id, "cancel")}>Cancel</button>
                 )}

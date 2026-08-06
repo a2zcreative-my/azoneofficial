@@ -23,6 +23,8 @@ import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { buildClaimPdf } from "@/lib/form-pdf";
+import { sharePdfFile } from "@/lib/doc-pdf";
 
 const API = "/api/v1/staff";
 
@@ -2233,6 +2235,15 @@ const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
     AZOO-HR-CLM-001 template. HR prints the PDF, signatures are collected in
     wet ink; the SYSTEM approval (CEO decides in the Claims tab) remains the
     authoritative one, and its outcome is stamped on the form. */
+/* v1.4.246: build the AZOO-HR-CLM-001 form as a real PDF and hand it to the
+   share sheet — same three rungs as the sales documents (share the file,
+   otherwise download it). */
+async function sendClaimPdf(c: Claim) {
+  const no = claimNoOf(c);
+  const blob = await buildClaimPdf(c, no);
+  await sharePdfFile(blob, `${no}.pdf`, `Claim form ${no}`);
+}
+
 async function printClaimForm(c: Claim) {
   const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
@@ -2729,6 +2740,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <button type="button" className="underline" title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
               onClick={() => void printClaimForm(c)}>
               Print claim form
+            </button>
+            {" · "}
+            {/* v1.4.246 (CEO: "do same implementation for … claim and leave form also"):
+                the real PDF file, straight into the phone's share sheet. */}
+            <button type="button" className="underline" title="Send the claim form as a PDF file"
+              onClick={() => void sendClaimPdf(c)}>
+              Send PDF
             </button>
             {c.decided_by_name && <> · decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}</>}
           </p>

@@ -2,6 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.246] — 2026-08-06 — Send PDF on the claim and leave forms
+
+### Added (CEO: "do same implementation for invoice and delivery order, claim and leave form also!")
+- **Invoice and Delivery Order already had it** — v1.4.245's Send PDF sits on every Documents row and builds whichever type the row is. Nothing to add there.
+- **Claim form** — Send PDF beside Print claim form. AZOO-HR-CLM-001 as a real file: the meta block, the claim detail table (padded to four rows like the printed form), total, declaration, system status with the approval chain, the three-column wet-ink signature table, and the uploaded receipt printed on the form.
+- **Leave form** — Send PDF beside Print form. AZOO-HR-LVE-001 as a real file, with the same signature table and the HR / pre-approval chain line.
+- NEW `lib/form-pdf.ts` for both forms, reusing the v1.4.245 PDF writer, fonts, colours and image embedding.
+- The PDF writer now takes **any number of images**, so a form can carry three officers' signatures plus a receipt. **JPEG receipts** embed natively via `/DCTDecode` (the bytes pass through untouched, only the dimensions are read out of the SOF marker); PNG receipts go through the existing decoder. Both are fitted inside their frame without stretching — a receipt photo is any shape.
+- `sharePdfFile()` is now shared by all five documents: share the file if the phone can, otherwise download it.
+
+### Known trade-off, restated
+- `lib/form-pdf.ts` is a second implementation of the two HR forms, exactly as `lib/doc-pdf.ts` is for the sales documents. The HTML versions in `role-panels.tsx` and `app/portal/page.tsx` still drive screen and print. **A change to a form must be made in both places.**
+
 ## [1.4.245] — 2026-08-06 — Send PDF: a real file into the share sheet
 
 ### Added (CEO: "maybe we open the pdf then I can share to customer as a pdf instead of a link via mobile apps view")

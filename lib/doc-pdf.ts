@@ -49,7 +49,7 @@ function ascii(s: string): string {
 const esc = (s: string) => ascii(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 
 /* ------------------------------------------------------------------ page */
-const _PT = 0.75;               // one CSS pixel
+const PT = 0.75;               // one CSS pixel
 const PAGE_W = 595.28, PAGE_H = 841.89;
 const M = 14 * 2.834645;       // the 14mm print margin, in points
 const CW = PAGE_W - 2 * M;     // content width ~ 516pt
@@ -63,7 +63,11 @@ const HAIR = "0.910 0.922 0.945";
 const WHITE = "1 1 1";
 const GREEN = "0.082 0.502 0.239";
 
-class Canvas {
+export const COLOURS = { NAVY, GOLD, GREY, SLATE, PANEL, HAIR, WHITE, GREEN };
+export const GEOM = { PT, PAGE_W, PAGE_H, M, CW };
+export { widthOf };
+
+export class Canvas {
   ops: string[] = [];
   y = M;                                   // distance from the TOP of the page
   private at(y: number) { return PAGE_H - y; }
@@ -132,7 +136,7 @@ function amountWords(cents: number): string {
 }
 
 /* ------------------------------------------------------------ PNG → XObject */
-interface Img { w: number; h: number; rgb: Uint8Array; alpha: Uint8Array | null; zipped?: boolean }
+export interface Img { id: string; w: number; h: number; rgb: Uint8Array; alpha: Uint8Array | null; zipped?: boolean; jpeg?: boolean }
 
 /** Deflate, so a 1MB raw chop travels as ~50KB inside the PDF. */
 export async function deflate(data: Uint8Array): Promise<Uint8Array> {
@@ -206,7 +210,7 @@ export async function decodePng(buf: Uint8Array): Promise<Img | null> {
       else if (chan === 3) { rgb[i * 3] = px[i * 3]!; rgb[i * 3 + 1] = px[i * 3 + 1]!; rgb[i * 3 + 2] = px[i * 3 + 2]!; }
       else { rgb[i * 3] = px[i * 4]!; rgb[i * 3 + 1] = px[i * 4 + 1]!; rgb[i * 3 + 2] = px[i * 4 + 2]!; alpha![i] = px[i * 4 + 3]!; }
     }
-    return { w, h, rgb, alpha };
+    return { id: "Im0", w, h, rgb, alpha };
   } catch { return null; }
 }
 
@@ -217,12 +221,12 @@ function bytes(s: string): Uint8Array {
   return out;
 }
 
-export function assemblePdf(content: string, img: Img | null, title: string): Uint8Array {
+export function assemblePdf(content: string, images: Img[], title: string): Uint8Array {
   /* Object numbers are FIXED, never positional. An earlier draft appended the
      image before the fonts, so a document without a signature shifted /F1 and
      /F2 onto the wrong objects and printed bold and regular swapped. Layout:
-       1 catalog · 2 pages · 3 page · 4 contents · 5 Helvetica · 6 Helvetica-Bold
-       7 info · 8 image (optional) · 9 soft mask (optional) */
+       1 catalog - 2 pages - 3 page - 4 contents - 5 Helvetica - 6 Helvetica-Bold
+       7 info - then two slots per image (the image, then its soft mask). */
   const objs: (Uint8Array | null)[] = [];
   const put = (n: number, s: string | Uint8Array) => { objs[n - 1] = typeof s === "string" ? bytes(s) : s; };
   const tail = bytes("\nendstream");
@@ -233,32 +237,34 @@ export function assemblePdf(content: string, img: Img | null, title: string): Ui
     return out;
   };
 
+  const slot = (i: number) => 8 + i * 2;                  // image i lives here
+  const xres = images.map((im, i) => `/${im.id} ${slot(i)} 0 R`).join(" ");
   put(1, `<< /Type /Catalog /Pages 2 0 R >>`);
   put(2, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`);
-  put(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${img ? " /XObject << /Im0 8 0 R >>" : ""} >> /Contents 4 0 R >>`);
+  put(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${images.length ? ` /XObject << ${xres} >>` : ""} >> /Contents 4 0 R >>`);
   const cbytes = bytes(content);
   put(4, streamObj(`<< /Length ${cbytes.length} >>`, cbytes));
   put(5, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
   put(6, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
   put(7, `<< /Title (${esc(title)}) /Producer (AZ ONE OFFICIAL portal) >>`);
-  if (img) {
-    const filt = img.zipped ? "/Filter /FlateDecode " : "";
-    put(8, streamObj(
-      `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 ${filt}${img.alpha ? "/SMask 9 0 R " : ""}/Length ${img.rgb.length} >>`,
+  images.forEach((img, i) => {
+    const filt = img.jpeg ? "/Filter /DCTDecode " : img.zipped ? "/Filter /FlateDecode " : "";
+    put(slot(i), streamObj(
+      `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 ${filt}${img.alpha ? `/SMask ${slot(i) + 1} 0 R ` : ""}/Length ${img.rgb.length} >>`,
       img.rgb));
     if (img.alpha) {
-      put(9, streamObj(
-        `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceGray /BitsPerComponent 8 ${filt}/Length ${img.alpha.length} >>`,
+      put(slot(i) + 1, streamObj(
+        `<< /Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceGray /BitsPerComponent 8 ${img.zipped ? "/Filter /FlateDecode " : ""}/Length ${img.alpha.length} >>`,
         img.alpha));
     }
-  }
+  });
 
   const parts: Uint8Array[] = [bytes("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")];
   const offsets: number[] = [];
   let pos = parts[0]!.length;
   for (let i = 0; i < objs.length; i++) {
     const o = objs[i];
-    if (!o) { offsets.push(0); continue; }        // free slot — never referenced
+    if (!o) { offsets.push(0); continue; }        // free slot - never referenced
     const pre = bytes(`${i + 1} 0 obj\n`);
     const post = bytes("\nendobj\n");
     offsets.push(pos);
@@ -274,6 +280,61 @@ export function assemblePdf(content: string, img: Img | null, title: string): Ui
   const out = new Uint8Array(total);
   let k = 0; for (const p of parts) { out.set(p, k); k += p.length; }
   return out;
+}
+
+/** A receipt photo is almost always a JPEG. PDF speaks JPEG natively, so the
+    bytes go in untouched — we only need the dimensions out of the SOF marker. */
+export function readJpeg(buf: Uint8Array, id: string): Img | null {
+  if (buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let p = 2;
+  while (p + 9 < buf.length) {
+    if (buf[p] !== 0xff) { p++; continue; }
+    const m = buf[p + 1]!;
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      const h = (buf[p + 5]! << 8) | buf[p + 6]!;
+      const w = (buf[p + 7]! << 8) | buf[p + 8]!;
+      const comps = buf[p + 9]!;
+      if (comps !== 3) return null;              // greyscale / CMYK: skip rather than mangle
+      return { id, w, h, rgb: buf, alpha: null, jpeg: true };
+    }
+    p += 2 + ((buf[p + 2]! << 8) | buf[p + 3]!);
+  }
+  return null;
+}
+
+/** Hand a finished PDF to the phone's share sheet, falling back to a download.
+    Returns what actually happened so the caller can word its toast. */
+export async function sharePdfFile(blob: Blob, filename: string, title: string): Promise<"shared" | "downloaded"> {
+  if (typeof navigator.canShare === "function") {
+    const file = new File([blob], filename, { type: "application/pdf" });
+    if (navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title }); } catch { /* sheet dismissed */ }
+      return "shared";
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "downloaded";
+}
+
+/** Fetch an image and prepare it for embedding. Never throws. */
+export async function loadImage(url: string, id: string, credentials = false): Promise<Img | null> {
+  try {
+    const r = await fetch(url, credentials ? { credentials: "include" } : undefined);
+    if (!r.ok) return null;
+    const buf = new Uint8Array(await r.arrayBuffer());
+    const ct = r.headers.get("content-type") ?? "";
+    if (ct.includes("jpeg") || ct.includes("jpg") || (buf[0] === 0xff && buf[1] === 0xd8)) return readJpeg(buf, id);
+    const png = await decodePng(buf);
+    if (!png) return null;
+    png.id = id;
+    png.rgb = await deflate(png.rgb);
+    if (png.alpha) png.alpha = await deflate(png.alpha);
+    png.zipped = true;
+    return png;
+  } catch { return null; }
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -493,20 +554,8 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
 /** Build the shareable PDF. Never throws: a missing signature just prints a
     blank zone, exactly as the HTML template does. */
 export async function buildDocPdf(doc: DocFull): Promise<Blob> {
-  let img: Img | null = null;
   const role = doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo");
-  if (doc.signer_role !== null) {
-    try {
-      const r = await fetch(`/signatures/${role}-sign.png`);
-      if (r.ok) img = await decodePng(new Uint8Array(await r.arrayBuffer()));
-      if (img) {
-        img.rgb = await deflate(img.rgb);
-        if (img.alpha) img.alpha = await deflate(img.alpha);
-        img.zipped = true;
-      }
-    } catch { img = null; }
-  }
+  const img = doc.signer_role === null ? null : await loadImage(`/signatures/${role}-sign.png`, "Im0");
   const content = drawDoc(doc, !!img);
-  const pdf = assemblePdf(content, img, doc.doc_number);
-  return new Blob([pdf as BlobPart], { type: "application/pdf" });
+  return new Blob([assemblePdf(content, img ? [img] : [], doc.doc_number) as BlobPart], { type: "application/pdf" });
 }
