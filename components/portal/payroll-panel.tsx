@@ -887,7 +887,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {staff.map((u) => (
               <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{properName(u.name)}</span>
+                <span className="min-w-0 truncate">{properName(u.full_name?.trim() || u.name)}</span>
                 <span className="flex items-center gap-1 whitespace-nowrap">
                   RM
                   <input
@@ -951,7 +951,11 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               return (
                 <tr key={u.id} className="border-border border-b last:border-0">
                   <td className="px-2 py-1.5">
-                    <span className="font-medium">{properName(u.name)}</span>{" "}
+                    {/* v1.4.260: the payroll row names the person the way the
+                        payslip and the bank file do. Reading a nickname here
+                        and a legal name on the slip is how a mismatch with the
+                        bank account goes unnoticed until a transfer bounces. */}
+                    <span className="font-medium">{properName(u.full_name?.trim() || u.name)}</span>{" "}
                     <span className="text-muted-foreground text-xs">{u.position ?? u.role}</span>
                     {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900" title="Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT">⏱ hourly</span>}
                   </td>

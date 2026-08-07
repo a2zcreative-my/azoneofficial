@@ -667,8 +667,19 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
                     return next;
                   })}>
-                  {properName(u.name)}
+                  {/* v1.4.260: the register shows the LEGAL name when it is on
+                      file. Everything official already prefers full_name —
+                      payslip, claim form, leave form, ID badge, sales-document
+                      signature, and the Maybank2E batch — so a list showing
+                      only the short name hid whose record was incomplete. */}
+                  {properName(u.full_name?.trim() || u.name)}
                 </RecordToggle>
+                {!u.full_name?.trim() && (
+                  <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                    title="No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account">
+                    ⚠ no full name
+                  </span>
+                )}
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
                     {u.employment_status}{u.left_on ? ` · ${u.left_on.split("-").reverse().join("-")}` : ""}

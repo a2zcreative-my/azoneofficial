@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.260] — 2026-08-06 — The legal name where it matters, and a flag where it's missing
+
+### Fixed (CEO: "staff name not populated full staff name")
+- **The staff register and the payroll rows showed the short name** while every official output — payslip, claim form, leave form, ID badge, sales-document signature and the Maybank2E salary file — already prefers `full_name`. Reading a nickname on screen and a legal name on the slip is exactly how a name that doesn't match the bank account goes unnoticed until a transfer bounces. Both now show the legal name when it's on file.
+- **NEW ⚠ "no full name" flag** on any staff record without one. This is the important half: the fallback is silent by design, so a payslip printing a nickname looks completely normal and nobody notices until it's a bank rejection or a signed form with the wrong name on it. The gap is now visible in the register.
+
+### Worth checking on your side
+- If a name still shows short after this, the field is simply empty in that person's record: **Staff Details → 👤 Personal → Full name (as per IC)**. The column has existed since migration 0012; nothing in the pipeline is dropping it.
+- Frontend-only, no migrations.
+
 ## [1.4.259] — 2026-08-06 — Field rows stack on a phone (audited)
 
 ### Fixed (CEO: "Placement text should be the better width size for mobile view … Audit all the files and ensure that it is globally")
