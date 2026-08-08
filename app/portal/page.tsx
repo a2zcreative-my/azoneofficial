@@ -1667,7 +1667,11 @@ function Announcements({ user }: { user: User }) {
      Body"): To/From on EVERY post — labels switch to Kepada/Daripada in
      memo mode, which also adds Tarikh + Perkara (v1.4.215). */
   const [toFrom, setToFrom] = useState({ to: "All the staffs", from: "Management" }); // v1.4.224 defaults per CEO
-  const [memo, setMemo] = useState({ tarikh: todayMalay(), perkara: "" });
+  /* v1.4.262 (CEO: "subject and perkara is the same thing!"): they were.
+     Perkara IS a memo's subject — the form asked for it twice and a careless
+     publish could carry two different subjects on one memo. The Subject box
+     is the single source; the memo header composes Perkara from it. */
+  const [memo, setMemo] = useState({ tarikh: todayMalay() });
   const canPost = MANAGE_ROLES.includes(user.role);
 
   const load = useCallback(async () => {
@@ -1685,13 +1689,13 @@ function Announcements({ user }: { user: User }) {
       toFrom.to.trim() && `${isMemo ? "Kepada" : "To"}: ${toFrom.to.trim()}`,
       toFrom.from.trim() && `${isMemo ? "Daripada" : "From"}: ${toFrom.from.trim()}`,
       isMemo && memo.tarikh.trim() && `Tarikh: ${memo.tarikh.trim()}`,
-      isMemo && memo.perkara.trim() && `Perkara: ${memo.perkara.trim()}`,
+      isMemo && draft.title.trim() && `Perkara: ${draft.title.trim()}`,
     ].filter(Boolean);
     const body = headerLines.length > 0 ? headerLines.join("\n") + "\n\n" + draft.body : draft.body;
     await api(`/staff/announcements`, { method: "POST", body: JSON.stringify({ ...draft, body }) });
     setDraft({ title: "", body: "", category: "news" });
     setToFrom({ to: "All the staffs", from: "Management" });
-    setMemo({ tarikh: todayMalay(), perkara: "" });
+    setMemo({ tarikh: todayMalay() });
     void load();
   };
   const ack = async (id: number) => {
@@ -1718,7 +1722,7 @@ function Announcements({ user }: { user: User }) {
                 {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Sub>
-            <Sub t="Subject">
+            <Sub t={draft.category === "memo" ? "Subject / Perkara" : "Subject"}>
               <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </Sub>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1731,14 +1735,9 @@ function Announcements({ user }: { user: User }) {
                 <input className={inputClass} value={toFrom.from} onChange={(e) => setToFrom((m) => ({ ...m, from: e.target.value }))} />
               </Sub>
               {draft.category === "memo" && (
-                <>
-                  <Sub t="Tarikh">
-                    <input className={inputClass} value={memo.tarikh} onChange={(e) => setMemo((m) => ({ ...m, tarikh: e.target.value }))} />
-                  </Sub>
-                  <Sub t="Perkara">
-                    <input className={inputClass} placeholder="e.g. Hari Pertama Melapor Diri" value={memo.perkara} onChange={(e) => setMemo((m) => ({ ...m, perkara: e.target.value }))} />
-                  </Sub>
-                </>
+                <Sub t="Tarikh">
+                  <input className={inputClass} value={memo.tarikh} onChange={(e) => setMemo((m) => ({ ...m, tarikh: e.target.value }))} />
+                </Sub>
               )}
             </div>
             <Sub t={draft.category === "memo" ? "Kandungan memo" : "Body"}>

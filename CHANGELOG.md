@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.262] — 2026-08-07 — One subject per memo
+
+### Fixed (CEO: "subject and perkara is the same thing!")
+- They were. Perkara *is* a memo's subject — the form asked for the same thing twice, and a careless publish could carry two different subjects on one memo (or, as in practice, a filled Subject and an empty Perkara, so the printed memo header lost its Perkara line entirely).
+- The **Perkara box is gone**. The Subject box is the single source — in memo mode it relabels to **Subject / Perkara**, and the memo header composes `Perkara: {subject}` from it automatically. Tarikh stays, since the date genuinely is a separate field.
+- The memo grid drops from four boxes to three: Kepada · Daripada · Tarikh.
+- Frontend-only, no migrations. Already-published memos are untouched — their headers were composed into the body at publish time.
+
 ## [1.4.261] — 2026-08-07 — The legal name, fixed at the source
 
 ### Fixed (CEO: "birthday still not extract full staff name list as others, make it standardize to all the tabs")
