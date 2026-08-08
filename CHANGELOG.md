@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.261] — 2026-08-07 — The legal name, fixed at the source
+
+### Fixed (CEO: "birthday still not extract full staff name list as others, make it standardize to all the tabs")
+- v1.4.260 fixed the two screens I could see; the Birthdays tab proved the mistake in that approach — chasing the display one screen at a time. This release fixes it **at the source instead**, so "all the tabs" means all of them, including next month's.
+- **Worker:** every route that returns a staff `name` for display now applies one SQL rule — `COALESCE(NULLIF(TRIM(full_name), ''), name)`. Eight queries: both birthday routes, the `/staff-list` picker feed (sales person, claim payee, roster, task assignment — every dropdown), the attendance monitor, the corrections list, the verification export, the sign-in log, and the HR report's per-staff task table. Any screen fed by these is correct without being touched.
+- **Frontend:** NEW `displayName()` in `lib/names.ts` — the same rule as one named function — used by the Birthdays tab (whose `/users` payload always carried `full_name`; the panel's local type just never declared it, which is why the fallback was invisible), and by the register and payroll sites from v1.4.260, so the rule now has one spelling everywhere instead of an inline `||` per file.
+- Worker + frontend, no migrations — `full_name` has existed since 0012.
+
 ## [1.4.260] — 2026-08-06 — The legal name where it matters, and a flag where it's missing
 
 ### Fixed (CEO: "staff name not populated full staff name")

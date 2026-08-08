@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
-import { properName, firstName } from "@/lib/names";
+import { properName, firstName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -1978,12 +1978,12 @@ export function OverviewPanel() {
  * for the CEO by policy.
  */
 export function BirthdaysPanel() {
-  const [staff, setStaff] = useState<{ id: number; name: string; role: string; birthday?: string | null }[]>([]);
+  const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[]>([]);
   const [draft, setDraft] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ users?: { id: number; name: string; role: string; birthday?: string | null }[], staff?: { id: number; name: string; role: string; birthday?: string | null }[] }>(`/users`);
+    const r = await api<{ users?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[], staff?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[] }>(`/users`);
     if (r.data) {
       const list = r.data.users ?? r.data.staff ?? [];
       setStaff(list.filter((u) => u.role !== "customer"));
@@ -2025,7 +2025,10 @@ export function BirthdaysPanel() {
         {sorted.map((u) => (
           <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <span className="text-sm font-medium">
-              {properName(u.name)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
+              {/* v1.4.261: the legal name, same rule as the register and
+                  payroll — /users always carried full_name; this panel's local
+                  type just never declared it, so the fallback was invisible. */}
+              {displayName(u)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
             </span>
             <span className="flex items-center gap-2">
               <input
@@ -2269,7 +2272,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-
+  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2277,7 +2280,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-  pre_approved_at?: string | null;
+
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)

@@ -468,7 +468,7 @@ export async function handleStaff(
     // v1.4.101: name + birthday only, for the calendar and dashboard —
     // available to every staff role, nothing sensitive.
     const { results } = await env.DB.prepare(
-      `SELECT name, birthday FROM users
+      `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
        WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND birthday IS NOT NULL`,
     ).all();
     return json({ birthdays: results });
@@ -478,9 +478,9 @@ export async function handleStaff(
     // Sales-person dropdown — available to every staff role, exposes nothing
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
-      `SELECT id, name, role FROM users
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
        WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')
-       ORDER BY name`,
+       ORDER BY 2`,
     ).all();
     return json({ staff: results });
   }
@@ -492,7 +492,7 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
-      `SELECT a.action, a.created_at, u.name, u.email
+      `SELECT a.action, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        WHERE a.action IN ('auth.login', 'auth.login_2fa', 'auth.login_google', 'auth.2fa_challenge', 'auth.2fa_backup_used', 'auth.2fa_enabled', 'auth.2fa_disabled')
        ORDER BY a.created_at DESC LIMIT 60`,
@@ -1118,7 +1118,7 @@ export async function handleStaff(
     }
     const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.name, u.role, u.employment_status,
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.employment_status,
               /* v1.4.177 HOTFIX: punches are stored as clock_in/clock_out —
                  v1.4.173 filtered on 'in'/'out', matched nothing, and showed
                  EVERYONE as not clocked in despite real data. */
@@ -1143,7 +1143,7 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT a.id, u.name, u.email, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by
+      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
@@ -4053,7 +4053,7 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT u.name, u.email, u.employee_id, a.type, a.created_at
+      `SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY u.name, a.created_at`,
     ).bind(month).all();
@@ -4120,7 +4120,7 @@ export async function handleStaff(
     // Any staff member can see upcoming birthdays; HR maintains them via
     // PATCH /users/:id (birthday field).
     const { results } = await env.DB.prepare(
-      `SELECT name, birthday FROM users
+      `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
        WHERE birthday IS NOT NULL AND is_active = 1 AND role != 'customer'
        ORDER BY substr(birthday, 6)`,
     ).all();
@@ -5051,7 +5051,7 @@ export async function handleStaff(
       env.DB.prepare(`SELECT status, COUNT(*) AS n FROM tasks GROUP BY status`).all(),
       // Per-staff task load — who has open work, for monitoring.
       env.DB.prepare(
-        `SELECT u.name, u.role,
+        `SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role,
                 SUM(CASE WHEN t.status != 'completed' THEN 1 ELSE 0 END) AS open_tasks,
                 SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS done_tasks
          FROM users u LEFT JOIN tasks t ON t.assigned_to = u.id

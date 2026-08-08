@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { properName } from "@/lib/names";
+import { properName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -672,7 +672,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                       payslip, claim form, leave form, ID badge, sales-document
                       signature, and the Maybank2E batch — so a list showing
                       only the short name hid whose record was incomplete. */}
-                  {properName(u.full_name?.trim() || u.name)}
+                  {displayName(u)}
                 </RecordToggle>
                 {!u.full_name?.trim() && (
                   <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
@@ -758,12 +758,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                         window.setTimeout(() => setSaved(null), 3000);
                         // v1.4.184 (CEO: "no popup successful when upload staff
                         // Photo"): same save-popup family as every other save.
-                        showToast("Photo uploaded", `${properName(u.name)} — badge photo saved`);
+                        showToast("Photo uploaded", `${displayName(u)} — badge photo saved`);
                         void load();
                       } else {
                         const j = (await res.json().catch(() => null)) as ErrShape | null;
                         setRowMsg((m) => ({ ...m, [u.id]: j?.error?.message ?? "Photo upload failed" }));
-                        showToast("Photo upload failed", j?.error?.message ?? `${properName(u.name)} — try again`, "notice");
+                        showToast("Photo upload failed", j?.error?.message ?? `${displayName(u)} — try again`, "notice");
                       }
                     }}
                   />
@@ -809,7 +809,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             </div>
             </div>
             ))}
-            {open.has(u.id) && <StaffVault userId={u.id} name={properName(u.name)} />}
+            {open.has(u.id) && <StaffVault userId={u.id} name={displayName(u)} />}
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">
                 <p className="text-muted-foreground mb-2 text-xs">

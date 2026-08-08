@@ -25,3 +25,10 @@ export function firstName(v?: string | null): string {
   const p = properName(v);
   return p.split(" ")[0] ?? "";
 }
+
+/* v1.4.261: the display rule as ONE function — legal name when on file,
+   short name otherwise. Worker routes that return only `name` already apply
+   the same rule in SQL; this is for payloads that carry both fields. */
+export function displayName(u: { name: string; full_name?: string | null }): string {
+  return properName(u.full_name?.trim() || u.name);
+}
