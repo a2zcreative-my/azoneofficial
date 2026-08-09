@@ -2299,6 +2299,18 @@ function CustomerEnquiriesCard() {
   );
 }
 
+/* v1.4.263: word the inventory movement an invoice caused, for the toast.
+   Silence would repeat the In+ mistake (v1.4.251) — stock moving with no
+   confirmation — and a wrong-SKU line NOT deducting must be said loudest. */
+function stockToastLine(s: { deducted: { sku: string; qty: number; stock: number }[]; unmatched: string[]; short: string[] } | null | undefined): string {
+  if (!s) return "";
+  const parts: string[] = [];
+  if (s.deducted.length) parts.push(`stock deducted: ${s.deducted.map((d) => `${d.sku} −${d.qty} (now ${d.stock})`).join(", ")}`);
+  if (s.unmatched.length) parts.push(`⚠ NOT in inventory, not deducted: ${s.unmatched.join(", ")}`);
+  if (s.short.length) parts.push(`⚠ short: ${s.short.join("; ")}`);
+  return parts.length ? ` — ${parts.join(" · ")}` : "";
+}
+
 function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
@@ -2400,9 +2412,10 @@ function Sales({ user }: { user: User }) {
       void printDoc(idP); // fresh PDF straight after the fix
       return;
     }
-    const res = await api<{ id?: number; doc_number?: string; error?: { message?: string } }>(`/staff/docs`, { method: "POST", body: JSON.stringify(payload) });
+    type StockMove = { deducted: { sku: string; qty: number; stock: number }[]; unmatched: string[]; short: string[] } | null;
+    const res = await api<{ id?: number; doc_number?: string; stock?: StockMove; error?: { message?: string } }>(`/staff/docs`, { method: "POST", body: JSON.stringify(payload) });
     if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Create failed — check access", "notice"); return; }
-    showToast("Saved", `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}`);
+    showToast("Saved", `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}${stockToastLine(res.data.stock)}`);
     const newId = res.data.id;
     resetDocForm();
     await load(); // v1.4.97: awaited so the new document is visible in the list at once
@@ -2865,9 +2878,9 @@ function Sales({ user }: { user: User }) {
               <button type="button" className="inline-flex h-7 items-center rounded-lg bg-[#1A2946] px-2.5 text-xs font-medium text-white"
                 title="One click Quotation → Invoice: same items, customer and sales person, fresh INV number"
                 onClick={async () => {
-                  const res = await api<{ id?: number; doc_number?: string; error?: { message?: string } }>(`/staff/docs/${d.id}/convert`, { method: "POST", body: JSON.stringify({}) });
+                  const res = await api<{ id?: number; doc_number?: string; stock?: Parameters<typeof stockToastLine>[0]; error?: { message?: string } }>(`/staff/docs/${d.id}/convert`, { method: "POST", body: JSON.stringify({}) });
                   if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Conversion failed — check access", "notice"); return; }
-                  showToast("Saved", `${d.doc_number} → ${res.data.doc_number}`);
+                  showToast("Saved", `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`);
                   await load();
                   void printDoc(res.data.id);
                 }}>→ Invoice</button>

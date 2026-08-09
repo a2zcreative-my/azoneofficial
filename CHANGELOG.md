@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.263] — 2026-08-07 — A product invoice moves stock (MIGRATION 0065)
+
+### Added (CEO: "if sales invoice created, inventory should be deducted to tally the inventory. of the payment has been paid. the amount of sales will be reflected to the Sales revenue")
+- **A product INVOICE now deducts inventory the moment it is created** — typed directly or born from a Quotation → Invoice click. Lines match inventory by **SKU first, then exact name** (the product form's datalist inserts inventory names, so most lines match by themselves). Each deduction is logged in the Manual stock movements trail as `Invoice INV-… — stock deducted on invoice`, tied to the document (MIGRATION 0065 `manual_stockouts.doc_id`).
+- **The toast tells you exactly what moved** — `stock deducted: ELFIA001 −4 (now 16)` — and says loudest what did **not**: `⚠ NOT in inventory, not deducted: …` for a line that matched nothing, and `⚠ short:` when an invoice asks for more than the shelf holds (stock floors at 0 and the shortfall is written into the trail remark rather than silently invented).
+- **Deleting or reversing an unpaid invoice puts the stock back** and removes its own trail rows — ↩ Undo and Delete are now stock-safe.
+- **Deliberate boundaries:** only the INV deducts — a quotation is a promise, and deducting a DO too would double-deduct the same sale. Service documents never touch stock. The trail rows carry **no sale price**, because the revenue is counted by the *paid invoice* (below) — pricing the movement would count the sale twice.
+
+### Already true, worth confirming
+- **The second half of the request has worked since v1.4.90:** invoiced revenue counts on a **payment-received basis** — the moment an invoice is marked paid (or born paid), its amount lands in Sales revenue, the P&L and the 🔥 Today box, bucketed by the payment date you now pick (v1.4.250). Nothing needed changing there.
+- Worker + frontend. **MIGRATION 0065** — without it stock still moves and the trail still writes; only the doc link falls back to the remark prefix.
+
 ## [1.4.262] — 2026-08-07 — One subject per memo
 
 ### Fixed (CEO: "subject and perkara is the same thing!")

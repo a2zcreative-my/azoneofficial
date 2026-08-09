@@ -2901,8 +2901,13 @@ export async function handleStaff(
          payment_ref = ?1, paid_at = COALESCE(?2, datetime('now')) WHERE id = ?3`,
       ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, payDate, res.id).run();
     }
+    // v1.4.263: a product invoice moves stock the moment it exists.
+    let stockMove: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
+    if (docType === "INV" && kindD !== "service" && res?.id) {
+      stockMove = await deductForInvoice(env, res.id, number, JSON.stringify(items), docDate, user.id);
+    }
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
-    return json({ id: res?.id, doc_number: number, total_cents: total }, 201);
+    return json({ id: res?.id, doc_number: number, total_cents: total, stock: stockMove }, 201);
   }
   const docGet = path.match(/^\/docs\/(\d+)$/);
   if (docGet && method === "GET") {
@@ -3036,8 +3041,14 @@ export async function handleStaff(
       qt.notes ?? null, qt.salesperson_id ?? user.id, user.id, qt.id,
       (qt as { kind?: string | null }).kind ?? "product", // v1.4.234: the invoice inherits the quotation's line
     ).first<{ id: number }>();
+    // v1.4.263: the invoice born from a quotation deducts stock too — the QT
+    // itself never moved any, so this is the sale's single deduction.
+    let stockMoveC: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
+    if (((qt as { kind?: string | null }).kind ?? "product") !== "service" && resC?.id) {
+      stockMoveC = await deductForInvoice(env, resC.id, numberC, String(qt.items ?? "[]"), null, user.id);
+    }
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
-    return json({ id: resC?.id, doc_number: numberC }, 201);
+    return json({ id: resC?.id, doc_number: numberC, stock: stockMoveC }, 201);
   }
 
   /* v1.4.233 (CEO: "reversal button for the Quotation if accidentally click
@@ -3055,8 +3066,9 @@ export async function handleStaff(
     if (!inv || inv.doc_type !== "INV") return err("not_found", "Invoice not found", 404);
     if (!inv.converted_from) return err("invalid_input", "This invoice was not created from a quotation", 400);
     if (inv.payment_status === "paid") return err("invalid_input", "A PAID invoice cannot be reversed — unmark the payment first if this is truly a mistake", 400);
+    const restoredU = await restoreForInvoice(env, inv.id, inv.doc_number); // v1.4.263
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(inv.id).run();
-    await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from });
+    await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from, stock_restored_rows: restoredU });
     return json({ ok: true });
   }
 
@@ -3076,8 +3088,9 @@ export async function handleStaff(
     if (dd.doc_type === "INV" && dd.payment_status === "paid") {
       return err("invalid_input", "A PAID invoice is an accounting record and cannot be deleted — unmark the payment first if this is truly a mistake", 400);
     }
+    const restoredD = dd.doc_type === "INV" ? await restoreForInvoice(env, dd.id, dd.doc_number) : 0; // v1.4.263
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(dd.id).run();
-    await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type });
+    await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type, stock_restored_rows: restoredD });
     return json({ ok: true });
   }
   /* v1.4.244 (CEO: "if I click on PDF button I want the format can be deliver
@@ -4127,7 +4140,87 @@ export async function handleStaff(
     return json({ birthdays: results });
   }
 
-  /* ---- Sales & marketing: inventory ---- */
+  /* v1.4.263 (CEO: "if sales invoice created, inventory should be deducted to
+   tally the inventory"): a product INVOICE moves stock the moment it exists.
+
+   Only the INV deducts — a quotation is a promise, and a DO for the same sale
+   would double-deduct. Lines match inventory by SKU first, then exact name
+   (the product form's datalist inserts inventory names, so most lines match);
+   unmatched lines are reported back, never guessed. Each deduction is logged
+   in manual_stockouts with NO sale price — the revenue is counted by the PAID
+   invoice (v1.4.90), so pricing the movement would count the sale twice. */
+async function deductForInvoice(
+  env: Env, docId: number, docNumber: string, itemsJson: string, docDate: string | null, byUser: number,
+): Promise<{ deducted: { sku: string; name: string; qty: number; stock: number }[]; unmatched: string[]; short: string[] }> {
+  const out = { deducted: [] as { sku: string; name: string; qty: number; stock: number }[], unmatched: [] as string[], short: [] as string[] };
+  let items: { name?: string; sku?: string; qty?: number }[] = [];
+  try { items = JSON.parse(itemsJson); } catch { return out; }
+  for (const it of items) {
+    const qty = Math.round(Number(it.qty ?? 0));
+    if (!qty || qty <= 0) continue;
+    const sku = (it.sku ?? "").trim();
+    const name = (it.name ?? "").trim();
+    const inv = await env.DB.prepare(
+      sku
+        ? `SELECT id, sku, name, stock FROM inventory_items WHERE UPPER(sku) = UPPER(?1) LIMIT 1`
+        : `SELECT id, sku, name, stock FROM inventory_items WHERE UPPER(name) = UPPER(?1) LIMIT 1`,
+    ).bind(sku || name).first<{ id: number; sku: string; name: string; stock: number }>();
+    if (!inv) { if (name || sku) out.unmatched.push(name || sku); continue; }
+    const newStock = Math.max(0, inv.stock - qty);
+    if (inv.stock < qty) out.short.push(`${inv.sku} (had ${inv.stock}, invoice needs ${qty})`);
+    await env.DB.prepare(`UPDATE inventory_items SET stock = ?1 WHERE id = ?2`).bind(newStock, inv.id).run();
+    const remark = `Invoice ${docNumber} — stock deducted on invoice${inv.stock < qty ? ` (SHORT: had ${inv.stock}, needed ${qty})` : ""}`;
+    const args = [inv.id, inv.sku, inv.name, qty, remark, docDate, byUser];
+    try {
+      await env.DB.prepare(
+        `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by, direction, doc_id)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, 'out', ?8)`,
+      ).bind(...args, docId).run();
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      /* pre-0065 (or pre-0064) skew: the stock still moves; the trail row is
+         written with whatever columns exist, and restoration falls back to
+         the remark prefix, which this route alone writes. */
+      try {
+        await env.DB.prepare(
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by, direction)
+           VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, 'out')`,
+        ).bind(...args).run();
+      } catch (e2) {
+        if (!String(e2).includes("no such column")) throw e2;
+        await env.DB.prepare(
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by)
+           VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7)`,
+        ).bind(...args).run();
+        await logError(env, "migration_skew", "manual_stockouts missing 0064/0065 — invoice deduction logged without direction/doc_id");
+      }
+    }
+  }
+  return out;
+}
+
+/** The reverse: a deleted / reversed / re-edited invoice puts its stock back
+    and removes its own trail rows (the document they belonged to is gone). */
+async function restoreForInvoice(env: Env, docId: number, docNumber: string): Promise<number> {
+  let rows: { id: number; item_id: number; qty: number }[] = [];
+  try {
+    rows = (await env.DB.prepare(
+      `SELECT id, item_id, qty FROM manual_stockouts WHERE doc_id = ?1 AND direction = 'out'`,
+    ).bind(docId).all<{ id: number; item_id: number; qty: number }>()).results;
+  } catch (e) {
+    if (!String(e).includes("no such column")) throw e;
+    rows = (await env.DB.prepare(
+      `SELECT id, item_id, qty FROM manual_stockouts WHERE remark LIKE ?1`,
+    ).bind(`Invoice ${docNumber} — stock deducted on invoice%`).all<{ id: number; item_id: number; qty: number }>()).results;
+  }
+  for (const r of rows) {
+    await env.DB.prepare(`UPDATE inventory_items SET stock = stock + ?1 WHERE id = ?2`).bind(r.qty, r.item_id).run();
+    await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(r.id).run();
+  }
+  return rows.length;
+}
+
+/* ---- Sales & marketing: inventory ---- */
 
   if (path === "/inventory" && method === "GET") {
     if (!can(user, "inventory") && !can(user, "exec_view")) {
