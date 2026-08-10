@@ -463,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role: _role = "" }: { role?: string }) {
+export function InventoryPanel() {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -565,11 +565,11 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   };
   // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
   const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
-  const maxStock = Math.max(1, ...items.map((x) => x.stock)); // v1.4.270 row bars
   const sortedItems = [...items].sort(invSort === "sku" ? bySku
     : invSort === "sku-desc" ? (a, b) => bySku(b, a)
     : invSort === "az" ? (a, b) => a.name.localeCompare(b.name)
     : (a, b) => b.name.localeCompare(a.name));
+  const maxStock = Math.max(1, ...items.map((x) => x.stock)); // v1.4.270 row bars
   // Hot = today's sales first (ties: month, then SKU) — deterministic.
   const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
   const sortedTtOut = [...ttOut].sort(ttSort === "hot" ? byToday

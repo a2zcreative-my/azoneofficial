@@ -121,8 +121,8 @@ const ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT"
 const TENS = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
 function under1000(n: number): string {
   const out: string[] = [];
-  if (n >= 100) { out.push(`${ONES[Math.floor(n / 100)]!} HUNDRED`); n %= 100; if (n) out.push("AND"); }
-  if (n >= 20) out.push(TENS[Math.floor(n / 10)]! + (n % 10 ? ` ${ONES[n % 10]!}` : ""));
+  if (n >= 100) { out.push(`${ONES[Math.floor(n / 100)]} HUNDRED`); n %= 100; if (n) out.push("AND"); }
+  if (n >= 20) out.push(TENS[Math.floor(n / 10)] + (n % 10 ? ` ${ONES[n % 10]}` : ""));
   else if (n) out.push(ONES[n]!);
   return out.join(" ");
 }

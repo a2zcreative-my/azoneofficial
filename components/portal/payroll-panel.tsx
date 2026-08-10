@@ -696,8 +696,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (<>
-        <details className="mt-2 text-xs">
+      {!readOnly && (
+        <>
+          <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
           </summary>
@@ -779,7 +780,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-      </>)}
+        </>
+      )}
 
       {release && (
         <p className="mt-2 text-xs">
@@ -1053,7 +1055,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] ?? 0 } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
                             Base
                           </button>
                         )}

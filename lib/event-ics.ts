@@ -46,7 +46,7 @@ export interface CalendarEventLike {
     DTEND is the NEXT day because RFC 5545 end dates are exclusive; writing
     the same date makes some apps show a zero-length event. */
 export function buildEventIcs(ev: CalendarEventLike): Blob {
-  const [y, mo, d] = ev.event_date.split("-").map(Number) as [number, number, number];
+  const [y, mo, d] = ev.event_date.split("-").map(Number);
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",

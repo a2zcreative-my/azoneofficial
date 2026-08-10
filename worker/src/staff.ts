@@ -261,7 +261,7 @@ function leaveStageLabel(stage: string): string {
    forward) and the M2E bank-code map from the template's own list. Hoisted to
    module scope so the CSV route and the filled-.xlsm route share them. */
 export function paymentDateFor(payMonth: string): string {
-  const [py, pm] = payMonth.split("-").map(Number) as [number, number];
+  const [py, pm] = payMonth.split("-").map(Number);
   const ny = pm === 12 ? py + 1 : py;
   const nm = pm === 12 ? 1 : pm + 1;
   const d = new Date(Date.UTC(ny, nm - 1, 5));
@@ -291,6 +291,54 @@ function bankCode(name: string): string | null {
 }
 
 const M2E_TEMPLATE_KEY = "private/m2e/template.xlsm";
+
+/* v1.4.278 — ALL-TIME revenue by MYT month, all four channels. ONE copy of
+   this arithmetic (v1.4.226 rule): /revenue's overall card AND /finance/pnl
+   both call it. Each channel armored so a pending migration blanks one
+   channel, never the caller. */
+async function revenueByMonth(env: Env): Promise<Record<string, number>> {
+  const acc: Record<string, number> = {};
+  const add = (m: string | null, c: number) => { if (m) acc[m] = (acc[m] ?? 0) + c; };
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
+       FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add(r.m, r.cents);
+  } catch { /* pre-postage */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add(r.m, r.cents);
+  } catch { /* pre-0060 */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
+       FROM postage_records WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add(r.m, r.cents);
+  } catch { /* pre-0048 */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT (CASE WHEN out_date IS NOT NULL THEN substr(out_date, 1, 7)
+                    ELSE strftime('%Y-%m', created_at, '+8 hours') END) AS m,
+              COALESCE(SUM(total_cents), 0) AS cents
+       FROM manual_sales GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add(r.m, r.cents);
+  } catch {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+         FROM manual_sales GROUP BY m`,
+      ).all<{ m: string; cents: number }>();
+      for (const r of results) add(r.m, r.cents);
+    } catch { /* pre-manual-sales */ }
+  }
+  return acc;
+}
 
 export async function handleStaff(
   request: Request,
@@ -1523,7 +1571,7 @@ export async function handleStaff(
         while (t.length > 74) { out.push(t.slice(0, 74)); t = " " + t.slice(74); }
         out.push(t); return out.join("\r\n");
       };
-      const [y, mo, d] = ev.event_date.split("-").map(Number) as [number, number, number];
+      const [y, mo, d] = ev.event_date.split("-").map(Number);
       const lines: string[] = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AZ ONE OFFICIAL//Staff Portal//EN", "METHOD:PUBLISH",
         "BEGIN:VEVENT",
@@ -2129,6 +2177,85 @@ export async function handleStaff(
 
   /* ---- company expenses (v1.4.87): CEO + COO ---- */
 
+  /* v1.4.278 — 💹 P&L by month ("powerful system for my sales track and
+     also expenses"). Revenue comes from revenueByMonth() — the ONE revenue
+     arithmetic; payroll uses the SAME net expression the M2E file uses
+     (net_cents with the additive fallback — never a second formula);
+     expenses by expense_date; claims = APPROVED, by claim_date. Every
+     source armored; a month appears if ANY source has it. */
+  if (path === "/finance/pnl" && method === "GET") {
+    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    const rev = await revenueByMonth(env);
+    const exp: Record<string, number> = {}; const pay: Record<string, number> = {}; const clm: Record<string, number> = {};
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT substr(expense_date, 1, 7) AS m, COALESCE(SUM(amount_cents), 0) AS cents FROM expenses GROUP BY m`,
+      ).all<{ m: string; cents: number }>();
+      for (const r of results) exp[r.m] = r.cents;
+    } catch { /* pre-0032 */ }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT month AS m, COALESCE(SUM(COALESCE(net_cents,
+                MAX(0, basic_cents + commission_cents + allowance_cents + COALESCE(ot_cents, 0) - deduction_cents))), 0) AS cents
+         FROM payroll_entries GROUP BY month`,
+      ).all<{ m: string; cents: number }>();
+      for (const r of results) pay[r.m] = r.cents;
+    } catch { /* pre-0017/0041 skew — try the plain additive form */
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT month AS m, COALESCE(SUM(MAX(0, basic_cents + commission_cents + allowance_cents - deduction_cents)), 0) AS cents
+           FROM payroll_entries GROUP BY month`,
+        ).all<{ m: string; cents: number }>();
+        for (const r of results) pay[r.m] = r.cents;
+      } catch { /* pre-payroll */ }
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT substr(claim_date, 1, 7) AS m, COALESCE(SUM(amount_cents), 0) AS cents
+         FROM claims WHERE status = 'approved' GROUP BY m`,
+      ).all<{ m: string; cents: number }>();
+      for (const r of results) clm[r.m] = r.cents;
+    } catch { /* pre-claims */ }
+    const monthsSet = new Set([...Object.keys(rev), ...Object.keys(exp), ...Object.keys(pay), ...Object.keys(clm)]);
+    const months = [...monthsSet].sort().map((m) => {
+      const revenue = rev[m] ?? 0, expenses = exp[m] ?? 0, payroll = pay[m] ?? 0, claims = clm[m] ?? 0;
+      return { month: m, revenue_cents: revenue, expenses_cents: expenses, payroll_cents: payroll, claims_cents: claims,
+               net_cents: revenue - expenses - payroll - claims };
+    });
+    return json({ months });
+  }
+
+  /* v1.4.278 — 🎯 pipeline insights ("business opportunities"): the funnel,
+     the win rate, WHICH SOURCE actually closes, and the referral leaders.
+     Same 409 convention as every prospects route when 0066 hasn't run. */
+  if (path === "/prospects/insights" && method === "GET") {
+    if (!["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)) {
+      return err("forbidden", "Sales access required", 403);
+    }
+    try {
+      const { results: stages } = await env.DB.prepare(
+        `SELECT stage, COUNT(*) AS n FROM prospects GROUP BY stage`,
+      ).all<{ stage: string; n: number }>();
+      const { results: sources } = await env.DB.prepare(
+        `SELECT source, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won
+         FROM prospects GROUP BY source ORDER BY won DESC, total DESC`,
+      ).all<{ source: string; total: number; won: number }>();
+      let referrers: { name: string; total: number; won: number }[] = [];
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT referred_by AS name, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won
+           FROM prospects WHERE referred_by IS NOT NULL AND TRIM(referred_by) != ''
+           GROUP BY referred_by ORDER BY won DESC, total DESC LIMIT 5`,
+        ).all<{ name: string; total: number; won: number }>();
+        referrers = results;
+      } catch { /* pre-0067 — the referral column arrives with the growth pack */ }
+      return json({ stages, sources, referrers });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
+      throw e;
+    }
+  }
+
   if (path === "/expenses" && method === "GET") {
     if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
     const urlE = new URL(request.url);
@@ -2500,54 +2627,7 @@ export async function handleStaff(
         } catch { return { cents: 0 }; }
       }
     };
-    // v1.4.276 (CEO: "1 more card to monitor overall business sales"): the
-    // WHOLE business since day one, grouped by month — the SAME four
-    // channels as this route's month queries, mirrored (the v1.4.226 rule:
-    // never invent a second version of revenue SQL). Armored so a pending
-    // migration blanks one channel, never the card.
-    const overallByMonth = async (): Promise<Record<string, number>> => {
-      const acc: Record<string, number> = {};
-      const add = (m: string | null, c: number) => { if (m) acc[m] = (acc[m] ?? 0) + c; };
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
-           FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
-        ).all<{ m: string; cents: number }>();
-        for (const r of results) add(r.m, r.cents);
-      } catch { /* pre-postage */ }
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
-           FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m`,
-        ).all<{ m: string; cents: number }>();
-        for (const r of results) add(r.m, r.cents);
-      } catch { /* pre-0060 */ }
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
-           FROM postage_records WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
-        ).all<{ m: string; cents: number }>();
-        for (const r of results) add(r.m, r.cents);
-      } catch { /* pre-0048 */ }
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT (CASE WHEN out_date IS NOT NULL THEN substr(out_date, 1, 7)
-                        ELSE strftime('%Y-%m', created_at, '+8 hours') END) AS m,
-                  COALESCE(SUM(total_cents), 0) AS cents
-           FROM manual_sales GROUP BY m`,
-        ).all<{ m: string; cents: number }>();
-        for (const r of results) add(r.m, r.cents);
-      } catch {
-        try {
-          const { results } = await env.DB.prepare(
-            `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
-             FROM manual_sales GROUP BY m`,
-          ).all<{ m: string; cents: number }>();
-          for (const r of results) add(r.m, r.cents);
-        } catch { /* pre-manual-sales */ }
-      }
-      return acc;
-    };
+    const overallByMonth = () => revenueByMonth(env); // v1.4.278: shared module helper (was local in 276)
     const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday, tYest, iYest, oYest, mYest] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
       targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokDay(todayMYT), invoicedDay(todayMYT),

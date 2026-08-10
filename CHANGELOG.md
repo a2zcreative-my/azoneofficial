@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.278] — 2026-08-10 — Sales tracking, expenses P&L, and pipeline insights
+
+### CEO: "I want an update coding! additionally, I want powerful system for my sales track and also expenses and business opportunities"
+- **📊 Sales history (Ecommerce tab, under Sales revenue):** every month of the business, all four channels, newest first — month-over-month ▲/▼%, a bar measuring each month against your best (🏆 on the best), TOTAL footer. Frontend-only: reads the v1.4.276 `overall` block.
+- **💹 Profit & loss by month (Expenses tab, above the register):** revenue − expenses − payroll − approved claims = NET (green/red). NEW worker `GET /finance/pnl` — revenue via the shared `revenueByMonth()` helper (extracted from /revenue so the arithmetic stays ONE copy), payroll via the SAME net expression the M2E salary file uses (`net_cents` with the additive fallback — never a second payroll formula), expenses by expense_date, claims = approved by claim_date; every source armored, a month appears if any source has it.
+- **🎯 Pipeline insights (Social tab, above Prospects):** the funnel as bars in stage order, win rate of closed deals, WHICH SOURCE actually closes (won/total per source), and top referrers (pre-0067 safe). NEW worker `GET /prospects/insights` with the standard 409 when 0066 hasn't run.
+- All three cards render null until the worker has the routes / migrations run — no red boxes, the existing deploy notices already tell that story.
+- Worker + frontend. No new migration. ⛔ The deploy (0060→0067 + worker + build) is still the gate for everything.
+
 ## [1.4.277] — 2026-08-10 — Sales revenue → Ecommerce; the migration card now names ALL pending migrations
 
 ### CEO: "Sales revenue — 2026-08 move to Ecommerce" + his red migration box

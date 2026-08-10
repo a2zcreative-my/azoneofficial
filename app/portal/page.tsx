@@ -8,14 +8,14 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
 import { addEventToCalendar } from "@/lib/event-ics";
 import { ProspectsPanel } from "@/components/portal/prospects-panel";
-import { StatCard } from "@/components/ui/stat-card";
+import { StatCard, MiniBar } from "@/components/ui/stat-card";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -42,8 +42,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass, th, thR2, td, tdR2, fieldRow } from "@/lib/ui-styles";
-
-import { dmy, mytToday, mytDateOf, fmtRM, ym, dmyMYT } from "@/lib/format";
+import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -847,8 +846,8 @@ function UpcomingEventsCard({ role }: { role: string }) {
   useEffect(() => {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
@@ -2513,6 +2512,157 @@ function PackagesEditorCard({ role }: { role: string }) {
   );
 }
 
+
+/* v1.4.278 — 📊 Sales history ("powerful system for my sales track"):
+   every month of the business, all four channels (the /revenue overall
+   block), with month-over-month movement and each month measured against
+   the best. Frontend-only — the arithmetic already lives server-side. */
+function SalesHistoryCard() {
+  const [rev, setRev] = useState<RevenueData | null>(null);
+  useEffect(() => {
+    void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+  }, []);
+  const months = rev?.overall?.months ?? [];
+  if (months.length === 0) return null;
+  const best = Math.max(...months.map((m) => m.cents), 1);
+  const total = months.reduce((a, m) => a + m.cents, 0);
+  const rows = [...months].reverse(); // newest first
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📊 Sales history — month by month</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        All four channels, since day one. The bar measures each month against your best.
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead><tr className="border-border border-b">
+            <th className={th}>MONTH</th><th className={thR2}>SALES</th><th className={thR2}>VS PREV</th><th className={`${th} w-28`}></th>
+          </tr></thead>
+          <tbody>
+            {rows.map((m, i) => {
+              const prev = rows[i + 1]; // list is newest-first
+              const delta = prev && prev.cents > 0 ? ((m.cents - prev.cents) / prev.cents) * 100 : null;
+              return (
+                <tr key={m.month} className="border-border border-b last:border-0">
+                  <td className={td}>{ym(m.month)}{m.cents >= best - 0.5 ? " 🏆" : ""}</td>
+                  <td className={tdR2}>{fmtRM(m.cents)}</td>
+                  <td className={`${tdR2} ${delta == null ? "text-muted-foreground" : delta >= 0 ? "text-green-700" : "text-red-600"}`}>
+                    {delta == null ? "—" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%`}
+                  </td>
+                  <td className={td}><MiniBar pct={(m.cents / best) * 100} tone={m.cents >= best - 0.5 ? "green" : "gold"} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot><tr>
+            <th className={th}>TOTAL</th><th className={thR2}>{fmtRM(total)}</th><th className={thR2}></th><th className={th}></th>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* v1.4.278 — 💹 Profit & loss by month ("…and also expenses"): revenue −
+   expenses − payroll − approved claims = the number the business actually
+   keeps. Renders null on a worker that predates the route. */
+function PnlCard() {
+  interface PnlMonth { month: string; revenue_cents: number; expenses_cents: number; payroll_cents: number; claims_cents: number; net_cents: number }
+  const [months, setMonths] = useState<PnlMonth[] | null>(null);
+  useEffect(() => {
+    void api<{ months: PnlMonth[] }>(`/staff/finance/pnl`).then((r) => { if (r.ok && r.data) setMonths(r.data.months); });
+  }, []);
+  if (!months || months.length === 0) return null;
+  const rows = [...months].reverse(); // newest first
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">💹 Profit &amp; loss — month by month</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps.
+        Payroll uses the same net figures as the M2E salary file.
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead><tr className="border-border border-b">
+            <th className={th}>MONTH</th><th className={thR2}>REVENUE</th><th className={thR2}>EXPENSES</th>
+            <th className={thR2}>PAYROLL</th><th className={thR2}>CLAIMS</th><th className={thR2}>NET</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((m) => (
+              <tr key={m.month} className="border-border border-b last:border-0">
+                <td className={td}>{ym(m.month)}</td>
+                <td className={tdR2}>{fmtRM(m.revenue_cents)}</td>
+                <td className={tdR2}>{m.expenses_cents ? fmtRM(m.expenses_cents) : "—"}</td>
+                <td className={tdR2}>{m.payroll_cents ? fmtRM(m.payroll_cents) : "—"}</td>
+                <td className={tdR2}>{m.claims_cents ? fmtRM(m.claims_cents) : "—"}</td>
+                <td className={`${tdR2} font-semibold ${m.net_cents >= 0 ? "text-green-700" : "text-red-600"}`}>{fmtRM(m.net_cents)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* v1.4.278 — 🎯 Pipeline insights ("business opportunities"): the funnel,
+   the win rate, which SOURCE actually closes, and the referral leaders —
+   the questions the pipeline exists to answer. Null until the worker has
+   the route (or 0066 hasn't run — the panel below already says so). */
+function PipelineInsightsCard() {
+  interface Insights { stages: { stage: string; n: number }[]; sources: { source: string; total: number; won: number }[]; referrers: { name: string; total: number; won: number }[] }
+  const [ins, setIns] = useState<Insights | null>(null);
+  useEffect(() => {
+    void api<Insights>(`/staff/prospects/insights`).then((r) => { if (r.ok && r.data) setIns(r.data); });
+  }, []);
+  if (!ins) return null;
+  const ORDER = ["identified", "contacted", "replied", "meeting", "proposal", "won", "lost"];
+  const byStage = Object.fromEntries(ins.stages.map((s) => [s.stage, s.n]));
+  const totalAll = ins.stages.reduce((a, s) => a + s.n, 0);
+  if (totalAll === 0) return null; // never display zero stats
+  const won = byStage["won"] ?? 0;
+  const closed = won + (byStage["lost"] ?? 0);
+  const maxStage = Math.max(...ORDER.map((s) => byStage[s] ?? 0), 1);
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">🎯 Pipeline insights</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        {totalAll} prospect{totalAll === 1 ? "" : "s"} tracked
+        {closed > 0 ? ` · win rate ${Math.round((won / closed) * 100)}% of ${closed} closed` : " · nothing closed yet"}
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {ORDER.filter((s) => (byStage[s] ?? 0) > 0).map((s) => (
+          <div key={s} className="flex items-center gap-2 text-sm">
+            <span className="w-24 shrink-0 capitalize">{s}</span>
+            <div className="flex-1"><MiniBar pct={((byStage[s] ?? 0) / maxStage) * 100} tone={s === "won" ? "green" : s === "lost" ? "red" : "navy"} /></div>
+            <span className="w-8 text-right tabular-nums">{byStage[s]}</span>
+          </div>
+        ))}
+      </div>
+      {ins.sources.length > 0 && (
+        <div className="mt-3">
+          <p className="text-muted-foreground text-xs font-semibold">WHICH SOURCE CLOSES</p>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {ins.sources.map((s) => (
+              <span key={s.source} className="capitalize">{s.source}: <span className="font-medium tabular-nums">{s.won}/{s.total}</span> won</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {ins.referrers.length > 0 && (
+        <div className="mt-3">
+          <p className="text-muted-foreground text-xs font-semibold">TOP REFERRERS</p>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {ins.referrers.map((r) => (
+              <span key={r.name}>↗ {r.name}: <span className="font-medium tabular-nums">{r.won}/{r.total}</span> won</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientsCard() {
   interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
   const [clients, setClients] = useState<Cl[]>([]);
@@ -2549,7 +2699,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as {error?: string})?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -3689,14 +3839,16 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
+    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   useEffect(() => {
-    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
+    if (!user) return;
+    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -3817,27 +3969,32 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  const unread = notifs.filter((n) => !n.is_read).length;
-  const tabs = ALL_TABS.filter((t) => {
-    if (t === "Dashboard" || t === "Profile") return true;
-    if (user?.role === "super_admin") return true;
-    const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user?.role || "");
-    if (t === "Sales") return SALES_ROLES.includes(user?.role || "") || user?.role === "ceo";
-    const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user?.role || "");
-  });
+  const tabs = useMemo(() => {
+    if (!user) return ALL_TABS;
+    return ALL_TABS.filter((t) => {
+      if (t === "Dashboard" || t === "Profile") return true;
+      if (user.role === "super_admin") return true;
+      const ov = tabOverrides[t];
+      if (ov !== undefined) return ov.includes(user.role);
+      if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+      const allowed = TAB_ROLES[t];
+      return !allowed || allowed.includes(user.role);
+    });
+  }, [user, tabOverrides]);
 
   useEffect(() => {
-    if (!tabs.includes(tab)) setTab("Dashboard");
+    if (user && !tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab]);
+  }, [tabs.join("|"), tab, user]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
+  // Content-team roles work in /admin; if one lands here, send them home.
+  // (Admins are allowed to use portal modules via the admin Staff bridge, but
+  // their front door is /admin — this keeps each role's default flow clean.)
   if (user && CONTENT_ONLY_ROLES.includes(user.role)) {
     if (typeof window !== "undefined") window.location.replace("/admin");
     return null;
@@ -3854,6 +4011,14 @@ export default function PortalPage() {
       </div>
     );
   }
+
+  const unread = notifs.filter((n) => !n.is_read).length;
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
@@ -4061,7 +4226,12 @@ export default function PortalPage() {
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} />}
         {activeTab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
-        {activeTab === "Expenses" && <ExpensesPanel />}
+        {activeTab === "Expenses" && (
+          <div className="space-y-4 md:space-y-6">
+            <PnlCard />
+            <ExpensesPanel />
+          </div>
+        )}
         {activeTab === "Attendance" && (
           <div className="space-y-4 md:space-y-6">
             <Attendance user={user} />
@@ -4090,7 +4260,7 @@ export default function PortalPage() {
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
         {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
+        {activeTab === "Inventory" && <InventoryPanel />}
         {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
@@ -4101,6 +4271,7 @@ export default function PortalPage() {
                 v1.4.277: Sales revenue leads the tab (moved from Dashboard
                 per CEO — the month summary above the channel detail). */}
             {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
+            {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
@@ -4114,6 +4285,7 @@ export default function PortalPage() {
                 new tabs under Social"): market-watching + prospecting live
                 together here — spot a trend, log the brand, work the stage.
                 The trends card MOVED off the Dashboard for the same reason. */}
+            {["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role) && <PipelineInsightsCard />}
             <ProspectsPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
               onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
             <TrendingMYCard />
