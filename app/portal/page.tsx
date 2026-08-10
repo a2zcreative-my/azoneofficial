@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
@@ -41,8 +41,8 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass, fieldRow } from "@/lib/ui-styles";
-import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { card, inputClass, btnClass, th, thR2, td, tdR2, fieldRow } from "@/lib/ui-styles";
+import { dmy, mytToday, mytDateOf, fmtRM, ym, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -957,9 +957,11 @@ function UpcomingEventsCard({ role }: { role: string }) {
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
-          onAdded={(title, how) => showToast("Saved", how === "shared"
-            ? `${title} — pick Calendar in the share sheet to finish`
-            : `${title} — calendar file downloaded; open it to add the event`)}
+          onAdded={(title, how) => showToast(how === "opened" ? "Calendar opened" : "Saved", how === "opened"
+            ? `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+            : how === "shared"
+              ? `${title} — pick Calendar in the share sheet to finish`
+              : `${title} — calendar file downloaded; open it to add the event`)}
         />
       )}
       {view === "list" && (
@@ -989,9 +991,11 @@ function UpcomingEventsCard({ role }: { role: string }) {
                 title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
                 onClick={async () => {
                   const how = await addEventToCalendar(ev);
-                  showToast("Saved", how === "shared"
-                    ? `${ev.title} — pick Calendar in the share sheet to finish`
-                    : `${ev.title} — calendar file downloaded; open it to add the event`);
+                  showToast(how === "opened" ? "Calendar opened" : "Saved", how === "opened"
+                    ? `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+                    : how === "shared"
+                      ? `${ev.title} — pick Calendar in the share sheet to finish`
+                      : `${ev.title} — calendar file downloaded; open it to add the event`);
                 }}>📅 Add to my calendar</button>
               {canManage && (
                 <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
@@ -1026,7 +1030,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
   onSelect: (d: string | null) => void;
   canManage: boolean;
   onRemove: (id: number) => void;
-  onAdded: (title: string, how: "shared" | "downloaded") => void;
+  onAdded: (title: string, how: "opened" | "shared" | "downloaded") => void;
 }) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -2365,10 +2369,6 @@ function LiveScheduleCard({ user }: { user: User }) {
 function LiveEconomicsCard() {
   interface Econ { month: string; clients: { id: number; company: string; minutes: number; paid_cents: number }[]; hosts: { id: number; name: string; minutes: number; gmv_cents: number }[] }
   const [econ, setEcon] = useState<Econ | null>(null);
-  const th = "text-muted-foreground px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap";
-  const thR2 = "text-muted-foreground px-2 py-1.5 text-right text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap";
-  const td = "px-2 py-1.5 align-top whitespace-nowrap";
-  const tdR2 = "px-2 py-1.5 align-top text-right whitespace-nowrap";
   useEffect(() => {
     void api<Econ>(`/staff/clients/live-economics`).then((r) => { if (r.ok && r.data) setEcon(r.data); });
   }, []);
@@ -2473,7 +2473,7 @@ function PackagesEditorCard({ role }: { role: string }) {
             const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
             const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
             if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
-            else showToast("Not saved", (r.data as { error?: string })?.error ?? "Deploy the latest server first", "notice");
+            else showToast("Not saved", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server first", "notice");
           }}>Save rate card</button>
         </div>
       </div>
@@ -2499,6 +2499,7 @@ function ClientsCard() {
     <div className={card}>
       <p className="text-sm font-semibold">🤝 Clients</p>
       {rlToastNode}
+
       <p className="text-muted-foreground mt-0.5 text-xs">
         Per-client view from your sales documents and the live roster —
         invoiced, collected, quotations in play and sessions scheduled.
@@ -2517,7 +2518,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -3656,14 +3657,16 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
+    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
-  }, [user?.id]);
+  }, [user]);
   useEffect(() => {
-    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
-  }, [tab, user?.id]);
+    if (!user) return;
+    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
@@ -3783,21 +3786,20 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  const tabs = ALL_TABS.filter((t) => {
+  const tabs = useMemo(() => ALL_TABS.filter((t) => {
+    if (!user) return false;
     if (t === "Dashboard" || t === "Profile") return true;
-    if (user?.role === "super_admin") return true;
+    if (user.role === "super_admin") return true;
     const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user?.role || "");
-    if (t === "Sales") return SALES_ROLES.includes(user?.role || "") || user?.role === "ceo";
+    if (ov !== undefined) return ov.includes(user.role);
+    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
     const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user?.role || "");
-  });
-
-  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
+    return !allowed || allowed.includes(user.role);
+  }), [user, tabOverrides]);
   useEffect(() => {
-    if (user && !tabs.includes(tab)) setTab("Dashboard");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab, user]);
+    if (!user) return;
+    if (!tabs.includes(tab)) setTab("Dashboard");
+  }, [tabs, tab, user]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -4062,7 +4064,7 @@ export default function PortalPage() {
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
         {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
+        {activeTab === "Inventory" && <InventoryPanel />}
         {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —

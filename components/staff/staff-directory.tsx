@@ -37,8 +37,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const input =
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -287,6 +286,7 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
 ];
+
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
     field expects without long labels. Empty boxes show the example; long
@@ -847,13 +847,12 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   const [kind, setKind] = useState("contract");
   const [loaded, setLoaded] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const load = async () => {
+  const load = useCallback(async () => {
     const r = await api<{ documents?: Doc[]; onboarding?: Record<string, boolean> }>(`/users/${userId}/documents`);
     if (r.ok) { setDocs(r.data?.documents ?? []); setOnb(r.data?.onboarding ?? {}); }
     setLoaded(true);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, [userId]);
+  }, [userId]);
+  useEffect(() => { void load(); }, [load]);
   const upload = async (f: File) => {
     await fetch(`${API}/users/${userId}/documents`, {
       method: "POST", credentials: "include",

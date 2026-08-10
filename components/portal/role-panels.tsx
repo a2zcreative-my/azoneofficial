@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
-import { properName, firstName } from "@/lib/names";
+import { properName, firstName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -463,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role: _role }: { role?: string }) {
+export function InventoryPanel() {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -2021,7 +2021,7 @@ export function BirthdaysPanel() {
               {/* v1.4.261: the legal name, same rule as the register and
                   payroll — /users always carried full_name; this panel's local
                   type just never declared it, so the fallback was invisible. */}
-              {u.full_name || u.name} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
+              {displayName(u)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
             </span>
             <span className="flex items-center gap-2">
               <input

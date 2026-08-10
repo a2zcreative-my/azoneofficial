@@ -696,7 +696,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (<>
+      {!readOnly && (
+        <>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
@@ -779,7 +780,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-      </>)}
+        </>
+      )}
 
       {release && (
         <p className="mt-2 text-xs">
@@ -892,7 +894,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   <input
                     type="number" min={0} step="0.01"
                     className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
-                    value={baseDraft[u.id] ? (baseDraft[u.id]! / 100).toString() : ""}
+                    value={baseDraft[u.id] !== undefined ? (baseDraft[u.id]! / 100).toString() : ""}
                     placeholder="0.00"
                     onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
                   />
@@ -1053,7 +1055,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
                             Base
                           </button>
                         )}

@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.274] — 2026-08-10 — Add to calendar now actually lands in the phone's calendar
+
+### CEO: "when I add calendar for the event, it doesnt save inside my calendar phone" — he's right, and the cause was the share sheet
+- v1.4.264 handed the .ics to the phone's SHARE SHEET — but **iOS's share sheet does not offer Calendar as a target for .ics files** (Calendar has no share extension), and Android's rarely does. The sheet opened, Calendar wasn't in it, nothing saved.
+- The door both phones actually understand is a **navigation to an HTTPS URL that answers `text/calendar`**: iOS Safari then shows its built-in event preview with an **Add All** button straight into Calendar; Android Chrome opens the file into Google Calendar's import dialog.
+- NEW worker route `GET /staff/events/:id/ics` (any staff role) serves exactly that — same MYT→UTC conversion, all-day exclusive DTEND, stable UID (re-adding updates, never duplicates), both reminders (evening before + at start), `Content-Disposition: inline` because iOS only shows the calendar preview for inline responses.
+- `addEventToCalendar()` now opens a tab synchronously (inside the tap, so popup blocking can't eat it), probes the route, and points the tab at the .ics. **Fallback:** a worker that predates this route (or offline) drops to the old share/download path unchanged.
+- Toasts now say what to do: "tap Add All (iPhone) or Save (Android) on the page that just opened".
+- Worker + frontend. No migration — but this route only exists after the worker deploy you already owe.
+
 ## [1.4.273] — 2026-08-10 — THE GROWTH PACK (CEO: "all!") — all six sales-boosting ideas, one release
 
 ### MIGRATION 0067 (prospects.referred_by · client_report_links · customers.quiet_alerted_on) + worker deploy + pnpm build

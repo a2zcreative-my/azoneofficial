@@ -1502,6 +1502,73 @@ export async function handleStaff(
 
   /* ---- company events (v1.4.73) ---- */
 
+  /* v1.4.274 — the .ics served over HTTPS, because the SHARE SHEET was the
+     wrong door: iOS's share sheet does not offer Calendar as a target for
+     .ics files, and Android's rarely does — so v1.4.264's "pick Calendar in
+     the share sheet" ended nowhere and nothing saved. Navigating to a URL
+     whose response is text/calendar IS the door both phones understand:
+     iOS Safari shows its built-in event preview with "Add All", Android
+     opens the file straight into Google Calendar's import dialog. Any staff
+     role — same audience as the events list. */
+  {
+    const mIcs = path.match(/^\/events\/(\d+)\/ics$/);
+    if (mIcs && method === "GET") {
+      const ev = await env.DB.prepare(`SELECT id, title, category, event_date, start_time, end_time, location, details FROM events WHERE id = ?1`)
+        .bind(Number(mIcs[1])).first<{ id: number; title: string; category: string; event_date: string; start_time: string | null; end_time: string | null; location: string | null; details: string | null }>();
+      if (!ev) return err("not_found", "Event not found", 404);
+      const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+      const pad2 = (n: number) => String(n).padStart(2, "0");
+      const fold = (line: string) => {
+        const out: string[] = []; let t = line;
+        while (t.length > 74) { out.push(t.slice(0, 74)); t = " " + t.slice(74); }
+        out.push(t); return out.join("\r\n");
+      };
+      const [y, mo, d] = ev.event_date.split("-").map(Number);
+      const lines: string[] = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AZ ONE OFFICIAL//Staff Portal//EN", "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        `UID:event-${ev.id}@azoneofficial.com`, // stable: re-adding UPDATES, never duplicates
+        `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+        `SUMMARY:${esc(ev.title)}`,
+      ];
+      if (ev.start_time && /^\d{2}:\d{2}/.test(ev.start_time)) {
+        const [sh, sm] = ev.start_time.split(":").map(Number);
+        const startUtc = new Date(Date.UTC(y!, mo! - 1, d!, sh! - 8, sm!)); // MYT → UTC instant
+        let endUtc: Date;
+        if (ev.end_time && /^\d{2}:\d{2}/.test(ev.end_time)) {
+          const [eh, em] = ev.end_time.split(":").map(Number);
+          endUtc = new Date(Date.UTC(y!, mo! - 1, d!, eh! - 8, em!));
+          if (endUtc <= startUtc) endUtc = new Date(startUtc.getTime() + 3600_000);
+        } else endUtc = new Date(startUtc.getTime() + 3600_000);
+        const z = (dt: Date) => `${dt.getUTCFullYear()}${pad2(dt.getUTCMonth() + 1)}${pad2(dt.getUTCDate())}T${pad2(dt.getUTCHours())}${pad2(dt.getUTCMinutes())}00Z`;
+        lines.push(`DTSTART:${z(startUtc)}`, `DTEND:${z(endUtc)}`);
+      } else {
+        const next = new Date(Date.UTC(y!, mo! - 1, d! + 1)); // RFC 5545 DTEND is EXCLUSIVE
+        lines.push(`DTSTART;VALUE=DATE:${y}${pad2(mo!)}${pad2(d!)}`,
+                   `DTEND;VALUE=DATE:${next.getUTCFullYear()}${pad2(next.getUTCMonth() + 1)}${pad2(next.getUTCDate())}`);
+      }
+      if (ev.location) lines.push(`LOCATION:${esc(ev.location)}`);
+      const desc = [ev.category ? `Category: ${ev.category}` : "", ev.details ?? ""].filter(Boolean).join("\n");
+      if (desc) lines.push(`DESCRIPTION:${esc(desc)}`);
+      lines.push(
+        "BEGIN:VALARM", "TRIGGER:-PT15H", "ACTION:DISPLAY", `DESCRIPTION:${esc(ev.title)} — tomorrow`, "END:VALARM",
+        "BEGIN:VALARM", "TRIGGER:-PT0M", "ACTION:DISPLAY", `DESCRIPTION:${esc(ev.title)}`, "END:VALARM",
+        "END:VEVENT", "END:VCALENDAR",
+      );
+      const body = lines.map(fold).join("\r\n") + "\r\n";
+      const slug = ev.title.replace(/[^\w-]+/g, "-").slice(0, 40) || "event";
+      return new Response(body, {
+        headers: {
+          // inline (not attachment): iOS Safari only shows its calendar
+          // preview for an inline text/calendar navigation.
+          "Content-Type": "text/calendar; charset=utf-8",
+          "Content-Disposition": `inline; filename="${ev.event_date}-${slug}.ics"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+  }
+
   if (path === "/events" && method === "GET") {
     // Every staff member sees events. v1.4.76: includes the previous month
     // onwards so the calendar view can show recent history; the list view

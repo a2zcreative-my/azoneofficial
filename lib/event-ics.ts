@@ -46,7 +46,7 @@ export interface CalendarEventLike {
     DTEND is the NEXT day because RFC 5545 end dates are exclusive; writing
     the same date makes some apps show a zero-length event. */
 export function buildEventIcs(ev: CalendarEventLike): Blob {
-  const [y, mo, d] = ev.event_date.split("-").map(Number);
+  const [y, mo, d] = ev.event_date.split("-").map(Number) as [number, number, number];
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -97,9 +97,39 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
   return new Blob([lines.map(fold).join("\r\n") + "\r\n"], { type: "text/calendar;charset=utf-8" });
 }
 
-/** Hand the .ics to the device: share sheet on a phone (lands on Calendar),
-    download on a desktop (opens in Outlook / Apple Calendar). */
-export async function addEventToCalendar(ev: CalendarEventLike): Promise<"shared" | "downloaded"> {
+/* v1.4.274 — the FIX for "it doesn't save inside my phone calendar".
+
+   v1.4.264 handed the file to the SHARE SHEET — but iOS's share sheet does
+   not offer Calendar as a target for .ics files (Calendar has no share
+   extension), and Android's rarely does. So the sheet opened, Calendar was
+   nowhere in it, and nothing saved. The door BOTH phones actually
+   understand is a plain navigation to an HTTPS URL whose response is
+   text/calendar: iOS Safari shows its built-in event preview with an
+   "Add All" button straight into Calendar; Android Chrome opens the file
+   into Google Calendar's import dialog. The worker now serves exactly that
+   at /api/v1/staff/events/:id/ics (session cookie rides along — same
+   origin), and this function navigates to it. The old share/download path
+   stays as the fallback for a worker that predates the route. */
+export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened" | "shared" | "downloaded"> {
+  // Open the tab SYNCHRONOUSLY (inside the tap) so popup blocking can't
+  // eat it, then point it at the .ics once the probe confirms the route.
+  const url = `/api/v1/staff/events/${ev.id}/ics`;
+  const w = window.open("", "_blank");
+  try {
+    const probe = await fetch(url, { credentials: "include" });
+    if (probe.ok && (probe.headers.get("Content-Type") ?? "").includes("text/calendar")) {
+      if (w) { w.location.href = url; return "opened"; }
+      window.location.assign(url); // popup blocked — navigate here instead; Back returns to the portal
+      return "opened";
+    }
+  } catch { /* old worker / offline — fall through */ }
+  if (w) w.close();
+  return addEventToCalendarLocal(ev);
+}
+
+/** The v1.4.264 client-side path — now the FALLBACK for a stale worker:
+    share sheet on a phone, download on a desktop. */
+async function addEventToCalendarLocal(ev: CalendarEventLike): Promise<"shared" | "downloaded"> {
   const blob = buildEventIcs(ev);
   const filename = `${ev.event_date}-${ev.title.replace(/[^\w-]+/g, "-").slice(0, 40)}.ics`;
   if (typeof navigator.canShare === "function") {
