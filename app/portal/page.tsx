@@ -42,7 +42,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass, th, thR2, td, tdR2, fieldRow } from "@/lib/ui-styles";
-import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -819,7 +819,7 @@ function TrendingMYCard() {
               </ol>
             </DetailsToggle>
           )}
-          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmyMYT(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
+          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmy(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
         </>
       )}
     </div>
@@ -846,9 +846,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
   useEffect(() => {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -2699,7 +2697,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as {error?: string})?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -3839,16 +3837,18 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
-    if (!user) return;
     try {
+      if (!user) return;
       const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   useEffect(() => {
-    if (!user) return;
-    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+    try {
+      if (!user) return;
+      window.localStorage.setItem(`azone-tab:${user.id}`, tab);
+    } catch { /* private mode */ }
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -3969,6 +3969,11 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
   const tabs = useMemo(() => {
     if (!user) return ALL_TABS;
     return ALL_TABS.filter((t) => {
@@ -3982,10 +3987,11 @@ export default function PortalPage() {
     });
   }, [user, tabOverrides]);
 
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
-    if (user && !tabs.includes(tab)) setTab("Dashboard");
+    if (!tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab, user]);
+  }, [tabs.join("|"), tab]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -4013,12 +4019,6 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
-  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
@@ -4260,7 +4260,7 @@ export default function PortalPage() {
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
         {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {activeTab === "Inventory" && <InventoryPanel />}
+        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
         {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —

@@ -696,9 +696,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (
-        <>
-          <details className="mt-2 text-xs">
+      {!readOnly && (<>
+        <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
           </summary>
@@ -780,8 +779,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-        </>
-      )}
+      </>)}
 
       {release && (
         <p className="mt-2 text-xs">
@@ -846,7 +844,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                        automatic 5th) is the LEGITIMATE case — benign
                        confirm. Early release of the current/future month
                        keeps the strong wrong-month warning (v1.4.210). */
-                    const [yR, moR] = month.split("-").map(Number) as [number, number];
+                    const [yR = 0, moR = 0] = month.split("-").map(Number);
                     const prevM = new Date(Date.UTC(yR, moR - 2, 1)).toISOString().slice(0, 7);
                     const autoD = dmy(release.available_from);
                     const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);

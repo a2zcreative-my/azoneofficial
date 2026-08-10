@@ -42,7 +42,7 @@ interface SessionUser {
  * argon2, so we use PBKDF2-SHA256 @ 310k iterations + per-user salt + server
  * pepper. Documented deviation — revisit if a vetted argon2 wasm lib is added. */
 
-const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = 310_000; // v1.4.280: raised to match SECURITY.md; stored hashes carry their own count, so old passwords still verify
 
 function toHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)]

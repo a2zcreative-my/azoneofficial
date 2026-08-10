@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.280] — 2026-08-10 — Audit response: build fixed, backdoor string removed, PBKDF2 raised
+
+### An external code audit found 4 syntax errors that broke the build, plus 2 security items — all verified and fixed
+- **Build errors (all confirmed real, all repaired):** (1) `CrudPanel` in /admin had two hooks injected inside its parameter list — moved into the body; (2) the payroll M2E + commission-helper `<details>` blocks were two siblings inside a single-element `( )` — wrapped in a fragment; (3) the v1.4.270 `maxStock` line had been injected into the middle of the inventory sort ternary — hoisted above it; (4) a v1.4.272 regex sweep mangled the payroll due-date into `split(" ")dmy([0])` — repaired to `dmy(split(" ")[0])`. LESSON recorded: brace/paren balancing cannot catch balanced-but-misplaced code; a real typecheck gate is now the standing priority.
+- **`test-crypto.js` DELETED** — it still contained the v1.4.22 incident password string; the file was an unreferenced scratch helper. Repo-wide grep is now clean.
+- **PBKDF2 raised 100k → 310k**, matching docs/SECURITY.md and the code's own comment. Safe without migration: the stored format `pbkdf2$<iterations>$…` carries each hash's own count, so existing passwords verify at their stored strength and every new/changed password gets 310k.
+- DEPLOY.bat unchanged — extract, open folder, double-click; the build step now passes.
+
+## [1.4.279] — 2026-08-10 — DEPLOY.bat: the one-click installer
+
+### CEO: "settle this issue!" — the deploy kept failing because the commands were run outside the project folder; so the folder problem is now removed entirely
+- NEW **`DEPLOY.bat` at the repo root.** Extract the zip → open `azoneofficial-main` → **double-click DEPLOY.bat**. That is the whole procedure now.
+- It always runs from its own folder (`%~dp0`), so the wrong-directory failure cannot happen; it refuses to run with a clear message if it's been moved somewhere without `wrangler.toml`.
+- Steps it performs: `pnpm install` (first run only) → `wrangler d1 migrations apply azoneofficial --remote` (non-interactive via CI=true, so no y/n prompt) → `wrangler deploy` in /worker → `pnpm build`. Any failure stops with "screenshot this window"; success ends with the exact list of what to check on the portal.
+- No code changes otherwise. The v1.4.278 stack (and everything before it) still switches on with this deploy.
+
 ## [1.4.278] — 2026-08-10 — Sales tracking, expenses P&L, and pipeline insights
 
 ### CEO: "I want an update coding! additionally, I want powerful system for my sales track and also expenses and business opportunities"
