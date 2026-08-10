@@ -110,7 +110,7 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
    at /api/v1/staff/events/:id/ics (session cookie rides along — same
    origin), and this function navigates to it. The old share/download path
    stays as the fallback for a worker that predates the route. */
-export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened" | "shared" | "downloaded"> {
+export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened" | "shared" | "downloaded" | "stale"> {
   // Open the tab SYNCHRONOUSLY (inside the tap) so popup blocking can't
   // eat it, then point it at the .ics once the probe confirms the route.
   const url = `/api/v1/staff/events/${ev.id}/ics`;
@@ -124,7 +124,12 @@ export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened
     }
   } catch { /* old worker / offline — fall through */ }
   if (w) w.close();
-  return addEventToCalendarLocal(ev);
+  // v1.4.275: the route isn't there — the worker predates v1.4.274. The
+  // local share/download path still runs so the button does SOMETHING, but
+  // the caller must tell the truth: on iPhone this path cannot save, and
+  // the real fix is the worker deploy.
+  await addEventToCalendarLocal(ev);
+  return "stale";
 }
 
 /** The v1.4.264 client-side path — now the FALLBACK for a stale worker:

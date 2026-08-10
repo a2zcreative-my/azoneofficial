@@ -286,7 +286,7 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
 ];
-
+const _RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
     field expects without long labels. Empty boxes show the example; long
@@ -847,12 +847,13 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   const [kind, setKind] = useState("contract");
   const [loaded, setLoaded] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const load = useCallback(async () => {
+  const load = async () => {
     const r = await api<{ documents?: Doc[]; onboarding?: Record<string, boolean> }>(`/users/${userId}/documents`);
     if (r.ok) { setDocs(r.data?.documents ?? []); setOnb(r.data?.onboarding ?? {}); }
     setLoaded(true);
-  }, [userId]);
-  useEffect(() => { void load(); }, [load]);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [userId]);
   const upload = async (f: File) => {
     await fetch(`${API}/users/${userId}/documents`, {
       method: "POST", credentials: "include",

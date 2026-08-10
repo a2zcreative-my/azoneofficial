@@ -261,7 +261,7 @@ function leaveStageLabel(stage: string): string {
    forward) and the M2E bank-code map from the template's own list. Hoisted to
    module scope so the CSV route and the filled-.xlsm route share them. */
 export function paymentDateFor(payMonth: string): string {
-  const [py, pm] = payMonth.split("-").map(Number);
+  const [py, pm] = payMonth.split("-").map(Number) as [number, number];
   const ny = pm === 12 ? py + 1 : py;
   const nm = pm === 12 ? 1 : pm + 1;
   const d = new Date(Date.UTC(ny, nm - 1, 5));
@@ -1523,7 +1523,7 @@ export async function handleStaff(
         while (t.length > 74) { out.push(t.slice(0, 74)); t = " " + t.slice(74); }
         out.push(t); return out.join("\r\n");
       };
-      const [y, mo, d] = ev.event_date.split("-").map(Number);
+      const [y, mo, d] = ev.event_date.split("-").map(Number) as [number, number, number];
       const lines: string[] = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AZ ONE OFFICIAL//Staff Portal//EN", "METHOD:PUBLISH",
         "BEGIN:VEVENT",
@@ -2500,12 +2500,65 @@ export async function handleStaff(
         } catch { return { cents: 0 }; }
       }
     };
+    // v1.4.276 (CEO: "1 more card to monitor overall business sales"): the
+    // WHOLE business since day one, grouped by month — the SAME four
+    // channels as this route's month queries, mirrored (the v1.4.226 rule:
+    // never invent a second version of revenue SQL). Armored so a pending
+    // migration blanks one channel, never the card.
+    const overallByMonth = async (): Promise<Record<string, number>> => {
+      const acc: Record<string, number> = {};
+      const add = (m: string | null, c: number) => { if (m) acc[m] = (acc[m] ?? 0) + c; };
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
+           FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
+        ).all<{ m: string; cents: number }>();
+        for (const r of results) add(r.m, r.cents);
+      } catch { /* pre-postage */ }
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+           FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m`,
+        ).all<{ m: string; cents: number }>();
+        for (const r of results) add(r.m, r.cents);
+      } catch { /* pre-0060 */ }
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
+           FROM postage_records WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
+        ).all<{ m: string; cents: number }>();
+        for (const r of results) add(r.m, r.cents);
+      } catch { /* pre-0048 */ }
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT (CASE WHEN out_date IS NOT NULL THEN substr(out_date, 1, 7)
+                        ELSE strftime('%Y-%m', created_at, '+8 hours') END) AS m,
+                  COALESCE(SUM(total_cents), 0) AS cents
+           FROM manual_sales GROUP BY m`,
+        ).all<{ m: string; cents: number }>();
+        for (const r of results) add(r.m, r.cents);
+      } catch {
+        try {
+          const { results } = await env.DB.prepare(
+            `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+             FROM manual_sales GROUP BY m`,
+          ).all<{ m: string; cents: number }>();
+          for (const r of results) add(r.m, r.cents);
+        } catch { /* pre-manual-sales */ }
+      }
+      return acc;
+    };
     const [tThis, tLast, iThis, iLast, out, tgt, tgtLast, tgtNext, tToday, iToday, oThis, oLast, mThis, mLast, oToday, mToday, tYest, iYest, oYest, mYest] = await Promise.all([
       tiktok(month), tiktok(lastMonth), invoiced(month), invoiced(lastMonth), outstanding,
       targetOf(month), targetOf(lastMonth), targetOf(nextMonth), tiktokDay(todayMYT), invoicedDay(todayMYT),
       otherPostage(month), otherPostage(lastMonth), manualSales(month), manualSales(lastMonth), otherDay(todayMYT), manualDay(todayMYT),
       tiktokDay(yesterdayMYT), invoicedDay(yesterdayMYT), otherDay(yesterdayMYT), manualDay(yesterdayMYT),
     ]);
+    const byMonth = await overallByMonth(); // v1.4.276
+    const overallMonths = Object.entries(byMonth).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const overallTotal = overallMonths.reduce((a, [, c]) => a + c, 0);
+    const best = overallMonths.reduce<{ month: string; cents: number } | null>(
+      (b, [m, c]) => (b && b.cents >= c ? b : { month: m, cents: c }), null);
     return json({
       month, last_month: lastMonth, next_month: nextMonth,
       today: {
@@ -2523,6 +2576,11 @@ export async function handleStaff(
       outstanding: { cents: out?.cents ?? 0, docs: out?.docs ?? 0 },
       other: { this_cents: oThis?.cents ?? 0, this_orders: oThis?.orders ?? 0, last_cents: oLast?.cents ?? 0, last_orders: oLast?.orders ?? 0 }, // v1.4.169
       manual: { this_cents: mThis?.cents ?? 0, this_units: mThis?.units ?? 0, last_cents: mLast?.cents ?? 0, last_units: mLast?.units ?? 0 }, // v1.4.169
+      overall: { // v1.4.276: all-time, all four channels, by MYT month
+        total_cents: overallTotal,
+        months: overallMonths.map(([m, c]) => ({ month: m, cents: c })),
+        best: best ?? undefined,
+      },
       target_cents: tgt?.target_cents ?? null,
       last_target_cents: tgtLast?.target_cents ?? null,
       next_target_cents: tgtNext?.target_cents ?? null,

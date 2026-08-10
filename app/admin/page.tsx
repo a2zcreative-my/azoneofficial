@@ -184,16 +184,16 @@ function CrudPanel({
     }
     setDraft({});
     setEditingId(null);
-    const titleVal = String(draft[titleKey] || "Item");
-    showToast("Saved", editingId ? `${titleVal} updated` : `${titleVal} created`);
+    const title = draft[titleKey] ? String(draft[titleKey]) : "Record";
+    showToast("Saved", editingId ? `${title} updated` : `${title} created`);
     void load();
   };
 
   const remove = async (id: number) => {
     const r = await api(`/${resource}/${id}`, { method: "DELETE" });
-    const titleVal = String(items.find((x) => x.id === id)?.[titleKey] || "Item");
+    const title = items.find((x) => x.id === id)?.[titleKey] ? String(items.find((x) => x.id === id)?.[titleKey]) : "Record";
     showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? `${titleVal} removed` : "Could not remove that record", r.ok ? undefined : "notice");
+      r.ok ? `${title} removed` : "Could not remove that record", r.ok ? undefined : "notice");
     void load();
   };
 

@@ -2230,10 +2230,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0063 (customer share links)", `SELECT share_token FROM sales_documents LIMIT 1`],
       ["0064 (stock movement direction)", `SELECT direction FROM manual_stockouts LIMIT 1`],
       ["0065 (invoice stock link)", `SELECT doc_id FROM manual_stockouts LIMIT 1`],
+      // v1.4.277: the newer migrations join the probe — the card must name
+      // the FULL pending set, not the set that existed when it was written.
+      ["0066 (prospects / Social tab)", `SELECT id FROM prospects LIMIT 1`],
+      ["0067 (growth pack)", `SELECT referred_by FROM prospects LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
-        if (String(e).includes("no such column")) migrations_pending.push(label);
+        const msg = String(e);
+        if (msg.includes("no such column") || msg.includes("no such table")) migrations_pending.push(label);
       }
     }
     return json({ errors, last_backup, last_offsite, migrations_pending });

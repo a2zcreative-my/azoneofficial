@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
@@ -42,6 +42,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass, th, thR2, td, tdR2, fieldRow } from "@/lib/ui-styles";
+
 import { dmy, mytToday, mytDateOf, fmtRM, ym, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1";
@@ -415,10 +416,10 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         </div>
       </div>
 
-      {/* v1.4.216 (CEO): Sales revenue sits ABOVE Upcoming events — the
-          daily number outranks the calendar. */}
-      {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
-
+      {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
+          hero band already carries today + month + overall up top, so the
+          detailed month card was the Dashboard's third telling of the same
+          story. Ecommerce is where the channel detail lives. */}
       <UpcomingEventsCard role={user.role} />
     </div>
   );
@@ -437,6 +438,7 @@ interface RevenueData {
   manual?: { this_cents: number; this_units: number; last_cents: number; last_units: number };   // v1.4.169 manual sales
   tiktok: { this_cents: number; this_orders: number; last_cents: number; last_orders: number };
   invoiced: { this_cents: number; this_docs: number; last_cents: number; last_docs: number };  outstanding?: { cents: number; docs: number };
+  overall?: { total_cents: number; months: { month: string; cents: number }[]; best?: { month: string; cents: number } };  // v1.4.276 all-time, all channels
   target_cents?: number | null;
   next_month?: string;
   last_target_cents?: number | null;
@@ -494,6 +496,27 @@ function HeroBand({ user }: { user: User }) {
           : undefined}
         sub={target > 0 ? undefined : "set a month target on the Sales revenue card to get a progress bar"} />,
     );
+    // v1.4.276 (CEO: "1 more card to monitor overall business sales"): the
+    // whole business since day one — all four channels, every month summed
+    // server-side by the same SQL the month figures use. Renders only when
+    // there is a number to show (house rule: never display zero stats).
+    if (rev.overall && rev.overall.total_cents > 0) {
+      const ov = rev.overall;
+      const best = ov.best;
+      const thisMonthCents = ov.months.find((m) => m.month === rev.month)?.cents ?? 0;
+      cards.push(
+        <StatCard key="overall" label="📈 Overall sales — all time"
+          value={fmtRM(ov.total_cents)}
+          bar={best && best.cents > 0
+            ? { pct: (thisMonthCents / best.cents) * 100,
+                label: best.month === rev.month
+                  ? "this month is your best month yet"
+                  : `this month vs best (${ym(best.month)} · ${fmtRM(best.cents)})`,
+                tone: thisMonthCents >= best.cents ? "green" : "navy" }
+            : undefined}
+          sub={`${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business · since 20-07-2026`} />,
+      );
+    }
     if (rev.outstanding && rev.outstanding.docs > 0) {
       cards.push(
         <StatCard key="out" accent="red" label="Unpaid invoices"
@@ -825,6 +848,8 @@ function UpcomingEventsCard({ role }: { role: string }) {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
   }, []);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -957,11 +982,14 @@ function UpcomingEventsCard({ role }: { role: string }) {
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
-          onAdded={(title, how) => showToast(how === "opened" ? "Calendar opened" : "Saved", how === "opened"
-            ? `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
-            : how === "shared"
-              ? `${title} — pick Calendar in the share sheet to finish`
-              : `${title} — calendar file downloaded; open it to add the event`)}
+          onAdded={(title, how) => showToast(how === "opened" ? "Calendar opened" : how === "stale" ? "Server needs the update" : "Saved",
+            how === "opened"
+              ? `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+              : how === "stale"
+                ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
+                : how === "shared"
+                  ? `${title} — pick Calendar in the share sheet to finish`
+                  : `${title} — calendar file downloaded; open it to add the event`)}
         />
       )}
       {view === "list" && (
@@ -991,11 +1019,14 @@ function UpcomingEventsCard({ role }: { role: string }) {
                 title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
                 onClick={async () => {
                   const how = await addEventToCalendar(ev);
-                  showToast(how === "opened" ? "Calendar opened" : "Saved", how === "opened"
-                    ? `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
-                    : how === "shared"
-                      ? `${ev.title} — pick Calendar in the share sheet to finish`
-                      : `${ev.title} — calendar file downloaded; open it to add the event`);
+                  showToast(how === "opened" ? "Calendar opened" : how === "stale" ? "Server needs the update" : "Saved",
+                    how === "opened"
+                      ? `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+                      : how === "stale"
+                        ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
+                        : how === "shared"
+                          ? `${ev.title} — pick Calendar in the share sheet to finish`
+                          : `${ev.title} — calendar file downloaded; open it to add the event`, how === "stale" ? "notice" : undefined);
                 }}>📅 Add to my calendar</button>
               {canManage && (
                 <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
@@ -1030,7 +1061,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
   onSelect: (d: string | null) => void;
   canManage: boolean;
   onRemove: (id: number) => void;
-  onAdded: (title: string, how: "opened" | "shared" | "downloaded") => void;
+  onAdded: (title: string, how: "opened" | "shared" | "downloaded" | "stale") => void;
 }) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -1204,6 +1235,7 @@ function Attendance({ user }: { user: User }) {
     loadMon();
     const t = setInterval(loadMon, 120000); // keeps the monitor live through the day
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReport]);
 
   return (
@@ -2188,12 +2220,12 @@ function OtApprovalsCard() {
   const [loaded, setLoaded] = useState(false);
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
-  const load = useCallback(async () => {
+  const load = async () => {
     const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
     if (r.ok) setPending(r.data?.pending ?? []);
     setLoaded(true);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  };
+  useEffect(() => { void load(); }, []);
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
     if (decision === "rejected" && !(await otConfirm({
       title: "Reject this overtime?",
@@ -2257,11 +2289,11 @@ function LiveScheduleCard({ user }: { user: User }) {
   const [hosts, setHosts] = useState<Opt[]>([]);
   const [clients, setClients] = useState<Opt[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "", end_time: "", platform: "tiktok", client_id: "", client_name: "", host_user_id: "", notes: "" });
-  const load = useCallback(async () => {
+  const load = async () => {
     const r = await api<{ sessions?: Sess[] }>(`/staff/live-sessions`);
     if (r.ok) setSessions(r.data?.sessions ?? []);
     setLoaded(true);
-  }, []);
+  };
   useEffect(() => {
     void load();
     if (manager) {
@@ -2272,7 +2304,7 @@ function LiveScheduleCard({ user }: { user: User }) {
         if (r.ok) setClients((r.data?.customers ?? []).filter((c) => (c.company ?? "") !== "Walk-in Customer"));
       });
     }
-  }, [manager, load]);
+  }, [manager]);
   const create = async () => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) return;
     await api(`/staff/live-sessions`, {
@@ -2473,7 +2505,7 @@ function PackagesEditorCard({ role }: { role: string }) {
             const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
             const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
             if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
-            else showToast("Not saved", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server first", "notice");
+            else showToast("Not saved", (r.data as { error?: string })?.error ?? "Deploy the latest server first", "notice");
           }}>Save rate card</button>
         </div>
       </div>
@@ -2499,7 +2531,6 @@ function ClientsCard() {
     <div className={card}>
       <p className="text-sm font-semibold">🤝 Clients</p>
       {rlToastNode}
-
       <p className="text-muted-foreground mt-0.5 text-xs">
         Per-client view from your sales documents and the live roster —
         invoiced, collected, quotations in play and sessions scheduled.
@@ -2518,7 +2549,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -2539,14 +2570,14 @@ function CustomerEnquiriesCard() {
     general: "General", package_pricing: "Package & pricing", live_commerce: "Live commerce",
     order_delivery: "Order & delivery", collaboration: "Collaboration",
   };
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       const r = await fetch("/api/v1/enquiries", { credentials: "include" });
       if (r.ok) { const d = (await r.json()) as { enquiries?: Enq[] }; setEnqs(d.enquiries ?? []); }
     } catch { /* card stays empty */ }
     setLoaded(true);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  };
+  useEffect(() => { void load(); }, []);
   const setStatus = async (id: number, status: string) => {
     await fetch(`/api/v1/enquiries/${id}`, {
       method: "PATCH", credentials: "include",
@@ -3434,6 +3465,7 @@ function UsersPanel({ role }: { role: string }) {
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { load(); }, [load]);
   const saveRole = async (u: { id: number; name: string; email: string }) => {
@@ -3657,16 +3689,15 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
-    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
   useEffect(() => {
-    if (!user) return;
-    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
-  }, [tab, user]);
+    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
@@ -3786,29 +3817,27 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  const tabs = useMemo(() => ALL_TABS.filter((t) => {
-    if (!user) return false;
+  const unread = notifs.filter((n) => !n.is_read).length;
+  const tabs = ALL_TABS.filter((t) => {
     if (t === "Dashboard" || t === "Profile") return true;
-    if (user.role === "super_admin") return true;
+    if (user?.role === "super_admin") return true;
     const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user.role);
-    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+    if (ov !== undefined) return ov.includes(user?.role || "");
+    if (t === "Sales") return SALES_ROLES.includes(user?.role || "") || user?.role === "ceo";
     const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user.role);
-  }), [user, tabOverrides]);
+    return !allowed || allowed.includes(user?.role || "");
+  });
+
   useEffect(() => {
-    if (!user) return;
     if (!tabs.includes(tab)) setTab("Dashboard");
-  }, [tabs, tab, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.join("|"), tab]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
-  // Content-team roles work in /admin; if one lands here, send them home.
-  // (Admins are allowed to use portal modules via the admin Staff bridge, but
-  // their front door is /admin — this keeps each role's default flow clean.)
   if (user && CONTENT_ONLY_ROLES.includes(user.role)) {
     if (typeof window !== "undefined") window.location.replace("/admin");
     return null;
@@ -3825,9 +3854,6 @@ export default function PortalPage() {
       </div>
     );
   }
-
-  const unread = notifs.filter((n) => !n.is_read).length;
-
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
@@ -4064,14 +4090,17 @@ export default function PortalPage() {
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
         {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {activeTab === "Inventory" && <InventoryPanel />}
+        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
         {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
                 connection health, the order tracker, LIVE GMV, the hourly
                 histogram and the fulfilment pipeline. */}
             {/* v1.4.217 (CEO's order): Orders → GMV → by-hour → Fulfilment
-                → Connection status last (plumbing below the business). */}
+                → Connection status last (plumbing below the business).
+                v1.4.277: Sales revenue leads the tab (moved from Dashboard
+                per CEO — the month summary above the channel detail). */}
+            {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}

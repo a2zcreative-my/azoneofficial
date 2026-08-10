@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.277] — 2026-08-10 — Sales revenue → Ecommerce; the migration card now names ALL pending migrations
+
+### CEO: "Sales revenue — 2026-08 move to Ecommerce" + his red migration box
+- **SalesRevenueCard moved from the Dashboard to the TOP of the Ecommerce tab.** The hero band already tells today + month + overall at the top of the Dashboard, so the detailed month card was the Dashboard's third telling of the same story; on Ecommerce it now leads the channel detail (Orders → GMV → by-hour → Fulfilment → Connection).
+- **The migration self-report learns the newer migrations:** probes now include **0066 (prospects / Social tab)** and **0067 (growth pack)** — his card listed 5 pending but the true set is 7. Also widened the catch to `no such table` (0066 creates a table, not a column — the old catch would have missed it).
+- Frontend + worker. His action stands: `npx wrangler d1 migrations apply azoneofficial --remote` then `cd worker && wrangler deploy` then `pnpm build`.
+
+## [1.4.276] — 2026-08-10 — 📈 Overall business sales on the hero band
+
+### CEO: "I want to get 1 more card to monitor overall business sales"
+- The Dashboard hero band gains a fourth card: **📈 Overall sales — all time** — the whole business since day one (20-07-2026), all four channels (TikTok orders, paid invoices, other shipments, manual sales), summed per MYT month **server-side by the same SQL the month figures already use** (the v1.4.226 mirror rule — revenue arithmetic is never written twice).
+- The bar inside the card shows **this month against your best month** (navy; turns green the moment this month becomes the best — and the label says so). Sub-line counts the months of business.
+- Worker: `/revenue` response gains `overall { total_cents, months[], best }` — each channel's all-time query armored separately, so a pending migration blanks one channel, never the card. Renders only when there's a number (never zero stats).
+- Card design stays inside the band rules: Today keeps the single navy solid; Overall is a white card.
+- Worker + frontend. No migration.
+
+## [1.4.275] — 2026-08-10 — The calendar button now says on screen when the server is the blocker
+
+### CEO tested again, still nothing in the phone calendar — because the v1.4.274 route lives on the WORKER, which hasn't been deployed; the button silently fell back to the share sheet (which cannot save on iPhone) and looked identical to the bug
+- `addEventToCalendar()` gains a fourth outcome: `"stale"` — the probe found no `/events/:id/ics` route (worker predates v1.4.274). The local share/download fallback still runs, but the toast now says the truth in amber: **"Server needs the update — deploy the worker (cd worker && wrangler deploy), then this button saves properly."**
+- This is the v1.4.269 rule again: a fallback must never masquerade as success when its failure is indistinguishable from the bug being reported.
+- Frontend-only — but the actual calendar save still arrives with the worker deploy.
+
 ## [1.4.274] — 2026-08-10 — Add to calendar now actually lands in the phone's calendar
 
 ### CEO: "when I add calendar for the event, it doesnt save inside my calendar phone" — he's right, and the cause was the share sheet

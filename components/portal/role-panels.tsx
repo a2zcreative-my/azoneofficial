@@ -463,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel() {
+export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -525,7 +525,27 @@ export function InventoryPanel() {
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
 
-
+  // v1.4.169/170: an Out − goes through the modal — mandatory remark for
+  // traceability, optional Sold @ that records it as a SALE in the totals.
+  const _adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
+    setInvMsg("");
+    const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
+    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
+      method: "POST",
+      body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
+    });
+    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
+    /* v1.4.251: an IN used to save in silence — no toast at all — so there was
+       no way to know the stock had actually moved. Every movement now says so,
+       and quotes the NEW stock level the server came back with. */
+    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${rmBare(Math.round(sale! * 100))} — counted in total sales${level}`);
+    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
+    else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
+    void load();
+    return true;
+  };
   // v1.4.172: create-path wrapper adding the backdatable date.
   // v1.4.251: signed — the same path records a stock IN.
   const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
@@ -2265,7 +2285,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-  pre_approved_at?: string | null;
+
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2273,7 +2293,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-
+  pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2508,6 +2528,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         setStaffOptions(r.data.users.filter((u) => u.role !== "customer" && !["super_admin", "admin"].includes(u.role) && u.is_active !== 0));
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canPayee]);
 
   const rmc = (c: number) => `RM ${rmBare(c)}`;
