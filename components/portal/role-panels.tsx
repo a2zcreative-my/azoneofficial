@@ -1097,7 +1097,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   ) : o.unit_sale_cents != null
                     ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {(o.unit_sale_cents / 100).toFixed(2)}</span>
                     : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">correction</span>}
-                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]}</span>}
+                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]!}</span>}
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
                       the audit trail) / Delete (wrong record: stock back +
                       sale removed + row gone). */}
@@ -2272,7 +2272,6 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
-  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2280,6 +2279,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
+  pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2593,10 +2593,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) (pr === "hr_admin" ? (anyWaived = true) : missingSkipped.push("HR review"));
-          if (!cl.pre_approved_at) (pr === "coo" ? (anyWaived = true) : missingSkipped.push("COO pre-approval"));
+          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
+          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          (pr === "cco" ? (anyWaived = true) : missingSkipped.push("CCO pre-approval"));
+          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
         }
       }
       if (missingSkipped.length > 0) {
@@ -3652,7 +3652,7 @@ export function ExpensesPanel() {
                   {r.paid_at
                     ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
+                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]!}</span>
                       : null}
                 </p>
               </div>

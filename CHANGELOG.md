@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.268] — 2026-08-10 — The trends card says what's wrong, and retries for real
+
+### Fixed (CEO's screenshot: the Social tab's trends card showed only its failure line)
+- The card had **one generic message for two very different failures**. It now separates them: an amber box saying **the worker doesn't have the trends route yet** (with the deploy command) when the route 404s, versus **Google could not be reached** — carrying the server's actual reason, pulled from the error log — when the fetch failed. No more guessing which half is broken.
+- **↻ Try again is a real retry**: `?refresh=1` drops the server-side cache before refetching, so the button can't just re-read the same cached miss. Any staff member can press it.
+- **The fetch itself is tougher**: two official Google endpoints tried in order (the current `trending/rss` and the legacy `trendingsearches/daily/rss`), a real browser user-agent and RSS `Accept` headers, per-endpoint failure reasons kept, and HTML entities decoded before tag-stripping so a headline never renders with literal `<b>` fragments. Parser verified against both feed shapes.
+
+### Most likely cause of your screenshot
+- The **worker deploy**: the trends route shipped in v1.4.266 and lives server-side. If `cd worker && wrangler deploy` hasn't run since, the card can only fail — and it will now say exactly that. If the worker *is* current, the card will show Google's actual refusal and the ↻ button; the error log (System health, source `trends_my`) keeps the history.
+- Worker + frontend, no migrations. **0060 → 0066 still pending.**
+
 ## [1.4.267] — 2026-08-07 — The Social tab: prospects + trends (MIGRATION 0066)
 
 ### Added (CEO: "Do it, and ensure that my dashboard not exploded. If necessary, then make a new tabs under Social")

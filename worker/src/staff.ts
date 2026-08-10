@@ -572,8 +572,18 @@ export async function handleStaff(
 
   if (path === "/trends/my" && method === "GET") {
     // v1.4.266: any staff role — trend awareness is for the whole team.
+    // v1.4.268: ?refresh=1 (any staff) drops the cache first, so the card's
+    // "Try again" button is a real retry, not a read of the same miss.
+    if (new URL(request.url).searchParams.get("refresh") === "1") {
+      try { await env.DB.prepare(`DELETE FROM system_meta WHERE key = 'trends_my_cache'`).run(); } catch { /* fine */ }
+    }
     const data = await trendsMY(env);
-    if (!data) return err("unavailable", "Google Trends could not be reached — try again later", 503);
+    if (!data) {
+      const lastErr = await env.DB.prepare(
+        `SELECT message FROM error_log WHERE source = 'trends_my' ORDER BY id DESC LIMIT 1`,
+      ).first<{ message: string }>().catch(() => null);
+      return err("unavailable", `Google Trends could not be reached from the server${lastErr ? ` (${lastErr.message.slice(0, 140)})` : ""} — tap Try again in a minute`, 503);
+    }
     return json(data);
   }
 
@@ -4362,11 +4372,37 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     }
   } catch { /* fall through to fetch */ }
   try {
-    const r = await fetch("https://trends.google.com/trending/rss?geo=MY", {
-      headers: { "user-agent": "Mozilla/5.0 (compatible; AZOO-portal/1.0)" },
-    });
-    if (!r.ok) throw new Error(`rss http ${r.status}`);
-    const xml = await r.text();
+    /* v1.4.268 (CEO's screenshot: the card showed only its failure line):
+       two official Google endpoints — the current one and the legacy daily
+       feed — tried in order, with a real browser UA and an RSS Accept
+       header. Google serves both today; if one 404s or blocks the request,
+       the other usually answers, and the failure reason is KEPT so the card
+       can say which it was instead of a generic shrug. */
+    const FEEDS = [
+      "https://trends.google.com/trending/rss?geo=MY",
+      "https://trends.google.com/trends/trendingsearches/daily/rss?geo=MY",
+    ];
+    let xml = "";
+    const attempts: string[] = [];
+    for (const feed of FEEDS) {
+      try {
+        const r = await fetch(feed, {
+          headers: {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
+            "accept-language": "en-MY,en;q=0.9,ms;q=0.8",
+          },
+        });
+        if (!r.ok) { attempts.push(`${feed.includes("daily") ? "legacy" : "current"} http ${r.status}`); continue; }
+        const body = await r.text();
+        if (!body.includes("<item>")) { attempts.push(`${feed.includes("daily") ? "legacy" : "current"} no items`); continue; }
+        xml = body;
+        break;
+      } catch (fe) {
+        attempts.push(`${feed.includes("daily") ? "legacy" : "current"} ${fe instanceof Error ? fe.message : String(fe)}`);
+      }
+    }
+    if (!xml) throw new Error(attempts.join("; ") || "no feed answered");
     const items: { title: string; traffic: string; news: string; news_url: string }[] = [];
     // Workers have no XML DOM — the feed is regular enough for a tag walk.
     const blocks = xml.split("<item>").slice(1);
@@ -4377,10 +4413,17 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
       };
       const title = tag("title");
       if (!title) continue;
+      // v1.4.268: the current feed entity-escapes its news markup
+      // (&lt;b&gt;…), so decode the common entities BEFORE stripping tags —
+      // the other order leaves literal "<b>" fragments in the card.
+      const clean = (v: string) => v
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+        .replace(/<[^>]+>/g, "").trim();
       items.push({
-        title,
+        title: clean(title),
         traffic: tag("ht:approx_traffic"),
-        news: tag("ht:news_item_title").replace(/<[^>]+>/g, ""),
+        news: clean(tag("ht:news_item_title")),
         news_url: tag("ht:news_item_url"),
       });
     }

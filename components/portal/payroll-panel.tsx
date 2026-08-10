@@ -696,7 +696,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
       {!readOnly && (
-        <div className="contents">
+        <>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
@@ -779,7 +779,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-        </div>
+        </>
       )}
 
       {release && (
@@ -816,7 +816,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             <>
               <span className="text-muted-foreground">
                 Staff can view {monthDMY(month)} payslips from{" "}
-                <span className="font-medium">{release.available_from.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from.split(" ")[1]} MYT</span>
+                <span className="font-medium">{release.available_from.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from.split(" ")[1]!} MYT</span>
                 {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
                 {(() => {
                   /* v1.4.211: when the CURRENT month is on screen, the
@@ -1054,7 +1054,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] ?? 0 } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
                             Base
                           </button>
                         )}
@@ -1196,7 +1196,7 @@ export function MyPayslip() {
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
-            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
+            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]!} MYT</span>.
           </p>
           <button
             type="button"

@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
@@ -499,7 +499,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
                 {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
               </p>
               {/* v1.4.206 (CEO: "compare yesterday sales by telling the
-                  staff it is either an uptrend or downtrend") */}
+                  staff it is either arrow uptrend or downtrend") */}
               {rev.yesterday && (todayTotal > 0 || rev.yesterday.total_cents > 0) && (() => {
                 const y = rev.yesterday!.total_cents;
                 const d = todayTotal - y;
@@ -656,13 +656,22 @@ const TREND_BUSINESS_KEYWORDS = [
 
 function TrendingMYCard() {
   const [data, setData] = useState<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    void (async () => {
-      const r = await api<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] }>(`/staff/trends/my`);
-      if (r.ok && r.data?.items) setData(r.data); else setFailed(true);
-    })();
+  /* v1.4.268 (CEO's screenshot showed only the generic failure line): the
+     card now separates the two failures it can have — the WORKER not having
+     the route yet (deploy) vs GOOGLE not answering (retry) — and the retry
+     button is real: ?refresh=1 drops the server cache before refetching. */
+  const [failed, setFailed] = useState<"" | "route" | "google">("");
+  const [detail, setDetail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fetchTrends = useCallback(async (refresh: boolean) => {
+    setBusy(true);
+    const r = await api<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[]; error?: { message?: string } }>(`/staff/trends/my${refresh ? "?refresh=1" : ""}`);
+    setBusy(false);
+    if (r.ok && r.data?.items) { setData(r.data); setFailed(""); setDetail(""); return; }
+    if (r.data?.error?.message) { setFailed("google"); setDetail(r.data.error.message); }
+    else setFailed("route");
   }, []);
+  useEffect(() => { void fetchTrends(false); }, [fetchTrends]);
 
   const hits = data ? data.items.filter((it) => {
     const t = it.title.toLowerCase();
@@ -677,7 +686,18 @@ function TrendingMYCard() {
         What the country is googling right now (Google Trends, ~hourly). Rows touching our products or channels are pinned — each one is a live to plan, a hook to post, or a customer already searching.
       </p>
       {!data && !failed && <p className="text-muted-foreground mt-2 text-xs">Loading trends…</p>}
-      {failed && <p className="text-muted-foreground mt-2 text-xs">Trends need the latest server update — or Google could not be reached just now.</p>}
+      {failed === "route" && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          The server doesn&apos;t have the trends route yet — this card starts working after the next worker deploy (<span className="font-mono">cd worker && wrangler deploy</span>).
+        </p>
+      )}
+      {failed === "google" && (
+        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <p>{detail || "Google Trends could not be reached from the server just now."}</p>
+          <button type="button" className={`${rowBtn} mt-1.5`} disabled={busy}
+            onClick={() => void fetchTrends(true)}>{busy ? "Trying…" : "↻ Try again"}</button>
+        </div>
+      )}
       {data && (
         <>
           {hits.length > 0 ? (
@@ -734,7 +754,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const _bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
+  // const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -3410,16 +3430,14 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
-    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   useEffect(() => {
-    if (!user) return;
-    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -3540,30 +3558,24 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
-  const tabs = ALL_TABS.filter((t) => {
-    if (t === "Dashboard" || t === "Profile") return true;
-    if (!user) return true;
-    if (user.role === "super_admin") return true;
-    const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user.role);
-    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
-    const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user.role);
-  });
-  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
+  const tabs = useMemo(() => {
+    if (!user) return ["Dashboard", "Profile"] as TabName[];
+    return ALL_TABS.filter((t) => {
+      if (t === "Dashboard" || t === "Profile") return true;
+      if (user.role === "super_admin") return true;
+      const ov = tabOverrides[t];
+      if (ov !== undefined) return ov.includes(user.role);
+      if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+      const allowed = TAB_ROLES[t];
+      return !allowed || allowed.includes(user.role);
+    });
+  }, [user, tabOverrides]);
+
   useEffect(() => {
     if (user && !tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab, user]);
-  /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
-     alone still allowed one frame; every panel below renders off activeTab,
-     which can never name a tab outside this account's visible list. */
-  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
+
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -3591,6 +3603,10 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
+  /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
+     alone still allowed one frame; every panel below renders off activeTab,
+     which can never name a tab outside this account's visible list. */
+  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
