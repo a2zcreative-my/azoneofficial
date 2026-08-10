@@ -27,7 +27,7 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 interface ErrRow { id: number; created_at: string; source: string; message: string; path?: string | null }
-interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null }
+interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null; migrations_pending?: string[] }
 
 function myt(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T").replace(/Z?$/, "Z")).getTime() + 8 * 3600 * 1000);
@@ -72,6 +72,17 @@ export function SystemHealthCard() {
   return (
     <div className="border-border bg-card rounded-lg border p-4 md:p-5">
       {toastNode}
+      {/* v1.4.265: the database names the migrations it is missing — the
+          v1.4.218 blank-staff-directory incident was exactly a deploy that
+          outran its schema, and memory is not a deploy tool. */}
+      {(health?.migrations_pending?.length ?? 0) > 0 && (
+        <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
+          <p className="font-semibold">⛔ {health!.migrations_pending!.length} database migration{health!.migrations_pending!.length === 1 ? "" : "s"} pending — parts of the newest releases are switched off until they run:</p>
+          <ul className="mt-1 list-disc pl-4">{health!.migrations_pending!.map((m) => <li key={m}>{m}</li>)}</ul>
+          <p className="mt-1.5 font-mono">npx wrangler d1 migrations apply azoneofficial --remote</p>
+          <p className="mt-0.5">then <span className="font-mono">cd worker && wrangler deploy</span></p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">System health</p>

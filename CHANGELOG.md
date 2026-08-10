@@ -2,6 +2,53 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.267] — 2026-08-07 — The Social tab: prospects + trends (MIGRATION 0066)
+
+### Added (CEO: "Do it, and ensure that my dashboard not exploded. If necessary, then make a new tabs under Social")
+- **NEW "Social" tab** between Ecommerce and Assets, visible to **every staff role** — a live host who spots a brand mid-scroll logs it in twenty seconds from their phone. The Dashboard gains **nothing**; the 🔎 Trending searches card **moved here** off the Dashboard, so market-watching and prospecting live side by side and the Dashboard is actually one card lighter than yesterday.
+- **📇 Prospects — the team's lead list** (MIGRATION 0066, no FKs per house rule). Brand · found-on (TikTok Shop / Shopee / Instagram / Facebook / expo / referral) · niche · contact person, channel and number/handle · notes · owner · next follow-up date. Stages: identified → contacted → replied → meeting → proposal → won/lost, with a coloured pipeline strip whose chips filter the list.
+- **The follow-up date actually follows up.** Each cron pass bell-notifies the owner on the due date — *"📞 Follow up today: {brand} — Social tab"* — once per date, late ones flagged; editing the date re-arms the reminder. Assigning a prospect to someone else notifies them immediately. A date nobody is reminded of is a wish, not a plan.
+- Rows are the house pattern: brand opens the record (WhatsApp numbers become tap-to-chat `wa.me` links), stage select + Edit + Delete in the standard wrapping button group, ⏰ overdue chip, save toasts throughout, `fieldRow` form that stacks on a phone.
+- **Permissions:** all staff read and add; stage changes, assignment and delete are the sales tier (exec + hr_admin + sales_marketing + marketing). PDPA nudge built into the contact field: *"business pages only"*.
+- Skew-armored: before migration 0066 runs, every prospect route returns a clear 409 naming the migration, and the panel shows a calm one-liner instead of an error.
+
+## [1.4.266] — 2026-08-07 — What Malaysia is searching, on the Dashboard
+
+### Added (CEO: "add Famous search product in Malaysia which is related to my product and my service… Maybe I can use Threads for the search engine. What is your suggestion?")
+- **🔎 Trending searches — Malaysia** card on the Dashboard, visible to every staff member. Source: **Google Trends Malaysia's official RSS** — the country's top ~20 trending searches, refreshed hourly by Google, with an approximate traffic figure and a related headline. Free, official, no key, no scraping.
+- **Rows touching the business are pinned to the top** with a 🎯 amber highlight, matched against a keyword list living in the card (`tudung, hijab, shawl, raya, baju, kurung, tiktok, live, shopee, affiliate, viral…`) — easy to extend as the client roster grows. Everything else collapses behind "All trending searches", so a quiet day for the niche doesn't fill the Dashboard.
+- Worker: NEW `GET /trends/my` + a 3-hour `system_meta` cache — a Dashboard full of staff must not hammer Google on every load, and a fetch failure serves the last good copy rather than nothing.
+
+### The Threads answer, honestly
+- **Threads was evaluated and rejected as the engine.** Its keyword-search API measures what people **post**, not what they **search** — chatter, not demand — and access requires Meta App Review for advanced permission, capped at 500 searches per rolling 7 days. Google Trends is literally the "famous search" data the request describes. Threads stays useful *manually*: once the card surfaces a trend, searching it on Threads/TikTok shows the conversation around it — that's a reading habit, not an integration.
+- Worker + frontend, no migrations.
+
+## [1.4.265] — 2026-08-07 — The system tells on itself
+
+### Added (CEO: "Do both" — error alerting + the process-debt gaps)
+- **Error-spike alerts.** Every 30-minute cron pass now checks whether `error_log` grew since the last pass and bell-notifies super_admin + CEO: *"⚠ 12 new system errors since the last check (tiktok_webhook ×9, migration_skew ×3) — see System health"*. A watermark stops repeats — only NEW errors alert, and the first pass sets the watermark silently instead of alerting on history. This is what would have surfaced the 44 webhook signature retries weeks earlier.
+- **Public `/api/v1/health`** for an external uptime monitor — unauthenticated on purpose (a monitor can't sign in), leaks nothing: `{ok, db}` with one cheap DB probe, `503` when the database is unreachable so the monitor can tell "worker up, DB down" from "all up". The monitor itself must live OUTSIDE Cloudflare — a system cannot report its own outage; free UptimeRobot pointed at this URL closes the loop.
+- **The database names its own missing migrations.** `/system/health` probes one marker column per recent migration and the System health card turns red with the exact list — *"⛔ 6 database migrations pending"* — plus the command, verbatim. The v1.4.218 blank-staff-directory incident was precisely a deploy that outran its schema; memory is not a deploy tool, so the schema now reports on itself.
+
+### Fixed
+- **Editing a product invoice re-balances stock** — the v1.4.263 gap, closed. The old deduction is restored in full, then the new items deduct, so the shelf always reflects the invoice as it reads *now*. Restore-then-deduct rather than a diff, because a line can change SKU, not just quantity. The edit toast reports the movement the same way creation does.
+
+### Still yours, not codeable
+- Run the migrations (the red card will now nag until they're gone), rotate the TikTok App Secret, and set up the external monitor (two minutes on UptimeRobot's free tier: HTTPS monitor → `https://azoneofficial.com/api/v1/health` → keyword `"ok":true`).
+- Worker + frontend, no new migrations.
+
+## [1.4.264] — 2026-08-07 — Company events into the phone's own calendar
+
+### Added (CEO: "How to ensure that event calendar being saved inside users mobile calendar?")
+- **📅 Add to my calendar** on every event, in both the list and the calendar view, for **every staff member** — not just managers. One tap builds a standard RFC 5545 `.ics` in the browser (no server round-trip, same pattern as the PDFs) and hands it to the phone's share sheet; picking **Calendar** finishes it. iOS opens straight into Calendar, Android offers Google Calendar, a laptop downloads the file for Outlook / Apple Calendar.
+- The entry carries **two alarms** — the evening before and at the start — because the point of the exercise is that nobody has to be looking at the portal to be reminded.
+- Details that make it behave: times are written as **UTC instants from Malaysia time**, so the event lands at the right hour whatever timezone the phone is set to; an event with no start time becomes a true **all-day** entry (with the RFC's exclusive end date, which some apps otherwise render as zero-length); the **UID is stable** (`event-{id}@azoneofficial.com`), so tapping the button twice *updates* the phone's copy instead of duplicating it; long descriptions fold per RFC 5545 §3.1 so strict parsers like Outlook accept them.
+- NEW `lib/event-ics.ts` (`buildEventIcs`, `addEventToCalendar`).
+
+### The honest limitation, stated
+- This is **pull, not push**: each person taps once per event they care about. If an event is later **edited or cancelled in the portal, phones do not follow** — re-tapping the button updates their copy (same UID), but nothing happens automatically. Automatic sync is a subscribed calendar feed (`webcal://` + a token URL, like the document share link) — a separate release if wanted, and the natural companion to the PWA/Capacitor conversation.
+- Frontend-only, no migrations.
+
 ## [1.4.263] — 2026-08-07 — A product invoice moves stock (MIGRATION 0065)
 
 ### Added (CEO: "if sales invoice created, inventory should be deducted to tally the inventory. of the payment has been paid. the amount of sales will be reflected to the Sales revenue")

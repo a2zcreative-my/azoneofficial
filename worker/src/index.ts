@@ -996,6 +996,72 @@ export default {
     } catch (e) {
       if (!String(e).includes("no such column")) await logError(env, "lowstock_cron", e instanceof Error ? e.message : String(e));
     }
+    /* v1.4.267: follow-up reminders. A next-follow-up date that nobody is
+       reminded of is a wish, not a plan — each cron pass bell-notifies the
+       assignee (or the creator, if unassigned) once per due date. Editing the
+       date re-arms the reminder (PATCH clears followup_notified_on). */
+    try {
+      const todayMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results: due } = await env.DB.prepare(
+        `SELECT id, brand_name, next_followup, assigned_to, created_by FROM prospects
+         WHERE next_followup IS NOT NULL AND next_followup <= ?1
+           AND stage NOT IN ('won', 'lost')
+           AND (followup_notified_on IS NULL OR followup_notified_on < ?1)
+         LIMIT 50`,
+      ).bind(todayMY).all<{ id: number; brand_name: string; next_followup: string; assigned_to: number | null; created_by: number | null }>();
+      for (const p of due) {
+        const who = p.assigned_to ?? p.created_by;
+        if (who) {
+          const late = p.next_followup < todayMY ? ` (was due ${p.next_followup})` : "";
+          await env.DB.prepare(
+            `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'prospect', ?2, ?3)`,
+          ).bind(who, `📞 Follow up today: ${p.brand_name}${late} — Social tab`, `prospect:${p.id}`).run();
+        }
+        await env.DB.prepare(`UPDATE prospects SET followup_notified_on = ?1 WHERE id = ?2`).bind(todayMY, p.id).run();
+      }
+    } catch (e) {
+      if (!String(e).includes("no such table")) console.error("prospect_cron", e);
+    }
+    /* v1.4.265 (CEO: "Errors are logged but nobody is told"): every 30-min
+       cron pass checks whether error_log grew since the last pass and bell-
+       notifies super_admin + ceo. A watermark in system_meta stops repeats —
+       the same errors never alert twice, only NEW ones do. This is what would
+       have surfaced the webhook signature failures weeks earlier: 44 retries
+       were sitting in the log with nobody looking. */
+    try {
+      const wm = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'error_alert_watermark'`)
+        .first<{ value: string }>();
+      const lastId = wm ? Number(wm.value) || 0 : 0;
+      const agg = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, MAX(id) AS max_id FROM error_log WHERE id > ?1`,
+      ).bind(lastId).first<{ n: number; max_id: number | null }>();
+      if (agg && agg.n > 0 && agg.max_id) {
+        const srcs = await env.DB.prepare(
+          `SELECT source, COUNT(*) AS c FROM error_log WHERE id > ?1 GROUP BY source ORDER BY c DESC LIMIT 3`,
+        ).bind(lastId).all<{ source: string; c: number }>();
+        const what = srcs.results.map((s) => `${s.source} ×${s.c}`).join(", ");
+        const { results: admins } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('super_admin', 'ceo')`,
+        ).all<{ id: number }>();
+        for (const a of admins) {
+          await env.DB.prepare(
+            `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'system', ?2, ?3)`,
+          ).bind(a.id, `⚠ ${agg.n} new system error${agg.n === 1 ? "" : "s"} since the last check (${what}) — see /admin → Audit → System health`, `errors:${agg.max_id}`).run();
+        }
+        await env.DB.prepare(
+          `INSERT INTO system_meta (key, value) VALUES ('error_alert_watermark', ?1)
+           ON CONFLICT(key) DO UPDATE SET value = ?1`,
+        ).bind(String(agg.max_id)).run();
+      } else if (agg && agg.max_id && lastId === 0) {
+        // first ever pass: set the watermark without alerting on history
+        await env.DB.prepare(
+          `INSERT INTO system_meta (key, value) VALUES ('error_alert_watermark', ?1)
+           ON CONFLICT(key) DO UPDATE SET value = ?1`,
+        ).bind(String(agg.max_id)).run();
+      }
+    } catch (e) {
+      if (!String(e).includes("no such")) console.error("error_alert_cron", e);
+    }
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -2003,6 +2069,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      backup for download so a copy lives OUTSIDE this Cloudflare account
      (ransomware / account-loss insurance). Records the export moment in
      system_meta so /admin can nag when a quarter passes. */
+  /* v1.4.265 (CEO: "no uptime monitor — staff will tell you the portal is
+     down before anything else does"): the endpoint an EXTERNAL monitor pings.
+     Unauthenticated ON PURPOSE — a monitor cannot sign in — and it leaks
+     nothing: a static ok plus one cheap DB probe, so it distinguishes "worker
+     up, database down" from "all up". The monitor itself must live OUTSIDE
+     Cloudflare (UptimeRobot etc.) — a system cannot report its own outage. */
+  if (path === "/api/v1/health" && method === "GET") {
+    let db = false;
+    try { await env.DB.prepare(`SELECT 1`).first(); db = true; } catch { /* db unreachable */ }
+    return new Response(JSON.stringify({ ok: db, db }), {
+      status: db ? 200 : 503,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  }
+
   if (path === "/api/v1/system/backup/download" && method === "GET") {
     if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
     const listed = await env.MEDIA.list({ prefix: "backups/" });
@@ -2048,7 +2129,25 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         .first<{ value: string }>();
       last_offsite = meta?.value ?? null;
     } catch { /* pre-0057 */ }
-    return json({ errors, last_backup, last_offsite });
+    /* v1.4.265 (CEO's deploy discipline gap — one wrong-order deploy already
+       blanked the staff directory in v1.4.218): probe one marker column per
+       recent migration and NAME the ones the database is missing, with the
+       exact command. The card turns this red; nobody has to remember. */
+    const migrations_pending: string[] = [];
+    const probes: [string, string][] = [
+      ["0059 (staff profile columns)", `SELECT address FROM users LIMIT 1`],
+      ["0060 (document kind)", `SELECT kind FROM sales_documents LIMIT 1`],
+      ["0062 (reference / delivery address)", `SELECT reference FROM sales_documents LIMIT 1`],
+      ["0063 (customer share links)", `SELECT share_token FROM sales_documents LIMIT 1`],
+      ["0064 (stock movement direction)", `SELECT direction FROM manual_stockouts LIMIT 1`],
+      ["0065 (invoice stock link)", `SELECT doc_id FROM manual_stockouts LIMIT 1`],
+    ];
+    for (const [label, probe] of probes) {
+      try { await env.DB.prepare(probe).first(); } catch (e) {
+        if (String(e).includes("no such column")) migrations_pending.push(label);
+      }
+    }
+    return json({ errors, last_backup, last_offsite, migrations_pending });
   }
 
   if (path === "/api/v1/system/backup" && method === "POST") {

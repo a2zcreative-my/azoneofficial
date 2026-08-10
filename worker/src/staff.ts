@@ -473,6 +473,110 @@ export async function handleStaff(
     ).all();
     return json({ birthdays: results });
   }
+  // v1.4.267: who may CHANGE a prospect (stage/assignment/delete) — the tier
+  // that owns the sales pipeline. Reading + adding stays open to all staff.
+  const SALES_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"];
+  /* ---- v1.4.267 Prospects — the team's shared lead list ----------------
+     Every staff role can READ and ADD (a live host who spots a brand mid-
+     scroll logs it in twenty seconds); stage changes, assignment and delete
+     are the sales tier's. Skew-armored: without migration 0066 every route
+     returns a clear 409 naming the migration instead of a 500. */
+  if (path === "/prospects" && method === "GET") {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT p.*, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS assigned_name,
+                COALESCE(NULLIF(TRIM(c.full_name), ''), c.name) AS created_name
+         FROM prospects p
+         LEFT JOIN users a ON a.id = p.assigned_to
+         LEFT JOIN users c ON c.id = p.created_by
+         ORDER BY CASE WHEN p.stage IN ('won','lost') THEN 1 ELSE 0 END,
+                  p.next_followup IS NULL, p.next_followup, p.id DESC`,
+      ).all();
+      return json({ prospects: results, today: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+      throw e;
+    }
+  }
+
+  if (path === "/prospects" && method === "POST") {
+    const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    const brand = String(b?.brand_name ?? "").trim();
+    if (!brand) return err("invalid_input", "Brand name is required", 400);
+    const SOURCES = ["tiktok", "shopee", "instagram", "facebook", "expo", "referral", "other"];
+    const source = SOURCES.includes(String(b?.source)) ? String(b?.source) : "other";
+    const CHANNELS = ["whatsapp", "dm", "email", "phone", ""];
+    const channel = CHANNELS.includes(String(b?.contact_channel ?? "")) ? String(b?.contact_channel ?? "") : "";
+    const fup = /^\d{4}-\d{2}-\d{2}$/.test(String(b?.next_followup ?? "")) ? String(b?.next_followup) : null;
+    const assigned = Number(b?.assigned_to) || null;
+    try {
+      const res = await env.DB.prepare(
+        `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+      ).bind(brand, source, String(b?.niche ?? "").trim() || null, String(b?.contact_name ?? "").trim() || null,
+             channel || null, String(b?.contact_value ?? "").trim() || null, String(b?.notes ?? "").trim() || null,
+             assigned, fup, user.id).first<{ id: number }>();
+      await audit(env, user.id, "prospect.create", "prospects", String(res?.id), { brand });
+      // hand-offs notify: logging a find FOR someone else tells them at once
+      if (assigned && assigned !== user.id) {
+        await notify(env, assigned, "prospect", `🎯 New prospect assigned to you: ${brand} (${source})`, `prospect:${res?.id}`);
+      }
+      return json({ id: res?.id }, 201);
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+      throw e;
+    }
+  }
+
+  {
+    const mP = path.match(/^\/prospects\/(\d+)$/);
+    if (mP && method === "PATCH") {
+      if (!SALES_ROLES.includes(user.role)) return err("forbidden", "Sales tier required to update a prospect", 403);
+      const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
+      const STAGES = ["identified", "contacted", "replied", "meeting", "proposal", "won", "lost"];
+      if (typeof b?.stage === "string" && STAGES.includes(b.stage)) { put("stage", b.stage); put("stage_changed_at", new Date().toISOString().slice(0, 19).replace("T", " ")); }
+      for (const col of ["brand_name", "niche", "contact_name", "contact_channel", "contact_value", "notes"] as const) {
+        if (typeof b?.[col] === "string") put(col, String(b[col]).trim() || null);
+      }
+      if (b && "assigned_to" in b) put("assigned_to", Number(b.assigned_to) || null);
+      if (typeof b?.next_followup === "string") {
+        put("next_followup", /^\d{4}-\d{2}-\d{2}$/.test(b.next_followup) ? b.next_followup : null);
+        put("followup_notified_on", null); // a new date re-arms the reminder
+      }
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      try {
+        await env.DB.prepare(`UPDATE prospects SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`)
+          .bind(...args, Number(mP[1])).run();
+        await audit(env, user.id, "prospect.update", "prospects", mP[1], b ?? {});
+        return json({ ok: true });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+        throw e;
+      }
+    }
+    if (mP && method === "DELETE") {
+      if (!SALES_ROLES.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      try {
+        await env.DB.prepare(`DELETE FROM prospects WHERE id = ?1`).bind(Number(mP[1])).run();
+        await audit(env, user.id, "prospect.delete", "prospects", mP[1]);
+        return json({ ok: true });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+        throw e;
+      }
+    }
+  }
+
+  if (path === "/trends/my" && method === "GET") {
+    // v1.4.266: any staff role — trend awareness is for the whole team.
+    const data = await trendsMY(env);
+    if (!data) return err("unavailable", "Google Trends could not be reached — try again later", 503);
+    return json(data);
+  }
+
   if (path === "/staff-list" && method === "GET") {
     // v1.4.93: minimal staff list (id, name, role) for pickers like the
     // Sales-person dropdown — available to every staff role, exposes nothing
@@ -3215,8 +3319,21 @@ export async function handleStaff(
         }
       } else throw e;
     }
+    /* v1.4.265 (the gap flagged in v1.4.263): editing a product invoice's
+       items now RE-BALANCES stock — the old deduction is restored in full,
+       then the new items deduct, so the shelf always reflects the invoice as
+       it reads NOW. Two steps rather than a diff because a line can change
+       SKU, not just quantity, and restore-then-deduct is right in every case. */
+    let stockE: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
+    const edited = await env.DB.prepare(
+      `SELECT doc_type, doc_number, kind FROM sales_documents WHERE id = ?1`,
+    ).bind(idE).first<{ doc_type: string; doc_number: string; kind: string | null }>();
+    if (edited && edited.doc_type === "INV" && (edited.kind ?? "product") !== "service") {
+      await restoreForInvoice(env, Number(idE), edited.doc_number);
+      stockE = await deductForInvoice(env, Number(idE), edited.doc_number, JSON.stringify(itemsE), null, user.id);
+    }
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
-    return json({ ok: true, total_cents: totalE });
+    return json({ ok: true, total_cents: totalE, stock: stockE });
   }
 
   /* ---- notifications ---- */
@@ -4218,6 +4335,72 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(r.id).run();
   }
   return rows.length;
+}
+
+/* v1.4.266 (CEO: "add Famous search product in Malaysia which is related to
+   my product and my service… potential business"): what Malaysians are
+   SEARCHING is Google's data, and Google publishes a free official RSS of the
+   country's trending searches — top ~20, refreshed hourly, with a traffic
+   label and a related headline. No key, no scraping, no quota to blow.
+
+   (Threads was considered and rejected as the ENGINE: its keyword-search API
+   needs Meta App Review for advanced access, is capped at 500 searches per
+   rolling 7 days, and searches what people POST, not what they SEARCH —
+   chatter, not demand. Fine to eyeball manually once a trend is spotted.)
+
+   Cached in system_meta for 3 hours — the feed itself only shifts hourly,
+   and a Dashboard full of staff must not hammer Google on every load. */
+const TRENDS_TTL_MS = 3 * 3600 * 1000;
+
+async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null> {
+  try {
+    const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'trends_my_cache'`)
+      .first<{ value: string }>();
+    if (cached) {
+      const c = JSON.parse(cached.value);
+      if (Date.now() - new Date(c.fetched_at).getTime() < TRENDS_TTL_MS) return c;
+    }
+  } catch { /* fall through to fetch */ }
+  try {
+    const r = await fetch("https://trends.google.com/trending/rss?geo=MY", {
+      headers: { "user-agent": "Mozilla/5.0 (compatible; AZOO-portal/1.0)" },
+    });
+    if (!r.ok) throw new Error(`rss http ${r.status}`);
+    const xml = await r.text();
+    const items: { title: string; traffic: string; news: string; news_url: string }[] = [];
+    // Workers have no XML DOM — the feed is regular enough for a tag walk.
+    const blocks = xml.split("<item>").slice(1);
+    for (const b of blocks.slice(0, 20)) {
+      const tag = (name: string) => {
+        const m = b.match(new RegExp(`<${name}[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</${name}>`));
+        return m ? m[1]!.trim() : "";
+      };
+      const title = tag("title");
+      if (!title) continue;
+      items.push({
+        title,
+        traffic: tag("ht:approx_traffic"),
+        news: tag("ht:news_item_title").replace(/<[^>]+>/g, ""),
+        news_url: tag("ht:news_item_url"),
+      });
+    }
+    if (items.length === 0) throw new Error("rss parsed empty");
+    const out = { fetched_at: new Date().toISOString(), items };
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('trends_my_cache', ?1)
+       ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(out)).run();
+    return out;
+  } catch (e) {
+    await logError(env, "trends_my", e instanceof Error ? e.message : String(e));
+    // stale cache beats nothing — return whatever we last had
+    try {
+      const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'trends_my_cache'`)
+        .first<{ value: string }>();
+      if (cached) return JSON.parse(cached.value);
+    } catch { /* nothing cached */ }
+    return null;
+  }
 }
 
 /* ---- Sales & marketing: inventory ---- */

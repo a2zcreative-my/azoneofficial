@@ -13,12 +13,14 @@ import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
+import { addEventToCalendar } from "@/lib/event-ics";
+import { ProspectsPanel } from "@/components/portal/prospects-panel";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -39,7 +41,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf } from "@/lib/format";
+import { dmy, mytToday, mytDateOf, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -497,7 +499,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
                 {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
               </p>
               {/* v1.4.206 (CEO: "compare yesterday sales by telling the
-                  staff it is either arrow uptrend or downtrend") */}
+                  staff it is either an uptrend or downtrend") */}
               {rev.yesterday && (todayTotal > 0 || rev.yesterday.total_cents > 0) && (() => {
                 const y = rev.yesterday!.total_cents;
                 const d = todayTotal - y;
@@ -635,6 +637,81 @@ const EVENT_CATEGORIES = [
     trainings, classes and important dates are never missed. Managers
     (events_manage roles) add and remove events inline; everyone is
     bell-notified when one is created. */
+/* v1.4.266 (CEO: "add Famous search product in Malaysia which is related to
+   my product and my service… potential business"): what the country is
+   searching TODAY, with the rows that touch our world pinned to the top.
+
+   The source is Google Trends Malaysia (the official RSS, cached 3h in the
+   worker) — searches, i.e. DEMAND. Threads was evaluated and rejected as the
+   engine: its keyword API is gated behind Meta App Review, capped at 500
+   searches/7 days, and measures what people POST, not what they LOOK FOR. */
+const TREND_BUSINESS_KEYWORDS = [
+  // our products + the client's world
+  "tudung", "hijab", "shawl", "scarf", "elfia", "bawal", "instant",
+  // occasions that move modest fashion
+  "raya", "baju", "fashion", "kurung", "nikah", "kahwin", "wedding", "konvokesyen",
+  // our services + channels
+  "tiktok", "live", "shopee", "affiliate", "viral", "ecommerce", "e-commerce", "influencer",
+];
+
+function TrendingMYCard() {
+  const [data, setData] = useState<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    void (async () => {
+      const r = await api<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] }>(`/staff/trends/my`);
+      if (r.ok && r.data?.items) setData(r.data); else setFailed(true);
+    })();
+  }, []);
+
+  const hits = data ? data.items.filter((it) => {
+    const t = it.title.toLowerCase();
+    return TREND_BUSINESS_KEYWORDS.some((k) => t.includes(k));
+  }) : [];
+  const rest = data ? data.items.filter((it) => !hits.includes(it)) : [];
+
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">🔎 Trending searches — Malaysia</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        What the country is googling right now (Google Trends, ~hourly). Rows touching our products or channels are pinned — each one is a live to plan, a hook to post, or a customer already searching.
+      </p>
+      {!data && !failed && <p className="text-muted-foreground mt-2 text-xs">Loading trends…</p>}
+      {failed && <p className="text-muted-foreground mt-2 text-xs">Trends need the latest server update — or Google could not be reached just now.</p>}
+      {data && (
+        <>
+          {hits.length > 0 ? (
+            <div className="mt-2 space-y-1.5">
+              {hits.map((it) => (
+                <div key={it.title} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm">
+                  <span className="font-medium">🎯 {it.title}</span>
+                  {it.traffic && <span className="text-muted-foreground ml-1.5 text-xs">{it.traffic} searches</span>}
+                  {it.news && <p className="text-muted-foreground mt-0.5 text-xs">{it.news_url ? <a className="underline" href={it.news_url} target="_blank" rel="noreferrer">{it.news}</a> : it.news}</p>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground mt-2 text-xs">Nothing in today&apos;s top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
+          )}
+          {rest.length > 0 && (
+            <DetailsToggle label={`All trending searches (${rest.length})`} className="mt-2">
+              <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sm">
+                {rest.map((it) => (
+                  <li key={it.title}>
+                    {it.title}
+                    {it.traffic && <span className="text-muted-foreground ml-1.5 text-xs">{it.traffic}</span>}
+                  </li>
+                ))}
+              </ol>
+            </DetailsToggle>
+          )}
+          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmyMYT(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function UpcomingEventsCard({ role }: { role: string }) {
   const [events, setEvents] = useState<CompanyEvent[]>([]);
   const [msg, setMsg] = useState("");
@@ -790,6 +867,9 @@ function UpcomingEventsCard({ role }: { role: string }) {
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
+          onAdded={(title, how) => showToast("Saved", how === "shared"
+            ? `${title} — pick Calendar in the share sheet to finish`
+            : `${title} — calendar file downloaded; open it to add the event`)}
         />
       )}
       {view === "list" && (
@@ -811,9 +891,22 @@ function UpcomingEventsCard({ role }: { role: string }) {
               {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
               {ev.created_by_name && <p className="text-muted-foreground mt-0.5 text-[11px]">Added by {ev.created_by_name}</p>}
             </div>
-            {canManage && (
-              <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
-            )}
+            <span className={rowActions}>
+              {/* v1.4.264: the portal card can only remind people while they
+                  are LOOKING at it — the phone's own calendar is what buzzes
+                  on the day. Every staff member gets this, not just managers. */}
+              <button type="button" className={rowBtn}
+                title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
+                onClick={async () => {
+                  const how = await addEventToCalendar(ev);
+                  showToast("Saved", how === "shared"
+                    ? `${ev.title} — pick Calendar in the share sheet to finish`
+                    : `${ev.title} — calendar file downloaded; open it to add the event`);
+                }}>📅 Add to my calendar</button>
+              {canManage && (
+                <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -833,7 +926,7 @@ const EVENT_COLORS: Record<string, string> = {
 /** Month calendar — professional on desktop AND phones: 7-column grid,
     today ringed, category-coloured markers (titles on desktop, dots on
     mobile), tap a day for its agenda below. Weeks start Sunday (MY). */
-function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, selected, onSelect, canManage, onRemove }: {
+function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, selected, onSelect, canManage, onRemove, onAdded }: {
   events: CompanyEvent[];
   holidays: { holiday_date: string; name: string; kind: string }[];
   birthdays?: { name: string; birthday: string }[];
@@ -843,6 +936,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
   onSelect: (d: string | null) => void;
   canManage: boolean;
   onRemove: (id: number) => void;
+  onAdded: (title: string, how: "shared" | "downloaded") => void;
 }) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -965,9 +1059,19 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                   </p>
                   {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
                 </div>
-                {canManage && (
-                  <button type="button" className={rowBtnDanger} onClick={() => onRemove(ev.id)}>Remove</button>
-                )}
+                <span className={rowActions}>
+                  {/* v1.4.264: same button as the list view — one tap into the
+                      phone's own calendar, for every staff member. */}
+                  <button type="button" className={rowBtn}
+                    title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
+                    onClick={async () => {
+                      const how = await addEventToCalendar(ev);
+                      onAdded(ev.title, how);
+                    }}>📅 Add to my calendar</button>
+                  {canManage && (
+                    <button type="button" className={rowBtnDanger} onClick={() => onRemove(ev.id)}>Remove</button>
+                  )}
+                </span>
               </div>
             ))
           )}
@@ -2404,9 +2508,10 @@ function Sales({ user }: { user: User }) {
       paid_date: doc.paid_received ? (paidDate || docDate || undefined) : undefined,
     };
     if (editingDoc) {
-      const res = await api<{ error?: { message?: string } }>(`/staff/docs/${editingDoc.id}/edit`, { method: "POST", body: JSON.stringify(payload) });
+      const res = await api<{ stock?: Parameters<typeof stockToastLine>[0]; error?: { message?: string } }>(`/staff/docs/${editingDoc.id}/edit`, { method: "POST", body: JSON.stringify(payload) });
       if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Update failed — check access", "notice"); return; }
-      showToast("Saved", `${editingDoc.doc_number} updated`);
+      // v1.4.265: an edited product invoice re-balances stock — say what moved.
+      showToast("Saved", `${editingDoc.doc_number} updated${stockToastLine(res.data?.stock)}`);
       const idP = editingDoc.id;
       resetDocForm(); void load();
       void printDoc(idP); // fresh PDF straight after the fix
@@ -3252,7 +3357,7 @@ function UsersPanel({ role }: { role: string }) {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Social", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.4.267 Social
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -3729,6 +3834,16 @@ export default function PortalPage() {
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
             {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
             <ConnectionStatusCard />
+          </div>
+        )}
+        {activeTab === "Social" && (
+          <div className="space-y-4 md:space-y-6">
+            {/* v1.4.267 (CEO: "ensure that my dashboard not exploded… make a
+                new tabs under Social"): market-watching + prospecting live
+                together here — spot a trend, log the brand, work the stage.
+                The trends card MOVED off the Dashboard for the same reason. */}
+            <ProspectsPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)} />
+            <TrendingMYCard />
           </div>
         )}
         {activeTab === "Assets" && <AssetsPanel />}
