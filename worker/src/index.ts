@@ -1028,6 +1028,35 @@ export default {
        the same errors never alert twice, only NEW ones do. This is what would
        have surfaced the webhook signature failures weeks earlier: 44 retries
        were sitting in the log with nobody looking. */
+    /* v1.4.273 idea 5: CLIENT GONE QUIET — a client with sessions on record
+       but none in the last 14 days gets one bell to sales+CEO. Churn caught
+       at day 14 is recoverable; churn noticed at invoice time is not. A new
+       booking clears the flag (see POST /live-sessions); otherwise it
+       re-arms itself after another 14 days. */
+    try {
+      const todayQ = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results: quiet } = await env.DB.prepare(
+        `SELECT c.id, c.company, MAX(s.session_date) AS last_live FROM customers c
+         JOIN live_sessions s ON s.client_id = c.id AND s.status != 'cancelled'
+         WHERE c.company != 'Walk-in Customer'
+         GROUP BY c.id
+         HAVING last_live < date('now', '+8 hours', '-14 days')
+            AND (c.quiet_alerted_on IS NULL OR c.quiet_alerted_on < date('now', '+8 hours', '-14 days'))
+         LIMIT 10`,
+      ).all<{ id: number; company: string; last_live: string }>();
+      if (quiet.length) {
+        const { results: salesUsers } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('sales_marketing', 'ceo')`,
+        ).all<{ id: number }>();
+        for (const q of quiet) {
+          for (const u of salesUsers) {
+            await notify(env, u.id, "sales", `😶 ${q.company} has gone quiet — no live since ${q.last_live.split("-").reverse().join("-")}. Time to book them.`, `quiet:${q.id}:${todayQ}`);
+          }
+          await env.DB.prepare(`UPDATE customers SET quiet_alerted_on = ?1 WHERE id = ?2`).bind(todayQ, q.id).run();
+        }
+      }
+    } catch { /* pre-0067 or pre-0056 — silent until migrated */ }
+
     try {
       const wm = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'error_alert_watermark'`)
         .first<{ value: string }>();
@@ -1109,6 +1138,66 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/health" && method === "GET") {
     return json({ ok: true, service: "azoneofficial-api" });
+  }
+
+  /* v1.4.273: the client report link — public, read-only, token-gated.
+     A client can forward this to their boss; it is also our best brochure. */
+  if (path === "/api/v1/client-report" && method === "GET") {
+    const t = new URL(request.url).searchParams.get("t") ?? "";
+    if (!/^[a-f0-9]{32}$/.test(t)) return json({ error: "invalid_token" }, 404);
+    try {
+      const link = await env.DB.prepare(
+        `SELECT l.customer_id, c.company FROM client_report_links l JOIN customers c ON c.id = l.customer_id WHERE l.token = ?1`,
+      ).bind(t).first<{ customer_id: number; company: string }>();
+      if (!link) return json({ error: "invalid_token" }, 404);
+      const nowMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
+      const month = nowMY.slice(0, 7);
+      const lastMonth = new Date(new Date(month + "-01T00:00:00Z").getTime() - 86400_000).toISOString().slice(0, 7);
+      const one = async <T,>(sql: string, ...args: unknown[]): Promise<T | null> => {
+        try { return await env.DB.prepare(sql).bind(...args).first<T>(); } catch { return null; }
+      };
+      const lives = await one<{ n: number; minutes: number }>(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN end_time IS NOT NULL
+            THEN (CAST(substr(end_time,1,2) AS INTEGER)*60 + CAST(substr(end_time,4,2) AS INTEGER))
+               - (CAST(substr(start_time,1,2) AS INTEGER)*60 + CAST(substr(start_time,4,2) AS INTEGER)) ELSE 0 END), 0) AS minutes
+         FROM live_sessions WHERE client_id = ?1 AND status != 'cancelled' AND substr(session_date, 1, 7) = ?2`,
+        link.customer_id, month);
+      const livesLast = await one<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM live_sessions WHERE client_id = ?1 AND status != 'cancelled' AND substr(session_date, 1, 7) = ?2`,
+        link.customer_id, lastMonth);
+      const inv = await one<{ paid_cents: number; docs: number }>(
+        `SELECT COALESCE(SUM(total_cents), 0) AS paid_cents, COUNT(*) AS docs FROM sales_documents
+         WHERE customer_id = ?1 AND doc_type = 'INV' AND payment_status = 'paid'
+           AND substr(COALESCE(paid_at, created_at), 1, 7) = ?2`, link.customer_id, month);
+      const hours: { hour: string; n: number }[] = [];
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT substr(start_time, 1, 2) AS hour, COUNT(*) AS n FROM live_sessions
+           WHERE client_id = ?1 AND status != 'cancelled' AND session_date >= date('now', '+8 hours', '-60 days')
+           GROUP BY hour ORDER BY n DESC LIMIT 3`,
+        ).bind(link.customer_id).all<{ hour: string; n: number }>();
+        hours.push(...results);
+      } catch { /* pre-0056 */ }
+      return json({
+        company: link.company, month,
+        lives: { this_month: lives?.n ?? 0, minutes: lives?.minutes ?? 0, last_month: livesLast?.n ?? 0 },
+        invoiced_paid_cents: inv?.paid_cents ?? 0,
+        top_hours: hours,
+        generated: nowMY.slice(0, 10),
+      });
+    } catch (e) {
+      if (String(e).includes("no such table")) return json({ error: "not_ready" }, 503);
+      throw e;
+    }
+  }
+
+  /* v1.4.273: the public package rate card (null until the CEO sets tiers). */
+  if (path === "/api/v1/packages" && method === "GET") {
+    try {
+      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
+      const pk = row ? JSON.parse(row.value) : null;
+      return json({ packages: Array.isArray(pk) && pk.length ? pk : null });
+    } catch { return json({ packages: null }); }
   }
 
   if (path === "/api/v1/content-public" && method === "GET") {

@@ -6,6 +6,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { FaqList } from "@/components/ui/faq-list";
 import { PackagesCarousel } from "@/components/ui/packages-carousel";
 import { PACKAGES, PACKAGE_MATRIX, whatsappUrl } from "@/constants/content";
+import { PublicRates } from "@/components/ui/public-rates";
 
 export const metadata: Metadata = {
   title: "Packages",
@@ -94,6 +95,10 @@ export default function PackagesPage() {
           </table>
         </div>
       </section>
+
+      {/* v1.4.273: real starting prices, published from the portal — the
+          section exists only once the CEO saves tiers (Sales → 📦 Packages). */}
+      <PublicRates whatsapp={whatsappUrl()} />
 
       <section>
         <h2>What it costs</h2>

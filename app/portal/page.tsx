@@ -41,7 +41,7 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, fieldRow } from "@/lib/ui-styles";
 import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
@@ -824,7 +824,6 @@ function UpcomingEventsCard({ role }: { role: string }) {
   useEffect(() => {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadEvents = useCallback(async () => {
@@ -1201,7 +1200,6 @@ function Attendance({ user }: { user: User }) {
     loadMon();
     const t = setInterval(loadMon, 120000); // keeps the monitor live through the day
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReport]);
 
   return (
@@ -2186,12 +2184,12 @@ function OtApprovalsCard() {
   const [loaded, setLoaded] = useState(false);
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
-  const load = async () => {
+  const load = useCallback(async () => {
     const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
     if (r.ok) setPending(r.data?.pending ?? []);
     setLoaded(true);
-  };
-  useEffect(() => { void load(); }, []);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
     if (decision === "rejected" && !(await otConfirm({
       title: "Reject this overtime?",
@@ -2255,11 +2253,11 @@ function LiveScheduleCard({ user }: { user: User }) {
   const [hosts, setHosts] = useState<Opt[]>([]);
   const [clients, setClients] = useState<Opt[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "", end_time: "", platform: "tiktok", client_id: "", client_name: "", host_user_id: "", notes: "" });
-  const load = async () => {
+  const load = useCallback(async () => {
     const r = await api<{ sessions?: Sess[] }>(`/staff/live-sessions`);
     if (r.ok) setSessions(r.data?.sessions ?? []);
     setLoaded(true);
-  };
+  }, []);
   useEffect(() => {
     void load();
     if (manager) {
@@ -2270,7 +2268,7 @@ function LiveScheduleCard({ user }: { user: User }) {
         if (r.ok) setClients((r.data?.customers ?? []).filter((c) => (c.company ?? "") !== "Walk-in Customer"));
       });
     }
-  }, [manager]);
+  }, [manager, load]);
   const create = async () => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) return;
     await api(`/staff/live-sessions`, {
@@ -2360,11 +2358,135 @@ function LiveScheduleCard({ user }: { user: User }) {
 
 /* v1.4.191 CLIENT LAYER (CEO gap list): per-client agency view — invoiced /
    paid / quotations / live sessions per client, from the customers registry. */
+
+/* v1.4.273 idea 6 — RM per live hour, per client and per host, this month.
+   The one number a live agency should run on: which clients to upsell,
+   which hosts are earning. Renders null until the worker route exists. */
+function LiveEconomicsCard() {
+  interface Econ { month: string; clients: { id: number; company: string; minutes: number; paid_cents: number }[]; hosts: { id: number; name: string; minutes: number; gmv_cents: number }[] }
+  const [econ, setEcon] = useState<Econ | null>(null);
+  const th = "text-muted-foreground px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap";
+  const thR2 = "text-muted-foreground px-2 py-1.5 text-right text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap";
+  const td = "px-2 py-1.5 align-top whitespace-nowrap";
+  const tdR2 = "px-2 py-1.5 align-top text-right whitespace-nowrap";
+  useEffect(() => {
+    void api<Econ>(`/staff/clients/live-economics`).then((r) => { if (r.ok && r.data) setEcon(r.data); });
+  }, []);
+  if (!econ || (econ.clients.length === 0 && econ.hosts.length === 0)) return null;
+  const hm = (mins: number) => `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+  const perHour = (cents: number, mins: number) => (mins > 0 ? fmtRM(Math.round((cents * 60) / mins)) : "—");
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">⏱💰 Live-hour economics — {ym(econ.month)}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        RM per hour of live this month. Clients: paid invoices ÷ completed session hours.
+        Hosts: TikTok GMV landing during their sessions (motivation, not payroll).
+      </p>
+      {econ.clients.length > 0 && (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead><tr className="border-border border-b">
+              <th className={th}>CLIENT</th><th className={thR2}>HOURS</th><th className={thR2}>PAID</th><th className={thR2}>RM / HOUR</th>
+            </tr></thead>
+            <tbody>
+              {econ.clients.map((c) => (
+                <tr key={c.id} className="border-border border-b last:border-0">
+                  <td className={td}>{c.company}</td>
+                  <td className={tdR2}>{hm(c.minutes)}</td>
+                  <td className={tdR2}>{fmtRM(c.paid_cents)}</td>
+                  <td className={`${tdR2} font-semibold`}>{perHour(c.paid_cents, c.minutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {econ.hosts.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <p className="text-muted-foreground text-xs font-semibold">Hosts</p>
+          <table className="w-full border-collapse text-sm">
+            <thead><tr className="border-border border-b">
+              <th className={th}>HOST</th><th className={thR2}>HOURS</th><th className={thR2}>GMV IN-LIVE</th><th className={thR2}>RM / HOUR</th>
+            </tr></thead>
+            <tbody>
+              {econ.hosts.map((h) => (
+                <tr key={h.id} className="border-border border-b last:border-0">
+                  <td className={td}>{properName(h.name)}</td>
+                  <td className={tdR2}>{hm(h.minutes)}</td>
+                  <td className={tdR2}>{fmtRM(h.gmv_cents)}</td>
+                  <td className={`${tdR2} font-semibold`}>{perHour(h.gmv_cents, h.minutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* v1.4.273 idea 3 — the public package rate card, edited here, served on
+   the public site at /packages. Prospects who see prices pre-qualify
+   themselves. The public page stays a contact-us page until tiers exist
+   (house rule: never display placeholder/zero content). CEO-only. */
+function PackagesEditorCard({ role }: { role: string }) {
+  interface Tier { name: string; price_label: string; points: string[] }
+  const [tiers, setTiers] = useState<Tier[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const { show: showToast, node: toastNode } = useSaveToast();
+  useEffect(() => {
+    void api<{ packages: Tier[] | null }>(`/staff/sales/packages`).then((r) => {
+      if (r.ok) setTiers(r.data?.packages ?? []);
+      setLoaded(true);
+    });
+  }, []);
+  if (!["ceo", "super_admin"].includes(role) || !loaded) return null;
+  const upd = (i: number, patch: Partial<Tier>) => setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">📦 Packages — public rate card</p>
+      {toastNode}
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Shown on azoneofficial.com/packages with a WhatsApp button. The page
+        stays a contact-us page until you save at least one tier here.
+      </p>
+      <div className="mt-2 space-y-3">
+        {tiers.map((t, i) => (
+          <div key={i} className="border-border rounded-lg border p-3">
+            <div className={fieldRow}>
+              <label className="text-sm"><span className="text-muted-foreground text-xs">Tier name</span>
+                <input className={inputClass} placeholder="e.g. Starter" value={t.name} onChange={(e) => upd(i, { name: e.target.value })} /></label>
+              <label className="text-sm"><span className="text-muted-foreground text-xs">Price label</span>
+                <input className={inputClass} placeholder="e.g. from RM 1,500/month" value={t.price_label} onChange={(e) => upd(i, { price_label: e.target.value })} /></label>
+              <button type="button" className="text-xs underline" onClick={() => setTiers((ts) => ts.filter((_, j) => j !== i))}>Remove tier</button>
+            </div>
+            <label className="mt-2 block text-sm"><span className="text-muted-foreground text-xs">What&apos;s included — one point per line</span>
+              <textarea className={`${inputClass} min-h-20`} value={t.points.join("\n")}
+                onChange={(e) => upd(i, { points: e.target.value.split("\n") })} /></label>
+          </div>
+        ))}
+        <div className="flex flex-wrap gap-2">
+          {tiers.length < 6 && (
+            <button type="button" className={btnClass} onClick={() => setTiers((ts) => [...ts, { name: "", price_label: "", points: [] }])}>+ Add tier</button>
+          )}
+          <button type="button" className={btnClass} onClick={async () => {
+            const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
+            const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
+            if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
+            else showToast("Not saved", (r.data as { error?: string })?.error ?? "Deploy the latest server first", "notice");
+          }}>Save rate card</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClientsCard() {
   interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
   const [clients, setClients] = useState<Cl[]>([]);
   const [sessions, setSessions] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
+  const { show: showRlToast, node: rlToastNode } = useSaveToast();
   useEffect(() => {
     void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/staff/clients/summary`).then((r) => {
       if (r.ok) { setClients(r.data?.clients ?? []); setSessions(r.data?.sessions ?? {}); }
@@ -2376,6 +2498,7 @@ function ClientsCard() {
   return (
     <div className={card}>
       <p className="text-sm font-semibold">🤝 Clients</p>
+      {rlToastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
         Per-client view from your sales documents and the live roster —
         invoiced, collected, quotations in play and sessions scheduled.
@@ -2389,6 +2512,16 @@ function ClientsCard() {
               <span className="font-medium text-green-700" title="Collected (paid invoices)">{rm2(c.paid_cents)} paid</span>
               <span title="Quotations issued">{c.quotations} QT</span>
               <span title="Live sessions scheduled (not cancelled)">{sessions[String(c.id)] ?? 0} live</span>
+              {/* v1.4.273 idea 1: the client report link — a public monthly
+                  performance page they can forward to their boss. Retention
+                  weapon + our best brochure. */}
+              <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
+                const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                const url = `${location.origin}/report?t=${r.data.token}`;
+                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
+                catch { showRlToast("Report link", url, "notice"); }
+              }}>🔗 Report link</button>
             </span>
           </div>
         ))}
@@ -2405,14 +2538,14 @@ function CustomerEnquiriesCard() {
     general: "General", package_pricing: "Package & pricing", live_commerce: "Live commerce",
     order_delivery: "Order & delivery", collaboration: "Collaboration",
   };
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const r = await fetch("/api/v1/enquiries", { credentials: "include" });
       if (r.ok) { const d = (await r.json()) as { enquiries?: Enq[] }; setEnqs(d.enquiries ?? []); }
     } catch { /* card stays empty */ }
     setLoaded(true);
-  };
-  useEffect(() => { void load(); }, []);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
   const setStatus = async (id: number, status: string) => {
     await fetch(`/api/v1/enquiries/${id}`, {
       method: "PATCH", credentials: "include",
@@ -2524,6 +2657,29 @@ function Sales({ user }: { user: User }) {
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
+
+  /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
+     a prefill into localStorage and jumped here; we either pick the existing
+     customer by company name or pre-fill the new-customer form, and stamp
+     the reference so the QT says where it came from. */
+  useEffect(() => {
+    let raw: string | null = null;
+    try { raw = localStorage.getItem("azone-qt-prefill"); } catch { return; }
+    if (!raw) return;
+    try { localStorage.removeItem("azone-qt-prefill"); } catch { /* fine */ }
+    try {
+      const pf = JSON.parse(raw) as { company?: string; contact_person?: string; phone?: string; reference?: string };
+      const existing = customers.find((c) => c.company.trim().toLowerCase() === (pf.company ?? "").trim().toLowerCase());
+      setDoc((d) => ({ ...d, doc_type: "QT", reference: pf.reference ?? d.reference, customer_id: existing ? existing.id : d.customer_id }));
+      if (!existing) setCust((c) => ({ ...c, company: pf.company ?? "", contact_person: pf.contact_person ?? "", phone: pf.phone ?? "" }));
+      showToast("Prefilled from prospect", existing
+        ? `${existing.company} selected — add the package lines and save the quotation`
+        : `Add ${pf.company ?? "the client"} as a customer first, then the quotation form is ready`);
+    } catch { /* malformed handoff — ignore */ }
+    // customers in deps: on a cold open the list arrives after mount and the
+    // company match must run against the LOADED list.
+  }, [customers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* v1.4.240 (CEO: "why the popup card was not standardize like the current
      use"): the Sales tab was the last place still raising the browser's own
      "azoneofficial.com says" box — every destructive action here now uses the
@@ -3277,7 +3433,6 @@ function UsersPanel({ role }: { role: string }) {
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { load(); }, [load]);
   const saveRole = async (u: { id: number; name: string; email: string }) => {
@@ -3501,17 +3656,13 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
-    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   useEffect(() => {
-    if (!user) return;
-    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -3632,11 +3783,6 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Dashboard" || t === "Profile") return true;
     if (user?.role === "super_admin") return true;
@@ -3646,11 +3792,12 @@ export default function PortalPage() {
     const allowed = TAB_ROLES[t];
     return !allowed || allowed.includes(user?.role || "");
   });
+
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
-    if (!tabs.includes(tab)) setTab("Dashboard");
+    if (user && !tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab]);
+  }, [tabs.join("|"), tab, user]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -3678,6 +3825,10 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
+
+  /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
+     alone still allowed one frame; every panel below renders off activeTab,
+     which can never name a tab outside this account's visible list. */
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   return (
@@ -3898,6 +4049,8 @@ export default function PortalPage() {
           <div className="space-y-4 md:space-y-6">
             <Sales user={user} />
             <ClientsCard />
+            <LiveEconomicsCard />
+            <PackagesEditorCard role={user.role} />
             <CustomerEnquiriesCard />
           </div>
         )}
@@ -3930,7 +4083,8 @@ export default function PortalPage() {
                 new tabs under Social"): market-watching + prospecting live
                 together here — spot a trend, log the brand, work the stage.
                 The trends card MOVED off the Dashboard for the same reason. */}
-            <ProspectsPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)} />
+            <ProspectsPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
+              onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
             <TrendingMYCard />
           </div>
         )}

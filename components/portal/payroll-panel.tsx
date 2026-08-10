@@ -696,92 +696,90 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (
-        <>
-          <details className="mt-2 text-xs">
-            <summary className="text-muted-foreground cursor-pointer select-none">
-              ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
+      {!readOnly && (<>
+        <details className="mt-2 text-xs">
+          <summary className="text-muted-foreground cursor-pointer select-none">
+            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
+          </summary>
+          <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
+            <p className="text-muted-foreground">
+              Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+              <label className="block">
+                <span className="text-muted-foreground">Corporate ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
+                  placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Client Batch ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
+                  placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
+                  onChange={(e) => setM2eCbid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Payer account no</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
+                  inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
+              </label>
+              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
+                onClick={() => void saveM2eSettings()}>
+                Save
+              </button>
+            </div>
+            <div className="grid grid-cols-2 items-center gap-2 sm:flex">
+              <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
+              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
+                {m2eHasTpl ? "Replace template" : "Upload template"}
+                <input type="file" accept=".xlsm" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
+              </label>
+            </div>
+            <p className="text-muted-foreground">
+              Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
+            </p>
+          </div>
+        </details>
+
+        {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
+            member's COMMISSION box. Draft only: he reviews, then Save all.
+            Hidden entirely on an old worker (no base fetched). */}
+        {commBase !== null && (
+          <details className="text-xs">
+            <summary className="cursor-pointer select-none font-medium">
+              💰 Commission helper — {ym(month)} sales {rm(commBase)} × rate
             </summary>
-            <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
-              <p className="text-muted-foreground">
-                Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
+            <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
+              <label className="block">
+                <span className="text-muted-foreground">Rate %</span>
+                <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
+                  value={commRate} onChange={(e) => setCommRate(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Pay to</span>
+                <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
+                  onChange={(e) => setCommWho(e.target.value)}>
+                  <option value="">— choose staff —</option>
+                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </label>
+              <p className="pb-1.5 font-semibold">
+                = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
               </p>
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
-                <label className="block">
-                  <span className="text-muted-foreground">Corporate ID</span>
-                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
-                    placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="text-muted-foreground">Client Batch ID</span>
-                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
-                    placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
-                    onChange={(e) => setM2eCbid(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="text-muted-foreground">Payer account no</span>
-                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
-                    inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
-                </label>
-                <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
-                  onClick={() => void saveM2eSettings()}>
-                  Save
-                </button>
-              </div>
-              <div className="grid grid-cols-2 items-center gap-2 sm:flex">
-                <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
-                <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
-                  {m2eHasTpl ? "Replace template" : "Upload template"}
-                  <input type="file" accept=".xlsm" className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
-                </label>
-              </div>
-              <p className="text-muted-foreground">
-                Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
-              </p>
+              <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
+                disabled={!commWho || !Number(commRate)}
+                onClick={() => {
+                  const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
+                  const id = Number(commWho);
+                  setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
+                  showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
+                }}>
+                Fill commission box
+              </button>
             </div>
           </details>
-
-          {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
-              member's COMMISSION box. Draft only: he reviews, then Save all.
-              Hidden entirely on an old worker (no base fetched). */}
-          {commBase !== null && (
-            <details className="text-xs">
-              <summary className="cursor-pointer select-none font-medium">
-                💰 Commission helper — {ym(month)} sales {rm(commBase)} × rate
-              </summary>
-              <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
-                <label className="block">
-                  <span className="text-muted-foreground">Rate %</span>
-                  <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
-                    value={commRate} onChange={(e) => setCommRate(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="text-muted-foreground">Pay to</span>
-                  <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
-                    onChange={(e) => setCommWho(e.target.value)}>
-                    <option value="">— choose staff —</option>
-                    {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </label>
-                <p className="pb-1.5 font-semibold">
-                  = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
-                </p>
-                <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
-                  disabled={!commWho || !Number(commRate)}
-                  onClick={() => {
-                    const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
-                    const id = Number(commWho);
-                    setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
-                    showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
-                  }}>
-                  Fill commission box
-                </button>
-              </div>
-            </details>
-          )}
-        </>
-      )}
+        )}
+      </>)}
 
       {release && (
         <p className="mt-2 text-xs">
@@ -1055,7 +1053,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] ?? 0 } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
                             Base
                           </button>
                         )}

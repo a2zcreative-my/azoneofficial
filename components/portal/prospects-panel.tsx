@@ -29,6 +29,7 @@ interface Prospect {
   brand_name: string;
   source: string;
   niche?: string | null;
+  referred_by?: string | null; // v1.4.273 — the referral loop
   contact_name?: string | null;
   contact_channel?: string | null;
   contact_value?: string | null;
@@ -59,7 +60,7 @@ const STAGE_CHIP: Record<string, string> = {
   lost: "bg-red-100 text-red-700",
 };
 
-const EMPTY = { brand_name: "", source: "tiktok", niche: "", contact_name: "", contact_channel: "", contact_value: "", notes: "", assigned_to: "", next_followup: "" };
+const EMPTY = { brand_name: "", source: "tiktok", niche: "", contact_name: "", contact_channel: "", contact_value: "", notes: "", assigned_to: "", next_followup: "", referred_by: "" };
 
 async function api<T>(p: string, init?: RequestInit): Promise<{ ok: boolean; data: (T & { error?: { message?: string } }) | null }> {
   try {
@@ -68,7 +69,7 @@ async function api<T>(p: string, init?: RequestInit): Promise<{ ok: boolean; dat
   } catch { return { ok: false, data: null }; }
 }
 
-export function ProspectsPanel({ canManage }: { canManage: boolean }) {
+export function ProspectsPanel({ canManage, onQuote }: { canManage: boolean; onQuote?: (brand: string) => void }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
   const [rows, setRows] = useState<Prospect[]>([]);
@@ -165,6 +166,13 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
             <input className={inputClass} placeholder="hijab / skincare / F&B" value={draft.niche}
               onChange={(e) => setDraft((d) => ({ ...d, niche: e.target.value }))} />
           </label>
+          {/* v1.4.273 idea 4: the referral loop — who sent this lead. The
+              pipeline can then show which channel actually closes. */}
+          <label className="text-sm">
+            <span className="text-muted-foreground text-xs">Referred by</span>
+            <input className={inputClass} placeholder="e.g. ELFIA / a client / a friend" value={draft.referred_by}
+              onChange={(e) => setDraft((d) => ({ ...d, referred_by: e.target.value }))} />
+          </label>
         </div>
         <div className={`${fieldRow} mt-2`}>
           <label className="block">
@@ -231,12 +239,27 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
                     {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 )}
+                {/* v1.4.273 idea 2: prospect → quotation in one tap. The
+                    Sales tab reads this handoff on mount and pre-fills the
+                    customer form (or picks the existing customer). */}
+                {canManage && onQuote && ["meeting", "proposal"].includes(p.stage) && (
+                  <button type="button" className={rowBtn} onClick={() => {
+                    try {
+                      localStorage.setItem("azone-qt-prefill", JSON.stringify({
+                        company: p.brand_name, contact_person: p.contact_name ?? "",
+                        phone: p.contact_channel === "whatsapp" ? (p.contact_value ?? "") : "",
+                        reference: `From prospect: ${p.brand_name}`,
+                      }));
+                    } catch { /* storage full/blocked — the jump still helps */ }
+                    onQuote(p.brand_name);
+                  }}>📄 Prepare quotation</button>
+                )}
                 {canManage && (
                   <button type="button" className={rowBtn} onClick={() => {
                     setEditingId(p.id);
                     setDraft({ brand_name: p.brand_name, source: p.source, niche: p.niche ?? "", contact_name: p.contact_name ?? "",
                       contact_channel: p.contact_channel ?? "", contact_value: p.contact_value ?? "", notes: p.notes ?? "",
-                      assigned_to: p.assigned_to ? String(p.assigned_to) : "", next_followup: p.next_followup ?? "" });
+                      assigned_to: p.assigned_to ? String(p.assigned_to) : "", next_followup: p.next_followup ?? "", referred_by: p.referred_by ?? "" });
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}>Edit</button>
                 )}
@@ -259,6 +282,7 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
               <span>
                 {SOURCES.find(([v]) => v === p.source)?.[1] ?? p.source}
                 {p.niche ? ` · ${p.niche}` : ""}
+                {p.referred_by ? ` · ↗ ${p.referred_by}` : ""}
                 {p.assigned_name ? ` · 👤 ${p.assigned_name.split(" ")[0]}` : " · unassigned"}
                 {p.next_followup ? ` · 📞 ${dmy(p.next_followup)}` : ""}
               </span>

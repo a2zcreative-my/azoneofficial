@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
-import { properName, firstName, displayName } from "@/lib/names";
+import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -463,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role: _role = "" }: { role?: string }) {
+export function InventoryPanel({ role: _role }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -524,6 +524,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [openRet, setOpenRet] = useState<number | null>(null);
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
+
 
   // v1.4.172: create-path wrapper adding the backdatable date.
   // v1.4.251: signed — the same path records a stock IN.
@@ -2020,7 +2021,7 @@ export function BirthdaysPanel() {
               {/* v1.4.261: the legal name, same rule as the register and
                   payroll — /users always carried full_name; this panel's local
                   type just never declared it, so the fallback was invisible. */}
-              {displayName(u)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
+              {u.full_name || u.name} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
             </span>
             <span className="flex items-center gap-2">
               <input
@@ -2272,6 +2273,7 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
+
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2506,7 +2508,6 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         setStaffOptions(r.data.users.filter((u) => u.role !== "customer" && !["super_admin", "admin"].includes(u.role) && u.is_active !== 0));
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canPayee]);
 
   const rmc = (c: number) => `RM ${rmBare(c)}`;
@@ -2585,17 +2586,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) {
-            if (pr === "hr_admin") anyWaived = true;
-            else missingSkipped.push("HR review");
-          }
-          if (!cl.pre_approved_at) {
-            if (pr === "coo") anyWaived = true;
-            else missingSkipped.push("COO pre-approval");
-          }
+          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
+          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true;
-          else missingSkipped.push("CCO pre-approval");
+          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
         }
       }
       if (missingSkipped.length > 0) {
@@ -3327,7 +3321,7 @@ export function ExpensesPanel() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{dmy(payrollDue.by.split(" ")[0]!)}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{dmy(payrollDue.by.split(" ")[0])}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">

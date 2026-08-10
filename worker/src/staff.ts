@@ -511,11 +511,20 @@ export async function handleStaff(
     const assigned = Number(b?.assigned_to) || null;
     try {
       const res = await env.DB.prepare(
-        `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+        `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, referred_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id`,
       ).bind(brand, source, String(b?.niche ?? "").trim() || null, String(b?.contact_name ?? "").trim() || null,
              channel || null, String(b?.contact_value ?? "").trim() || null, String(b?.notes ?? "").trim() || null,
-             assigned, fup, user.id).first<{ id: number }>();
+             assigned, fup, user.id, String(b?.referred_by ?? "").trim().slice(0, 120) || null).first<{ id: number }>()
+      .catch(async (e: unknown) => {
+        if (!String(e).includes("no such column")) throw e; // pre-0067 skew: retry without referred_by
+        return env.DB.prepare(
+          `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+        ).bind(brand, source, String(b?.niche ?? "").trim() || null, String(b?.contact_name ?? "").trim() || null,
+               channel || null, String(b?.contact_value ?? "").trim() || null, String(b?.notes ?? "").trim() || null,
+               assigned, fup, user.id).first<{ id: number }>();
+      });
       await audit(env, user.id, "prospect.create", "prospects", String(res?.id), { brand });
       // hand-offs notify: logging a find FOR someone else tells them at once
       if (assigned && assigned !== user.id) {
@@ -999,6 +1008,8 @@ export async function handleStaff(
       typeof body?.notes === "string" ? body.notes.slice(0, 500) : null,
       user.id,
     ).first<{ id: number }>();
+    // v1.4.273 idea 5: a new booking re-arms the gone-quiet alert
+    if (clientId) { try { await env.DB.prepare(`UPDATE customers SET quiet_alerted_on = NULL WHERE id = ?1`).bind(clientId).run(); } catch { /* pre-0067 */ } }
     await notify(env, host, "live", `📺 Live session assigned: ${d.split("-").reverse().join("-")} ${st} (${platform})`, `live:${res?.id}`);
     await audit(env, user.id, "live.schedule", "users", String(host), { date: d, start: st, platform });
     return json({ ok: true, id: res?.id }, 201);
@@ -2816,6 +2827,109 @@ export async function handleStaff(
       sessions = Object.fromEntries(sess.map((r) => [String(r.client_id), r.n]));
     } catch { /* pre-0056 */ }
     return json({ clients: results, sessions });
+  }
+
+  /* ============ v1.4.273 — THE GROWTH PACK (CEO: "all!") ============ */
+
+  // Idea 1: the client report link. One tokened, public, read-only monthly
+  // page per client — same share-link idea as sales documents. POST is
+  // idempotent: returns the existing token if one exists.
+  {
+    const mRL = path.match(/^\/clients\/(\d+)\/report-link$/);
+    if (mRL && method === "POST") {
+      if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+      const cid = Number(mRL[1]);
+      const c = await env.DB.prepare(`SELECT company FROM customers WHERE id = ?1`).bind(cid).first<{ company: string }>();
+      if (!c) return err("not_found", "Client not found", 404);
+      try {
+        const ex = await env.DB.prepare(`SELECT token FROM client_report_links WHERE customer_id = ?1`)
+          .bind(cid).first<{ token: string }>();
+        if (ex) return json({ ok: true, token: ex.token });
+        const token = crypto.randomUUID().replace(/-/g, "");
+        await env.DB.prepare(`INSERT INTO client_report_links (customer_id, token) VALUES (?1, ?2)`)
+          .bind(cid, token).run();
+        await audit(env, user.id, "client.report_link", "customers", String(cid), { company: c.company });
+        return json({ ok: true, token }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0067 (growth pack) first", 409);
+        throw e;
+      }
+    }
+  }
+
+  // Idea 6: live-hour economics — RM per live hour, per client and per host,
+  // current MYT month. The one number a live agency runs on. Each half is
+  // armored separately so a pending migration can't blank the card.
+  if (path === "/clients/live-economics" && method === "GET") {
+    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    const monthMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    let clients: unknown[] = []; let hosts: unknown[] = [];
+    try {
+      // Per client: completed session hours this month + PAID invoice RM this
+      // month (mirrors /revenue's payment-received basis).
+      const { results } = await env.DB.prepare(
+        `SELECT c.id, c.company,
+                (SELECT COALESCE(SUM(CASE WHEN s.end_time IS NOT NULL
+                        THEN (CAST(substr(s.end_time,1,2) AS INTEGER)*60 + CAST(substr(s.end_time,4,2) AS INTEGER))
+                           - (CAST(substr(s.start_time,1,2) AS INTEGER)*60 + CAST(substr(s.start_time,4,2) AS INTEGER))
+                        ELSE 0 END), 0)
+                 FROM live_sessions s WHERE s.client_id = c.id AND s.status != 'cancelled'
+                   AND substr(s.session_date, 1, 7) = ?1) AS minutes,
+                (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d
+                 WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid'
+                   AND substr(COALESCE(d.paid_at, d.created_at), 1, 7) = ?1) AS paid_cents
+         FROM customers c WHERE c.company != 'Walk-in Customer'
+         ORDER BY paid_cents DESC LIMIT 50`,
+      ).bind(monthMY).all();
+      clients = results.filter((r) => Number((r as { minutes: number }).minutes) > 0 || Number((r as { paid_cents: number }).paid_cents) > 0);
+    } catch { /* pre-0056/0060 — card shows what it can */ }
+    try {
+      // Per host: session hours this month + TikTok GMV landing inside their
+      // session windows (the /gmv attribution pattern; motivation, not payroll).
+      const { results } = await env.DB.prepare(
+        `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
+                COALESCE(SUM(CASE WHEN s.end_time IS NOT NULL
+                    THEN (CAST(substr(s.end_time,1,2) AS INTEGER)*60 + CAST(substr(s.end_time,4,2) AS INTEGER))
+                       - (CAST(substr(s.start_time,1,2) AS INTEGER)*60 + CAST(substr(s.start_time,4,2) AS INTEGER))
+                    ELSE 0 END), 0) AS minutes,
+                (SELECT COALESCE(SUM(p.order_amount_cents), 0) FROM postage_records p
+                 WHERE p.tracking_ref LIKE 'TT-%' AND COALESCE(p.status, '') != 'returned'
+                   AND EXISTS (SELECT 1 FROM live_sessions s2
+                        WHERE s2.host_user_id = u.id AND s2.status != 'cancelled' AND s2.end_time IS NOT NULL
+                          AND substr(s2.session_date, 1, 7) = ?1
+                          AND substr(datetime(p.created_at, '+8 hours'), 1, 10) = s2.session_date
+                          AND substr(datetime(p.created_at, '+8 hours'), 12, 5) BETWEEN s2.start_time AND s2.end_time)) AS gmv_cents
+         FROM live_sessions s JOIN users u ON u.id = s.host_user_id
+         WHERE s.status != 'cancelled' AND substr(s.session_date, 1, 7) = ?1
+         GROUP BY u.id ORDER BY minutes DESC LIMIT 20`,
+      ).bind(monthMY).all();
+      hosts = results;
+    } catch { /* pre-0056 */ }
+    return json({ month: monthMY, clients, hosts });
+  }
+
+  // Idea 3: the public package rate card — ONE system_meta row, edited from
+  // the portal, served unauthenticated by index.ts. The public page renders
+  // only when real tiers exist (house rule: never display zero stats).
+  if (path === "/sales/packages" && method === "GET") {
+    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
+    return json({ packages: row ? JSON.parse(row.value) : null });
+  }
+  if (path === "/sales/packages" && method === "POST") {
+    if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "CEO only", 403);
+    const raw = Array.isArray(body?.packages) ? body.packages : [];
+    const tiers = raw.slice(0, 6).map((t: { name?: unknown; price_label?: unknown; points?: unknown }) => ({
+      name: String(t?.name ?? "").trim().slice(0, 60),
+      price_label: String(t?.price_label ?? "").trim().slice(0, 60),
+      points: (Array.isArray(t?.points) ? t.points : []).map((p: unknown) => String(p).trim().slice(0, 120)).filter(Boolean).slice(0, 8),
+    })).filter((t: { name: string }) => t.name);
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('packages_json', ?1)
+       ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(tiers)).run();
+    await audit(env, user.id, "sales.packages_update", "system_meta", "packages_json", { tiers: tiers.length });
+    return json({ ok: true, packages: tiers });
   }
 
   if (path === "/customers" && (method === "GET" || method === "POST")) {

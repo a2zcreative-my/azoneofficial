@@ -2,14 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
-## [1.4.273] — 2026-08-10 — Production Build Stabilization & TypeScript Fixes
+## [1.4.273] — 2026-08-10 — THE GROWTH PACK (CEO: "all!") — all six sales-boosting ideas, one release
 
-### Build Pipeline Fixes
-- **TypeScript Strictness Overhaul**: Resolved numerous strict typing and tuple errors blocking the production `next build`. Cast string splits to `[number, number]` tuples in `payroll-panel.tsx` and `role-panels.tsx` to satisfy `Date.UTC`.
-- **Missing Imports & Scope**: Restored accidentally removed imports (`rowActions`, `displayName`) and corrected missing scope references (`user.id` chaining).
-- **ESLint Integration**: Suppressed unused dependencies where harmless, resolved `react-hooks/exhaustive-deps` rules that were breaking the build sequence.
-- **Null Safety**: Forced non-null assertions on `baseDraft` arrays and PDF rendering parameters (`doc-pdf.ts`, `doc-template.ts`) where data presence is guaranteed.
-- **Production URL**: Deployed successfully to Cloudflare via `wrangler deploy` (`https://azoneofficial.aliffarhan1997.workers.dev`).
+### MIGRATION 0067 (prospects.referred_by · client_report_links · customers.quiet_alerted_on) + worker deploy + pnpm build
+
+**1 · Client report links.** Every client row on the Sales tab has 🔗 Report link — one tap creates (or reuses) a token and copies `azoneofficial.com/report?t=…`. The page is public, read-only, brand-toned: live sessions this month vs last (navy hero card), RM settled this month, hours live, their best live hours (last 60 days) — empty sections simply don't render, and it ends with a WhatsApp CTA. Worker: POST `/clients/:id/report-link` (idempotent) + public GET `/api/v1/client-report?t=`.
+
+**2 · Prospect → Quotation in one tap.** A 📄 Prepare quotation button appears on *meeting/proposal*-stage prospect rows (sales roles): it hands the brand + contact to the Sales tab via localStorage and jumps there. Sales picks the existing customer by company name if one exists (else pre-fills the new-customer form), sets doc type QT, stamps the reference "From prospect: {brand}", and toasts what to do next.
+
+**3 · The public rate card — inside the EXISTING /packages page.** New `PublicRates` section renders the moment the CEO saves tiers on the portal (Sales tab → 📦 Packages — public rate card: up to six tiers, name / price label / bullet points). Published via `system_meta packages_json` + public GET `/api/v1/packages`; until tiers exist the page keeps its current "we quote per brand" copy — no placeholders ever. Publishing needs NO rebuild: the section fetches at runtime.
+
+**4 · The referral loop.** Prospects gain a **Referred by** field (form + ↗ chip in the row meta + PATCH/POST allow-list, insert skew-armored for pre-0067 workers). Now the pipeline can show which channel actually closes.
+
+**5 · Client-gone-quiet alerts.** Cron: any client with sessions on record but none in 14 days → one bell to sales_marketing + CEO ("😶 ELFIA has gone quiet — no live since …"). Deduped via `customers.quiet_alerted_on`; booking a new session clears the flag instantly; otherwise it re-arms after another 14 days.
+
+**6 · Live-hour economics.** New Sales-tab card ⏱💰: per client — completed session hours vs PAID invoice RM this month (payment-received basis, mirroring /revenue) → RM/hour; per host — session hours vs TikTok GMV landing inside their session windows (the /gmv attribution; motivation, not payroll) → RM/hour. Worker GET `/clients/live-economics`, both halves armored separately.
+
+All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, toasts) — the v1.4.272 sweep stays clean by construction.
 
 ## [1.4.272] — 2026-08-10 — The FULL globality sweep (CEO: "you are not checking overall! I want you audit overall system and ensure that everything is globally")
 
