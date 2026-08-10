@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.270] — 2026-08-10 — The brand-toned hero band + row bars
+
+### Added (CEO approved the plan: "firmly brand-toned, and hero band + row bars on Inventory and Social and do check all the tabs")
+- **NEW `components/ui/stat-card.tsx`** — the shared primitives, global from day one: `StatCard` (tiny uppercase label, big figure, progress bar *inside* the card; `solid` = the ONE navy hero per band — the v1.4.253 one-fill rule applied to cards), `MiniBar` (pure-div bar, gold/green/red/navy), `accentRow/CellDanger|Warn` (urgency tints), `dueChip()` ("in 3d" / "today" / "5d overdue").
+- **Dashboard hero band**, above Quick actions, two-up on phones: 🔥 **Today's sales** (the one navy card — total across all four channels, bar vs yesterday, ▲/▼ line), **Month revenue** (gold bar vs the sales target when one is set — the target feature finally gets a face), **Unpaid invoices** (red-edged, only when any exist), **Needs attention** (pending leave / claims / OT, low stock, overdue follow-ups — or "✅ Nothing waiting on you"). One new worker route `GET /dashboard/summary` — five cheap COUNTs, each armored per table so a pending migration can never blank the band; the card, not the route, decides per role what to show.
+- **Inventory row bars + tint**: the stock cell carries a bar scaled to the list's own largest stock — red at ≤5 (the low-stock alert line), and the whole row gets the red wash + left accent so a problem line is seen before it is read.
+- **Prospect row bars + tint**: each row's meta line leads with a small bar showing the stage as a **position** through the six-stage pipeline (green full = won, red = lost); overdue follow-ups get the amber wash + left accent, and a `dueChip` joins the 📞 date.
+
+### The all-tabs audit (what's already right, what release 2 could add)
+- **Already standard, untouched:** Events ("· in 3d / TODAY" since daysAway), Expenses (paid/outstanding summary is already the KPI), the 📊 donut, Fulfilment chips, Attendance chips, sticky totals.
+- **Release-2 candidates, not built:** Fulfilment chips → MiniBars; Payroll month-progress bar per staff; Claims/Leave `dueChip` on decision age; Ecommerce GMV hero mini-band; Tasks overdue tint. Say which, if any.
+- Worker + frontend, no migrations. **0060 → 0066 + the worker deploy still pending — the band's status card needs the new route.**
+
+## [1.4.269] — 2026-08-10 — "Staff route not found" named for what it is
+
+### Fixed (CEO's screenshot: the amber box said "Staff route not found")
+- That message is the **router's own 404** — proof the worker predates v1.4.266 — but the card showed it in the *Google-unreachable* branch with a Try-again button that could never help. A router 404 now lands in the **deploy-needed** state, with the command. Only a reachable route's failure counts as a Google failure.
+- Same blindspot in **Prospects**: a stale worker rendered *"No prospects yet — the first find starts the pipeline"*, which reads as an empty pipeline and invites an Add that cannot save. It now shows the deploy notice instead of the form, so nothing typed can be lost.
+- Frontend-only. The actual cure is unchanged and one step: **`cd worker && wrangler deploy`** (plus the migrations, which the red System-health box will keep naming).
+
 ## [1.4.268] — 2026-08-10 — The trends card says what's wrong, and retries for real
 
 ### Fixed (CEO's screenshot: the Social tab's trends card showed only its failure line)

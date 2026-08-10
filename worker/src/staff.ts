@@ -570,6 +570,28 @@ export async function handleStaff(
     }
   }
 
+  /* v1.4.270: ONE fetch for the Dashboard's status-breakdown card — cheap
+     COUNTs, each armored per table so a pending migration can never blank
+     the band (the v1.4.218 lesson applied to a new surface). Counts are
+     universal facts; the CARD decides per role what to show. */
+  if (path === "/dashboard/summary" && method === "GET") {
+    const n = async (sql: string): Promise<number | null> => {
+      try { return (await env.DB.prepare(sql).first<{ c: number }>())?.c ?? 0; }
+      catch { return null; }
+    };
+    const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    return json({
+      today: todayS,
+      // real schema: table `claims`, and both flows keep status='pending'
+      // through the review chain (0010/0038 track the chain in columns).
+      pending_leave: await n(`SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
+      pending_claims: await n(`SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
+      pending_ot: await n(`SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
+      low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
+      overdue_followups: await n(`SELECT COUNT(*) AS c FROM prospects WHERE next_followup IS NOT NULL AND next_followup < '${todayS}' AND stage NOT IN ('won', 'lost')`),
+    });
+  }
+
   if (path === "/trends/my" && method === "GET") {
     // v1.4.266: any staff role — trend awareness is for the whole team.
     // v1.4.268: ?refresh=1 (any staff) drops the cache first, so the card's

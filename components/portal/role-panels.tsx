@@ -28,6 +28,7 @@ import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/c
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
 import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT } from "@/lib/format";
 
 const API = "/api/v1/staff";
@@ -526,25 +527,25 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
   // traceability, optional Sold @ that records it as a SALE in the totals.
-  const _adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
-    setInvMsg("");
-    const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
-    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
-    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
-      method: "POST",
-      body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
-    });
-    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
-    /* v1.4.251: an IN used to save in silence — no toast at all — so there was
-       no way to know the stock had actually moved. Every movement now says so,
-       and quotes the NEW stock level the server came back with. */
-    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
-    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
-    else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
-    void load();
-    return true;
-  };
+  // const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
+  //   setInvMsg("");
+  //   const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
+  //   if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+  //   const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
+  //     method: "POST",
+  //     body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
+  //   });
+  //   if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
+  //   /* v1.4.251: an IN used to save in silence — no toast at all — so there was
+  //      no way to know the stock had actually moved. Every movement now says so,
+  //      and quotes the NEW stock level the server came back with. */
+  //   const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
+  //   if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
+  //   else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
+  //   else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
+  //   void load();
+  //   return true;
+  // };
   // v1.4.172: create-path wrapper adding the backdatable date.
   // v1.4.251: signed — the same path records a stock IN.
   const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
@@ -564,6 +565,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   };
   // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
   const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
+  const maxStock = Math.max(1, ...items.map((x) => x.stock)); // v1.4.270 row bars
   const sortedItems = [...items].sort(invSort === "sku" ? bySku
     : invSort === "sku-desc" ? (a, b) => bySku(b, a)
     : invSort === "az" ? (a, b) => a.name.localeCompare(b.name)
@@ -813,8 +815,10 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
             </thead>
             <tbody>
               {sortedItems.map((it) => (
-                <tr key={it.id} className="border-border border-b last:border-0">
-                  <td className={`${td} font-mono text-xs`}>
+                /* v1.4.270: urgency tint — a stock line at the alert level
+                   reads red before anyone reads the number. */
+                <tr key={it.id} className={`border-border border-b last:border-0 ${it.stock <= 5 ? accentRowDanger : ""}`}>
+                  <td className={`${td} font-mono text-xs ${it.stock <= 5 ? accentCellDanger : ""}`}>
                     {invEditId === it.id
                       ? <input className="border-input bg-background w-24 rounded border px-1.5 py-0.5 font-mono text-xs" value={invEditDraft.sku}
                           title="SKU — must match TikTok (or the item name will be used to match)"
@@ -848,7 +852,16 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                     title="Effective price during TikTok Live = price/unit − live rebate">
                     {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return (n / 100).toFixed(2); })()}
                   </td>
-                  <td className={tdR2}>{it.stock}</td>
+                  {/* v1.4.270: the stock figure becomes comparable at a
+                      glance — bar vs the list's own largest stock, red ≤5
+                      (the low-stock alert line), amber ≤10. */}
+                  <td className={tdR2}>
+                    <span className="inline-flex flex-col items-end gap-0.5">
+                      {it.stock}
+                      <MiniBar className="w-14" pct={maxStock > 0 ? (it.stock / maxStock) * 100 : 0}
+                        tone={it.stock <= 5 ? "red" : it.stock <= 10 ? "muted" : "gold"} />
+                    </span>
+                  </td>
                   <td className={td}><Badge value={it.status} /></td>
                   <td className={td}>
                     <span className="flex items-center gap-1">

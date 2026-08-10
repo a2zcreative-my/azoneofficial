@@ -19,6 +19,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { card, inputClass, btnClass, fieldRow } from "@/lib/ui-styles";
+import { MiniBar, dueChip, accentRowWarn } from "@/components/ui/stat-card";
 import { dmy, mytToday } from "@/lib/format";
 
 const API = "/api/v1/staff";
@@ -82,7 +83,11 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
   const load = useCallback(async () => {
     const r = await api<{ prospects: Prospect[]; today: string }>(`/prospects`);
     if (r.ok && r.data?.prospects) { setRows(r.data.prospects); setToday(r.data.today); }
-    else if (r.data?.error?.message?.includes("0066")) setNotReady(true);
+    // v1.4.269: a stale worker (no /prospects route yet) must NOT read as an
+    // empty pipeline — "No prospects yet" would also invite an Add that
+    // cannot save. Both the missing migration and the missing route show the
+    // deploy notice instead of the form.
+    else if (r.data?.error?.message?.includes("0066") || /route not found/i.test(r.data?.error?.message ?? "")) setNotReady(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -118,7 +123,7 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
 
   if (notReady) {
     return <div className={card}><p className="text-sm font-semibold">📇 Prospects</p>
-      <p className="text-muted-foreground mt-1 text-xs">The prospects table isn&apos;t in the database yet — run migration 0066, then redeploy the worker.</p></div>;
+      <p className="text-muted-foreground mt-1 text-xs">The server doesn&apos;t have the prospects update yet — run migration 0066 and redeploy the worker (<span className="font-mono">npx wrangler d1 migrations apply azoneofficial --remote</span>, then <span className="font-mono">cd worker && wrangler deploy</span>). The form appears once it&apos;s live, so nothing typed here can be lost.</p></div>;
   }
 
   return (
@@ -207,7 +212,7 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
       <div className="mt-3 space-y-1.5">
         {shown.length === 0 && <p className="text-muted-foreground text-xs">{stageFilter ? `No prospects in ${stageFilter}.` : "No prospects yet — the first find starts the pipeline."}</p>}
         {shown.map((p) => (
-          <div key={p.id} className="border-border rounded-lg border px-3 py-2">
+          <div key={p.id} className={`border-border rounded-lg border px-3 py-2 ${overdue(p) ? `${accentRowWarn} border-l-4 border-l-amber-400` : ""}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="min-w-0 text-sm">
                 <RecordToggle open={open === p.id} title="Contact, notes and history"
@@ -244,11 +249,20 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
                 )}
               </span>
             </div>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {SOURCES.find(([v]) => v === p.source)?.[1] ?? p.source}
-              {p.niche ? ` · ${p.niche}` : ""}
-              {p.assigned_name ? ` · 👤 ${p.assigned_name.split(" ")[0]}` : " · unassigned"}
-              {p.next_followup ? ` · 📞 ${dmy(p.next_followup)}` : ""}
+            <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+              {/* v1.4.270: the stage as a POSITION — a five-second read of how
+                  far along this lead is, before any word is read. */}
+              <MiniBar className="w-12 shrink-0"
+                pct={p.stage === "lost" ? 100 : ((STAGES.indexOf(p.stage as typeof STAGES[number]) + 1) / 6) * 100}
+                tone={p.stage === "won" ? "green" : p.stage === "lost" ? "red" : "gold"} />
+              <span>
+                {SOURCES.find(([v]) => v === p.source)?.[1] ?? p.source}
+                {p.niche ? ` · ${p.niche}` : ""}
+                {p.assigned_name ? ` · 👤 ${p.assigned_name.split(" ")[0]}` : " · unassigned"}
+                {p.next_followup ? ` · 📞 ${dmy(p.next_followup)}` : ""}
+              </span>
+              {(() => { const c = dueChip(p.next_followup, today); return c && !["won", "lost"].includes(p.stage)
+                ? <span className={`rounded-full px-1.5 py-px text-[10px] font-medium ${c.cls}`}>{c.text}</span> : null; })()}
             </p>
             {open === p.id && (
               <DetailGrid items={[

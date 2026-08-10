@@ -695,8 +695,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (
-        <>
+      {!readOnly && (<>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
@@ -779,8 +778,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-        </>
-      )}
+      </>)}
 
       {release && (
         <p className="mt-2 text-xs">

@@ -8,13 +8,14 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
 import { addEventToCalendar } from "@/lib/event-ics";
 import { ProspectsPanel } from "@/components/portal/prospects-panel";
+import { StatCard } from "@/components/ui/stat-card";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -304,6 +305,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   return (
     <div className="space-y-3 md:space-y-6">
+      {/* v1.4.270: the hero band — the state of the business in two seconds,
+          before any scrolling. */}
+      <HeroBand user={user} />
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
@@ -444,6 +448,90 @@ interface RevenueData {
 
 /** Sales revenue at a glance — TikTok order amounts (captured by the sync)
     plus invoices issued, this month vs last. */
+/* v1.4.270 — the brand-toned hero band (CEO approved: "firmly brand-toned,
+   and hero band + row bars"). Structure from his reference screenshot,
+   palette from the brand: ONE navy solid card for the single most important
+   number, white + gold for the rest — the v1.4.253 one-fill rule applied to
+   cards. Renders progressively: each card appears when its data arrives, and
+   a role that can't see revenue simply gets the cards it can see. */
+interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; overdue_followups: number | null }
+
+function HeroBand({ user }: { user: User }) {
+  const [rev, setRev] = useState<RevenueData | null>(null);
+  const [sum, setSum] = useState<DashSummary | null>(null);
+  const canRevenue = REVENUE_ROLES.includes(user.role);
+  const canStatus = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"].includes(user.role);
+  useEffect(() => {
+    if (canRevenue) void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+    void api<DashSummary>(`/staff/dashboard/summary`).then((r) => { if (r.ok && r.data) setSum(r.data); });
+  }, [canRevenue]);
+
+  const cards: ReactNode[] = [];
+  if (canRevenue && rev?.today) {
+    const t = rev.today;
+    const todayTotal = t.tiktok_cents + t.invoiced_cents + (t.other_cents ?? 0) + (t.manual_cents ?? 0);
+    const y = rev.yesterday?.total_cents ?? 0;
+    const trend = todayTotal === 0 && y === 0 ? null
+      : todayTotal >= y
+        ? `▲ RM ${((todayTotal - y) / 100).toFixed(2)} above yesterday`
+        : `▼ RM ${((y - todayTotal) / 100).toFixed(2)} below yesterday`;
+    cards.push(
+      <StatCard key="today" solid label="🔥 Today's sales"
+        value={`RM ${(todayTotal / 100).toFixed(2)}`}
+        bar={y > 0 ? { pct: Math.min(100, (todayTotal / y) * 100), label: `yesterday RM ${(y / 100).toFixed(2)}` } : undefined}
+        sub={trend ?? "first sale of the day starts the bar"} />,
+    );
+  }
+  if (canRevenue && rev) {
+    const monthTotal = rev.tiktok.this_cents + rev.invoiced.this_cents + (rev.other?.this_cents ?? 0) + (rev.manual?.this_cents ?? 0);
+    const target = rev.target_cents ?? 0;
+    cards.push(
+      <StatCard key="month" label={`Revenue — ${rev.month}`}
+        value={`RM ${(monthTotal / 100).toFixed(2)}`}
+        bar={target > 0
+          ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of RM ${(target / 100).toFixed(0)} target`, tone: monthTotal >= target ? "green" : "gold" }
+          : undefined}
+        sub={target > 0 ? undefined : "set a month target on the Sales revenue card to get a progress bar"} />,
+    );
+    if (rev.outstanding && rev.outstanding.docs > 0) {
+      cards.push(
+        <StatCard key="out" accent="red" label="Unpaid invoices"
+          value={`RM ${(rev.outstanding.cents / 100).toFixed(2)}`}
+          sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment`} />,
+      );
+    }
+  }
+  if (canStatus && sum) {
+    const rows: [string, number | null][] = [
+      ["Leave pending", sum.pending_leave],
+      ["Claims pending", sum.pending_claims],
+      ["OT pending", sum.pending_ot],
+      ["Low stock", sum.low_stock],
+      ["Follow-ups overdue", sum.overdue_followups],
+    ];
+    const shown = rows.filter(([, v]) => v !== null && v > 0);
+    cards.push(
+      <div key="status" className="border-border bg-card rounded-xl border border-t-2 border-t-[#1A2946] p-4 shadow-sm">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
+        {shown.length === 0
+          ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
+          : (
+            <div className="mt-1.5 space-y-1">
+              {shown.map(([label, v]) => (
+                <p key={label} className="flex items-baseline justify-between text-sm">
+                  <span>{label}</span>
+                  <span className="font-bold tabular-nums">{v}</span>
+                </p>
+              ))}
+            </div>
+          )}
+      </div>,
+    );
+  }
+  if (cards.length === 0) return null;
+  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{cards}</div>;
+}
+
 function SalesRevenueCard({ role }: { role?: string }) {
   const [rev, setRev] = useState<RevenueData | null>(null);
   const loadRev = useCallback(() => {
@@ -668,7 +756,12 @@ function TrendingMYCard() {
     const r = await api<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[]; error?: { message?: string } }>(`/staff/trends/my${refresh ? "?refresh=1" : ""}`);
     setBusy(false);
     if (r.ok && r.data?.items) { setData(r.data); setFailed(""); setDetail(""); return; }
-    if (r.data?.error?.message) { setFailed("google"); setDetail(r.data.error.message); }
+    /* v1.4.269 (his screenshot said "Staff route not found" inside the
+       GOOGLE branch): that message is the ROUTER's own 404 — the worker
+       predates the trends route — so it must land in the "route" state.
+       Only a reachable route's failure is a Google failure. */
+    const msg = r.data?.error?.message ?? "";
+    if (msg && !/route not found/i.test(msg)) { setFailed("google"); setDetail(msg); }
     else setFailed("route");
   }, []);
   useEffect(() => { void fetchTrends(false); }, [fetchTrends]);
@@ -3558,24 +3651,21 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  const tabs = useMemo(() => {
-    if (!user) return ["Dashboard", "Profile"] as TabName[];
-    return ALL_TABS.filter((t) => {
-      if (t === "Dashboard" || t === "Profile") return true;
-      if (user.role === "super_admin") return true;
-      const ov = tabOverrides[t];
-      if (ov !== undefined) return ov.includes(user.role);
-      if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
-      const allowed = TAB_ROLES[t];
-      return !allowed || allowed.includes(user.role);
-    });
-  }, [user, tabOverrides]);
-
+  const tabs = ALL_TABS.filter((t) => {
+    if (t === "Dashboard" || t === "Profile") return true;
+    if (user?.role === "super_admin") return true;
+    const ov = tabOverrides[t];
+    if (ov !== undefined) return ov.includes(user?.role ?? "");
+    if (t === "Sales") return SALES_ROLES.includes(user?.role ?? "") || user?.role === "ceo";
+    const allowed = TAB_ROLES[t];
+    return !allowed || allowed.includes(user?.role ?? "");
+  });
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
-    if (user && !tabs.includes(tab)) setTab("Dashboard");
+    if (!tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab, user]);
-
+  }, [tabs.join("|"), tab]);
+  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -3589,6 +3679,7 @@ export default function PortalPage() {
     if (typeof window !== "undefined") window.location.replace("/admin");
     return null;
   }
+
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
@@ -3602,12 +3693,9 @@ export default function PortalPage() {
     );
   }
 
-  const unread = notifs.filter((n) => !n.is_read).length;
-  /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
-     alone still allowed one frame; every panel below renders off activeTab,
-     which can never name a tab outside this account's visible list. */
-  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
+
+  const unread = notifs.filter((n) => !n.is_read).length;
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
