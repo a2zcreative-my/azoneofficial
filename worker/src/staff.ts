@@ -4317,7 +4317,15 @@ async function deductForInvoice(
     if (!inv) { if (name || sku) out.unmatched.push(name || sku); continue; }
     const newStock = Math.max(0, inv.stock - qty);
     if (inv.stock < qty) out.short.push(`${inv.sku} (had ${inv.stock}, invoice needs ${qty})`);
-    await env.DB.prepare(`UPDATE inventory_items SET stock = ?1 WHERE id = ?2`).bind(newStock, inv.id).run();
+    // v1.4.271 audit fix: this was the ONE movement site that skipped the
+    // status column and the low-stock bell — an invoice could drain a SKU to
+    // zero with the row still saying in_stock and nobody notified.
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = ?1,
+              status = CASE WHEN ?1 = 0 THEN 'out_of_stock' WHEN ?1 <= 5 THEN 'low' ELSE 'in_stock' END
+       WHERE id = ?2`,
+    ).bind(newStock, inv.id).run();
+    await checkLowStock(inv.id);
     const remark = `Invoice ${docNumber} — stock deducted on invoice${inv.stock < qty ? ` (SHORT: had ${inv.stock}, needed ${qty})` : ""}`;
     const args = [inv.id, inv.sku, inv.name, qty, remark, docDate, byUser];
     try {
@@ -4363,7 +4371,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     ).bind(`Invoice ${docNumber} — stock deducted on invoice%`).all<{ id: number; item_id: number; qty: number }>()).results;
   }
   for (const r of rows) {
-    await env.DB.prepare(`UPDATE inventory_items SET stock = stock + ?1 WHERE id = ?2`).bind(r.qty, r.item_id).run();
+    // v1.4.271 audit fix: restoring stock also refreshes status and lets the
+    // low-stock alert RESET (checkLowStock re-arms above 5).
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock + ?1,
+              status = CASE WHEN stock + ?1 = 0 THEN 'out_of_stock' WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END
+       WHERE id = ?2`,
+    ).bind(r.qty, r.item_id).run();
+    await checkLowStock(Number(r.item_id));
     await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(r.id).run();
   }
   return rows.length;

@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.271] — 2026-08-10 — The conflict & duplicate audit (CEO: "Do check all my system if there is any conflict or duplicate or repeated flow or card")
+
+### Found and FIXED
+- **Two "today" cards on the Dashboard.** v1.4.270's hero band and the Sales revenue card's gold 🔥 Today box both announced today's number — same figure, two designs, inches apart. The gold box is **removed**; the hero's navy card now carries its channel line ("2 TikTok orders · invoiced RM …") plus the ▲/▼ trend, and the Sales revenue card is purely the **month** view. One number, one card.
+- **Two overdue chips on one prospect row.** The v1.4.267 ⏰ chip and the v1.4.270 dueChip ("3d overdue") said the same thing twice. The ⏰ chip is removed — one row, one chip, and dueChip says *how many days*.
+- **Invoice stock movements bypassed the alert system** — the serious one. `deductForInvoice`/`restoreForInvoice` (v1.4.263) updated `stock` but **not the `status` column and never called `checkLowStock`** — the ONE movement path outside v1.4.191's six. An invoice could drain a SKU to zero with the row still saying *in_stock* and **nobody notified**. Both now update status and fire/reset the low-stock bell like every other path.
+
+### Checked and CLEAN (no action)
+- **Low-stock threshold** is ≤5 consistently in all three places (status rule, alert, hero count). **Trends card** mounts exactly once (Social). **Social** present in both TAB_ROLES-side and tab-access DEFAULTS. **Unpaid invoices (money owed to you)** vs **Expenses outstanding (money you owe)** — opposite directions, not duplicates. **LiveGmvCard today (TikTok GMV, Ecommerce)** vs hero today (all channels, Dashboard) — different scope + audience, kept. **Events' daysAway** vs dueChip — kept separate on purpose: events show far-off dates ("in 12d"), dueChip stays silent beyond 7 days.
+
+### Flagged — PROCESS rules, not code (your judgement applies)
+- **Double-count risk:** if the same sale is both a TikTok order **and** a portal invoice, revenue counts it twice and stock deducts twice. Rule for the team: a sale enters the system through **one** door — TikTok sync **or** an invoice, never both.
+- Same logic on **manual sales** vs invoices for the same goods.
+- **OT approved but not yet fed to payroll** (the standing rounding-rule decision) — repeated flow where hours are entered once and typed again in payroll.
+- Worker + frontend, no migrations. 0060 → 0066 + the worker deploy still pending.
+
 ## [1.4.270] — 2026-08-10 — The brand-toned hero band + row bars
 
 ### Added (CEO approved the plan: "firmly brand-toned, and hero band + row bars on Inventory and Social and do check all the tabs")

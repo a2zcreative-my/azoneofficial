@@ -695,8 +695,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
-      {!readOnly && (<>
-        <details className="mt-2 text-xs">
+      {!readOnly && (
+        <>
+          <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
             ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
           </summary>
@@ -740,6 +741,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         </details>
 
+
         {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
             member's COMMISSION box. Draft only: he reviews, then Save all.
             Hidden entirely on an old worker (no base fetched). */}
@@ -778,7 +780,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             </div>
           </details>
         )}
-      </>)}
+        </>
+      )}
 
       {release && (
         <p className="mt-2 text-xs">
@@ -796,7 +799,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
                   {early && (
                     <>
-                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from.split(" ")[0]!.split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
+                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from!.split(" ")[0]!.split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
                       {" "}<button type="button" className="font-medium underline"
                         title="Take this month's payslips back from staff view — the automatic release date resumes"
                         onClick={async () => {
@@ -814,7 +817,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             <>
               <span className="text-muted-foreground">
                 Staff can view {monthDMY(month)} payslips from{" "}
-                <span className="font-medium">{release.available_from.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from.split(" ")[1]!} MYT</span>
+                <span className="font-medium">{release.available_from!.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from!.split(" ")[1]} MYT</span>
                 {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
                 {(() => {
                   /* v1.4.211: when the CURRENT month is on screen, the
@@ -845,7 +848,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                        keeps the strong wrong-month warning (v1.4.210). */
                     const [yR, moR] = month.split("-").map(Number);
                     const prevM = new Date(Date.UTC(yR!, moR! - 2, 1)).toISOString().slice(0, 7);
-                    const autoD = release.available_from.split(" ")[0]!.split("-").reverse().join("-");
+                    const autoD = release.available_from!.split(" ")[0]!.split("-").reverse().join("-");
                     const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
                     const ok = month === cycleM
                       ? await payConfirm({
@@ -1194,7 +1197,7 @@ export function MyPayslip() {
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
-            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]!} MYT</span>.
+            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
           </p>
           <button
             type="button"

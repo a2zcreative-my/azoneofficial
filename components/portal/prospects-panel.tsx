@@ -220,7 +220,8 @@ export function ProspectsPanel({ canManage }: { canManage: boolean }) {
                   {p.brand_name}
                 </RecordToggle>
                 <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${STAGE_CHIP[p.stage] ?? "bg-secondary"}`}>{p.stage}</span>
-                {overdue(p) && <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800" title={`Follow-up was due ${dmy(p.next_followup!)}`}>⏰ overdue</span>}
+                {/* v1.4.271 audit: the ⏰ chip was removed — dueChip on the
+                    meta line already says "Nd overdue"; one row, one chip. */}
               </span>
               <span className={rowActions}>
                 {canManage && (

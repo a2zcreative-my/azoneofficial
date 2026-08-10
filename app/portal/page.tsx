@@ -479,7 +479,11 @@ function HeroBand({ user }: { user: User }) {
       <StatCard key="today" solid label="🔥 Today's sales"
         value={`RM ${(todayTotal / 100).toFixed(2)}`}
         bar={y > 0 ? { pct: Math.min(100, (todayTotal / y) * 100), label: `yesterday RM ${(y / 100).toFixed(2)}` } : undefined}
-        sub={trend ?? "first sale of the day starts the bar"} />,
+        sub={<>
+          {t.tiktok_orders} TikTok order{t.tiktok_orders === 1 ? "" : "s"}
+          {t.invoiced_cents > 0 ? ` · invoiced RM ${(t.invoiced_cents / 100).toFixed(2)}` : ""}
+          {trend ? <><br />{trend}</> : null}
+        </>} />,
     );
   }
   if (canRevenue && rev) {
@@ -573,31 +577,9 @@ function SalesRevenueCard({ role }: { role?: string }) {
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
           today leads the grid with the brand-gold accent. */}
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {rev.today && (() => {
-          const todayTotal = rev.today.tiktok_cents + rev.today.invoiced_cents + (rev.today.other_cents ?? 0) + (rev.today.manual_cents ?? 0);
-          return (
-            <div className="rounded-lg border-2 border-[#C9A227] bg-[#C9A227]/5 p-3">
-              <p className="text-xs font-semibold tracking-wide text-[#8a6f1a] uppercase dark:text-[#C9A227]">🔥 Today · {rev.today.date.split("-").reverse().join("-")}</p>
-              <p className="mt-1 text-xl font-semibold">{rm(todayTotal)}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {rev.today.tiktok_orders} TikTok order{rev.today.tiktok_orders === 1 ? "" : "s"}
-                {rev.today.invoiced_cents > 0 ? ` · invoiced ${rm(rev.today.invoiced_cents)}` : ""}
-                {(rev.today.other_cents ?? 0) > 0 ? ` · other shipments ${rm(rev.today.other_cents ?? 0)}` : ""}
-                {(rev.today.manual_cents ?? 0) > 0 ? ` · manual sales ${rm(rev.today.manual_cents ?? 0)}` : ""}
-                {todayTotal === 0 ? " — let's open the account! 💪" : " — keep it rolling! 💪"}
-              </p>
-              {/* v1.4.206 (CEO: "compare yesterday sales by telling the
-                  staff it is either arrow uptrend or downtrend") */}
-              {rev.yesterday && (todayTotal > 0 || rev.yesterday.total_cents > 0) && (() => {
-                const y = rev.yesterday!.total_cents;
-                const d = todayTotal - y;
-                if (d > 0) return <p className="mt-1 text-xs font-semibold text-green-700">▲ Uptrend — {rm(d)} above yesterday ({rm(y)})</p>;
-                if (d < 0) return <p className="mt-1 text-xs font-semibold text-red-600">▼ Downtrend — {rm(-d)} below yesterday ({rm(y)})</p>;
-                return <p className="text-muted-foreground mt-1 text-xs font-semibold">— level with yesterday ({rm(y)})</p>;
-              })()}
-            </div>
-          );
-        })()}
+        {/* v1.4.271 audit: the 🔥 Today box moved OUT of this card — the
+            hero band above owns "today" now; two cards both saying today's
+            number was the audit's first finding. This card is the MONTH view. */}
         {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
         {box("Invoiced (paid)", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`)}
         {/* v1.4.169: the other two channels, so the Total is ALL sales */}
@@ -3692,8 +3674,6 @@ export default function PortalPage() {
       </div>
     );
   }
-
-
 
   const unread = notifs.filter((n) => !n.is_read).length;
   return (
