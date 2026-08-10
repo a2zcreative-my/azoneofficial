@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { dmy } from "@/lib/format";
 import { properName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -36,7 +37,10 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const input =
+  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
+
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
 function Sub({ t, children }: { t: string; children: ReactNode }) {
@@ -48,7 +52,6 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
   );
 }
 
-const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
   ic_number?: string | null;
@@ -285,7 +288,6 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
 ];
-// const RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
     field expects without long labels. Empty boxes show the example; long
@@ -682,12 +684,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 )}
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
-                    {u.employment_status}{u.left_on ? ` · ${u.left_on.split("-").reverse().join("-")}` : ""}
+                    {u.employment_status}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
                   </span>
                 )}
                 {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    re-joined {u.rejoined_on.split("-").reverse().join("-")}
+                    re-joined {dmy(u.rejoined_on)}
                   </span>
                 )}
                 {" "}<span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
@@ -889,7 +891,7 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
               <span className="min-w-0">
                 <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{KIND_LABEL[d.kind] ?? d.kind}</span>
                 <span className="font-medium">{d.filename ?? d.label ?? "document"}</span>
-                <span className="text-muted-foreground"> · {d.created_at.slice(0, 10).split("-").reverse().join("-")}{d.uploaded_by_name ? ` · by ${properName(d.uploaded_by_name)}` : ""}</span>
+                <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.uploaded_by_name ? ` · by ${properName(d.uploaded_by_name)}` : ""}</span>
               </span>
               <span className="flex items-center gap-2">
                 <a className={rowBtn} href={`${API}/staff-documents/${d.id}`}>Download</a>

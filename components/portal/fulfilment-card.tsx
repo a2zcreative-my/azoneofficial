@@ -30,7 +30,7 @@ const CHIPS: [key: string, label: string][] = [
   ["returned", "↩ Returned"],
 ];
 
-const rmF = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import { fmtRM as rmF, dmy } from "@/lib/format"; // v1.4.272: the global formatters
 const dmyT = (ts: string) => {
   const d = new Date(ts.replace(" ", "T") + "Z");
   if (Number.isNaN(d.getTime())) return ts;
@@ -70,7 +70,7 @@ export function FulfilmentCard() {
   const totalMonth = d ? Object.values(d.by_status).reduce((a, b) => a + b, 0) : 0;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">📮 Fulfilment — {d ? d.month.split("-").reverse().join("-") : "…"}</p>
+      <p className="text-sm font-semibold">📮 Fulfilment — {d ? dmy(d.month) : "…"}</p>
       {!d ? (
         <p className="text-muted-foreground mt-1 text-sm">Loading…</p>
       ) : totalMonth === 0 ? (

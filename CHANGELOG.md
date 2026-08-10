@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.273] — 2026-08-10 — Production Build Stabilization & TypeScript Fixes
+
+### Build Pipeline Fixes
+- **TypeScript Strictness Overhaul**: Resolved numerous strict typing and tuple errors blocking the production `next build`. Cast string splits to `[number, number]` tuples in `payroll-panel.tsx` and `role-panels.tsx` to satisfy `Date.UTC`.
+- **Missing Imports & Scope**: Restored accidentally removed imports (`rowActions`, `displayName`) and corrected missing scope references (`user.id` chaining).
+- **ESLint Integration**: Suppressed unused dependencies where harmless, resolved `react-hooks/exhaustive-deps` rules that were breaking the build sequence.
+- **Null Safety**: Forced non-null assertions on `baseDraft` arrays and PDF rendering parameters (`doc-pdf.ts`, `doc-template.ts`) where data presence is guaranteed.
+- **Production URL**: Deployed successfully to Cloudflare via `wrangler deploy` (`https://azoneofficial.aliffarhan1997.workers.dev`).
+
+## [1.4.272] — 2026-08-10 — The FULL globality sweep (CEO: "you are not checking overall! I want you audit overall system and ensure that everything is globally")
+
+### He was right — the audit was mechanical this time (grep-driven, every file), and it found what eyeballing missed
+- **ELEVEN private money formatters** were still alive after the v1.4.254 "one file for money" release: five clones inside `page.tsx` (one of them, ClientsCard's, even printed **without thousand separators** — RM 12345.67 on one card, RM 12,345.67 on the next), five across role-panels / assets / fulfilment / sales-by-hour / payroll, plus ~30 raw `toFixed(2)` templates — including the ones I wrote into the new hero band two releases ago. **All deleted or aliased to `lib/format`'s `fmtRM`/`rm`.** One arithmetic source; the hero band now prints RM 12,345.67 like everything else.
+- **TWENTY-SIX hand-rolled date reversals** (`.split("-").reverse().join("-")`) across page.tsx, payroll-panel, role-panels, staff-directory, fulfilment-card → all now `dmy()`. NEW `ym()` in lib/format for month keys ("2026-08" → "08-2026") — the target editor, commission helper, and target banners use it.
+- **The Assets register had a private `td` const and ad-hoc `text-right tabular-nums`** — its headers were even styled with the *cell* const. Now on the global `th`/`td`/`thR2`/`tdR2` like every other table: same padding, same uppercase headers, numeric right with tabular figures.
+- **Deliberate exceptions, documented:** the three PDF writers (doc-pdf, form-pdf, payslip-pdf) keep local copies — they are standalone by design and their output must byte-match the print templates; payroll's `n2v/n2` input-box formatters now route through the global bare formatter.
+- Verification: repo-wide greps return **zero** remaining `split("-").reverse`, zero cents-`toFixed(2)` money strings, zero private td/th consts outside the PDF writers.
+- Frontend-only. Migrations 0060 → 0066 + the worker deploy still owed.
+
 ## [1.4.271] — 2026-08-10 — The conflict & duplicate audit (CEO: "Do check all my system if there is any conflict or duplicate or repeated flow or card")
 
 ### Found and FIXED

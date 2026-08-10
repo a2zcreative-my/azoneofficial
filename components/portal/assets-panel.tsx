@@ -8,11 +8,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card } from "@/lib/ui-styles";
+import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
 
 const input = "border-border bg-background mt-0.5 h-8 w-full rounded-lg border px-2 text-sm";
-const td = "px-2 py-1.5 align-top";
+// v1.4.272: the private td const was deleted — the global th/td/thR2/tdR2 rule applies here too.
 
 interface Asset {
   id: number; asset_tag: string; name: string; category: string;
@@ -26,7 +26,7 @@ interface StaffLite { id: number; name: string; is_active: number; role: string 
 
 const CATS = [["electronics", "Electronics"], ["furniture", "Furniture"], ["vehicle", "Vehicle"], ["studio", "Studio equipment"], ["other", "Other"]] as const;
 const STATUSES = [["in_use", "In use"], ["spare", "Spare"], ["repair", "In repair"], ["lost", "Lost"], ["disposed", "Disposed"]] as const;
-const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import { fmtRM as rm } from "@/lib/format"; // v1.4.272: the global formatter
 
 const EMPTY = {
   asset_tag: "", name: "", category: "electronics", brand_model: "", serial_no: "",
@@ -178,9 +178,9 @@ export function AssetsPanel() {
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="text-muted-foreground text-left">
-                  <th className={td}>TAG</th><th className={td}>ITEM</th><th className={td}>ASSIGNED</th>
-                  <th className={td}>LOCATION</th><th className={td}>STATUS</th>
-                  <th className={`${td} text-right`}>VALUE</th><th className={td}></th>
+                  <th className={th}>TAG</th><th className={th}>ITEM</th><th className={th}>ASSIGNED</th>
+                  <th className={th}>LOCATION</th><th className={th}>STATUS</th>
+                  <th className={thR2}>VALUE</th><th className={th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -193,7 +193,7 @@ export function AssetsPanel() {
                     <td className={td}>{a.assigned_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className={td}>{a.location ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className={td}><span className={STATUS_CHIP[a.status] ?? STATUS_CHIP.spare}>{STATUSES.find(([v]) => v === a.status)?.[1] ?? a.status}</span></td>
-                    <td className={`${td} text-right tabular-nums`}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
+                    <td className={tdR2}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
                     <td className={td}><button type="button" className={rowBtn} onClick={() => startEdit(a)}>Edit</button></td>
                   </tr>
                 ))}
@@ -201,7 +201,7 @@ export function AssetsPanel() {
               <tfoot>
                 <tr className="border-border border-t-2 font-semibold">
                   <td className={td} colSpan={5}>TOTAL — active asset value</td>
-                  <td className={`${td} text-right tabular-nums`}>{rm(totalValue)}</td>
+                  <td className={tdR2}>{rm(totalValue)}</td>
                   <td className={td}></td>
                 </tr>
               </tfoot>

@@ -125,9 +125,10 @@ function incompleteMonthAdj(basicCents: number, workedDays: number | null | unde
   return Math.round((basicCents * adjustable) / workingDays);
 }
 
-function rm(cents: number): string {
-  return `RM ${(cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+// v1.4.272: the local formatter became an alias of the global — payroll's
+// numbers must print identically to every other tab's.
+import { fmtRM, rm as rmBare, dmy, ym } from "@/lib/format";
+const rm = fmtRM;
 
 /** "YYYY-MM" → "MM-YYYY" for display. */
 function monthDMY(m: string): string {
@@ -155,11 +156,11 @@ export function payslipData(
   const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
   const incompAdj = hourlySlip ? 0 : incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
   const totalDed = e.deduction_cents + unpaidDed + incompAdj;
-  const n2v = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const n2v = (v: number) => rmBare(Math.round(v * 100)); // v1.4.272: routed through the global
   const hrs = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
 
   const earnings: [string, number][] = hourlySlip
-    ? [[`HOURLY PAY (${hrs} × RM ${(((e.hourly_rate_cents ?? 1500)) / 100).toFixed(2)}/HOUR)`, e.basic_cents]]
+    ? [[`HOURLY PAY (${hrs} × ${fmtRM(e.hourly_rate_cents ?? 1500)}/HOUR)`, e.basic_cents]]
     : [["BASIC PAY", e.basic_cents]];
   if (e.commission_cents > 0) earnings.push(["COMMISSION", e.commission_cents]);
   if (e.allowance_cents > 0) earnings.push(["ALLOWANCE", e.allowance_cents]);
@@ -222,8 +223,8 @@ export function printPayslip(
   const [yy, mm] = month.split("-");
   const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
   const period = { from: `01-${mm}-${yy}`, to: `${String(lastDay).padStart(2, "0")}-${mm}-${yy}` };
-  const amt = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const n2 = (v: number) => v.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const amt = rmBare; // v1.4.272: global bare formatter
+  const n2 = (v: number) => rmBare(Math.round(v * 100)); // v1.4.272: routed through the global
 
   // The same three columns the PDF draws, rendered as table rows.
   const earn = D.earnings;
@@ -698,88 +699,87 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {!readOnly && (
         <>
           <details className="mt-2 text-xs">
-          <summary className="text-muted-foreground cursor-pointer select-none">
-            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
-          </summary>
-          <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
-            <p className="text-muted-foreground">
-              Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
-            </p>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
-              <label className="block">
-                <span className="text-muted-foreground">Corporate ID</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
-                  placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">Client Batch ID</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
-                  placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
-                  onChange={(e) => setM2eCbid(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">Payer account no</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
-                  inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
-              </label>
-              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
-                onClick={() => void saveM2eSettings()}>
-                Save
-              </button>
-            </div>
-            <div className="grid grid-cols-2 items-center gap-2 sm:flex">
-              <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
-              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
-                {m2eHasTpl ? "Replace template" : "Upload template"}
-                <input type="file" accept=".xlsm" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
-              </label>
-            </div>
-            <p className="text-muted-foreground">
-              Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
-            </p>
-          </div>
-        </details>
-
-
-        {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
-            member's COMMISSION box. Draft only: he reviews, then Save all.
-            Hidden entirely on an old worker (no base fetched). */}
-        {commBase !== null && (
-          <details className="text-xs">
-            <summary className="cursor-pointer select-none font-medium">
-              💰 Commission helper — {month.split("-").reverse().join("-")} sales {rm(commBase)} × rate
+            <summary className="text-muted-foreground cursor-pointer select-none">
+              ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
             </summary>
-            <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
-              <label className="block">
-                <span className="text-muted-foreground">Rate %</span>
-                <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
-                  value={commRate} onChange={(e) => setCommRate(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">Pay to</span>
-                <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
-                  onChange={(e) => setCommWho(e.target.value)}>
-                  <option value="">— choose staff —</option>
-                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </label>
-              <p className="pb-1.5 font-semibold">
-                = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
+            <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
+              <p className="text-muted-foreground">
+                Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
               </p>
-              <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
-                disabled={!commWho || !Number(commRate)}
-                onClick={() => {
-                  const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
-                  const id = Number(commWho);
-                  setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
-                  showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
-                }}>
-                Fill commission box
-              </button>
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+                <label className="block">
+                  <span className="text-muted-foreground">Corporate ID</span>
+                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
+                    placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="text-muted-foreground">Client Batch ID</span>
+                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
+                    placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
+                    onChange={(e) => setM2eCbid(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="text-muted-foreground">Payer account no</span>
+                  <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
+                    inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
+                </label>
+                <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
+                  onClick={() => void saveM2eSettings()}>
+                  Save
+                </button>
+              </div>
+              <div className="grid grid-cols-2 items-center gap-2 sm:flex">
+                <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
+                <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
+                  {m2eHasTpl ? "Replace template" : "Upload template"}
+                  <input type="file" accept=".xlsm" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
+                </label>
+              </div>
+              <p className="text-muted-foreground">
+                Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
+              </p>
             </div>
           </details>
-        )}
+
+          {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
+              member's COMMISSION box. Draft only: he reviews, then Save all.
+              Hidden entirely on an old worker (no base fetched). */}
+          {commBase !== null && (
+            <details className="text-xs">
+              <summary className="cursor-pointer select-none font-medium">
+                💰 Commission helper — {ym(month)} sales {rm(commBase)} × rate
+              </summary>
+              <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
+                <label className="block">
+                  <span className="text-muted-foreground">Rate %</span>
+                  <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
+                    value={commRate} onChange={(e) => setCommRate(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="text-muted-foreground">Pay to</span>
+                  <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
+                    onChange={(e) => setCommWho(e.target.value)}>
+                    <option value="">— choose staff —</option>
+                    {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </label>
+                <p className="pb-1.5 font-semibold">
+                  = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
+                </p>
+                <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
+                  disabled={!commWho || !Number(commRate)}
+                  onClick={() => {
+                    const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
+                    const id = Number(commWho);
+                    setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
+                    showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
+                  }}>
+                  Fill commission box
+                </button>
+              </div>
+            </details>
+          )}
         </>
       )}
 
@@ -799,7 +799,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
                   {early && (
                     <>
-                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {release.available_from!.split(" ")[0]!.split("-").reverse().join("-")} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
+                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
                       {" "}<button type="button" className="font-medium underline"
                         title="Take this month's payslips back from staff view — the automatic release date resumes"
                         onClick={async () => {
@@ -817,7 +817,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             <>
               <span className="text-muted-foreground">
                 Staff can view {monthDMY(month)} payslips from{" "}
-                <span className="font-medium">{release.available_from!.split(" ")[0]!.split("-").reverse().join("-")} {release.available_from!.split(" ")[1]} MYT</span>
+                <span className="font-medium">{dmy(release.available_from)} {release.available_from.split(" ")[1]} MYT</span>
                 {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
                 {(() => {
                   /* v1.4.211: when the CURRENT month is on screen, the
@@ -846,9 +846,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                        automatic 5th) is the LEGITIMATE case — benign
                        confirm. Early release of the current/future month
                        keeps the strong wrong-month warning (v1.4.210). */
-                    const [yR, moR] = month.split("-").map(Number);
-                    const prevM = new Date(Date.UTC(yR!, moR! - 2, 1)).toISOString().slice(0, 7);
-                    const autoD = release.available_from!.split(" ")[0]!.split("-").reverse().join("-");
+                    const [yR, moR] = month.split("-").map(Number) as [number, number];
+                    const prevM = new Date(Date.UTC(yR, moR - 2, 1)).toISOString().slice(0, 7);
+                    const autoD = dmy(release.available_from);
                     const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
                     const ok = month === cycleM
                       ? await payConfirm({
@@ -1055,7 +1055,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
                           <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id]! } }))}>
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] ?? 0 } }))}>
                             Base
                           </button>
                         )}
@@ -1197,7 +1197,7 @@ export function MyPayslip() {
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
-            <span className="font-semibold">{lockedUntil.split(" ")[0]!.split("-").reverse().join("-")}, {lockedUntil.split(" ")[1]} MYT</span>.
+            <span className="font-semibold">{dmy(lockedUntil)}, {lockedUntil.split(" ")[1]} MYT</span>.
           </p>
           <button
             type="button"
@@ -1210,7 +1210,7 @@ export function MyPayslip() {
       ) : beforeJoining ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-muted-foreground text-sm">
-            You joined AZ ONE OFFICIAL on {joinedOn!.split("-").reverse().join("-")} — no payslip exists for this month.
+            You joined AZ ONE OFFICIAL on {dmy(joinedOn)} — no payslip exists for this month.
           </p>
           <button
             type="button"

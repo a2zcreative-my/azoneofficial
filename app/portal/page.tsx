@@ -42,7 +42,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf, dmyMYT } from "@/lib/format";
+import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -90,9 +90,6 @@ function mytDateTime(iso: string): string {
 const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"]; // v1.4.153: CEO posts news too
 const SALES_ROLES = ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"];
 
-function fmtRM(cents: number) {
-  return `RM ${(cents / 100).toFixed(2)}`;
-}
 
 /* ================= Dashboard ================= */
 
@@ -473,15 +470,15 @@ function HeroBand({ user }: { user: User }) {
     const y = rev.yesterday?.total_cents ?? 0;
     const trend = todayTotal === 0 && y === 0 ? null
       : todayTotal >= y
-        ? `▲ RM ${((todayTotal - y) / 100).toFixed(2)} above yesterday`
-        : `▼ RM ${((y - todayTotal) / 100).toFixed(2)} below yesterday`;
+        ? `▲ ${fmtRM(todayTotal - y)} above yesterday`
+        : `▼ ${fmtRM(y - todayTotal)} below yesterday`;
     cards.push(
       <StatCard key="today" solid label="🔥 Today's sales"
-        value={`RM ${(todayTotal / 100).toFixed(2)}`}
-        bar={y > 0 ? { pct: Math.min(100, (todayTotal / y) * 100), label: `yesterday RM ${(y / 100).toFixed(2)}` } : undefined}
+        value={fmtRM(todayTotal)}
+        bar={y > 0 ? { pct: Math.min(100, (todayTotal / y) * 100), label: `yesterday ${fmtRM(y)}` } : undefined}
         sub={<>
           {t.tiktok_orders} TikTok order{t.tiktok_orders === 1 ? "" : "s"}
-          {t.invoiced_cents > 0 ? ` · invoiced RM ${(t.invoiced_cents / 100).toFixed(2)}` : ""}
+          {t.invoiced_cents > 0 ? ` · invoiced ${fmtRM(t.invoiced_cents)}` : ""}
           {trend ? <><br />{trend}</> : null}
         </>} />,
     );
@@ -491,16 +488,16 @@ function HeroBand({ user }: { user: User }) {
     const target = rev.target_cents ?? 0;
     cards.push(
       <StatCard key="month" label={`Revenue — ${rev.month}`}
-        value={`RM ${(monthTotal / 100).toFixed(2)}`}
+        value={fmtRM(monthTotal)}
         bar={target > 0
-          ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of RM ${(target / 100).toFixed(0)} target`, tone: monthTotal >= target ? "green" : "gold" }
+          ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of ${fmtRM(target)} target`, tone: monthTotal >= target ? "green" : "gold" }
           : undefined}
         sub={target > 0 ? undefined : "set a month target on the Sales revenue card to get a progress bar"} />,
     );
     if (rev.outstanding && rev.outstanding.docs > 0) {
       cards.push(
         <StatCard key="out" accent="red" label="Unpaid invoices"
-          value={`RM ${(rev.outstanding.cents / 100).toFixed(2)}`}
+          value={fmtRM(rev.outstanding.cents)}
           sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment`} />,
       );
     }
@@ -548,7 +545,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
   const [targetDraft, setTargetDraft] = useState("");
   const { show: showToast, node: toastNode } = useSaveToast();
   if (!rev) return null;
-  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const rm = fmtRM; // v1.4.272: the global — a money figure must never render two ways
   // v1.4.169 (CEO: "everything count correctly and accurately"): total sales
   // = TikTok + paid invoices + non-TikTok shipments + manual sales. The KPI
   // progress below uses this same total, so the target tracks EVERY channel.
@@ -598,7 +595,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
         </div>
         {editingTarget && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm">Target for {(editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month).split("-").reverse().join("-")}:</span>
+            <span className="text-sm">Target for {ym(editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month)}:</span>
             <span className="flex items-center gap-1 text-sm">
               RM
               <input type="number" min={0} step="0.01" autoFocus
@@ -615,7 +612,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
                 if (!v || v <= 0) { showToast("No changes", "Enter a target amount first", "notice"); return; }
                 if (Math.round(v * 100) === current) { showToast("No changes", "Target unchanged", "notice"); setEditingTarget(null); return; }
                 const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: m, target_cents: Math.round(v * 100) }) });
-                if (res.ok) { showToast("Saved", `Sales target for ${m.split("-").reverse().join("-")} — RM ${v.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`); setEditingTarget(null); loadRev(); }
+                if (res.ok) { showToast("Saved", `Sales target for ${ym(m)} — ${fmtRM(Math.round(v * 100))}`); setEditingTarget(null); loadRev(); }
               }}>
               Save target
             </button>
@@ -662,14 +659,14 @@ function SalesRevenueCard({ role }: { role?: string }) {
           const hit = lastPct >= 100;
           return (
             <p className={`mt-2 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
-              {hit ? "🏆" : "📈"} Last month ({rev.last_month.split("-").reverse().join("-")}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
+              {hit ? "🏆" : "📈"} Last month ({ym(rev.last_month)}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
               {hit ? "TARGET HIT — keep the streak going!" : "— this month is the comeback."}
             </p>
           );
         })() : null}
         {canTarget && !editingTarget && new Date(Date.now() + 8 * 3600 * 1000).getUTCDate() >= 25 && !rev.next_target_cents && rev.next_month && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-            ⏰ Month-end soon — set {rev.next_month.split("-").reverse().join("-")}&apos;s target before the 30th/31st.{" "}
+            ⏰ Month-end soon — set {ym(rev.next_month)}&apos;s target before the 30th/31st.{" "}
             <button type="button" className="underline" onClick={() => { setTargetDraft(""); setEditingTarget("next"); }}>Set next month&apos;s target</button>
           </p>
         )}
@@ -829,7 +826,6 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -1226,7 +1222,7 @@ function Attendance({ user }: { user: User }) {
         const stillIn = monitor.staff.filter((s) => s.in_at && !s.out_at);
         return (
           <div className={card}>
-            <p className="text-sm font-semibold">👁 Today&apos;s attendance monitor — {monitor.date.split("-").reverse().join("-")}</p>
+            <p className="text-sm font-semibold">👁 Today&apos;s attendance monitor — {dmy(monitor.date)}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               Live snapshot of every active staff member&apos;s punches today (refreshes every 2 minutes).
               {isWeekend ? " Weekend — missing punches are normal." : ""}
@@ -2001,7 +1997,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
   const invs = docs.filter((d) => d.doc_type === "INV" && d.company === company)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   if (invs.length === 0) return;
-  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const rm = fmtRM; // v1.4.272 global
   const total = invs.reduce((a, d) => a + d.total_cents, 0);
   const paid = invs.filter((d) => d.payment_status === "paid").reduce((a, d) => a + d.total_cents, 0);
   const outstanding = total - paid;
@@ -2134,7 +2130,7 @@ function LiveGmvCard() {
       </div>
     );
   }
-  const rm2 = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const rm2 = fmtRM; // v1.4.272 global
   return (
     <div className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2171,7 +2167,7 @@ function LiveGmvCard() {
           <div className="mt-1 space-y-0">
             {gmv.week.map((w) => (
               <div key={w.d} className="border-border flex items-center justify-between border-b py-1 text-sm last:border-0">
-                <span className="text-muted-foreground text-xs">{w.d.split("-").reverse().join("-")}</span>
+                <span className="text-muted-foreground text-xs">{dmy(w.d)}</span>
                 <span className="text-xs">{w.n} order{w.n === 1 ? "" : "s"} · <span className="font-medium">{rm2(w.c)}</span></span>
               </div>
             ))}
@@ -2199,7 +2195,7 @@ function OtApprovalsCard() {
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
     if (decision === "rejected" && !(await otConfirm({
       title: "Reject this overtime?",
-      message: `${properName(p.name)} — ${p.d.split("-").reverse().join("-")} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`,
+      message: `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`,
       confirmLabel: "Reject OT", variant: "danger",
     }))) return;
     await api(`/staff/attendance/ot/decide`, {
@@ -2229,7 +2225,7 @@ function OtApprovalsCard() {
           <div key={`${p.user_id}:${p.d}`} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
             <span className="min-w-0">
               <span className="font-medium">{properName(p.name)}</span>{" "}
-              <span className="text-muted-foreground text-xs">{p.d.split("-").reverse().join("-")} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
+              <span className="text-muted-foreground text-xs">{dmy(p.d)} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
             </span>
             <span className="flex items-center gap-1.5">
               <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder="Note (optional)"
@@ -2339,7 +2335,7 @@ function LiveScheduleCard({ user }: { user: User }) {
           {sessions.map((sn) => (
             <div key={sn.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
               <span className="min-w-0">
-                <span className="font-medium">{sn.session_date.split("-").reverse().join("-")}</span>{" "}
+                <span className="font-medium">{dmy(sn.session_date)}</span>{" "}
                 <span className="text-muted-foreground">{sn.start_time}{sn.end_time ? `–${sn.end_time}` : ""}</span>{" "}
                 <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{sn.platform}</span>{" "}
                 <span>{properName(sn.host_name)}</span>
@@ -2376,7 +2372,7 @@ function ClientsCard() {
     });
   }, []);
   if (!loaded || clients.length === 0) return null;
-  const rm2 = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+  const rm2 = fmtRM; // v1.4.272 global (this one even lacked thousand separators)
   return (
     <div className={card}>
       <p className="text-sm font-semibold">🤝 Clients</p>
@@ -2913,7 +2909,7 @@ function Sales({ user }: { user: User }) {
               );
             })}
             <datalist id="inv-item-suggestions">
-              {invItems.map((it) => <option key={it.sku} value={it.name}>{`SKU ${it.sku}${it.unit_price_cents ? ` · RM ${(it.unit_price_cents / 100).toFixed(2)}` : ""}`}</option>)}
+              {invItems.map((it) => <option key={it.sku} value={it.name}>{`SKU ${it.sku}${it.unit_price_cents ? ` · ${fmtRM(it.unit_price_cents)}` : ""}`}</option>)}
             </datalist>
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>
               + Add line
@@ -2974,7 +2970,7 @@ function Sales({ user }: { user: User }) {
                 const n = age(d);
                 const [label, cls] = bucket(n);
                 const phone = (d.customer_phone ?? "").replace(/[^0-9]/g, "");
-                const msg = encodeURIComponent(`Hi! Gentle reminder from AZ ONE OFFICIAL — invoice ${d.doc_number} (RM ${(d.total_cents / 100).toFixed(2)}) is still outstanding. Kindly settle by bank transfer to MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Thank you!`);
+                const msg = encodeURIComponent(`Hi! Gentle reminder from AZ ONE OFFICIAL — invoice ${d.doc_number} (${fmtRM(d.total_cents)}) is still outstanding. Kindly settle by bank transfer to MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Thank you!`);
                 return (
                   <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0">
                     <span className="min-w-0 flex-1 basis-56">
@@ -3505,14 +3501,17 @@ export default function PortalPage() {
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
+    if (!user) return;
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user?.id}`);
+      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   useEffect(() => {
-    try { window.localStorage.setItem(`azone-tab:${user?.id}`, tab); } catch { /* private mode */ }
+    if (!user) return;
+    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -3633,21 +3632,25 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
   const tabs = ALL_TABS.filter((t) => {
     if (t === "Dashboard" || t === "Profile") return true;
     if (user?.role === "super_admin") return true;
     const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user?.role ?? "");
-    if (t === "Sales") return SALES_ROLES.includes(user?.role ?? "") || user?.role === "ceo";
+    if (ov !== undefined) return ov.includes(user?.role || "");
+    if (t === "Sales") return SALES_ROLES.includes(user?.role || "") || user?.role === "ceo";
     const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user?.role ?? "");
+    return !allowed || allowed.includes(user?.role || "");
   });
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
     if (!tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab]);
-  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -3661,7 +3664,6 @@ export default function PortalPage() {
     if (typeof window !== "undefined") window.location.replace("/admin");
     return null;
   }
-
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
@@ -3676,6 +3678,8 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
+  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">

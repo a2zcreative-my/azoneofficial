@@ -29,7 +29,7 @@ import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
 import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
-import { dmy, dmyMYT } from "@/lib/format";
+import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 
 const API = "/api/v1/staff";
 
@@ -461,7 +461,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
   );
 }
 
-const rmR = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const rmR = fmtRM; // v1.4.272: global
 
 export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
@@ -525,27 +525,6 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
 
-  // v1.4.169/170: an Out − goes through the modal — mandatory remark for
-  // traceability, optional Sold @ that records it as a SALE in the totals.
-  // const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
-  //   setInvMsg("");
-  //   const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
-  //   if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
-  //   const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
-  //     method: "POST",
-  //     body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
-  //   });
-  //   if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
-  //   /* v1.4.251: an IN used to save in silence — no toast at all — so there was
-  //      no way to know the stock had actually moved. Every movement now says so,
-  //      and quotes the NEW stock level the server came back with. */
-  //   const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
-  //   if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
-  //   else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
-  //   else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
-  //   void load();
-  //   return true;
-  // };
   // v1.4.172: create-path wrapper adding the backdatable date.
   // v1.4.251: signed — the same path records a stock IN.
   const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
@@ -558,7 +537,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
     });
     if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
     const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${sale!.toFixed(2)} — counted in total sales${level}`);
+    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${rmBare(Math.round(sale! * 100))} — counted in total sales${level}`);
     else invToast(dir === "in" ? "Stock in recorded" : "Stock out recorded", `${qty} pcs${level} — logged with your remark`);
     void load();
     return true;
@@ -736,9 +715,9 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                 const net = Math.max(0, price - rebate);
                 units += it.stock;
                 lines.push([
-                  esc(it.sku), esc(it.name), (price / 100).toFixed(2),
-                  rebate > 0 ? `-${(rebate / 100).toFixed(2)}` : "",
-                  (net / 100).toFixed(2), it.stock, it.status ?? "", "", "", "",
+                  esc(it.sku), esc(it.name), rmBare(price),
+                  rebate > 0 ? `-${rmBare(rebate)}` : "",
+                  rmBare(net), it.stock, it.status ?? "", "", "", "",
                 ].join(","));
               }
               lines.push(["TOTAL", "", "", "", "", units, "", "", "", ""].join(","));
@@ -834,7 +813,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   <td className={tdR2}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
                       title="Price per unit (RM) — saves on change"
-                      defaultValue={it.unit_price_cents ? (it.unit_price_cents / 100).toFixed(2) : ""}
+                      defaultValue={it.unit_price_cents ? rmBare(it.unit_price_cents) : ""}
                       onBlur={async (e) => {
                         const v = Number(e.target.value);
                         if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.unit_price_cents ?? 0)) return;
@@ -845,12 +824,12 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   <td className={tdR2}
                     title="AUTO — computed from the latest TikTok firm order: list price − actual sold price. Updates itself as orders sync; not manually editable (per the CEO, v1.4.166).">
                     {it.live_rebate_cents
-                      ? <span className="font-medium text-amber-700 dark:text-amber-400">− {(it.live_rebate_cents / 100).toFixed(2)}</span>
+                      ? <span className="font-medium text-amber-700 dark:text-amber-400">− {rmBare(it.live_rebate_cents)}</span>
                       : <span className="text-muted-foreground text-xs">auto</span>}
                   </td>
                   <td className={`${tdR2} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
                     title="Effective price during TikTok Live = price/unit − live rebate">
-                    {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return (n / 100).toFixed(2); })()}
+                    {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return rmBare(n); })()}
                   </td>
                   {/* v1.4.270: the stock figure becomes comparable at a
                       glance — bar vs the list's own largest stock, red ≤5
@@ -947,12 +926,12 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   <tr className="border-border border-t-2 font-semibold">
                     <td className={td} colSpan={2}>TOTAL — stock on hand</td>
                     <td className={tdR2} title="Σ stock × price/unit — the value sitting in stock at list price">
-                      RM {(tot.value / 100).toFixed(2)}
+                      RM {rmBare(tot.value)}
                     </td>
                     <td className={td}></td>
                     <td className={`${tdR2} text-green-700 dark:text-green-400`}
                       title="Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates">
-                      RM {(tot.net / 100).toFixed(2)}
+                      RM {rmBare(tot.net)}
                     </td>
                     <td className={tdR2}>{tot.units}</td>
                     <td className={td} colSpan={3}></td>
@@ -1022,14 +1001,14 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                     <td className={tdR2}>{t.month_qty}</td>
                     <td className={tdR2}>{t.total_qty}</td>
                     <td className={tdR2}
-                      title={t.avg_sale_cents != null && t.unit_price_cents ? `List RM ${(t.unit_price_cents / 100).toFixed(2)} − sold RM ${(t.avg_sale_cents / 100).toFixed(2)} = rebate RM ${(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents) / 100).toFixed(2)}/unit` : "No sold price captured yet — arrives with the next synced order"}>
+                      title={t.avg_sale_cents != null && t.unit_price_cents ? `List RM ${rmBare(t.unit_price_cents)} − sold RM ${rmBare(t.avg_sale_cents)} = rebate RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : "No sold price captured yet — arrives with the next synced order"}>
                       {t.avg_sale_cents != null
-                        ? <>RM {(t.avg_sale_cents / 100).toFixed(2)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
-                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {((t.unit_price_cents - t.avg_sale_cents) / 100).toFixed(2)})</span>
+                        ? <>RM {rmBare(t.avg_sale_cents)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
+                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
                             : null}</>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
-                    <td className={tdR2}>{t.month_value_cents ? `RM ${(t.month_value_cents / 100).toFixed(2)}` : <span className="text-muted-foreground text-xs">—</span>}</td>
+                    <td className={tdR2}>{t.month_value_cents ? `RM ${rmBare(t.month_value_cents)}` : <span className="text-muted-foreground text-xs">—</span>}</td>
                     <td className={tdR2}>{t.stock}</td>
                     <td className={`${tdR2} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
                   </tr>
@@ -1057,8 +1036,8 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
-                      <td className={tdR2} title="Weighted by units sold (Σ price × qty ÷ Σ qty)">{wAvg != null ? `RM ${(wAvg / 100).toFixed(2)}` : "—"}</td>
-                      <td className={tdR2}>RM {(monthVal / 100).toFixed(2)}</td>
+                      <td className={tdR2} title="Weighted by units sold (Σ price × qty ÷ Σ qty)">{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
+                      <td className={tdR2}>RM {rmBare(monthVal)}</td>
                       <td className={tdR2}>{stock}</td>
                       <td className={td}></td>
                     </tr>
@@ -1108,9 +1087,9 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   {o.reverted ? (
                     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">↩ reverted — stock restored</span>
                   ) : o.unit_sale_cents != null
-                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {(o.unit_sale_cents / 100).toFixed(2)}</span>
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {rmBare(o.unit_sale_cents)}</span>
                     : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">correction</span>}
-                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]!}</span>}
+                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]}</span>}
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
                       the audit trail) / Delete (wrong record: stock back +
                       sale removed + row gone). */}
@@ -1120,14 +1099,14 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         onClick={() => setOutModal({
                           dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
                           edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
-                          price: o.unit_sale_cents != null ? (o.unit_sale_cents / 100).toFixed(2) : "",
+                          price: o.unit_sale_cents != null ? rmBare(o.unit_sale_cents) : "",
                           reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
                         })}>Edit</button>
                       <button type="button" className={rowBtn} title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
                         onClick={async () => {
                           if (!(await invConfirm({
                             title: "Revert this stock out?",
-                            message: `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? ` and the RM ${((o.unit_sale_cents * o.qty) / 100).toFixed(2)} sale is removed from the totals` : ""}. The record stays here marked ↩ reverted.`,
+                            message: `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? ` and the RM ${rmBare(o.unit_sale_cents * o.qty)} sale is removed from the totals` : ""}. The record stays here marked ↩ reverted.`,
                             confirmLabel: "Revert",
                           }))) return;
                           const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/revert`, { method: "POST", body: JSON.stringify({}) });
@@ -1158,7 +1137,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                   { label: "Item", wide: true, value: `${o.sku} — ${o.item_name}` },
                   { label: "Movement", value: `${o.direction === "in" ? "Stock in" : "Stock out"} · ${o.qty} pcs` },
                   { label: "Date", value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
-                  { label: "Sold @", value: o.unit_sale_cents != null ? `RM ${(o.unit_sale_cents / 100).toFixed(2)} — counts as a sale` : "— correction, not a sale" },
+                  { label: "Sold @", value: o.unit_sale_cents != null ? `RM ${rmBare(o.unit_sale_cents)} — counts as a sale` : "— correction, not a sale" },
                   { label: "Recorded by", value: o.created_by_name ?? "" },
                   { label: "Recorded at", value: dmyMYT(o.created_at) },
                   { label: "Reason", wide: true, value: o.remark },
@@ -1200,7 +1179,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
               onChange={(e) => {
                 const id = Number(e.target.value);
                 const it = items.find((x) => x.id === id);
-                setRetDraft((d) => ({ ...d, item_id: id, unit_cost: it?.unit_price_cents ? (it.unit_price_cents / 100).toFixed(2) : d.unit_cost }));
+                setRetDraft((d) => ({ ...d, item_id: id, unit_cost: it?.unit_price_cents ? rmBare(it.unit_price_cents) : d.unit_cost }));
               }}>
               <option value={0}>Select item…</option>
               {items.map((it) => <option key={it.id} value={it.id}>{it.sku} — {it.name} ({it.stock} in stock)</option>)}
@@ -1278,7 +1257,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                       <span className="flex items-center gap-1">
                         <input type="number" min={0} step="0.01" autoFocus
                           className={`${inputClass} h-7 max-w-24 text-xs`}
-                          placeholder={(r.total_cents / 100).toFixed(2)}
+                          placeholder={rmBare(r.total_cents)}
                           value={creditAmt}
                           onChange={(e) => setCreditAmt(e.target.value)} />
                         <button type="button" className="text-xs font-medium underline"
@@ -1325,7 +1304,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         onClick={() => {
                           setRetEditId(r.id);
                           setRetEditDraft({
-                            qty: String(r.qty), unit_cost: (r.unit_cost_cents / 100).toFixed(2),
+                            qty: String(r.qty), unit_cost: rmBare(r.unit_cost_cents),
                             supplier: r.supplier, return_date: r.return_date.slice(0, 10), reason: r.reason ?? "",
                           });
                         }}>Edit</button>
@@ -1385,7 +1364,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         }),
                       });
                       if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
-                      invToast("Saved", `Return updated — ${qtyN} × RM ${costN.toFixed(2)}${qtyN !== r.qty ? " (stock adjusted by the difference)" : ""}`);
+                      invToast("Saved", `Return updated — ${qtyN} × RM ${rmBare(Math.round(costN * 100))}${qtyN !== r.qty ? " (stock adjusted by the difference)" : ""}`);
                       setRetEditId(null);
                       void load();
                     }}>Save</button>
@@ -1789,8 +1768,8 @@ function PnlCard() {
     void api<{ months: PnlRow[] }>(`/pnl`).then((r) => { if (r.ok && r.data) setRows(r.data.months); });
   }, []);
   if (rows.length === 0) return null;
-  const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const mLabel = (m: string) => m.split("-").reverse().join("-");
+  const rm = fmtRM; // v1.4.272: global
+  const mLabel = (m: string) => dmy(m);
   return (
     <div className={card}>
       <p className="text-sm font-semibold">📊 Profit &amp; Loss — last 6 months</p>
@@ -2285,6 +2264,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
+  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2292,7 +2272,6 @@ interface Claim {
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
   hr_reviewed_by_name?: string | null;
-  pre_approved_at?: string | null;
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
@@ -2334,7 +2313,7 @@ async function sendClaimPdf(c: Claim) {
 }
 
 async function printClaimForm(c: Claim) {
-  const rmv = (cents: number) => (cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rmv = rmBare; // v1.4.272: global (bare number, caller places "RM")
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
   // v1.4.137: one signature file per role — used for the EMPLOYEE cell too
   // when the claimant's role has an uploaded signature; script e-sig is the
@@ -2530,7 +2509,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canPayee]);
 
-  const rmc = (c: number) => `RM ${(c / 100).toFixed(2)}`;
+  const rmc = (c: number) => `RM ${rmBare(c)}`;
 
   const submit = async () => {
     const filled = items.filter((i) => i.claim_date || Number(i.amount) || i.description.trim());
@@ -2606,10 +2585,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
-          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
+          if (!cl.hr_reviewed_at) {
+            if (pr === "hr_admin") anyWaived = true;
+            else missingSkipped.push("HR review");
+          }
+          if (!cl.pre_approved_at) {
+            if (pr === "coo") anyWaived = true;
+            else missingSkipped.push("COO pre-approval");
+          }
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
+          if (pr === "cco") anyWaived = true;
+          else missingSkipped.push("CCO pre-approval");
         }
       }
       if (missingSkipped.length > 0) {
@@ -2741,7 +2727,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 onClick={async () => {
                   if (!(await confirm({
                     title: `Delete claim ${claimNoOf(c)}?`,
-                    message: `RM ${(c.amount_cents / 100).toFixed(2)} — this cannot be undone. The attached receipt is removed too.`,
+                    message: `RM ${rmBare(c.amount_cents)} — this cannot be undone. The attached receipt is removed too.`,
                     confirmLabel: "Delete claim", variant: "danger",
                   }))) return;
                   const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
@@ -2990,7 +2976,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>+ Add item</button>
           <p className="text-sm font-semibold">
-            Total: RM {(items.reduce((a, i) => a + (Number(i.amount) || 0), 0)).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            Total: RM {rmBare(Math.round(items.reduce((a, i) => a + (Number(i.amount) || 0), 0) * 100))}
           </p>
         </div>
         <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -3048,14 +3034,14 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           const mine = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === nowMyt);
           if (mine.length === 0) return null;
           const sum = (list: typeof mine) => list.reduce((a, c) => a + c.amount_cents, 0);
-          const fmt = (cents: number) => `RM ${(cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const fmt = fmtRM; // v1.4.272: global
           const approved = mine.filter((c) => c.status === "approved");
           const paid = approved.filter((c) => c.paid_at);
           const pending = mine.filter((c) => c.status === "pending");
           const rejected = mine.filter((c) => c.status === "rejected");
           return (
             <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
-              <span className="font-semibold">{nowMyt.split("-").reverse().join("-")} · {mine.length} claim{mine.length === 1 ? "" : "s"} · {fmt(sum(mine))}</span>
+              <span className="font-semibold">{dmy(nowMyt)} · {mine.length} claim{mine.length === 1 ? "" : "s"} · {fmt(sum(mine))}</span>
               <span className="text-green-800">Approved {approved.length} · {fmt(sum(approved))}</span>
               <span className="text-green-800">— of which paid {paid.length} · {fmt(sum(paid))}</span>
               <span className="text-amber-700">Pending {pending.length} · {fmt(sum(pending))}</span>
@@ -3232,7 +3218,7 @@ export function ExpensesPanel() {
     }
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
-    const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y!, m! - 2, 1)); return d.toISOString().slice(0, 7); })();
+    const prev = (() => { const [y, m] = month.split("-").map(Number) as [number, number]; const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); })();
     const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${prev}`);
     if (pr.ok && pr.data?.release) {
       setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
@@ -3240,7 +3226,7 @@ export function ExpensesPanel() {
   }, [month]);
   useEffect(() => { void load(); }, [load]);
 
-  const rmc = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const rmc = fmtRM; // v1.4.272: global
   const total = rows.reduce((a, r) => a + r.amount_cents, 0);
 
   const addExpense = async () => {
@@ -3323,7 +3309,7 @@ export function ExpensesPanel() {
 
       {(payrollDue || upcoming.length > 0 || staffClaims.due.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
         <div className={card}>
-          <p className="text-sm font-semibold">💳 Payments due — {month.split("-").reverse().join("-")}</p>
+          <p className="text-sm font-semibold">💳 Payments due — {dmy(month)}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             Commit each payment before its due date. Recurring expenses from
             earlier months appear here until recorded for this month.
@@ -3333,15 +3319,15 @@ export function ExpensesPanel() {
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">
-                    Staff payroll — {payrollDue.month.split("-").reverse().join("-")}
+                    Staff payroll — {dmy(payrollDue.month)}
                     {staffPayroll && staffPayroll.month === payrollDue.month && (
                       staffPayroll.cents > 0
                         ? <span className="ml-2">{rmc(staffPayroll.cents)}</span>
-                        : <span className="text-muted-foreground ml-2 text-xs font-normal">(figure appears once {payrollDue.month.split("-").reverse().join("-")} payroll is processed in the Payroll tab — it counts in THIS month&apos;s total)</span>
+                        : <span className="text-muted-foreground ml-2 text-xs font-normal">(figure appears once {dmy(payrollDue.month)} payroll is processed in the Payroll tab — it counts in THIS month&apos;s total)</span>
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{payrollDue.by.split(" ")[0]!.split("-").reverse().join("-")}, {payrollDue.by.split(" ")[1]!} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    Pay by <span className="font-medium">{dmy(payrollDue.by.split(" ")[0]!)}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
@@ -3424,8 +3410,8 @@ export function ExpensesPanel() {
               </div>
             ))}
             {upcoming.map((r) => {
-              const [yy, mm] = month.split("-").map(Number);
-              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
+              const [yy, mm] = month.split("-").map(Number) as [number, number];
+              const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               return (
                 <div key={`u-${r.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
@@ -3437,7 +3423,7 @@ export function ExpensesPanel() {
                       <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">↻ recurring</span>
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs">
-                      {r.due_day ? `Due ${dueISO.split("-").reverse().join("-")}` : "No due day set"}
+                      {r.due_day ? `Due ${dmy(dueISO)}` : "No due day set"}
                       {r.description ? ` · ${r.description}` : ""} · last recorded {dmy(r.expense_date)}
                     </p>
                   </div>
@@ -3448,7 +3434,7 @@ export function ExpensesPanel() {
                         vendor: r.vendor || undefined, description: r.description || undefined,
                         recurring: true, due_day: r.due_day ?? undefined,
                       }) });
-                      if (res.ok) { showToast("Saved", `Recorded for ${month.split("-").reverse().join("-")} — mark it paid once committed`); void load(); }
+                      if (res.ok) { showToast("Saved", `Recorded for ${dmy(month)} — mark it paid once committed`); void load(); }
                     }}>
                     Record for this month
                   </button>
@@ -3456,8 +3442,8 @@ export function ExpensesPanel() {
               );
             })}
             {rows.filter((r) => r.due_day && !r.paid_at).map((r) => {
-              const [yy, mm] = month.split("-").map(Number);
-              const lastD = new Date(Date.UTC(yy!, mm!, 0)).getUTCDate();
+              const [yy, mm] = month.split("-").map(Number) as [number, number];
+              const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
               const overdue = todayISO > dueISO;
@@ -3471,7 +3457,7 @@ export function ExpensesPanel() {
                     </p>
                     <p className="mt-0.5 text-xs">
                       <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-                        {overdue ? "OVERDUE" : "DUE"} {dueISO.split("-").reverse().join("-")}
+                        {overdue ? "OVERDUE" : "DUE"} {dmy(dueISO)}
                       </span>
                     </p>
                   </div>
@@ -3497,13 +3483,13 @@ export function ExpensesPanel() {
           return (
             <div className="border-border mb-4 rounded-lg border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold">✅ Payments completed — {month.split("-").reverse().join("-")}</p>
+                <p className="text-sm font-semibold">✅ Payments completed — {dmy(month)}</p>
                 <p className="text-sm font-semibold">{rmc(doneTotal)}</p>
               </div>
               <div className="mt-2 space-y-1">
                 {payrollDone && (
                   <p className="text-muted-foreground text-xs">
-                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> · Staff payroll ({payrollDone.month.split("-").reverse().join("-")}) · released {dmy(payrollDone.paid_at!.slice(0, 10))}
+                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> · Staff payroll ({dmy(payrollDone.month)}) · released {dmy(payrollDone.paid_at!.slice(0, 10))}
                   </p>
                 )}
                 {staffClaims.paid.map((c) => (
@@ -3531,7 +3517,7 @@ export function ExpensesPanel() {
           const catTotal = catRows.reduce((a, r) => a + r.amount_cents, 0);
           return totalPie > 0 ? (
             <div className="border-border mb-3 rounded-lg border p-3">
-              <p className="text-sm font-semibold">📊 Expenses by category — {month.split("-").reverse().join("-")}</p>
+              <p className="text-sm font-semibold">📊 Expenses by category — {dmy(month)}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">Tap a slice or a category for its records.</p>
               <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-5">
                 <ExpensePie slices={slices} active={pieCat}
@@ -3562,7 +3548,7 @@ export function ExpensesPanel() {
                       <div key={r.id} className="flex flex-wrap items-center gap-x-2">
                         <span className="font-semibold tabular-nums">{rmc(r.amount_cents)}</span>
                         <span>{r.vendor || r.description || "—"}</span>
-                        <span className="text-muted-foreground">{r.expense_date.split("-").reverse().join("-")}</span>
+                        <span className="text-muted-foreground">{dmy(r.expense_date)}</span>
                         {r.paid_at
                           ? <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">PAID</span>
                           : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">outstanding</span>}
@@ -3575,12 +3561,12 @@ export function ExpensesPanel() {
           ) : null;
         })()}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">{month.split("-").reverse().join("-")} expenses</p>
+          <p className="text-sm font-semibold">{dmy(month)} expenses</p>
           <div className="text-right">
             <p className="text-sm font-semibold">Total {rmc(total + (staffPayroll?.cents ?? 0) + staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))}</p>
             {staffPayroll && staffPayroll.cents > 0 && (
               <p className="text-muted-foreground text-xs">
-                incl. staff payroll {rmc(staffPayroll.cents)} ({staffPayroll.month.split("-").reverse().join("-")}) + expenses {rmc(total)}{staffClaims.in_month.length > 0 ? ` + staff claims ${rmc(staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.in_month.length}, by claim date)` : ""}
+                incl. staff payroll {rmc(staffPayroll.cents)} ({dmy(staffPayroll.month)}) + expenses {rmc(total)}{staffClaims.in_month.length > 0 ? ` + staff claims ${rmc(staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.in_month.length}, by claim date)` : ""}
               </p>
             )}
             {/* v1.4.208 (CEO): what's cleared vs what's still to pay this
@@ -3665,7 +3651,7 @@ export function ExpensesPanel() {
                   {r.paid_at
                     ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]!}</span>
+                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>

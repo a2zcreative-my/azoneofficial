@@ -15,7 +15,7 @@ import { card } from "@/lib/ui-styles";
 
 interface Bucket { hour: number; cents: number; orders: number }
 
-const rm = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import { fmtRM as rm } from "@/lib/format"; // v1.4.272: global
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 export function SalesByHourCard() {

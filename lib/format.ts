@@ -48,3 +48,10 @@ export function rm(cents: number): string {
 export function fmtRM(cents: number): string {
   return `RM ${rm(cents)}`;
 }
+
+/** "YYYY-MM" month key → "MM-YYYY" for display. Empty in, empty out. */
+export function ym(month: string | null | undefined): string {
+  if (!month) return "";
+  const p = month.split("-");
+  return p.length === 2 ? `${p[1]}-${p[0]}` : month;
+}
