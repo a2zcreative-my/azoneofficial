@@ -1,7 +1,6 @@
 name = "azoneofficial-api"
 main = "src/index.ts"
-compatibility_date = "2024-04-05"
-observability = { enabled = true }
+compatibility_date = "2024-03-20"
 
 # Bind the API to the production domain. With these here, `wrangler deploy`
 # attaches the routes automatically — no manual dashboard step to forget.

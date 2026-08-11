@@ -27,7 +27,7 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 interface ErrRow { id: number; created_at: string; source: string; message: string; path?: string | null }
-interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null; migrations_pending?: string[] }
+interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null; migrations_pending?: string[]; migrations_all?: { name: string; applied: boolean }[] | null }
 
 function myt(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T").replace(/Z?$/, "Z")).getTime() + 8 * 3600 * 1000);
@@ -75,6 +75,28 @@ export function SystemHealthCard() {
       {/* v1.4.265: the database names the migrations it is missing — the
           v1.4.218 blank-staff-directory incident was exactly a deploy that
           outran its schema, and memory is not a deploy tool. */}
+      {/* v1.4.282 (auditor pick 1): the FULL migration ledger — every
+          migration this build ships, applied ✓ or missing ✗, read from
+          wrangler's own d1_migrations table. The red box above stays for
+          urgency; this is the complete picture. */}
+      {(health?.migrations_all?.length ?? 0) > 0 && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer select-none font-medium">
+            🗄 Migration health — {health!.migrations_all!.filter((m) => m.applied).length}/{health!.migrations_all!.length} applied
+            {health!.migrations_all!.some((m) => !m.applied) ? ` · ${health!.migrations_all!.filter((m) => !m.applied).length} missing` : " · all up to date ✓"}
+          </summary>
+          <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            {health!.migrations_all!.map((m) => (
+              <p key={m.name} className={m.applied ? "text-muted-foreground" : "font-semibold text-red-600"}>
+                {m.applied ? "✓" : "✗"} {m.name}
+              </p>
+            ))}
+          </div>
+          {health!.migrations_all!.some((m) => !m.applied) && (
+            <p className="mt-2 font-medium">Missing ones switch off their features — DEPLOY.bat (or the migrations command) applies them all.</p>
+          )}
+        </details>
+      )}
       {(health?.migrations_pending?.length ?? 0) > 0 && (
         <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
           <p className="font-semibold">⛔ {health!.migrations_pending!.length} database migration{health!.migrations_pending!.length === 1 ? "" : "s"} pending — parts of the newest releases are switched off until they run:</p>

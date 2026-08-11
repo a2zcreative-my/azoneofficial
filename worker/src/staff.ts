@@ -1601,7 +1601,7 @@ export async function handleStaff(
         while (t.length > 74) { out.push(t.slice(0, 74)); t = " " + t.slice(74); }
         out.push(t); return out.join("\r\n");
       };
-      const [y = 0, mo = 0, d = 0] = ev.event_date.split("-").map(Number);
+      const [y, mo, d] = ev.event_date.split("-").map(Number);
       const lines: string[] = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AZ ONE OFFICIAL//Staff Portal//EN", "METHOD:PUBLISH",
         "BEGIN:VEVENT",

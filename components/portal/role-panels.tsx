@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
-import { properName, firstName, displayName } from "@/lib/names";
+import { properName, firstName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -463,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role: _role = "" }: { role?: string }) {
+export function InventoryPanel({ role = "" }: { role?: string }) {
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -527,7 +527,7 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
   // traceability, optional Sold @ that records it as a SALE in the totals.
-  const _adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
+  const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
     setInvMsg("");
     const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
     if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
@@ -2285,6 +2285,7 @@ interface Claim {
   decided_by_full?: string | null; // v1.4.125: CEO's FULL name for the printed form
   pre_approved_by_full?: string | null; // v1.4.133: pre-approver identity for the middle cell
   pre_approved_by_role?: string | null;
+  pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
   items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
@@ -2606,10 +2607,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       let anyWaived = false;
       if (cl && cl.status === "pending") {
         if (ch === "staff") {
-          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
-          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
+          if (!cl.hr_reviewed_at) (pr === "hr_admin" ? (anyWaived = true) : missingSkipped.push("HR review"));
+          if (!cl.pre_approved_at) (pr === "coo" ? (anyWaived = true) : missingSkipped.push("COO pre-approval"));
         } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
+          (pr === "cco" ? (anyWaived = true) : missingSkipped.push("CCO pre-approval"));
         }
       }
       if (missingSkipped.length > 0) {
@@ -3232,7 +3233,7 @@ export function ExpensesPanel() {
     }
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
-    const prev = (() => { const [y = 0, m = 0] = month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); })();
+    const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); })();
     const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${prev}`);
     if (pr.ok && pr.data?.release) {
       setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
@@ -3424,7 +3425,7 @@ export function ExpensesPanel() {
               </div>
             ))}
             {upcoming.map((r) => {
-              const [yy = 0, mm = 0] = month.split("-").map(Number);
+              const [yy, mm] = month.split("-").map(Number);
               const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               return (
@@ -3456,7 +3457,7 @@ export function ExpensesPanel() {
               );
             })}
             {rows.filter((r) => r.due_day && !r.paid_at).map((r) => {
-              const [yy = 0, mm = 0] = month.split("-").map(Number);
+              const [yy, mm] = month.split("-").map(Number);
               const lastD = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
               const dueISO = `${month}-${String(Math.min(r.due_day ?? 1, lastD)).padStart(2, "0")}`;
               const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);

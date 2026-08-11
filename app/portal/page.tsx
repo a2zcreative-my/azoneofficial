@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
@@ -21,7 +21,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -41,7 +41,7 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass, th, thR2, td, tdR2, fieldRow } from "@/lib/ui-styles";
+import { card, inputClass, btnClass } from "@/lib/ui-styles";
 import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
@@ -302,9 +302,6 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   return (
     <div className="space-y-3 md:space-y-6">
-      {/* v1.4.270: the hero band — the state of the business in two seconds,
-          before any scrolling. */}
-      <HeroBand user={user} />
       <div className={card}>
         <p className="text-sm font-semibold">Quick actions</p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
@@ -414,6 +411,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
       </div>
+      {/* v1.4.282 (CEO: "Quick Action on dashboard need to put top"): Quick
+          actions now leads; the hero band reads second. */}
+      <HeroBand user={user} />
 
       {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
           hero band already carries today + month + overall up top, so the
@@ -805,7 +805,7 @@ function TrendingMYCard() {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground mt-2 text-xs">Nothing in today&apos;s top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
+            <p className="text-muted-foreground mt-2 text-xs">Nothing in today's top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
           )}
           {rest.length > 0 && (
             <DetailsToggle label={`All trending searches (${rest.length})`} className="mt-2">
@@ -819,7 +819,7 @@ function TrendingMYCard() {
               </ol>
             </DetailsToggle>
           )}
-          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmy(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
+          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmyMYT(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
         </>
       )}
     </div>
@@ -846,7 +846,9 @@ function UpcomingEventsCard({ role }: { role: string }) {
   useEffect(() => {
     void api<{ birthdays: { name: string; birthday: string }[] }>(`/staff/birthdays-lite`)
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
@@ -2502,7 +2504,7 @@ function PackagesEditorCard({ role }: { role: string }) {
             const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
             const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
             if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
-            else showToast("Not saved", (r.data as { error?: string })?.error ?? "Deploy the latest server first", "notice");
+            else showToast("Not saved", r.error ?? "Deploy the latest server first", "notice");
           }}>Save rate card</button>
         </div>
       </div>
@@ -2510,6 +2512,78 @@ function PackagesEditorCard({ role }: { role: string }) {
   );
 }
 
+
+/* v1.4.281 — 🧩 Business lines ("my company do 2 business which is one for
+   product sales and the other one is for service sales"): the two
+   businesses reported separately — all-time share, then month by month.
+   EXPANDABLE BY DESIGN: renders whatever lines the server sends; a third
+   business line some day = zero changes here. Null until the worker has
+   the route. */
+function BusinessLinesCard() {
+  interface RevLine { key: string; label: string; total_cents: number; months: { month: string; cents: number }[] }
+  const [lines, setLines] = useState<RevLine[] | null>(null);
+  useEffect(() => {
+    void api<{ lines: RevLine[] }>(`/staff/revenue/lines`).then((r) => { if (r.ok && r.data) setLines(r.data.lines); });
+  }, []);
+  if (!lines || lines.length === 0) return null;
+  const grand = lines.reduce((a, l) => a + l.total_cents, 0);
+  if (grand === 0) return null;
+  const monthSet = new Set<string>();
+  for (const l of lines) for (const m of l.months) monthSet.add(m.month);
+  const monthsDesc = [...monthSet].sort().reverse();
+  const cellOf = (l: RevLine, m: string) => l.months.find((x) => x.month === m)?.cents ?? 0;
+  const TONE: Record<string, "navy" | "gold" | "muted"> = { product: "navy", service: "gold" };
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">🧩 Business lines — product vs service</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Your two businesses, reported separately. Product = TikTok, Shopee, walk-in and product invoices; service = paid service invoices. Same arithmetic as every other revenue figure.
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {lines.map((l) => (
+          <div key={l.key} className="flex items-center gap-2 text-sm">
+            <span className="w-32 shrink-0">{l.label.split(" (")[0]}</span>
+            <div className="flex-1"><MiniBar pct={(l.total_cents / grand) * 100} tone={TONE[l.key] ?? "muted"} /></div>
+            <span className="shrink-0 text-right tabular-nums font-medium">{fmtRM(l.total_cents)}</span>
+            <span className="text-muted-foreground w-10 shrink-0 text-right text-xs tabular-nums">{Math.round((l.total_cents / grand) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+      {lines.some((l) => l.key === "invoices") && (
+        <p className="mt-1.5 text-xs text-amber-700">Some paid invoices can&apos;t be split into product/service until migration 0061 runs (DEPLOY.bat does this).</p>
+      )}
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead><tr className="border-border border-b">
+            <th className={th}>MONTH</th>
+            {lines.map((l) => <th key={l.key} className={thR2}>{l.label.split(" ")[0].toUpperCase()}</th>)}
+            <th className={thR2}>TOTAL</th>
+          </tr></thead>
+          <tbody>
+            {monthsDesc.map((m) => {
+              const rowTotal = lines.reduce((a, l) => a + cellOf(l, m), 0);
+              return (
+                <tr key={m} className="border-border border-b last:border-0">
+                  <td className={td}>{ym(m)}</td>
+                  {lines.map((l) => {
+                    const c = cellOf(l, m);
+                    return <td key={l.key} className={tdR2}>{c ? fmtRM(c) : "—"}</td>;
+                  })}
+                  <td className={`${tdR2} font-medium`}>{fmtRM(rowTotal)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot><tr>
+            <th className={th}>TOTAL</th>
+            {lines.map((l) => <th key={l.key} className={thR2}>{fmtRM(l.total_cents)}</th>)}
+            <th className={thR2}>{fmtRM(grand)}</th>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 /* v1.4.278 — 📊 Sales history ("powerful system for my sales track"):
    every month of the business, all four channels (the /revenue overall
@@ -2666,7 +2740,6 @@ function ClientsCard() {
   const [clients, setClients] = useState<Cl[]>([]);
   const [sessions, setSessions] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
-  const { show: showRlToast, node: rlToastNode } = useSaveToast();
   useEffect(() => {
     void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/staff/clients/summary`).then((r) => {
       if (r.ok) { setClients(r.data?.clients ?? []); setSessions(r.data?.sessions ?? {}); }
@@ -2697,7 +2770,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: string })?.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", r.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -3838,18 +3911,14 @@ export default function PortalPage() {
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
     try {
-      if (!user) return;
       const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user.id]);
   useEffect(() => {
-    try {
-      if (!user) return;
-      window.localStorage.setItem(`azone-tab:${user.id}`, tab);
-    } catch { /* private mode */ }
-  }, [tab, user?.id]);
+    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
@@ -3969,30 +4038,6 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
-  const tabs = useMemo(() => {
-    if (!user) return ALL_TABS;
-    return ALL_TABS.filter((t) => {
-      if (t === "Dashboard" || t === "Profile") return true;
-      if (user.role === "super_admin") return true;
-      const ov = tabOverrides[t];
-      if (ov !== undefined) return ov.includes(user.role);
-      if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
-      const allowed = TAB_ROLES[t];
-      return !allowed || allowed.includes(user.role);
-    });
-  }, [user, tabOverrides]);
-
-  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
-  useEffect(() => {
-    if (!tabs.includes(tab)) setTab("Dashboard");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab]);
-
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
@@ -4019,6 +4064,25 @@ export default function PortalPage() {
   }
 
   const unread = notifs.filter((n) => !n.is_read).length;
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
+  const tabs = ALL_TABS.filter((t) => {
+    if (t === "Dashboard" || t === "Profile") return true;
+    if (user.role === "super_admin") return true;
+    const ov = tabOverrides[t];
+    if (ov !== undefined) return ov.includes(user.role);
+    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+    const allowed = TAB_ROLES[t];
+    return !allowed || allowed.includes(user.role);
+  });
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
+  useEffect(() => {
+    if (!tabs.includes(tab)) setTab("Dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.join("|"), tab]);
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
@@ -4271,6 +4335,7 @@ export default function PortalPage() {
                 v1.4.277: Sales revenue leads the tab (moved from Dashboard
                 per CEO — the month summary above the channel detail). */}
             {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
+            {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />

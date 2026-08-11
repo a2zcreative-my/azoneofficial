@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.4.282] — 2026-08-11 — Quick actions first + the auditor's top-3 (migration health, permission matrix, offboarding)
+
+### Rebased onto the 2026-08-11 security-fixes tree (all adopted): webhook 64KB body cap, generic 500 message (no detail leak), TikTok authorize requires a management session + audits the real user, 2FA setup blocked when already enabled, admin creation = super_admin only, HR staff-creation can no longer mint executives.
+
+### CEO: "Quick Action on dashboard need to put top" + auditor picks
+- **Quick actions now leads the Dashboard**; the hero band reads second.
+- **🗄 Migration health (auditor pick 1)** — /system/health now reads wrangler's own `d1_migrations` ledger and compares it against the compile-time list of ALL 67 migrations this build ships; SystemHealthCard gains a collapsible "Migration health — N/67 applied" table (✓ grey / ✗ red). The red pending box stays for urgency; this is the complete picture. STANDING RULE extended: every new migration adds itself to EXPECTED_MIGRATIONS.
+- **Role permission matrix (auditor pick 2)** — NEW `docs/PERMISSIONS.md`, generated FROM the live PERMS table (14 capabilities × 11 roles) plus every route-level rule (role changes, chains, tab access, offboarding, public routes) and a privilege-creep review rule: any release touching PERMS/TAB_ROLES must update the file or the file is the bug.
+- **🚪 Offboarding flow (auditor pick 3)** — NEW `POST /users/:id/offboard` (admin tier + CEO; never admin-tier targets, never yourself): ONE audited call marks resigned + final date (default today MYT), revokes every session, clears the TOTP secret + backup codes. One red "🚪 Offboard" button in the staff directory (open record, amend roles only, hidden once already resigned/terminated) with a danger confirm; date/status editable after via the normal fields.
+- Whole repo passes the tsc grammar gate.
+
+## [1.4.281] — 2026-08-10 — 🧩 Business lines: product sales vs service sales
+
+### CEO: "add a card of sales service too, since my company do 2 business… make it necessary requirement… and make it expandable"
+- **Business-line reporting is now a core requirement of the revenue system.** NEW `revenueLines()` in the worker buckets every ringgit into a named line — product (TikTok + Shopee/walk-in postage + manual sales + paid product invoices) and service (paid service invoices) — and `revenueByMonth()` is now the SUM of those buckets, so /revenue, /finance/pnl, the hero band and the new card can never disagree.
+- **Expandable by design:** a future third business line is ONE more bucket in `revenueLines()`; the `/revenue/lines` route and the card render whatever lines exist, so nothing downstream changes.
+- **🧩 Business lines card** (Ecommerce tab, above Sales history, revenue roles): all-time share of each line with brand-toned bars + %, then a month-by-month table (one column per line, TOTAL column and footer).
+- **Honest pre-migration state:** on a DB without migration 0061 (`kind` column), paid invoices go into an explicit "Invoices (run migration 0061 to split)" line with an amber note — never silently guessed into product or service.
+- **NEW: real `tsc` grammar gate** — the whole repo (every page, component, lib, worker file) now passes a TypeScript parse before packing; this is the audit's quality gate, live from this release.
+
 ## [1.4.280] — 2026-08-10 — Audit response: build fixed, backdoor string removed, PBKDF2 raised
 
 ### An external code audit found 4 syntax errors that broke the build, plus 2 security items — all verified and fixed

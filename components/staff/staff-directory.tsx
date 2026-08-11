@@ -19,7 +19,8 @@ import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { card } from "@/lib/ui-styles";
-import { rowBtn } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
 
 const API = "/api/v1/staff";
@@ -38,7 +39,6 @@ async function api<T>(path: string, init?: RequestInit) {
 }
 
 const input =
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -50,6 +50,7 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
+  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
@@ -287,7 +288,7 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
 ];
-// const RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
+const RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
     field expects without long labels. Empty boxes show the example; long
@@ -335,6 +336,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
   const { show: showToast, node: toastNode } = useSaveToast();
+  const { confirm, node: confirmNode } = useConfirm();
 
   const toggleSelect = (id: number) =>
     setSelected((prev) => {
@@ -419,7 +421,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
 
   return (
     <div className="space-y-3">
-      {toastNode}
+      {toastNode}{confirmNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
         <p className="text-sm font-medium">Staff directory &amp; ID badges</p>
         <p className="text-muted-foreground text-xs">
@@ -734,6 +736,31 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 >
                   Print badge
                 </button>
+                )}
+                {/* v1.4.282 (auditor pick 3): the WHOLE exit in one tap —
+                    status + final date + sessions revoked + 2FA cleared, one
+                    audited call, so no step can be forgotten. Fields stay
+                    editable after (e.g. change the date or to terminated). */}
+                {open.has(u.id) && canAmend && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
+                  <button type="button" className={rowBtnDanger}
+                    onClick={() => {
+                      void confirm({
+                        title: `Offboard ${displayName(u)}?`,
+                        message: "One tap does the whole exit: marks resigned with today as the final day, signs them out everywhere, and removes their two-factor setup. Everything is audited. You can edit the date or change to terminated in the fields afterwards.",
+                        confirmLabel: "Offboard", variant: "danger",
+                      }).then(async (ok) => {
+                        if (!ok) return;
+                        const res = await api<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({}) });
+                        if (res.ok) {
+                          showToast("Offboarded", `${displayName(u)} — resigned, signed out everywhere, 2FA cleared`);
+                          void load();
+                        } else {
+                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.message ?? "Offboard failed" }));
+                        }
+                      });
+                    }}>
+                    🚪 Offboard
+                  </button>
                 )}
                 {open.has(u.id) && !readOnly && (
                 <label className={`${btn} border-border cursor-pointer border hover:bg-secondary`}>

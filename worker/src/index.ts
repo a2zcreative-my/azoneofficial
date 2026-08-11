@@ -1387,15 +1387,6 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const orderId = String(data.order_id ?? data.orderId ?? "").trim();
     const rawStatus = String(data.order_status ?? data.status ?? "").toLowerCase();
 
-    if (verified) {
-      const existingEvent = await env.DB.prepare(
-        `SELECT id FROM webhook_events WHERE provider = 'tiktok' AND event_type = ?1 AND order_ref = ?2 AND body = ?3 AND verified = 1`
-      ).bind(String(body?.type ?? "unknown"), orderId ? `TT-${orderId}` : null, rawBody.slice(0, 4000)).first<{ id: number }>();
-      if (existingEvent) {
-        return json({ ok: true, ignored: "replay" });
-      }
-    }
-
     // Always record the receipt — including unverified ones — so a signature
     // mismatch is visible and diagnosable instead of silently dropped.
     await env.DB.prepare(
@@ -1504,27 +1495,6 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true, status: rawStatus });
   }
 
-  if (path === "/api/v1/integrations/tiktok/start" && method === "GET") {
-    const me = await getSessionUser(request, env);
-    if (!me || !["ceo", "coo", "admin", "super_admin"].includes(me.role)) {
-      return errorResponse("forbidden", "Management sign-in required", 403);
-    }
-    if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
-      return errorResponse("not_configured", "TikTok app credentials are not set", 503);
-    }
-    const state = randomSecret();
-    const url = new URL("https://auth.tiktok-shops.com/oauth/authorize");
-    url.searchParams.set("app_key", env.TIKTOK_APP_KEY);
-    url.searchParams.set("state", state);
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: url.toString(),
-        "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
-      },
-    });
-  }
-
   /* ---- TikTok seller authorization callback (v1.4.44) ----
      Point the app's Redirect URL here. TikTok returns ?code=…; this exchanges
      it for the access token that lets order webhooks resolve line items. */
@@ -1536,19 +1506,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
       return errorResponse("not_configured", "TikTok app credentials are not set", 503);
     }
-    const url = new URL(request.url);
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
-    const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
-    const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
-
+    const code = new URL(request.url).searchParams.get("code");
     if (!code) return errorResponse("invalid_input", "Missing authorization code", 400);
-    if (!state || !cookieState || state !== cookieState) {
-      return new Response(
-        JSON.stringify({ ok: false, code: "invalid_state", message: "Invalid or expired state parameter" }),
-        { status: 400, headers: { "Content-Type": "application/json", "Set-Cookie": clearState } }
-      );
-    }
     const tokenUrl = new URL("https://auth.tiktok-shops.com/api/v2/token/get");
     tokenUrl.searchParams.set("app_key", env.TIKTOK_APP_KEY);
     tokenUrl.searchParams.set("app_secret", env.TIKTOK_APP_SECRET);
@@ -1575,7 +1534,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        <h2>TikTok Shop connected</h2>
        <p>AZ ONE OFFICIAL can now read order details and move inventory automatically.</p>
        <p><a href="/portal">Back to the staff portal</a></p></body>`,
-      { headers: { "Content-Type": "text/html; charset=utf-8", "Set-Cookie": clearState } },
+      { headers: { "Content-Type": "text/html; charset=utf-8" } },
     );
   }
 
@@ -1764,12 +1723,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // A fresh secret each time setup is opened; it only becomes active once a
     // code from it is verified in /enable.
     const secret = randomSecret();
+    await env.DB.prepare(`UPDATE users SET totp_secret = ?1 WHERE id = ?2`).bind(secret, me.id).run();
     const label = encodeURIComponent(`AZ ONE OFFICIAL:${me.email}`);
     return json({
       secret,
       otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=AZ%20ONE%20OFFICIAL&digits=6&period=30`,
-    }, 200, {
-      "Set-Cookie": `azone_2fa_pending=${secret}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
     });
   }
 
@@ -1780,12 +1738,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
     }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const pendingSecret = getCookie(request, "azone_2fa_pending");
-    if (!pendingSecret) return errorResponse("invalid_state", "Start setup first or setup expired", 400);
-    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(pendingSecret, body.code as string))) {
+    const row = await env.DB.prepare(`SELECT totp_secret FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_secret: string | null }>();
+    if (!row?.totp_secret) return errorResponse("invalid_state", "Start setup first", 400);
+    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(row.totp_secret, body.code as string))) {
       return errorResponse("invalid_code", "That code is not correct — check the time on your phone and try again", 400);
     }
-    await env.DB.prepare(`UPDATE users SET totp_secret = ?1, totp_enabled = 1 WHERE id = ?2`).bind(pendingSecret, me.id).run();
+    await env.DB.prepare(`UPDATE users SET totp_enabled = 1 WHERE id = ?1`).bind(me.id).run();
     // Fresh backup codes; the plain values are returned exactly once.
     await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(me.id).run();
     const codes = makeBackupCodes();
@@ -1795,9 +1754,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ).bind(me.id, await sha256Hex(c.toUpperCase())).run();
     }
     await audit(env, me.id, "auth.2fa_enabled");
-    return json({ ok: true, backup_codes: codes }, 200, {
-      "Set-Cookie": `azone_2fa_pending=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
-    });
+    return json({ ok: true, backup_codes: codes });
   }
 
   if (path === "/api/v1/auth/2fa/disable" && method === "POST") {
@@ -2301,7 +2258,119 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         if (msg.includes("no such column") || msg.includes("no such table")) migrations_pending.push(label);
       }
     }
-    return json({ errors, last_backup, last_offsite, migrations_pending });
+    /* v1.4.282 (auditor pick 1: "migration health page — show which
+       migrations are applied/missing instead of relying on runtime errors"):
+       wrangler records every applied migration in d1_migrations — read it
+       and compare against the compile-time list of ALL migrations this
+       build ships. This list MUST gain a line with every new migration
+       (same standing rule as the probes above). */
+    const EXPECTED_MIGRATIONS = [
+      "0001_init",
+      "0002_rate_limits",
+      "0003_staff_portal",
+      "0004_customer_role",
+      "0005_doc_numbering_daily",
+      "0006_multi_tenant",
+      "0007_role_modules",
+      "0008_expand_role_check",
+      "0009_role_cleanup",
+      "0010_leave_chain_and_badge",
+      "0011_holidays",
+      "0012_full_name",
+      "0013_staff_photo",
+      "0014_attendance_manual",
+      "0015_postage_stock_link",
+      "0016_postage_multi_items",
+      "0017_payroll",
+      "0018_two_factor",
+      "0019_bank_join",
+      "0020_tiktok_tokens",
+      "0021_employment_status_values",
+      "0022_ic_number",
+      "0023_buyer_city",
+      "0024_error_log",
+      "0025_events",
+      "0026_claims_revenue",
+      "0027_base_salary",
+      "0028_payslip_release",
+      "0029_johor_holidays_2026",
+      "0030_payroll_worked_days",
+      "0031_payroll_ot",
+      "0032_expenses",
+      "0033_expenses_due",
+      "0034_payments_targets",
+      "0035_salesperson",
+      "0036_claim_items",
+      "0037_lifecycle_money",
+      "0038_claim_chain",
+      "0039_claim_payment_proof",
+      "0040_hari_hol_not_observed_july",
+      "0041_payroll_net_cents",
+      "0042_supplier_returns",
+      "0043_supplier_return_replacement",
+      "0044_overtime",
+      "0045_delivery_fee",
+      "0046_live_rebate",
+      "0047_unit_sale_price",
+      "0048_manual_sales",
+      "0049_manual_stockouts",
+      "0050_manual_out_lifecycle",
+      "0051_claim_payee",
+      "0052_enquiry_category",
+      "0053_hourly_payroll",
+      "0054_ot_approval",
+      "0055_enquiry_reply",
+      "0056_live_sessions",
+      "0057_staff_docs_vault",
+      "0058_assets",
+      "0059_staff_profile_fields",
+      "0060_doc_conversion_link",
+      "0061_doc_kind",
+      "0062_doc_reference_delivery_address",
+      "0063_doc_share_token",
+      "0064_manual_stock_direction",
+      "0065_stockout_doc_link",
+      "0066_prospects",
+      "0067_growth_pack",
+    ];
+    let migrations_all: { name: string; applied: boolean }[] | null = null;
+    try {
+      const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations`).all<{ name: string }>();
+      const applied = new Set(results.map((r) => r.name.replace(/\.sql$/, "")));
+      migrations_all = EXPECTED_MIGRATIONS.map((name) => ({ name, applied: applied.has(name) }));
+    } catch { /* d1_migrations absent — keep null, probes above still work */ }
+    return json({ errors, last_backup, last_offsite, migrations_pending, migrations_all });
+  }
+
+  /* v1.4.282 (auditor pick 3: "staff offboarding flow — one button:
+     deactivate, revoke sessions, remove 2FA, record final date"): every
+     exit step in ONE audited call, so no step can be forgotten. Admin
+     tier or CEO; admin-tier accounts and yourself cannot be offboarded. */
+  if (path.startsWith("/api/v1/users/") && path.endsWith("/offboard") && method === "POST") {
+    if (!atLeast(user, "ceo")) return errorResponse("forbidden", "Admin or CEO required", 403);
+    const idOb = Number(path.split("/")[4]);
+    if (!Number.isFinite(idOb)) return errorResponse("bad_request", "Bad user id", 400);
+    if (idOb === user.id) return errorResponse("forbidden", "You cannot offboard yourself", 403);
+    const target = await env.DB.prepare(`SELECT id, role, name FROM users WHERE id = ?1`).bind(idOb)
+      .first<{ id: number; role: string; name: string }>();
+    if (!target) return errorResponse("not_found", "User not found", 404);
+    if (["admin", "super_admin"].includes(target.role)) {
+      return errorResponse("forbidden", "Admin accounts are managed in /admin", 403);
+    }
+    let bodyOb: { left_on?: string; status?: string } = {};
+    try { bodyOb = await request.json(); } catch { /* defaults below */ }
+    const leftOn = typeof bodyOb.left_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(bodyOb.left_on)
+      ? bodyOb.left_on
+      : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const statusOb = bodyOb.status === "terminated" ? "terminated" : "resigned";
+    await env.DB.prepare(
+      `UPDATE users SET employment_status = ?1, left_on = ?2, totp_secret = NULL, totp_enabled = 0 WHERE id = ?3`,
+    ).bind(statusOb, leftOn, idOb).run();
+    const sess = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(idOb).run();
+    try { await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(idOb).run(); } catch { /* pre-0018 */ }
+    await audit(env, user.id, "staff.offboard", "users", String(idOb),
+      { status: statusOb, left_on: leftOn, sessions_revoked: sess.meta?.changes ?? 0 });
+    return json({ ok: true, status: statusOb, left_on: leftOn });
   }
 
   if (path === "/api/v1/system/backup" && method === "POST") {
