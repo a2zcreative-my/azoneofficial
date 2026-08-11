@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
 
 export function MigrationBanner() {
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     // Only check once per page load to avoid spamming
-    void api<{ pending: boolean }>("/health/migrations").then((r) => {
-      if (r.ok && r.data?.pending) {
-        setPending(true);
-      }
-    });
+    fetch("/api/v1/health/migrations")
+      .then((res) => res.json())
+      .then((data: any) => {
+        if (data?.ok && data?.pending) {
+          setPending(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   if (!pending) return null;
