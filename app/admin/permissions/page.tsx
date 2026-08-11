@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+
 
 export default function PermissionsPage() {
   const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
