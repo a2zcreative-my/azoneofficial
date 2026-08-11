@@ -31,6 +31,7 @@ interface User {
   email: string;
   name: string;
   role: string;
+  requires_2fa?: boolean;
 }
 
 interface Enquiry {
