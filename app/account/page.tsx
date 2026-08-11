@@ -22,11 +22,23 @@ const ENQUIRY_CATS = [
 ] as const;
 const CAT_LABEL = Object.fromEntries(ENQUIRY_CATS) as Record<string, string>;
 
+function getCsrfToken() {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return match ? match[1] : "";
+}
+
 async function api<T>(path: string, init?: RequestInit) {
   try {
+    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
+    const csrfHeader = isMutating ? { "X-CSRF-Token": getCsrfToken() } : {};
     const res = await fetch(`${API}${path}`, {
       credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...csrfHeader,
+        ...(init?.headers as Record<string, string>),
+      },
       ...init,
     });
     return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };

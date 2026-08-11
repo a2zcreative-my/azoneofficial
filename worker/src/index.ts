@@ -22,12 +22,7 @@ export interface Env {
   TIKTOK_APP_SECRET?: string;
 }
 
-type Role =
-  | "super_admin" | "admin"
-  | "editor" | "marketing" | "live_host"
-  | "hr_admin" | "sales_marketing"
-  | "ceo" | "coo" | "cco"
-  | "customer";
+import { Role, can, MANDATORY_2FA_ROLES } from "./permissions";
 
 interface SessionUser {
   id: number;
@@ -35,6 +30,7 @@ interface SessionUser {
   name: string;
   role: Role;
   photo_key?: string | null; // v1.4.141: portal header avatar (badge photo)
+  requires_2fa?: boolean;
 }
 
 /* ---------------- crypto: PBKDF2-SHA256 (WebCrypto-native) ---------------- */
@@ -126,11 +122,10 @@ async function verifyPassword(
 
 /* ---------------- helpers ---------------- */
 
-function json(data: unknown, status = 200, headers: HeadersInit = {}): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json", ...headers },
-  });
+function json(data: unknown, status = 200, initHeaders: HeadersInit = {}): Response {
+  const headers = new Headers(initHeaders);
+  headers.set("Content-Type", "application/json");
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 function errorResponse(code: string, message: string, status: number): Response {
@@ -505,8 +500,12 @@ async function createSession(env: Env, userId: number): Promise<string> {
   return token;
 }
 
-function sessionCookie(token: string): string {
-  return `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`;
+function sessionHeaders(token: string): HeadersInit {
+  const csrf = randomHex(16);
+  return [
+    ["Set-Cookie", `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`],
+    ["Set-Cookie", `csrf_token=${csrf}; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`]
+  ];
 }
 
 async function getSessionUser(req: Request, env: Env): Promise<SessionUser | null> {
@@ -514,13 +513,16 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
   if (!raw) return null;
   const token = await sha256Hex(raw);
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.photo_key
+    `SELECT u.id, u.email, u.name, u.role, u.photo_key, CASE WHEN u.totp_secret IS NULL THEN 1 ELSE 0 END AS missing_2fa
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ?1 AND s.expires_at > datetime('now') AND u.is_active = 1`,
   )
     .bind(token)
-    .first<SessionUser>();
-  return row ?? null;
+    .first<SessionUser & { missing_2fa: 1 | 0 }>();
+  if (!row) return null;
+  
+  const requires_2fa = row.missing_2fa === 1 && MANDATORY_2FA_ROLES.includes(row.role);
+  return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa };
 }
 
 const ROLE_RANK: Record<Role, number> = {
@@ -543,13 +545,8 @@ const ROLE_RANK: Record<Role, number> = {
  * must not leak them into content management. This is the API-side twin of
  * the /admin page gate.
  */
-const CONTENT_ROLES: readonly Role[] = ["super_admin", "admin"];
-/* v1.4.181 (CEO: customers must reach staff for package/service enquiries):
-   the business team sees and works customer enquiries — not just /admin. */
-const ENQUIRY_ROLES: readonly Role[] = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
-
 function isContentTeam(user: SessionUser | null): user is SessionUser {
-  return !!user && CONTENT_ROLES.includes(user.role);
+  return !!user && can(user.role, "content_manage");
 }
 
 function atLeast(user: SessionUser | null, role: Role): user is SessionUser {
@@ -1103,11 +1100,19 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    // Origin check on mutating requests (CSRF mitigation alongside SameSite)
+    // Origin check and CSRF mitigation on mutating requests
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
       const origin = request.headers.get("Origin");
       if (origin && origin !== env.ALLOWED_ORIGIN) {
         return errorResponse("forbidden_origin", "Origin not allowed", 403);
+      }
+      const hasSession = getCookie(request, SESSION_COOKIE);
+      if (hasSession) {
+        const csrfCookie = getCookie(request, "csrf_token");
+        const csrfHeader = request.headers.get("X-CSRF-Token");
+        if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+          return errorResponse("csrf_failed", "CSRF token mismatch or missing", 403);
+        }
       }
     }
 
@@ -1116,14 +1121,10 @@ export default {
       res = await route(request, env, path);
     } catch (err) {
       console.error(err);
-      // Name the actual failure (v1.4.68): a D1/SQL message like "no such
-      // column" turns a blind 500 into a one-look diagnosis. Message only —
-      // no stack, no query text beyond what the engine includes.
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
-      // v1.4.72: unexpected 500s land in the error log so /admin sees them
-      // before staff report them.
-      await logError(env, "api", detail, path);
-      res = errorResponse("internal", "Something went wrong. The error has been logged.", 500);
+      const error_id = "ERR-" + crypto.randomUUID().split('-')[0].toUpperCase();
+      await logError(env, "api", `[${error_id}] ${detail}`, path);
+      res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
     }
     // attach CORS to every response
     const headers = new Headers(res.headers);
@@ -1138,7 +1139,25 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* ---- public ---- */
 
   if (path === "/api/v1/health" && method === "GET") {
-    return json({ ok: true, service: "azoneofficial-api" });
+    const auth = request.headers.get("Authorization");
+    if (auth !== `Bearer ${env.SETUP_TOKEN}`) {
+      return errorResponse("unauthorized", "Invalid health check token", 401);
+    }
+    const pragma = await env.DB.prepare(`PRAGMA user_version`).first<{ user_version: number }>();
+    return json({ ok: true, service: "azoneofficial-api", db_version: pragma?.user_version ?? 0 });
+  }
+
+  if (path === "/api/v1/health/migrations" && method === "GET") {
+    let pending = false;
+    try {
+      const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1`).all<{ name: string }>();
+      if (results.length === 0 || results[0].name !== "0067_growth_pack.sql") {
+        pending = true;
+      }
+    } catch { 
+      pending = true; 
+    }
+    return json({ ok: true, pending });
   }
 
   /* v1.4.273: the client report link — public, read-only, token-gated.
@@ -1353,8 +1372,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
     const me = await getSessionUser(request, env);
-    const SYNC_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"];
-    if (!me || !SYNC_ROLES.includes(me.role)) {
+    if (!me || !can(me.role, "sync_manage")) {
       return errorResponse("forbidden", "Inventory access required", 403);
     }
     const r = await runTikTokSync(env, me.id);
@@ -1637,7 +1655,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json(
       { user: { id: user.id, email: user.email, name: user.name, role: user.role } },
       200,
-      { "Set-Cookie": sessionCookie(token) },
+      sessionHeaders(token),
     );
   }
 
@@ -1690,7 +1708,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json(
       { user: { id: row.id, email: row.email, name: row.name, role: row.role } },
       200,
-      { "Set-Cookie": sessionCookie(token) },
+      sessionHeaders(token),
     );
   }
 
@@ -1825,7 +1843,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .first<{ id: number }>();
     await audit(env, res?.id ?? null, "auth.bootstrap_super_admin", "users", String(res?.id));
     const token = await createSession(env, res!.id);
-    return json({ ok: true }, 201, { "Set-Cookie": sessionCookie(token) });
+    return json({ ok: true }, 201, sessionHeaders(token));
   }
 
   /* ---- self-registration (pending approval) ---- */
@@ -1860,7 +1878,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return json(
         { ok: true, user: { id: res!.id, email, name: (body.name as string).trim(), role: "customer" } },
         201,
-        { "Set-Cookie": sessionCookie(token) },
+        sessionHeaders(token),
       );
     } catch {
       return errorResponse("conflict", "An account with this email already exists", 409);
@@ -1984,7 +2002,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const token = await createSession(env, account.id);
     await audit(env, account.id, "auth.login_google");
     const headers = new Headers({ Location: dest });
-    headers.append("Set-Cookie", sessionCookie(token));
+    for (const [k, v] of sessionHeaders(token) as [string, string][]) headers.append(k, v);
     headers.append("Set-Cookie", clearState);
     return new Response(null, { status: 302, headers });
   }
@@ -2022,7 +2040,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(user.id).run();
     const fresh = await createSession(env, user.id);
     await audit(env, user.id, "auth.change_password");
-    return json({ ok: true }, 200, { "Set-Cookie": sessionCookie(fresh) });
+    return json({ ok: true }, 200, sessionHeaders(fresh));
   }
 
   if (path === "/api/v1/auth/me" && method === "GET") {
@@ -2048,7 +2066,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/enquiries" && method === "GET") {
-    if (!user || !ENQUIRY_ROLES.includes(user.role)) {
+    if (!user || !can(user.role, "enquiry_manage")) {
       return errorResponse("forbidden", "Business team access required", 403);
     }
     let results: unknown[];
@@ -2067,7 +2085,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path.match(/^\/api\/v1\/enquiries\/\d+$/) && method === "PATCH") {
-    if (!user || !ENQUIRY_ROLES.includes(user.role)) {
+    if (!user || !can(user.role, "enquiry_manage")) {
       return errorResponse("forbidden", "Business team access required", 403);
     }
     const id = path.split("/").pop()!;
@@ -2578,9 +2596,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("invalid_input", "kind must be image|video|document|logo", 400);
     }
     if (!request.body) return errorResponse("invalid_input", "Request body required", 400);
+    
+    const contentType = request.headers.get("Content-Type") ?? "application/octet-stream";
+    const allowedTypes = [
+      "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml",
+      "video/mp4", "video/webm",
+      "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ];
+    if (!allowedTypes.includes(contentType)) {
+      return errorResponse("invalid_input", `File type ${contentType} is not allowed`, 400);
+    }
+
     const key = `uploads/${Date.now()}-${filename}`;
     await env.MEDIA.put(key, request.body, {
-      httpMetadata: { contentType: request.headers.get("Content-Type") ?? "application/octet-stream" },
+      httpMetadata: { contentType },
     });
     const res = await env.DB.prepare(
       `INSERT INTO media (r2_key, kind, alt, uploaded_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,

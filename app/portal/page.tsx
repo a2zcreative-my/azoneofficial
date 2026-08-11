@@ -46,13 +46,25 @@ import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
 
-interface User { id: number; email: string; name: string; role: string; photo_key?: string | null }
+interface User { id: number; email: string; name: string; role: string; photo_key?: string | null; requires_2fa?: boolean }
+
+function getCsrfToken() {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return match ? match[1] : "";
+}
 
 async function api<T>(path: string, init?: RequestInit) {
   try {
+    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
+    const csrfHeader = isMutating ? { "X-CSRF-Token": getCsrfToken() } : {};
     const res = await fetch(`${API}${path}`, {
       credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...csrfHeader,
+        ...(init?.headers as Record<string, string>),
+      },
       ...init,
     });
     return { ok: res.ok, status: res.status, data: (res.status === 204 ? null : await res.json()) as T | null };
@@ -2685,9 +2697,26 @@ function PnlCard() {
 function PipelineInsightsCard() {
   interface Insights { stages: { stage: string; n: number }[]; sources: { source: string; total: number; won: number }[]; referrers: { name: string; total: number; won: number }[] }
   const [ins, setIns] = useState<Insights | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    void api<Insights>(`/staff/prospects/insights`).then((r) => { if (r.ok && r.data) setIns(r.data); });
+    void api<Insights>(`/staff/prospects/insights`).then((r) => { 
+      if (r.ok && r.data) setIns(r.data);
+      setLoading(false);
+    });
   }, []);
+  
+  if (loading) {
+    return (
+      <div className={card}>
+        <p className="text-sm font-semibold">🎯 Pipeline insights</p>
+        <div className="mt-4 space-y-3 animate-pulse">
+          <div className="h-4 w-3/4 rounded bg-secondary"></div>
+          <div className="h-4 w-1/2 rounded bg-secondary"></div>
+          <div className="h-4 w-2/3 rounded bg-secondary"></div>
+        </div>
+      </div>
+    );
+  }
   if (!ins) return null;
   const ORDER = ["identified", "contacted", "replied", "meeting", "proposal", "won", "lost"];
   const byStage = Object.fromEntries(ins.stages.map((s) => [s.stage, s.n]));
@@ -2748,7 +2777,19 @@ function ClientsCard() {
       setLoaded(true);
     });
   }, []);
-  if (!loaded || clients.length === 0) return null;
+  if (!loaded) {
+    return (
+      <div className={card}>
+        <p className="text-sm font-semibold">🤝 Clients</p>
+        <div className="mt-4 space-y-3 animate-pulse">
+          <div className="h-4 w-3/4 rounded bg-secondary"></div>
+          <div className="h-4 w-1/2 rounded bg-secondary"></div>
+          <div className="h-4 w-2/3 rounded bg-secondary"></div>
+        </div>
+      </div>
+    );
+  }
+  if (clients.length === 0) return null;
   const rm2 = fmtRM; // v1.4.272 global (this one even lacked thousand separators)
   return (
     <div className={card}>
@@ -4086,6 +4127,33 @@ export default function PortalPage() {
       </div>
     );
   }
+
+  if (user.requires_2fa) {
+    return (
+      <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
+            Two-Factor Authentication Required
+          </h1>
+          <p className="mb-8 text-sm text-muted-foreground">
+            Your role requires two-factor authentication to be enabled before you can access the staff portal. Please set it up now.
+          </p>
+          <TwoFactorPanel />
+          <div className="mt-8 flex justify-end border-t border-border pt-6">
+            <button
+              onClick={() => {
+                document.cookie = "azone_session=; path=/; max-age=0";
+                window.location.href = "/login";
+              }}
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
@@ -4302,9 +4370,9 @@ export default function PortalPage() {
         {activeTab === "Attendance" && (
           <div className="space-y-4 md:space-y-6">
             <Attendance user={user} />
-            {["ceo", "coo", "super_admin", "admin"].includes(user.role) && <OtApprovalsCard />}
+            {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
             <LiveScheduleCard user={user} />
-            {["ceo", "super_admin", "admin"].includes(user.role) && <AttendanceAdminPanel />}
+            {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
           </div>
         )}
         {activeTab === "Leave" && <Leave user={user} />}
@@ -4322,7 +4390,7 @@ export default function PortalPage() {
         {activeTab === "HR" && (
           <div className="space-y-4 md:space-y-6">
             <HrPanel />
-            {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) && <HrAdminPanel />}
+            {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) ? <HrAdminPanel /> : <PermissionPlaceholder title="HR Administration" />}
           </div>
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
@@ -4337,9 +4405,9 @@ export default function PortalPage() {
                 → Connection status last (plumbing below the business).
                 v1.4.277: Sales revenue leads the tab (moved from Dashboard
                 per CEO — the month summary above the channel detail). */}
+            {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
             {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
-            {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}

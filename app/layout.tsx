@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { PwaRegister } from "@/components/pwa-register";
+import { OfflineBanner } from "@/components/ui/offline-banner";
 
 import { ScrollMemory } from "@/components/ui/scroll-memory";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
@@ -88,7 +89,8 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable}>
-      <body>
+      <body className={`${poppins.variable} bg-background text-foreground min-h-screen font-sans antialiased selection:bg-primary/20`}>
+        <OfflineBanner />
         <PwaRegister />
         {/*
           Scroll behaviour:

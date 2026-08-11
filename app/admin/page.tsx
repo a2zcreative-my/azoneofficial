@@ -23,6 +23,7 @@ import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 
 const API = "/api/v1";
 
@@ -49,14 +50,26 @@ interface CrudItem {
   [key: string]: unknown;
 }
 
+function getCsrfToken() {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return match ? match[1] : "";
+}
+
 async function api<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ ok: boolean; status: number; data: T | null }> {
   try {
+    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
+    const csrfHeader = isMutating ? { "X-CSRF-Token": getCsrfToken() } : {};
     const res = await fetch(`${API}${path}`, {
       credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...csrfHeader,
+        ...(init?.headers as Record<string, string>),
+      },
       ...init,
     });
     const data = res.status === 204 ? null : ((await res.json()) as T);
@@ -746,7 +759,16 @@ function UsersPanel({ me }: { me: User }) {
                     className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
                     value={u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role}
                     disabled={u.id === me.id || locked}
-                    onChange={(e) => void patch(u.id, { role: e.target.value }, `Role changed to ${e.target.value.replace(/_/g, " ")}`)}
+                    onChange={(e) => {
+                      const newRole = e.target.value;
+                      void userConfirm({
+                        title: "Confirm Role Change",
+                        message: `Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?`,
+                        confirmLabel: "Change Role",
+                      }).then((ok) => {
+                        if (ok) void patch(u.id, { role: newRole }, `Role changed to ${newRole.replace(/_/g, " ")}`);
+                      });
+                    }}
                   >
                     {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin" || u.role === "super_admin").map(
                       (r) => <option key={r} value={r}>{r}</option>,
@@ -918,6 +940,34 @@ export default function AdminPage() {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
   }
+
+  if (user.requires_2fa) {
+    return (
+      <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
+            Two-Factor Authentication Required
+          </h1>
+          <p className="mb-8 text-sm text-muted-foreground">
+            Your role requires two-factor authentication to be enabled before you can access the admin panel. Please set it up now.
+          </p>
+          <TwoFactorPanel />
+          <div className="mt-8 flex justify-end border-t border-border pt-6">
+            <button
+              onClick={() => {
+                document.cookie = "azone_session=; path=/; max-age=0";
+                window.location.href = "/login";
+              }}
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
 
   const logout = async () => {
     await api("/auth/logout", { method: "POST" });

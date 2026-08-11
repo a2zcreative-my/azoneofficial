@@ -7,11 +7,7 @@ import type { Env } from "./index";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
 
-type Role =
-  | "super_admin" | "admin"
-  | "editor" | "marketing" | "live_host"
-  | "hr_admin" | "sales_marketing"
-  | "ceo" | "coo" | "cco";
+import { Role, can } from "./permissions";
 
 export interface StaffUser {
   id: number;
@@ -19,53 +15,6 @@ export interface StaffUser {
   name: string;
   role: Role;
 }
-
-/* ---------------- module permissions ---------------- */
-
-const PERMS: Record<string, readonly Role[]> = {
-  // Approve leave / view attendance / manage staff / birthdays.
-  // COO & CCO are HR-level in this model, alongside hr_admin.
-  // v1.4.34 rank rework: the CEO (higher rank) EDITS staff/HR data; COO and
-  // CCO read. Their read access flows through exec_view; the leave approval
-  // chain (COO/CCO pre-approve) is a workflow role and stays unchanged.
-  hr_manage: ["super_admin", "admin", "hr_admin", "ceo"],
-  // Post announcements & create/assign tasks. v1.4.153: CEO included — the
-  // boss was locked out of his own noticeboard ("I am CEO!").
-  team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
-  // Company events (training / classes / meetings) — v1.4.73. CEO included:
-  // the boss schedules trainings. Everyone can VIEW; these roles manage.
-  events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
-  // Expense claims (v1.4.75) — per the CEO's spec: CEO, COO, CCO and HR
-  // submit; EVERY decision is the CEO's alone (super_admin only as the
-  // system-recovery fallback, admin deliberately excluded).
-  claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"], // v1.4.106: every staff role claims
-  claims_decide: ["super_admin", "ceo"],
-  // Sales revenue dashboard (v1.4.75) — per the CEO's list.
-  revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  // Company expenses (v1.4.87) — CEO and COO per the CEO's spec.
-  expenses: ["super_admin", "admin", "ceo", "coo"],
-  // Documentation: quotations / delivery orders / invoices (QT, DO, INV).
-  sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
-  // Invoice finance status changes.
-  // v1.4.96: ceo added — the CEO was hitting "Insufficient rights" creating
-  // invoices because finance omitted him while the UI offered the option.
-  // v1.4.97: sales_marketing added on the CEO's instruction — they insert
-  // sales including invoices; the printed authorised signature auto-falls
-  // back to the CEO for non-CEO/COO creators.
-  finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
-  // HR task reports (daily / weekly / monthly).
-  task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
-  // Inventory, postage tracking, marketing materials — sales_marketing only
-  // among staff (editor/marketing explicitly do NOT get inventory visibility).
-  inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  // Read tasks across all roles (management oversight), excluding CEO exec data.
-  task_view: ["super_admin", "admin", "coo", "cco"],
-  // Attendance CSV export for payroll processing.
-  payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
-  // Read-only visibility across every module (CEO review & monitoring) — no
-  // write. Leave decisions and suspensions stay with the admin tier.
-  exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
-};
 
 const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
 const BD_STATUSES = ["open", "pending", "kiv", "closed_won", "closed_lost"];
@@ -83,9 +32,7 @@ const SHIFT = {
   endMinutes: 18 * 60,
 } as const;
 
-function can(user: StaffUser, perm: keyof typeof PERMS): boolean {
-  return PERMS[perm]!.includes(user.role);
-}
+
 
 /* ---------------- helpers ---------------- */
 
@@ -420,7 +367,7 @@ export async function handleStaff(
   if (path === "/users" && method === "POST") {
     // HR-scoped staff creation. Deliberately cannot mint admin/super_admin,
     // executive, or customer accounts; those stay in /admin/super-admin flows.
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
     if (
       !body || !str(body.email, 200) || !str(body.name, 120) ||
@@ -519,7 +466,7 @@ export async function handleStaff(
 
   const photoMatch = path.match(/^\/users\/(\d+)\/photo$/);
   if (photoMatch && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const id = photoMatch[1]!;
     const target = await env.DB.prepare(`SELECT photo_key FROM users WHERE id = ?1`)
       .bind(id).first<{ photo_key: string | null }>();
@@ -532,7 +479,7 @@ export async function handleStaff(
     }
     if (!request.body) return err("invalid_input", "Image body required", 400);
     const ct = request.headers.get("Content-Type") ?? "";
-    if (!ct.startsWith("image/")) return err("invalid_input", "Upload must be an image", 400);
+    if (!["image/jpeg", "image/png", "image/webp"].includes(ct)) return err("invalid_input", "Only JPEG/PNG/WEBP images are allowed", 400);
     const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : "jpg";
     // private/ prefix: serving requires staff auth (badge preview/print run signed in)
     const key = `private/staff-photos/${id}-${Date.now()}.${ext}`;
@@ -578,7 +525,7 @@ export async function handleStaff(
   }
 
   if (path === "/prospects" && method === "POST") {
-    const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    const b = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     const brand = String(b?.brand_name ?? "").trim();
     if (!brand) return err("invalid_input", "Brand name is required", 400);
     const SOURCES = ["tiktok", "shopee", "instagram", "facebook", "expo", "referral", "other"];
@@ -619,7 +566,7 @@ export async function handleStaff(
     const mP = path.match(/^\/prospects\/(\d+)$/);
     if (mP && method === "PATCH") {
       if (!SALES_ROLES.includes(user.role)) return err("forbidden", "Sales tier required to update a prospect", 403);
-      const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+      const b = (await request.json().catch(() => null)) as Record<string, unknown> | null;
       const sets: string[] = [];
       const args: unknown[] = [];
       const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
@@ -711,7 +658,7 @@ export async function handleStaff(
     // v1.4.153: user log for the Users tab — recent sign-ins and account
     // events from the audit trail. Same readers as the Users tab (exec_view /
     // hr_manage); shows auth + account actions only, not the full audit.
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -725,7 +672,7 @@ export async function handleStaff(
   if (path === "/users" && method === "GET") {
     // hr_manage writes; exec_view (CEO) reads — the Birthdays tab and the
     // Overview need the staff list even for read-only executives.
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
     /* v1.4.218 MIGRATION-SKEW ARMOR (the Staff tab went BLANK when the
@@ -760,7 +707,7 @@ export async function handleStaff(
     // everywhere EXCEPT staff birthdays, which policy lets the CEO maintain.
     const onlyBirthday = body && Object.keys(body).length > 0 &&
       Object.keys(body).every((k) => k === "birthday");
-    const allowed = can(user, "hr_manage") || (onlyBirthday && user.role === "ceo");
+    const allowed = can(user.role, "hr_manage") || (onlyBirthday && user.role === "ceo");
     if (!allowed) return err("forbidden", "HR access required", 403);
     const id = staffUser[1]!;
     // Amendment policy (v1.4.22): HR may FILL a field that is still empty;
@@ -1114,7 +1061,7 @@ export async function handleStaff(
     const mDoc = path.match(/^\/users\/(\d+)\/documents$/);
     if (mDoc && method === "GET") {
       const uidD = Number(mDoc[1]);
-      if (!can(user, "hr_manage") && user.id !== uidD) return err("forbidden", "Not your documents", 403);
+      if (!can(user.role, "hr_manage") && user.id !== uidD) return err("forbidden", "Not your documents", 403);
       try {
         const { results } = await env.DB.prepare(
           `SELECT d.id, d.kind, d.label, d.filename, d.size, d.created_at, u.name AS uploaded_by_name
@@ -1134,9 +1081,10 @@ export async function handleStaff(
       }
     }
     if (mDoc && method === "POST") {
-      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
       if (!request.body) return err("invalid_input", "File body required", 400);
       const ctD = request.headers.get("Content-Type") ?? "application/octet-stream";
+      if (!["application/pdf", "image/jpeg", "image/png"].includes(ctD)) return err("invalid_input", "Only PDF/JPEG/PNG documents allowed", 400);
       const kindD = ["contract", "offer_letter", "resignation", "other"].includes(request.headers.get("X-Doc-Kind") ?? "") ? request.headers.get("X-Doc-Kind")! : "other";
       const fnameD = (request.headers.get("X-Doc-Filename") ?? "document").slice(0, 160);
       const labelD = (request.headers.get("X-Doc-Label") ?? "").slice(0, 160) || null;
@@ -1157,7 +1105,7 @@ export async function handleStaff(
       const row = await env.DB.prepare(`SELECT user_id, r2_key, filename FROM staff_documents WHERE id = ?1`)
         .bind(mDocOne[1]).first<{ user_id: number; r2_key: string; filename: string | null }>();
       if (!row) return err("not_found", "Document not found", 404);
-      if (!can(user, "hr_manage") && user.id !== row.user_id) return err("forbidden", "Not your document", 403);
+      if (!can(user.role, "hr_manage") && user.id !== row.user_id) return err("forbidden", "Not your document", 403);
       const obj = await env.MEDIA.get(row.r2_key);
       if (!obj) return err("not_found", "File missing from storage", 404);
       return new Response(obj.body, {
@@ -1168,7 +1116,7 @@ export async function handleStaff(
       });
     }
     if (mDocOne && method === "DELETE") {
-      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
       const row = await env.DB.prepare(`SELECT r2_key FROM staff_documents WHERE id = ?1`)
         .bind(mDocOne[1]).first<{ r2_key: string }>();
       if (!row) return err("not_found", "Document not found", 404);
@@ -1181,7 +1129,7 @@ export async function handleStaff(
   {
     const mChk = path.match(/^\/users\/(\d+)\/onboarding$/);
     if (mChk && method === "POST") {
-      if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+      if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
       const items = body?.items;
       if (typeof items !== "object" || items === null) return err("invalid_input", "items object required", 400);
       try {
@@ -1303,7 +1251,7 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const targetUser = url.searchParams.get("user_id");
-    const forUser = targetUser && can(user, "hr_manage") ? Number(targetUser) : user.id;
+    const forUser = targetUser && can(user.role, "hr_manage") ? Number(targetUser) : user.id;
     const { results } = await env.DB.prepare(
       `SELECT type, ip, created_at FROM attendance_records
        WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
@@ -1338,7 +1286,7 @@ export async function handleStaff(
        out for me to aware"): today's snapshot per active staff member —
        first clock-in and last clock-out (MYT). The UI sorts the missing
        ones to the top. Same readers as the Team report. */
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
     const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -1362,7 +1310,7 @@ export async function handleStaff(
 
   if (path === "/attendance/report" && method === "GET") {
     // HR + CEO manage; COO/CCO (exec_view) read.
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
     const url = new URL(request.url);
@@ -1420,7 +1368,7 @@ export async function handleStaff(
 
   if (path === "/leave" && method === "GET") {
     const url = new URL(request.url);
-    const all = url.searchParams.get("all") === "1" && can(user, "hr_manage");
+    const all = url.searchParams.get("all") === "1" && can(user.role, "hr_manage");
     // v1.4.134: identities + per-day sequence for the printable Leave
     // Application Form (mirrors the claim form's data needs).
     const LSEL = `SELECT l.*,
@@ -1549,7 +1497,7 @@ export async function handleStaff(
     return json({ announcements: results });
   }
   if (path === "/announcements" && method === "POST") {
-    if (!can(user, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
     if (!body || !str(body.title, 200) || !str(body.body, 5000)) {
       return err("invalid_input", "title and body are required", 400);
     }
@@ -1660,7 +1608,7 @@ export async function handleStaff(
     return json({ events: results });
   }
   if (path === "/events" && method === "POST") {
-    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    if (!can(user.role, "events_manage")) return err("forbidden", "Management access required", 403);
     if (!body || !str(body.title, 200) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.event_date ?? ""))) {
       return err("invalid_input", "title and event_date (YYYY-MM-DD) are required", 400);
     }
@@ -1692,7 +1640,7 @@ export async function handleStaff(
   }
   const evMatch = path.match(/^\/events\/(\d+)$/);
   if (evMatch && method === "PATCH") {
-    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    if (!can(user.role, "events_manage")) return err("forbidden", "Management access required", 403);
     if (!body) return err("invalid_input", "No fields", 400);
     const sets: string[] = [];
     const vals: unknown[] = [];
@@ -1709,7 +1657,7 @@ export async function handleStaff(
     return json({ ok: true });
   }
   if (evMatch && method === "DELETE") {
-    if (!can(user, "events_manage")) return err("forbidden", "Management access required", 403);
+    if (!can(user.role, "events_manage")) return err("forbidden", "Management access required", 403);
     await env.DB.prepare(`DELETE FROM events WHERE id = ?1`).bind(evMatch[1]).run();
     await audit(env, user.id, "event.delete", "events", evMatch[1]);
     return json({ ok: true });
@@ -1745,9 +1693,9 @@ export async function handleStaff(
     else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
   };
   if (path === "/claims" && method === "GET") {
-    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     // Deciders see everyone's claims (the approval queue); submitters their own.
-    const all = can(user, "claims_decide");
+    const all = can(user.role, "claims_decide");
     // v1.4.106: reviewers see the claims their stage covers, plus their own.
     // v1.4.173: py = the payee (who to actually PAY) — internal remark for
     // the CEO/admin tier + hr_admin only; stripped for everyone else below
@@ -1905,7 +1853,7 @@ export async function handleStaff(
     // v1.4.104: the claimant edits their own claim while it is PENDING, or
     // after a REJECTION — an edited rejected claim goes back to pending and
     // the CEO is notified of the resubmission. APPROVED claims are locked.
-    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cur = await env.DB.prepare(
       `SELECT user_id, status, paid_at FROM claims WHERE id = ?1`,
     ).bind(claimEdit[1]).first<{ user_id: number; status: string; paid_at: string | null }>();
@@ -1973,13 +1921,13 @@ export async function handleStaff(
   const claimProof = path.match(/^\/claims\/(\d+)\/payment-proof$/);
   if (claimProof && method === "POST") {
     // v1.4.118: the payout proof (bank slip) — CEO only, after Mark paid.
-    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO attaches payment proof", 403);
+    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO attaches payment proof", 403);
     const rowP = await env.DB.prepare(`SELECT status, paid_at, user_id FROM claims WHERE id = ?1`)
       .bind(claimProof[1]).first<{ status: string; paid_at: string | null; user_id: number }>();
     if (!rowP) return err("not_found", "Claim not found", 404);
     if (!rowP.paid_at) return err("invalid_state", "Mark the claim paid first, then attach the payment proof", 400);
     const ctP = request.headers.get("content-type") ?? "image/jpeg";
-    if (!/^image\//.test(ctP) && ctP !== "application/pdf") return err("invalid_input", "Payment proof must be an image or PDF", 400);
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(ctP)) return err("invalid_input", "Only PDF/JPEG/PNG proofs allowed", 400);
     const lenP = Number(request.headers.get("content-length") ?? 0);
     if (lenP > 8 * 1024 * 1024) return err("too_large", "Payment proof too large — maximum 8 MB.", 413);
     if (!request.body) return err("invalid_input", "Payment proof body required", 400);
@@ -1995,7 +1943,7 @@ export async function handleStaff(
       .bind(claimProof[1]).first<{ user_id: number; payment_proof_key: string | null }>();
     if (!rowG?.payment_proof_key) return err("not_found", "No payment proof attached", 404);
     // v1.4.121: HR reads payout proofs for compilation (proof exists ⇒ paid).
-    if (rowG.user_id !== user.id && !can(user, "claims_decide") && user.role !== "hr_admin") return err("forbidden", "Not your claim", 403);
+    if (rowG.user_id !== user.id && !can(user.role, "claims_decide") && user.role !== "hr_admin") return err("forbidden", "Not your claim", 403);
     const objP = await env.MEDIA.get(rowG.payment_proof_key);
     if (!objP) return err("not_found", "Payment proof file missing", 404);
     return new Response(objP.body, { headers: { "Content-Type": objP.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
@@ -2004,7 +1952,7 @@ export async function handleStaff(
   if (claimPaid && method === "POST") {
     // v1.4.101: after approval the CEO records the actual payment — the
     // claimant sees PAID and the date on their submission.
-    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO marks claims paid", 403);
+    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO marks claims paid", 403);
     const cRow = await env.DB.prepare(`SELECT user_id, status, amount_cents FROM claims WHERE id = ?1`)
       .bind(claimPaid[1]).first<{ user_id: number; status: string; amount_cents: number }>();
     if (!cRow) return err("not_found", "Claim not found", 404);
@@ -2016,7 +1964,7 @@ export async function handleStaff(
     return json({ ok: true });
   }
   if (path === "/claims" && method === "POST") {
-    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cats = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
     // v1.4.95: multi-item claims — one form, several expense lines, exactly
     // like the paper AZOO-HR-CLM-001. Legacy single-line submissions still work.
@@ -2084,13 +2032,13 @@ export async function handleStaff(
   }
   const clMatch = path.match(/^\/claims\/(\d+)(\/receipt|\/decide)?$/);
   if (clMatch && clMatch[2] === "/receipt" && method === "POST") {
-    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const row = await env.DB.prepare(`SELECT user_id, status FROM claims WHERE id = ?1`).bind(clMatch[1]).first<{ user_id: number; status: string }>();
     if (!row) return err("not_found", "Claim not found", 404);
     if (row.user_id !== user.id) return err("forbidden", "Only the claimant attaches receipts", 403);
     if (!["pending", "rejected"].includes(row.status)) return err("invalid_state", "Approved claims are locked", 400);
     const ct = request.headers.get("content-type") ?? "image/jpeg";
-    if (!/^image\//.test(ct) && ct !== "application/pdf") return err("invalid_input", "Receipt must be an image or PDF", 400);
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(ct)) return err("invalid_input", "Only PDF/JPEG/PNG receipts allowed", 400);
     // v1.4.110: hard size cap so staff get a clear message instead of a
     // silent failure. 8 MB is generous — receipts compress to ~200 KB.
     const lenR = Number(request.headers.get("content-length") ?? 0);
@@ -2125,7 +2073,7 @@ export async function handleStaff(
     return json({ ok: true, resubmitted: resubmittedR });
   }
   if (clMatch && clMatch[2] === "/receipt" && method === "GET") {
-    if (!can(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const row = await env.DB.prepare(
       `SELECT c.user_id, c.status, c.receipt_key, u.role AS claimant_role
        FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
@@ -2137,7 +2085,7 @@ export async function handleStaff(
     const STAFF_CHAIN_ROLES = ["marketing", "sales_marketing", "editor", "live_host"];
     const canView =
       row.user_id === user.id ||
-      can(user, "claims_decide") ||
+      can(user.role, "claims_decide") ||
       (user.role === "hr_admin" && (row.status === "approved" || STAFF_CHAIN_ROLES.includes(row.claimant_role ?? ""))) ||
       (["coo", "admin"].includes(user.role) && STAFF_CHAIN_ROLES.includes(row.claimant_role ?? "")) ||
       (user.role === "cco" && row.claimant_role === "hr_admin");
@@ -2148,7 +2096,7 @@ export async function handleStaff(
   }
   if (clMatch && clMatch[2] === "/decide" && method === "POST") {
     // Per the CEO's instruction: EVERY claim decision is the CEO's.
-    if (!can(user, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
+    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
     const action = body?.action;
     if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
     const row = await env.DB.prepare(
@@ -2218,7 +2166,7 @@ export async function handleStaff(
      every total. Expandable: response is lines[] — a future line appears
      here automatically the day the helper buckets it. */
   if (path === "/revenue/lines" && method === "GET") {
-    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const buckets = await revenueLines(env);
     const LABELS: Record<string, string> = {
       product: "Product sales",
@@ -2237,7 +2185,7 @@ export async function handleStaff(
   }
 
   if (path === "/finance/pnl" && method === "GET") {
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const rev = await revenueByMonth(env);
     const exp: Record<string, number> = {}; const pay: Record<string, number> = {}; const clm: Record<string, number> = {};
     try {
@@ -2310,7 +2258,7 @@ export async function handleStaff(
   }
 
   if (path === "/expenses" && method === "GET") {
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const urlE = new URL(request.url);
     const mE = urlE.searchParams.get("month"); // optional YYYY-MM filter
     const { results } = await env.DB.prepare(
@@ -2440,7 +2388,7 @@ export async function handleStaff(
   if (exEdit && method === "PATCH") {
     // v1.4.91: fix typos on a recorded expense. (Staff payroll is computed
     // from the Payroll tab and is not editable here — by design.)
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const catsP = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
     const sets: string[] = [];
     const vals: unknown[] = [];
@@ -2464,7 +2412,7 @@ export async function handleStaff(
     // v1.4.88: mark an expense paid — the due chip turns into PAID.
     // v1.4.208 (CEO wants paid/outstanding tracking): now a TOGGLE — body
     // { paid: false } clears the mark so a misclick is one click to undo.
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const unpay = body?.paid === false;
     await env.DB.prepare(
       unpay
@@ -2475,7 +2423,7 @@ export async function handleStaff(
     return json({ ok: true });
   }
   if (path === "/expenses" && method === "POST") {
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const catsE = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
     const centsE = Math.round(Number(body?.amount) * 100);
     if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expense_date ?? "")) || !Number.isFinite(centsE) || centsE <= 0 || centsE > 1000000000) {
@@ -2501,7 +2449,7 @@ export async function handleStaff(
   }
   const exMatch = path.match(/^\/expenses\/(\d+)$/);
   if (exMatch && method === "DELETE") {
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     await env.DB.prepare(`DELETE FROM expenses WHERE id = ?1`).bind(exMatch[1]).run();
     await audit(env, user.id, "expense.delete", "expenses", exMatch[1]);
     return json({ ok: true });
@@ -2512,7 +2460,7 @@ export async function handleStaff(
   if (path === "/pnl" && method === "GET") {
     // v1.4.101: month-by-month P&L — revenue (TikTok + PAID invoices, cash
     // basis) against expenses (recorded expenses + payroll nets), profit line.
-    if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
+    if (!can(user.role, "exec_view")) return err("forbidden", "Executive access required", 403);
     const months: string[] = [];
     const nowM = new Date(Date.now() + 8 * 3600 * 1000);
     for (let i = 5; i >= 0; i--) {
@@ -2583,7 +2531,7 @@ export async function handleStaff(
     return json({ months: rows });
   }
   if (path === "/revenue" && method === "GET") {
-    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const lastMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
     const tiktok = (m: string) => env.DB.prepare(
@@ -2728,7 +2676,7 @@ export async function handleStaff(
     // Hourly MYT sales histogram over the last 7 days — for choosing LIVE
     // hours. Bases mirror /revenue: postage_records with an order amount
     // (TikTok TT- + other shipments, returned excluded) + manual sales.
-    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const sinceBH = new Date(Date.now() + 8 * 3600 * 1000 - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     const post = await env.DB.prepare(
       `SELECT CAST(strftime('%H', created_at, '+8 hours') AS INTEGER) AS h,
@@ -2756,7 +2704,7 @@ export async function handleStaff(
     // Orders by fulfilment status this month (MYT) + the oldest order still
     // preparing — postage_records.status: preparing | shipped | in_transit
     // | delivered | returned (schema since 0007).
-    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const monthFS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const { results: byStatus } = await env.DB.prepare(
       `SELECT status, COUNT(*) AS n FROM postage_records
@@ -2799,7 +2747,7 @@ export async function handleStaff(
      status moves to lost/disposed so history and audit survive. */
 
   if (path === "/assets" && method === "GET") {
-    if (!can(user, "hr_manage") && !can(user, "exec_view")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) return err("forbidden", "HR access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT a.*, u.name AS assigned_name FROM assets a
        LEFT JOIN users u ON u.id = a.assigned_to
@@ -2809,7 +2757,7 @@ export async function handleStaff(
   }
 
   if (path === "/assets" && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const nameA = str(body?.name, 120) ? (body!.name as string).trim() : null;
     if (!nameA) return err("invalid_input", "Asset name is required", 400);
     const CATS = ["electronics", "furniture", "vehicle", "studio", "other"];
@@ -2942,7 +2890,7 @@ export async function handleStaff(
 
   const assetPatch = path.match(/^\/assets\/(\d+)$/);
   if (assetPatch && method === "PATCH") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const idA = assetPatch[1]!;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     const put = (col: string, v: string | number | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(v); };
@@ -2984,7 +2932,7 @@ export async function handleStaff(
 
   if (path === "/tasks" && method === "GET") {
     const url = new URL(request.url);
-    const all = url.searchParams.get("all") === "1" && can(user, "team_manage");
+    const all = url.searchParams.get("all") === "1" && can(user.role, "team_manage");
     const { results } = await env.DB.prepare(
       all
         ? `SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to ORDER BY t.created_at DESC LIMIT 200`
@@ -2999,7 +2947,7 @@ export async function handleStaff(
       return err("invalid_input", "title is required", 400);
     }
     const assignedTo = typeof body.assigned_to === "number" ? body.assigned_to : user.id;
-    if (assignedTo !== user.id && !can(user, "team_manage")) {
+    if (assignedTo !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "You can only create tasks for yourself", 403);
     }
     const prio = ["low", "normal", "high", "urgent"];
@@ -3024,7 +2972,7 @@ export async function handleStaff(
     const row = await env.DB.prepare(`SELECT assigned_to FROM tasks WHERE id = ?1`)
       .bind(id).first<{ assigned_to: number }>();
     if (!row) return err("not_found", "Task not found", 404);
-    if (row.assigned_to !== user.id && !can(user, "team_manage")) {
+    if (row.assigned_to !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "Not your task", 403);
     }
     const sets: string[] = [];
@@ -3065,7 +3013,7 @@ export async function handleStaff(
      the customers registry IS the client list; this summary joins invoiced /
      paid totals from sales docs and scheduled live sessions per client. */
   if (path === "/clients/summary" && method === "GET") {
-    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT c.id, c.company, c.name, c.phone, c.email,
               (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoices,
@@ -3095,7 +3043,7 @@ export async function handleStaff(
   {
     const mRL = path.match(/^\/clients\/(\d+)\/report-link$/);
     if (mRL && method === "POST") {
-      if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+      if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
       const cid = Number(mRL[1]);
       const c = await env.DB.prepare(`SELECT company FROM customers WHERE id = ?1`).bind(cid).first<{ company: string }>();
       if (!c) return err("not_found", "Client not found", 404);
@@ -3119,7 +3067,7 @@ export async function handleStaff(
   // current MYT month. The one number a live agency runs on. Each half is
   // armored separately so a pending migration can't blank the card.
   if (path === "/clients/live-economics" && method === "GET") {
-    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
     const monthMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     let clients: unknown[] = []; let hosts: unknown[] = [];
     try {
@@ -3170,7 +3118,7 @@ export async function handleStaff(
   // the portal, served unauthenticated by index.ts. The public page renders
   // only when real tiers exist (house rule: never display zero stats).
   if (path === "/sales/packages" && method === "GET") {
-    if (!can(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
     return json({ packages: row ? JSON.parse(row.value) : null });
   }
@@ -3191,7 +3139,7 @@ export async function handleStaff(
   }
 
   if (path === "/customers" && (method === "GET" || method === "POST")) {
-    if (method === "GET" ? !can(user, "sales") && !can(user, "exec_view") : !can(user, "sales")) {
+    if (method === "GET" ? !can(user.role, "sales") && !can(user.role, "exec_view") : !can(user.role, "sales")) {
       return err("forbidden", "Sales access required", 403);
     }
     if (method === "GET") {
@@ -3218,7 +3166,7 @@ export async function handleStaff(
   }
   const custMatch = path.match(/^\/customers\/(\d+)$/);
   if (custMatch && method === "PUT") {
-    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
     /* v1.4.235: sending "" clears a field (→ NULL) — before, a field could
        never be emptied once set. company itself can't be cleared. */
     const fields = ["company", "contact_person", "phone", "email", "address", "notes"] as const;
@@ -3244,7 +3192,7 @@ export async function handleStaff(
     /* v1.4.235 (CEO: "delete if require"): a customer with documents is
        NEVER deleted — quotations/invoices must keep their party for
        records; the message tells him what blocks it. */
-    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
     const refs = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM sales_documents WHERE customer_id = ?1`,
     ).bind(custMatch[1]!).first<{ n: number }>();
@@ -3261,7 +3209,7 @@ export async function handleStaff(
   /* ---- sales documents (QT / DO / INV) ---- */
 
   if (path === "/docs" && method === "GET") {
-    if (!can(user, "sales") && !can(user, "exec_view")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
     const url = new URL(request.url);
     const t = url.searchParams.get("type");
     const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
@@ -3278,7 +3226,7 @@ export async function handleStaff(
       return err("invalid_input", "doc_type must be QT, DO, or INV", 400);
     }
     const docType = body.doc_type as "QT" | "DO" | "INV";
-    if (docType === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+    if (docType === "INV" ? !can(user.role, "finance") : !can(user.role, "sales")) {
       return err("forbidden", "Insufficient rights for this document type", 403);
     }
     /* v1.4.234 (CEO: two business lines — "details just filled by one
@@ -3419,7 +3367,7 @@ export async function handleStaff(
   }
   const docGet = path.match(/^\/docs\/(\d+)$/);
   if (docGet && method === "GET") {
-    if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
     /* v1.4.243: the customer's default ship-to rides along so the printed
        document can fall back to it when the document itself carries none.
        Wrapped for 0062 skew (v1.4.218 lesson) — a pre-0062 database must
@@ -3478,7 +3426,7 @@ export async function handleStaff(
       .bind(id).first<{ doc_type: string }>();
     if (!doc) return err("not_found", "Document not found", 404);
     if (doc.doc_type === "INV") {
-      if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+      if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
       const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
       if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
       // v1.4.90: paid = payment received — record method (bank transfer),
@@ -3517,7 +3465,7 @@ export async function handleStaff(
         ).bind(body!.payment_status, id).run();
       }
     } else if (doc.doc_type === "DO") {
-      if (!can(user, "sales")) return err("forbidden", "Sales access required", 403);
+      if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
       const ok = typeof body?.delivery_status === "string" && ["pending", "delivered"].includes(body.delivery_status);
       if (!ok) return err("invalid_input", "delivery_status must be pending|delivered", 400);
       await env.DB.prepare(`UPDATE sales_documents SET delivery_status = ?1 WHERE id = ?2`)
@@ -3532,7 +3480,7 @@ export async function handleStaff(
   if (docConv && method === "POST") {
     // v1.4.101: one-click Quotation → Invoice — accepted quotes are never
     // retyped. Same items/customer/salesperson, fresh INV number, audited.
-    if (!can(user, "finance")) return err("forbidden", "Finance access required to raise invoices", 403);
+    if (!can(user.role, "finance")) return err("forbidden", "Finance access required to raise invoices", 403);
     const qt = await env.DB.prepare(
       `SELECT * FROM sales_documents WHERE id = ?1 AND doc_type = 'QT'`,
     ).bind(docConv[1]).first<Record<string, unknown>>();
@@ -3567,7 +3515,7 @@ export async function handleStaff(
      so it simply stands as before. A paid invoice can never be reversed. */
   const docUnconv = path.match(/^\/docs\/(\d+)\/unconvert$/);
   if (docUnconv && method === "POST") {
-    if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+    if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
     const inv = await env.DB.prepare(
       `SELECT id, doc_type, doc_number, payment_status, converted_from FROM sales_documents WHERE id = ?1`,
     ).bind(docUnconv[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null; converted_from: number | null }>();
@@ -3588,7 +3536,7 @@ export async function handleStaff(
      disappears from it immediately. Audited with the document number. */
   const docDel = path.match(/^\/docs\/(\d+)$/);
   if (docDel && method === "DELETE") {
-    if (!can(user, "finance")) return err("forbidden", "Finance access required", 403);
+    if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
     const dd = await env.DB.prepare(
       `SELECT id, doc_type, doc_number, payment_status FROM sales_documents WHERE id = ?1`,
     ).bind(docDel[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null }>();
@@ -3613,7 +3561,7 @@ export async function handleStaff(
     const dS = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
       .bind(idS).first<{ doc_type: string }>();
     if (!dS) return err("not_found", "Document not found", 404);
-    if (dS.doc_type === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+    if (dS.doc_type === "INV" ? !can(user.role, "finance") : !can(user.role, "sales")) {
       return err("forbidden", "Insufficient rights for this document type", 403);
     }
     const origin = env.ALLOWED_ORIGIN;
@@ -3659,7 +3607,7 @@ export async function handleStaff(
         .bind(idE).first<{ doc_type: string }>();
     }
     if (!docE) return err("not_found", "Document not found", 404);
-    if (docE.doc_type === "INV" ? !can(user, "finance") : !can(user, "sales")) {
+    if (docE.doc_type === "INV" ? !can(user.role, "finance") : !can(user.role, "sales")) {
       return err("forbidden", "Insufficient rights to edit this document type", 403);
     }
     if (!body || !Array.isArray(body.items) || body.items.length === 0) {
@@ -3764,7 +3712,7 @@ export async function handleStaff(
     return json({ holidays: results });
   }
   if (path === "/holidays" && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     if (!body || !str(body.holiday_date, 10) || !str(body.name, 120)) {
       return err("invalid_input", "holiday_date (YYYY-MM-DD) and name are required", 400);
     }
@@ -3808,7 +3756,7 @@ export async function handleStaff(
   }
   const holMatch = path.match(/^\/holidays\/(\d+)$/);
   if (holMatch && method === "DELETE") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     await env.DB.prepare(`DELETE FROM holidays WHERE id = ?1`).bind(holMatch[1]).run();
     await audit(env, user.id, "holiday.delete", "holidays", holMatch[1]);
     return json({ ok: true });
@@ -3817,7 +3765,7 @@ export async function handleStaff(
   /* ---- Leave entitlement editor (admin/HR) ---- */
 
   if (path === "/leave/entitlement" && method === "GET") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const url = new URL(request.url);
     const year = Number(url.searchParams.get("year") ?? new Date().getFullYear());
     const uid = Number(url.searchParams.get("user_id"));
@@ -3830,7 +3778,7 @@ export async function handleStaff(
     return json({ year, user_id: uid, entitlement: map });
   }
   if (path === "/leave/entitlement" && method === "PUT") {
-    if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
     const year = Number(body?.year ?? new Date().getFullYear());
     const uid = Number(body?.user_id);
     const type = str(body?.type, 40) ? (body!.type as string) : "";
@@ -3849,7 +3797,7 @@ export async function handleStaff(
   /* ---- Payslip (basic payroll output) ---- */
 
   if (path === "/payslip" && method === "GET") {
-    if (!can(user, "payroll_export")) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll access required", 403);
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const uid = Number(url.searchParams.get("user_id"));
@@ -4138,7 +4086,7 @@ export async function handleStaff(
   if (path === "/payroll/paid" && method === "POST") {
     // v1.4.101: the Expenses "Payments due" card records that the payroll
     // bank run for a month has been DONE.
-    if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
+    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     const mP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mP) return err("invalid_input", "month (YYYY-MM) is required", 400);
     await env.DB.prepare(
@@ -4592,7 +4540,7 @@ export async function handleStaff(
   }
 
   if (path === "/attendance/export" && method === "GET") {
-    if (!can(user, "payroll_export")) return err("forbidden", "Payroll export access required", 403);
+    if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll export access required", 403);
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
@@ -4631,7 +4579,7 @@ export async function handleStaff(
   /* ---- HR: task reports (daily / weekly / monthly) ---- */
 
   if (path === "/task-reports" && method === "GET") {
-    if (!can(user, "task_reports") && !can(user, "exec_view")) {
+    if (!can(user.role, "task_reports") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR or executive access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -4642,7 +4590,7 @@ export async function handleStaff(
     return json({ reports: results });
   }
   if (path === "/task-reports" && method === "POST") {
-    if (!can(user, "task_reports")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "task_reports")) return err("forbidden", "HR access required", 403);
     const periods = ["daily", "weekly", "monthly"];
     if (
       !body || typeof body.period !== "string" || !periods.includes(body.period) ||
@@ -4867,7 +4815,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
 /* ---- Sales & marketing: inventory ---- */
 
   if (path === "/inventory" && method === "GET") {
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Inventory access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -4891,7 +4839,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   };
   const moMatch = path.match(/^\/inventory\/manual-outs\/(\d+)\/(edit|revert|delete)$/);
   if (moMatch && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     let row: { id: number; item_id: number; qty: number; unit_sale_cents: number | null; remark: string; created_at: string; sale_id?: number | null; reverted?: number | null; out_date?: string | null } | null = null;
     try {
       row = await env.DB.prepare(`SELECT * FROM manual_stockouts WHERE id = ?1`).bind(moMatch[1]).first();
@@ -5009,7 +4957,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   if (path === "/inventory/manual-outs" && method === "GET") {
     // v1.4.170: the traceability list — last 100 manual stock-outs with the
     // remark and who recorded them. Empty (not an error) before 0049.
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Inventory access required", 403);
     }
     try {
@@ -5029,7 +4977,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
        truth = postage_items joined to TT- postage records (exactly the rows
        the sync/webhook wrote when it deducted stock); returned orders
        excluded. Today + this month are Malaysia time. */
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Inventory access required", 403);
     }
     const nowMYT = new Date(Date.now() + 8 * 3600 * 1000);
@@ -5076,7 +5024,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     return json({ today: todayD, month: monthD, items: results });
   }
   if (path === "/inventory" && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     if (!body || !str(body.sku, 60) || !str(body.name, 200)) {
       return err("invalid_input", "sku and name are required", 400);
     }
@@ -5095,7 +5043,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const invMatch = path.match(/^\/inventory\/(\d+)$/);
   if (invMatch && method === "PATCH") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     if (!body || typeof body.stock !== "number" || body.stock < 0) {
       return err("invalid_input", "stock (>= 0) is required", 400);
     }
@@ -5137,7 +5085,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
      edits instead. */
   const invEdit = path.match(/^\/inventory\/(\d+)\/edit$/);
   if (invEdit && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const newSku = str(body?.sku, 60) ? (body!.sku as string).trim() : null;
     const newName = str(body?.name, 200) ? (body!.name as string).trim() : null;
     if (!newSku && !newName) return err("invalid_input", "Provide a sku and/or name to update", 400);
@@ -5160,7 +5108,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const invDelete = path.match(/^\/inventory\/(\d+)\/delete$/);
   if (invDelete && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const target = await env.DB.prepare(`SELECT id, sku, name, stock FROM inventory_items WHERE id = ?1`)
       .bind(invDelete[1]).first<{ id: number; sku: string; name: string; stock: number }>();
     if (!target) return err("not_found", "Item not found", 404);
@@ -5189,7 +5137,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- Sales & marketing: postage tracking ---- */
 
   if (path === "/postage" && method === "GET") {
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -5203,7 +5151,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     return json({ records: results });
   }
   if (path === "/postage" && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !str(body.order_ref, 100)) return err("invalid_input", "order_ref is required", 400);
     // Multi-item stock movement (v1.4.32). An order may ship several items in
     // different quantities. Accuracy guarantees, in order:
@@ -5294,7 +5242,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const postMatch = path.match(/^\/postage\/(\d+)$/);
   if (postMatch && method === "PATCH") {
-    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !POSTAGE_STATUSES.includes(body.status as string)) {
       return err("invalid_input", `status must be one of: ${POSTAGE_STATUSES.join(", ")}`, 400);
     }
@@ -5341,7 +5289,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- Manual stock in/out (v1.4.31) ---- */
   const invAdjust = path.match(/^\/inventory\/(\d+)\/adjust$/);
   if (invAdjust && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const delta = typeof body?.delta === "number" ? Math.trunc(body.delta) : 0;
     if (!delta) return err("invalid_input", "delta (non-zero integer) is required", 400);
     /* v1.4.169 (CEO: "if there is any manual out without any rebate how do I
@@ -5451,7 +5399,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
           costing tracked for the claim-back ---- */
 
   if (path === "/inventory/returns" && method === "GET") {
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Inventory access required", 403);
     }
     try {
@@ -5478,7 +5426,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     }
   }
   if (path === "/inventory/returns" && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const qty = typeof body?.qty === "number" ? Math.floor(body.qty) : 0;
     const itemId = typeof body?.item_id === "number" ? body.item_id : 0;
     if (!itemId || qty <= 0 || !str(body?.supplier, 120) || !str(body?.return_date, 10)) {
@@ -5514,7 +5462,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
      (refused if the shelf doesn't have them). Total recomputes. */
   const retEdit = path.match(/^\/inventory\/returns\/(\d+)\/edit$/);
   if (retEdit && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const row = await env.DB.prepare(`SELECT * FROM supplier_returns WHERE id = ?1`)
       .bind(retEdit[1]).first<{ id: number; item_id: number; qty: number; unit_cost_cents: number; total_cents: number; supplier: string; reason: string | null; return_date: string; status: string; replaced_qty?: number | null }>();
     if (!row) return err("not_found", "Return not found", 404);
@@ -5558,7 +5506,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const retCredit = path.match(/^\/inventory\/returns\/(\d+)\/credit$/);
   if (retCredit && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const row = await env.DB.prepare(`SELECT status, total_cents FROM supplier_returns WHERE id = ?1`)
       .bind(retCredit[1]).first<{ status: string; total_cents: number }>();
     if (!row) return err("not_found", "Return not found", 404);
@@ -5577,7 +5525,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     // v1.4.149: the supplier sent replacement goods — stock walks back onto
     // the shelf and the claim shrinks by the replaced value. Partial
     // deliveries accumulate; the row closes as 'replaced' when complete.
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const row = await env.DB.prepare(
       `SELECT status, item_id, qty, unit_cost_cents, COALESCE(replaced_qty, 0) AS replaced_qty FROM supplier_returns WHERE id = ?1`,
     ).bind(retReplace[1]).first<{ status: string; item_id: number; qty: number; unit_cost_cents: number; replaced_qty: number }>();
@@ -5609,7 +5557,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const retDelete = path.match(/^\/inventory\/returns\/(\d+)\/delete$/);
   if (retDelete && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const row = await env.DB.prepare(
       `SELECT status, item_id, qty FROM supplier_returns WHERE id = ?1`,
     ).bind(retDelete[1]).first<{ status: string; item_id: number; qty: number }>();
@@ -5635,7 +5583,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- Marketing materials ---- */
 
   if (path === "/materials" && method === "GET") {
-    if (!can(user, "inventory") && !can(user, "exec_view")) {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -5645,7 +5593,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     return json({ materials: results });
   }
   if (path === "/materials" && method === "POST") {
-    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !str(body.title, 200)) return err("invalid_input", "title is required", 400);
     await env.DB.prepare(
       `INSERT INTO material_requests (title, description, requested_by) VALUES (?1, ?2, ?3)`,
@@ -5655,7 +5603,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const matMatch = path.match(/^\/materials\/(\d+)$/);
   if (matMatch && method === "PATCH") {
-    if (!can(user, "inventory")) return err("forbidden", "Access required", 403);
+    if (!can(user.role, "inventory")) return err("forbidden", "Access required", 403);
     const statuses = ["requested", "in_progress", "done", "rejected"];
     if (!body || !statuses.includes(body.status as string)) {
       return err("invalid_input", `status must be one of: ${statuses.join(", ")}`, 400);
@@ -5669,7 +5617,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- CCO: business development pipeline ---- */
 
   if (path === "/bd" && method === "GET") {
-    if (!can(user, "exec_view")) {
+    if (!can(user.role, "exec_view")) {
       return err("forbidden", "Commercial access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -5681,7 +5629,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     return json({ pipeline: results });
   }
   if (path === "/bd" && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body || !str(body.client, 200)) return err("invalid_input", "client is required", 400);
     await env.DB.prepare(
       `INSERT INTO bd_pipeline (client, status, value_note, strategy, next_action, owner_id)
@@ -5699,7 +5647,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   }
   const bdMatch = path.match(/^\/bd\/(\d+)$/);
   if (bdMatch && method === "PATCH") {
-    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body) return err("invalid_input", "Body required", 400);
     const sets: string[] = [];
     const vals: (string | number)[] = [];
@@ -5718,7 +5666,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- COO: daily operational + sales reports ---- */
 
   if (path === "/ops-reports" && method === "GET") {
-    if (!can(user, "exec_view")) {
+    if (!can(user.role, "exec_view")) {
       return err("forbidden", "Operations access required", 403);
     }
     const { results } = await env.DB.prepare(
@@ -5729,7 +5677,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     return json({ reports: results });
   }
   if (path === "/ops-reports" && method === "POST") {
-    if (!can(user, "hr_manage")) return err("forbidden", "Admin tier required", 403);
+    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
     if (!body || !str(body.report_date, 10) || !str(body.operational_summary, 8000)) {
       return err("invalid_input", "report_date and operational_summary are required", 400);
     }
@@ -5752,7 +5700,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
   /* ---- CEO: whole-company overview (read-only) ---- */
 
   if (path === "/overview" && method === "GET") {
-    if (!can(user, "exec_view")) return err("forbidden", "Executive access required", 403);
+    if (!can(user.role, "exec_view")) return err("forbidden", "Executive access required", 403);
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const [attendance, pendingLeave, docs, lowStock, bd, upcomingEvents, eventCount, latestOps, taskAgg, taskByStaff, inventory] = await Promise.all([
       env.DB.prepare(
