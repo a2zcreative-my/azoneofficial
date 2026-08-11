@@ -23,7 +23,6 @@ import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 
 const API = "/api/v1";
 
