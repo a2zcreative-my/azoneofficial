@@ -44,6 +44,9 @@ export function FulfilmentCard() {
   /* v1.4.222 (CEO): chips are clickable — the orders behind a status. */
   const [drill, setDrill] = useState<string | null>(null);
   const [orders, setOrders] = useState<FulfilOrder[] | null>(null);
+  type OCol = "order" | "date" | "courier" | "city" | "amount";
+  const [oSort, setOSort] = useState<{ col: OCol; asc: boolean }>({ col: "date", asc: false });
+  const cycleO = (col: OCol) => setOSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: col !== "date" });
   const [drillBusy, setDrillBusy] = useState(false);
   const toggleDrill = async (k: string) => {
     if (drill === k) { setDrill(null); setOrders(null); return; }
@@ -102,15 +105,33 @@ export function FulfilmentCard() {
                   <table className="w-full border-collapse text-xs">
                     <thead>
                       <tr className="text-muted-foreground text-left">
-                        <th className="px-2 py-1">ORDER</th>
-                        <th className="px-2 py-1">DATE</th>
-                        <th className="px-2 py-1">COURIER · TRACKING</th>
-                        <th className="px-2 py-1">CITY</th>
-                        <th className="px-2 py-1 text-right">AMOUNT</th>
+                        {([
+                          ["order", "ORDER", "px-2 py-1"],
+                          ["date", "DATE", "px-2 py-1"],
+                          ["courier", "COURIER · TRACKING", "px-2 py-1"],
+                          ["city", "CITY", "px-2 py-1"],
+                          ["amount", "AMOUNT", "px-2 py-1 text-right"],
+                        ] as [OCol, string, string][]).map(([col, label, cls]) => (
+                          <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                            title={`Sort by ${label} — click again to reverse`}
+                            onClick={() => cycleO(col)}>
+                            {label}{oSort.col === col ? (oSort.asc ? " ▲" : " ▼") : ""}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {orders.map((o) => (
+                      {[...orders].sort((a, b) => {
+                        const dir = oSort.asc ? 1 : -1;
+                        switch (oSort.col) {
+                          case "order": return dir * a.order_ref.localeCompare(b.order_ref);
+                          case "date": return dir * a.created_at.localeCompare(b.created_at);
+                          case "courier": return dir * ((a.courier || "") + (a.tracking_no || "")).localeCompare((b.courier || "") + (b.tracking_no || ""));
+                          case "city": return dir * (a.buyer_city || "").localeCompare(b.buyer_city || "");
+                          case "amount": return dir * ((a.order_amount_cents ?? 0) - (b.order_amount_cents ?? 0));
+                          default: return 0;
+                        }
+                      }).map((o) => (
                         <tr key={o.order_ref + o.created_at} className="border-border border-t">
                           <td className="px-2 py-1 font-mono">{o.order_ref}</td>
                           <td className="px-2 py-1 whitespace-nowrap">{dmyT(o.created_at)}</td>

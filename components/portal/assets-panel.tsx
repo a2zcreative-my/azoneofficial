@@ -44,6 +44,9 @@ const STATUS_CHIP: Record<string, string> = {
 
 export function AssetsPanel() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  type AssetCol = "tag" | "item" | "assigned" | "location" | "status" | "value";
+  const [assetSort, setAssetSort] = useState<{ col: AssetCol; asc: boolean }>({ col: "tag", asc: true });
+  const cycleAsset = (col: AssetCol) => setAssetSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   const [staff, setStaff] = useState<StaffLite[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
   const [editId, setEditId] = useState<number | null>(null);
@@ -177,14 +180,37 @@ export function AssetsPanel() {
           <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1">
             <table className="w-full border-collapse text-xs">
               <thead>
-                <tr className="text-muted-foreground text-left">
-                  <th className={th}>TAG</th><th className={th}>ITEM</th><th className={th}>ASSIGNED</th>
-                  <th className={th}>LOCATION</th><th className={th}>STATUS</th>
-                  <th className={thR2}>VALUE</th><th className={th}></th>
+                <tr className="border-border text-left">
+                  {([
+                    ["tag", "TAG", th],
+                    ["item", "ITEM", th],
+                    ["assigned", "ASSIGNED", th],
+                    ["location", "LOCATION", th],
+                    ["status", "STATUS", th],
+                    ["value", "VALUE", thR2]
+                  ] as [AssetCol, string, string][]).map(([col, label, cls]) => (
+                    <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                      title={`Sort by ${label} — click again to reverse`}
+                      onClick={() => cycleAsset(col)}>
+                      {label}{assetSort.col === col ? (assetSort.asc ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
+                  <th className={th}></th>
                 </tr>
               </thead>
               <tbody>
-                {assets.map((a) => (
+                {[...assets].sort((a, b) => {
+                  const dir = assetSort.asc ? 1 : -1;
+                  switch (assetSort.col) {
+                    case "tag": return dir * a.asset_tag.localeCompare(b.asset_tag);
+                    case "item": return dir * a.name.localeCompare(b.name);
+                    case "assigned": return dir * (a.assigned_name || "").localeCompare(b.assigned_name || "");
+                    case "location": return dir * (a.location || "").localeCompare(b.location || "");
+                    case "status": return dir * a.status.localeCompare(b.status);
+                    case "value": return dir * ((a.purchase_price_cents ?? 0) - (b.purchase_price_cents ?? 0));
+                    default: return 0;
+                  }
+                }).map((a) => (
                   <tr key={a.id} className="border-border border-t">
                     <td className={`${td} font-mono`}>{a.asset_tag}</td>
                     <td className={td}><span className="font-medium">{a.name}</span>

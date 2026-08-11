@@ -51,6 +51,9 @@ function myt(iso: string): string {
 export function AuditPanel() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [filter, setFilter] = useState("");
+  type AuditCol = "date" | "who" | "action" | "target";
+  const [auditSort, setAuditSort] = useState<{ col: AuditCol; asc: boolean }>({ col: "date", asc: false });
+  const cycleAudit = (col: AuditCol) => setAuditSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: col !== "date" });
 
   const load = useCallback(async () => {
     const q = filter ? `?action=${filter}` : "";
@@ -83,10 +86,18 @@ export function AuditPanel() {
         <table className="w-full min-w-[520px] border-collapse text-sm">
           <thead>
             <tr className="border-border bg-secondary/40 border-b">
-              <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">When (MYT)</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">Who</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">Action</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">Target</th>
+              {([
+                ["date", "When (MYT)"],
+                ["who", "Who"],
+                ["action", "Action"],
+                ["target", "Target"]
+              ] as [AuditCol, string][]).map(([col, label]) => (
+                <th key={col} className="cursor-pointer px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase select-none"
+                  title={`Sort by ${label} — click again to reverse`}
+                  onClick={() => cycleAudit(col)}>
+                  {label}{auditSort.col === col ? (auditSort.asc ? " ▲" : " ▼") : ""}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -97,7 +108,16 @@ export function AuditPanel() {
                 </td>
               </tr>
             )}
-            {entries.map((e) => (
+            {[...entries].sort((a, b) => {
+              const dir = auditSort.asc ? 1 : -1;
+              switch (auditSort.col) {
+                case "date": return dir * a.created_at.localeCompare(b.created_at);
+                case "who": return dir * (a.user_name || "system").localeCompare(b.user_name || "system");
+                case "action": return dir * a.action.localeCompare(b.action);
+                case "target": return dir * ((a.entity || "") + (a.entity_id || "")).localeCompare((b.entity || "") + (b.entity_id || ""));
+                default: return 0;
+              }
+            }).map((e) => (
               <tr key={e.id} className="border-border border-b last:border-0">
                 <td className="text-muted-foreground px-3 py-1.5 whitespace-nowrap">{myt(e.created_at)}</td>
                 <td className="px-3 py-1.5">{e.user_name ?? "system"}</td>

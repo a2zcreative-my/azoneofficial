@@ -339,6 +339,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
+  type PrCol = "staff" | "basic" | "comm" | "allow" | "ot" | "deduct" | "net";
+  const [prSort, setPrSort] = useState<{ col: PrCol; asc: boolean }>({ col: "staff", asc: true });
+  const cyclePr = (col: PrCol) => setPrSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
 
   /* v1.4.203 — M2E: filled-.xlsm download + one-time setup (template upload,
      Corporate ID, payer account). The M2E USER ID/password are login
@@ -925,18 +928,40 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         <table className="tbl-sticky w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Staff</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Basic (RM)</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Commission</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Allowance</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase" title="Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate">OT (hrs)</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Deduction</th>
-              <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Net</th>
+              {([
+                ["staff", "Staff"],
+                ["basic", "Basic (RM)"],
+                ["comm", "Commission"],
+                ["allow", "Allowance"],
+                ["ot", "OT (hrs)"],
+                ["deduct", "Deduction"],
+                ["net", "Net"]
+              ] as [PrCol, string][]).map(([col, label]) => (
+                <th key={col} className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none"
+                  title={col === "ot" ? "Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate\nSort by OT — click again to reverse" : `Sort by ${label} — click again to reverse`}
+                  onClick={() => cyclePr(col)}>
+                  {label}{prSort.col === col ? (prSort.asc ? " ▲" : " ▼") : ""}
+                </th>
+              ))}
               <th className="px-2 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {staff.map((u) => {
+            {[...staff].sort((a, b) => {
+              const dir = prSort.asc ? 1 : -1;
+              const ea = entry(a.id);
+              const eb = entry(b.id);
+              switch (prSort.col) {
+                case "staff": return dir * displayName(a).localeCompare(displayName(b));
+                case "basic": return dir * (ea.basic_cents - eb.basic_cents);
+                case "comm": return dir * (ea.commission_cents - eb.commission_cents);
+                case "allow": return dir * (ea.allowance_cents - eb.allowance_cents);
+                case "ot": return dir * ((ea.ot_hours || 0) - (eb.ot_hours || 0));
+                case "deduct": return dir * (ea.deduction_cents - eb.deduction_cents);
+                case "net": return dir * (netFor(a.id) - netFor(b.id));
+                default: return 0;
+              }
+            }).map((u) => {
               const e = entry(u.id);
               const hourlyRow = isHourly(u); // v1.4.183
               const hourlyMins = e.hourly_minutes_live ?? e.hourly_minutes ?? 0;

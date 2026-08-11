@@ -33,12 +33,27 @@ import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 
 const API = "/api/v1/staff";
 
+function getCsrfToken() {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return match ? match[1] : "";
+}
+
 async function api<T>(path: string, init?: RequestInit) {
   try {
+    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
+    const headers = new Headers(init?.headers as Record<string, string> ?? {});
+    if (init?.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (isMutating) {
+      const csrf = getCsrfToken();
+      if (csrf) headers.set("X-CSRF-Token", csrf);
+    }
     const res = await fetch(`${API}${path}`, {
       credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
       ...init,
+      headers,
     });
     return {
       ok: res.ok,
@@ -346,10 +361,19 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
   // helper prefixes, so the card carries its own minimal fetcher.
   const tiktokApi = useCallback(async <T,>(path: string, init?: RequestInit) => {
     try {
+      const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
+      const headers = new Headers(init?.headers as Record<string, string> ?? {});
+      if (init?.body && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+      if (isMutating) {
+        const csrf = getCsrfToken();
+        if (csrf) headers.set("X-CSRF-Token", csrf);
+      }
       const res = await fetch(`/api/v1/integrations/tiktok${path}`, {
         credentials: "include",
-        headers: init?.body ? { "Content-Type": "application/json" } : undefined,
         ...init,
+        headers,
       });
       return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };
     } catch {
@@ -505,7 +529,10 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   const [invSort, setInvSort] = useState<{ col: InvCol; asc: boolean }>({ col: "sku", asc: true });
   const cycleInv = (col: InvCol) =>
     setInvSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
-  const [ttSort, setTtSort] = useState<"hot" | "hot-asc" | "sku" | "sku-desc" | "az" | "za">("hot");
+  type TtCol = "sku" | "name" | "hot" | "month" | "total" | "price" | "value" | "stock" | "last";
+  const [ttSort, setTtSort] = useState<{ col: TtCol; asc: boolean }>({ col: "hot", asc: false });
+  const cycleTt = (col: TtCol) =>
+    setTtSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: col !== "hot" && col !== "month" && col !== "total" && col !== "value" && col !== "stock" && col !== "last" });
   // edit_id null = new stock out; set = editing that traceability row.
   /* v1.4.251 (CEO: "In + seem doesnt popup notifications … if I want to
      adjust the variance … what should remark I need to indicate?"): the SAME
@@ -584,12 +611,21 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   });
   // Hot = today's sales first (ties: month, then SKU) — deterministic.
   const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
-  const sortedTtOut = [...ttOut].sort(ttSort === "hot" ? byToday
-    : ttSort === "hot-asc" ? (a: TtOut, b: TtOut) => byToday(b, a)
-    : ttSort === "sku" ? bySku
-    : ttSort === "sku-desc" ? (a, b) => bySku(b, a)
-    : ttSort === "az" ? (a, b) => a.name.localeCompare(b.name)
-    : (a, b) => b.name.localeCompare(a.name));
+  const sortedTtOut = [...ttOut].sort((a, b) => {
+    const dir = ttSort.asc ? 1 : -1;
+    switch (ttSort.col) {
+      case "sku":   return dir * bySku(a, b);
+      case "name":  return dir * a.name.localeCompare(b.name);
+      case "hot":   return dir * -byToday(a, b);
+      case "month": return dir * (a.month_qty - b.month_qty);
+      case "total": return dir * (a.total_qty - b.total_qty);
+      case "price": return dir * ((a.avg_sale_cents ?? 0) - (b.avg_sale_cents ?? 0));
+      case "value": return dir * ((a.month_value_cents ?? 0) - (b.month_value_cents ?? 0));
+      case "stock": return dir * (a.stock - b.stock);
+      case "last":  return dir * (a.last_at ?? "").localeCompare(b.last_at ?? "");
+      default:      return 0;
+    }
+  });
 
   const load = useCallback(async () => {
     const [i, p, m, r, t, mo] = await Promise.all([
@@ -1021,22 +1057,23 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
             <table className="tbl-sticky w-full min-w-[560px] border-collapse">
               <thead>
                 <tr className="border-border border-b">
-                  <th className={`${th} cursor-pointer select-none`} title="Sort by SKU — click again to reverse"
-                    onClick={() => setTtSort((s) => (s === "sku" ? "sku-desc" : "sku"))}>
-                    SKU{ttSort === "sku" ? " ▲" : ttSort === "sku-desc" ? " ▼" : ""}</th>
-                  <th className={`${th} cursor-pointer select-none`} title="Sort by item name A→Z — click again for Z→A"
-                    onClick={() => setTtSort((s) => (s === "az" ? "za" : "az"))}>
-                    Item{ttSort === "az" ? " ▲" : ttSort === "za" ? " ▼" : ""}</th>
-                  <th className={`${thR2} cursor-pointer select-none`} title="Sort by today's hot sales (default) — click again to reverse"
-                    onClick={() => setTtSort((s) => (s === "hot" ? "hot-asc" : "hot"))}>
-                    Out today{ttSort === "hot" ? " ▼" : ttSort === "hot-asc" ? " ▲" : ""}</th>
-                  <th className={thR2}>This month</th>
-                  <th className={thR2}>All time</th>
-                  {/* v1.4.166: actual avg sold price from TikTok (rebate = list − sold) */}
-                  <th className={thR2}>Avg sold @</th>
-                  <th className={thR2}>Sold value (month)</th>
-                  <th className={thR2}>Left in stock</th>
-                  <th className={thR2}>Last order</th>
+                  {([
+                    ["sku",   "SKU",       th],
+                    ["name",  "Item",      th],
+                    ["hot",   "Out today", thR2],
+                    ["month", "This month", thR2],
+                    ["total", "All time",  thR2],
+                    ["price", "Avg sold @", thR2],
+                    ["value", "Sold value (month)", thR2],
+                    ["stock", "Left in stock", thR2],
+                    ["last",  "Last order", thR2],
+                  ] as [TtCol, string, string][]).map(([col, label, cls]) => (
+                    <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                      title={`Sort by ${label} — click again to reverse`}
+                      onClick={() => cycleTt(col)}>
+                      {label}{ttSort.col === col ? (ttSort.asc ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -1618,6 +1655,9 @@ interface Deal {
 
 export function CommercialPanel() {
   const [pipeline, setPipeline] = useState<Deal[]>([]);
+  type PlCol = "client" | "status" | "action" | "strategy";
+  const [plSort, setPlSort] = useState<{ col: PlCol; asc: boolean }>({ col: "client", asc: true });
+  const cyclePl = (col: PlCol) => setPlSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   const [draft, setDraft] = useState({ client: "", value_note: "", strategy: "", next_action: "" });
 
   const load = useCallback(async () => {
@@ -1659,15 +1699,34 @@ export function CommercialPanel() {
           <table className="tbl-sticky w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
-                <th className={th}>Client</th><th className={th}>Status</th>
-                <th className={th}>Next action</th><th className={th}>Strategy</th>
+                {([
+                  ["client", "Client", th],
+                  ["status", "Status", th],
+                  ["action", "Next action", th],
+                  ["strategy", "Strategy", th],
+                ] as [PlCol, string, string][]).map(([col, label, cls]) => (
+                  <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                    title={`Sort by ${label} — click again to reverse`}
+                    onClick={() => cyclePl(col)}>
+                    {label}{plSort.col === col ? (plSort.asc ? " ▲" : " ▼") : ""}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {pipeline.length === 0 && (
                 <tr><td className={`${td} text-muted-foreground`} colSpan={4}>Pipeline is empty.</td></tr>
               )}
-              {pipeline.map((deal) => (
+              {[...pipeline].sort((a, b) => {
+                const dir = plSort.asc ? 1 : -1;
+                switch (plSort.col) {
+                  case "client": return dir * a.client.localeCompare(b.client);
+                  case "status": return dir * a.status.localeCompare(b.status);
+                  case "action": return dir * (a.next_action || "").localeCompare(b.next_action || "");
+                  case "strategy": return dir * (a.strategy || "").localeCompare(b.strategy || "");
+                  default: return 0;
+                }
+              }).map((deal) => (
                 <tr key={deal.id} className="border-border border-b align-top last:border-0">
                   <td className={`${td} font-medium`}>
                     {deal.client}
@@ -1859,6 +1918,9 @@ function PnlCard() {
 
 export function OverviewPanel() {
   const [data, setData] = useState<Overview | null>(null);
+  type TaskCol = "staff" | "open" | "done";
+  const [taskSort, setTaskSort] = useState<{ col: TaskCol; asc: boolean }>({ col: "staff", asc: true });
+  const cycleTask = (col: TaskCol) => setTaskSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: col === "staff" });
 
   useEffect(() => {
     void api<Overview>(`/overview`).then((r) => {
@@ -1968,16 +2030,32 @@ export function OverviewPanel() {
             <table className="tbl-sticky w-full border-collapse text-sm">
               <thead>
                 <tr className="border-border border-b">
-                  <th className={th}>Staff</th>
-                  <th className={th}>Open</th>
-                  <th className={th}>Done</th>
+                  {([
+                    ["staff", "Staff", th],
+                    ["open", "Open", th],
+                    ["done", "Done", th],
+                  ] as [TaskCol, string, string][]).map(([col, label, cls]) => (
+                    <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                      title={`Sort by ${label} — click again to reverse`}
+                      onClick={() => cycleTask(col)}>
+                      {label}{taskSort.col === col ? (taskSort.asc ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {(data.task_by_staff ?? []).length === 0 && (
                   <tr><td className={`${td} text-muted-foreground`} colSpan={3}>No tasks yet.</td></tr>
                 )}
-                {(data.task_by_staff ?? []).map((r) => (
+                {[...(data.task_by_staff ?? [])].sort((a, b) => {
+                  const dir = taskSort.asc ? 1 : -1;
+                  switch (taskSort.col) {
+                    case "staff": return dir * a.name.localeCompare(b.name);
+                    case "open": return dir * (a.open_tasks - b.open_tasks);
+                    case "done": return dir * (a.done_tasks - b.done_tasks);
+                    default: return 0;
+                  }
+                }).map((r) => (
                   <tr key={r.name} className="border-border border-b last:border-0">
                     <td className={td}>{properName(r.name)} <span className="text-muted-foreground text-xs">· {r.role.replace(/_/g, " ")}</span></td>
                     <td className={`${td} font-medium`}>{r.open_tasks}</td>

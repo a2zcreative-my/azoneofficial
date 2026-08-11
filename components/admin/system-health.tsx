@@ -40,6 +40,9 @@ export function SystemHealthCard() {
   const [health, setHealth] = useState<Health | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  type ErrCol = "date" | "source" | "message";
+  const [errSort, setErrSort] = useState<{ col: ErrCol; asc: boolean }>({ col: "date", asc: false });
+  const cycleErr = (col: ErrCol) => setErrSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: col !== "date" });
 
   const load = useCallback(async () => {
     const res = await api<Health>(`/system/health`);
@@ -158,13 +161,29 @@ export function SystemHealthCard() {
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <thead>
                 <tr className="border-border bg-secondary/40 border-b">
-                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">When (MYT)</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">Source</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">Message</th>
+                  {([
+                    ["date", "When (MYT)"],
+                    ["source", "Source"],
+                    ["message", "Message"]
+                  ] as [ErrCol, string][]).map(([col, label]) => (
+                    <th key={col} className="cursor-pointer px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase select-none"
+                      title={`Sort by ${label} — click again to reverse`}
+                      onClick={() => cycleErr(col)}>
+                      {label}{errSort.col === col ? (errSort.asc ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {(health?.errors ?? []).map((e) => (
+                {[...(health?.errors ?? [])].sort((a, b) => {
+                  const dir = errSort.asc ? 1 : -1;
+                  switch (errSort.col) {
+                    case "date": return dir * a.created_at.localeCompare(b.created_at);
+                    case "source": return dir * a.source.localeCompare(b.source);
+                    case "message": return dir * a.message.localeCompare(b.message);
+                    default: return 0;
+                  }
+                }).map((e) => (
                   <tr key={e.id} className="border-border border-b align-top last:border-0">
                     <td className="text-muted-foreground px-3 py-1.5 whitespace-nowrap">{myt(e.created_at)}</td>
                     <td className="px-3 py-1.5 font-mono text-xs">{e.source}{e.path ? <span className="text-muted-foreground block">{e.path}</span> : null}</td>
