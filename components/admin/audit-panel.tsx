@@ -8,18 +8,10 @@
  * always recorded.
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
 
-const API = "/api/v1";
 
-async function api<T>(path: string) {
-  try {
-    const res = await fetch(`${API}${path}`, { credentials: "include" });
-    return { ok: res.ok, data: (await res.json()) as T | null };
-  } catch {
-    return { ok: false, data: null };
-  }
-}
 
 interface Entry {
   id: number;

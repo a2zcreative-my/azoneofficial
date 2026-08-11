@@ -1,4 +1,7 @@
-import { handleStaff, type StaffUser } from "./staff";
+// v1.5.0: notify imported too — the "client gone quiet" cron called it
+// without importing it, so every pass threw a silent ReferenceError and the
+// feature never fired once.
+import { handleStaff, notify, type StaffUser } from "./staff";
 
 /**
  * AZ ONE OFFICIAL — Admin/API Worker (Phase 3, v0)
@@ -20,6 +23,13 @@ export interface Env {
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
   TIKTOK_APP_KEY?: string;
   TIKTOK_APP_SECRET?: string;
+  /** Web-push (v1.6.0) — generate with `npx web-push generate-vapid-keys`.
+      PUBLIC is safe to expose (the browser needs it to subscribe); PRIVATE
+      and SUBJECT (a mailto: or https: contact) are secrets. All optional:
+      without them push is simply off and in-app + SSE still work. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 }
 
 import { Role, can, MANDATORY_2FA_ROLES } from "./permissions";
@@ -132,12 +142,27 @@ function errorResponse(code: string, message: string, status: number): Response 
   return json({ error: { code, message } }, status);
 }
 
-function corsHeaders(env: Env): HeadersInit {
+/** Origins allowed to call the API: the configured origin plus its www./apex
+    twin (the Worker route binds both hosts — v1.5.0 fix for "sign-in fails on
+    www."). */
+function allowedOrigins(env: Env): string[] {
+  const base = env.ALLOWED_ORIGIN;
+  const twin = base.includes("://www.")
+    ? base.replace("://www.", "://")
+    : base.replace("://", "://www.");
+  return [base, twin];
+}
+
+function corsHeaders(env: Env, request?: Request): HeadersInit {
+  const origins = allowedOrigins(env);
+  const reqOrigin = request?.headers.get("Origin");
+  const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : origins[0];
   return {
-    "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-CSRF-Token",
     "Access-Control-Allow-Credentials": "true",
+    "Vary": "Origin",
   };
 }
 
@@ -223,13 +248,15 @@ function randomSecret(): string {
   return base32Encode(crypto.getRandomValues(new Uint8Array(20)));
 }
 
-/** Backup codes: 8 single-use codes, shown once, stored hashed. */
+/** Backup codes: 8 single-use codes, shown once, stored hashed.
+    v1.5.0: 10 base32 characters (~50 bits) instead of 8 digits (~27 bits),
+    and stored with the PBKDF2 password pipeline instead of bare SHA-256 —
+    a leaked twofa_backup_codes table is no longer reversible on a laptop. */
 function makeBackupCodes(): string[] {
   const codes: string[] = [];
   for (let i = 0; i < 8; i++) {
-    const n = crypto.getRandomValues(new Uint32Array(1))[0] % 100_000_000;
-    const str = String(n).padStart(8, "0");
-    codes.push(`${str.slice(0, 4)}-${str.slice(4)}`);
+    const raw = base32Encode(crypto.getRandomValues(new Uint8Array(7))).slice(0, 10);
+    codes.push(`${raw.slice(0, 5)}-${raw.slice(5)}`);
   }
   return codes;
 }
@@ -266,9 +293,13 @@ async function verifyTikTokSignature(env: Env, header: string, rawBody: string):
     const expected = await hmacHex(env.TIKTOK_APP_SECRET, env.TIKTOK_APP_KEY + rawBody);
     return timingSafeEqual(expected, plain);
   }
-  // Scheme B — "t=<timestamp>,s=<signature>".
+  // Scheme B — "t=<timestamp>,s=<signature>". v1.5.0: split on the FIRST "="
+  // only, so a base64/padded signature value is never truncated.
   const parts = Object.fromEntries(
-    plain.split(",").map((kv) => kv.split("=").map((x) => x.trim()) as [string, string]),
+    plain.split(",").map((kv) => {
+      const i = kv.indexOf("=");
+      return [kv.slice(0, i).trim(), kv.slice(i + 1).trim()] as [string, string];
+    }),
   );
   if (!parts.t || !parts.s) return false;
   // Reject stale timestamps (5 minutes) to blunt replay attacks.
@@ -443,7 +474,7 @@ async function refreshTikTokShopCipher(env: Env): Promise<{ ok: boolean; detail:
 /** Order webhooks carry only an id + status, so the line items are fetched.
     Returns [] when no token is stored yet (order still gets recorded).
     v1.4.71: also surfaces the buyer's CITY (never the street address). */
-async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { sku: string; qty: number }[]; city: string | null }> {
+async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: ReturnType<typeof groupLineItems>; city: string | null }> {
   const data = (await tiktokSignedFetch(env, "/order/202309/orders", { ids: orderId })) as {
     data?: { orders?: {
       line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number }[];
@@ -583,12 +614,32 @@ async function audit(
     the problem. Keeps the newest 500 rows. */
 async function logError(env: Env, source: string, message: string, path?: string): Promise<void> {
   try {
+    const src = source.slice(0, 40);
+    const msg = message.slice(0, 500);
+    /* v1.5.0 DEDUPE — the fix for the "22 new system errors since the last
+       check" notification flood. The same recurring condition (an order with
+       no resolvable city, re-scanned by every 30-minute sync pass; a portal
+       tab polling a broken route once a minute) used to write one row per
+       occurrence, evicting real errors from the 500-row window and bell-
+       spamming management every half hour. An identical source+message seen
+       within the last 6 hours is now skipped. */
+    const pth = path?.slice(0, 200) ?? null;
+    const dup = await env.DB.prepare(
+      `SELECT id FROM error_log WHERE source = ?1 AND message = ?2
+         AND (path IS ?3 OR path = ?3)
+         AND created_at > datetime('now', '-6 hours') LIMIT 1`,
+    ).bind(src, msg, pth).first<{ id: number }>();
+    if (dup) return;
     await env.DB.prepare(
       `INSERT INTO error_log (source, message, path) VALUES (?1, ?2, ?3)`,
-    ).bind(source.slice(0, 40), message.slice(0, 500), path?.slice(0, 200) ?? null).run();
-    await env.DB.prepare(
-      `DELETE FROM error_log WHERE id NOT IN (SELECT id FROM error_log ORDER BY id DESC LIMIT 500)`,
-    ).run();
+    ).bind(src, msg, pth).run();
+    // Trim opportunistically (~5% of writes) instead of scanning the whole
+    // table on every insert.
+    if (Math.random() < 0.05) {
+      await env.DB.prepare(
+        `DELETE FROM error_log WHERE id NOT IN (SELECT id FROM error_log ORDER BY id DESC LIMIT 500)`,
+      ).run();
+    }
   } catch (e) {
     // Before migration 0024 the table doesn't exist — console is the fallback.
     console.error("error_log write failed:", source, message, e);
@@ -650,32 +701,56 @@ async function checkRateLimit(
   limit: number,
   windowSeconds: number,
 ): Promise<boolean> {
-  // returns true if the request is allowed
+  // returns true if the request is allowed. v1.5.0: single atomic upsert —
+  // the old read-then-write pair could be raced past under concurrency.
   const row = await env.DB.prepare(
-    `SELECT count, window_start FROM rate_limits WHERE key = ?1`,
+    `INSERT INTO rate_limits (key, count, window_start) VALUES (?1, 1, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET
+       count = CASE WHEN datetime(window_start, '+' || ?2 || ' seconds') > datetime('now')
+                    THEN count + 1 ELSE 1 END,
+       window_start = CASE WHEN datetime(window_start, '+' || ?2 || ' seconds') > datetime('now')
+                    THEN window_start ELSE datetime('now') END
+     RETURNING count`,
   )
-    .bind(key)
-    .first<{ count: number; window_start: string }>();
+    .bind(key, windowSeconds)
+    .first<{ count: number }>();
+  return (row?.count ?? 1) <= limit;
+}
 
-  const now = Date.now();
-  const windowStart = row ? Date.parse(row.window_start + "Z") : 0;
-  const inWindow = row && now - windowStart < windowSeconds * 1000;
+/** v1.5.0: read-only limit check — has this key already exceeded the limit?
+    Used with bumpRateLimit so only FAILED attempts consume login budget:
+    successful sign-ins no longer lock the office NAT out (the old behaviour
+    behind "the CCO can't sign back in after logout"). */
+async function isRateLimited(
+  env: Env,
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT count FROM rate_limits
+     WHERE key = ?1 AND datetime(window_start, '+' || ?2 || ' seconds') > datetime('now')`,
+  ).bind(key, windowSeconds).first<{ count: number }>();
+  return (row?.count ?? 0) >= limit;
+}
 
-  if (inWindow && row.count >= limit) return false;
+/** Record one failed attempt against a key (atomic, window-aware). */
+async function bumpRateLimit(env: Env, key: string, windowSeconds: number): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO rate_limits (key, count, window_start) VALUES (?1, 1, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET
+       count = CASE WHEN datetime(window_start, '+' || ?2 || ' seconds') > datetime('now')
+                    THEN count + 1 ELSE 1 END,
+       window_start = CASE WHEN datetime(window_start, '+' || ?2 || ' seconds') > datetime('now')
+                    THEN window_start ELSE datetime('now') END`,
+  ).bind(key, windowSeconds).run();
+}
 
-  if (inWindow) {
-    await env.DB.prepare(`UPDATE rate_limits SET count = count + 1 WHERE key = ?1`)
-      .bind(key)
-      .run();
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO rate_limits (key, count, window_start) VALUES (?1, 1, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET count = 1, window_start = datetime('now')`,
-    )
-      .bind(key)
-      .run();
-  }
-  return true;
+/** Clear a rate-limit key (called after a successful sign-in). */
+async function resetRateLimit(env: Env, key: string): Promise<void> {
+  try {
+    await env.DB.prepare(`DELETE FROM rate_limits WHERE key = ?1`).bind(key).run();
+  } catch { /* never fatal */ }
 }
 
 function clientIp(request: Request): string {
@@ -730,7 +805,7 @@ function isNonEmptyString(v: unknown, max = 500): v is string {
     into postage + inventory. Shared by the manual Sync button and the cron
     schedule (v1.4.66) — actorId is null for scheduled runs. */
 async function runTikTokSync(env: Env, actorId: number | null): Promise<
-  | { ok: true; imported: number; skipped: number; total_from_tiktok: number; problems: string[] }
+  | { ok: true; imported: number; skipped: number; retried: number; total_from_tiktok: number; problems: string[] }
   | { ok: false; code: string; message: string; status: number }
 > {
   if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
@@ -776,7 +851,13 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       `SELECT id, tracking_no, status, restocked FROM postage_records WHERE order_ref = ?1`,
     ).bind(orderRef).first<{ id: number; tracking_no: string | null; status: string; restocked: number | null }>();
     const stNow = String(o.status ?? "").toLowerCase();
-    const uiNow = stNow.includes("deliver") ? "delivered" : stNow.includes("ship") || stNow.includes("transit") ? "shipped" : "preparing";
+    // v1.5.0: returned/cancelled states used to fall through to "preparing",
+    // which also made the downstream `uiNow !== "returned"` guard dead code.
+    const uiNow =
+      stNow.includes("return") || stNow.includes("cancel") || stNow.includes("refund") ? "returned"
+      : stNow.includes("deliver") ? "delivered"
+      : stNow.includes("ship") || stNow.includes("transit") ? "shipped"
+      : "preparing";
     const trackNow =
       o.tracking_number ??
       o.packages?.find((pk) => pk.tracking_number)?.tracking_number ??
@@ -802,7 +883,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       null
     )?.slice(0, 80) ?? null;
     // v1.4.190 diagnostic (privacy-safe: STRUCTURE only, never values).
-    if (!cityNow) {
+    // v1.5.0: only on FIRST import. This sat above the `exists` early-skip,
+    // so every cityless order re-logged on every 30-minute sync pass forever
+    // — the main source of the error-notification flood.
+    if (!cityNow && !exists) {
       await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] district_info=${JSON.stringify(ra?.district_info)}`);
     }
     // v1.4.75: order amount in cents for the revenue dashboard. TikTok sends
@@ -894,7 +978,8 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
       resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
     }
-    const canDeduct = shortages.length === 0 && resolved.length > 0;
+    // v1.5.0: never deduct stock for an order that is already returned/cancelled.
+    const canDeduct = shortages.length === 0 && resolved.length > 0 && uiNow !== "returned";
     const notes = ["TikTok order (synced)"];
     if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
     if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
@@ -994,32 +1079,15 @@ export default {
     } catch (e) {
       if (!String(e).includes("no such column")) await logError(env, "lowstock_cron", e instanceof Error ? e.message : String(e));
     }
-    /* v1.4.267: follow-up reminders. A next-follow-up date that nobody is
-       reminded of is a wish, not a plan — each cron pass bell-notifies the
-       assignee (or the creator, if unassigned) once per due date. Editing the
-       date re-arms the reminder (PATCH clears followup_notified_on). */
+    /* v1.5.0: the Social tab (prospects pipeline + trends) was removed on the
+       CEO's direction — its follow-up reminder cron went with it. Prospect
+       data remains untouched in the database. */
+    /* v1.5.0 housekeeping: expired 2FA challenges and stale rate-limit rows
+       used to accumulate forever. */
     try {
-      const todayMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-      const { results: due } = await env.DB.prepare(
-        `SELECT id, brand_name, next_followup, assigned_to, created_by FROM prospects
-         WHERE next_followup IS NOT NULL AND next_followup <= ?1
-           AND stage NOT IN ('won', 'lost')
-           AND (followup_notified_on IS NULL OR followup_notified_on < ?1)
-         LIMIT 50`,
-      ).bind(todayMY).all<{ id: number; brand_name: string; next_followup: string; assigned_to: number | null; created_by: number | null }>();
-      for (const p of due) {
-        const who = p.assigned_to ?? p.created_by;
-        if (who) {
-          const late = p.next_followup < todayMY ? ` (was due ${p.next_followup})` : "";
-          await env.DB.prepare(
-            `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'prospect', ?2, ?3)`,
-          ).bind(who, `📞 Follow up today: ${p.brand_name}${late} — Social tab`, `prospect:${p.id}`).run();
-        }
-        await env.DB.prepare(`UPDATE prospects SET followup_notified_on = ?1 WHERE id = ?2`).bind(todayMY, p.id).run();
-      }
-    } catch (e) {
-      if (!String(e).includes("no such table")) console.error("prospect_cron", e);
-    }
+      await env.DB.prepare(`DELETE FROM twofa_challenges WHERE expires_at <= datetime('now')`).run();
+      await env.DB.prepare(`DELETE FROM rate_limits WHERE window_start <= datetime('now', '-1 day')`).run();
+    } catch { /* pre-migration — silent */ }
     /* v1.4.265 (CEO: "Errors are logged but nobody is told"): every 30-min
        cron pass checks whether error_log grew since the last pass and bell-
        notifies super_admin + ceo. A watermark in system_meta stops repeats —
@@ -1094,7 +1162,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    const cors = corsHeaders(env);
+    const cors = corsHeaders(env, request);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: cors });
@@ -1103,14 +1171,16 @@ export default {
     // Origin check and CSRF mitigation on mutating requests
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
       const origin = request.headers.get("Origin");
-      if (origin && origin !== env.ALLOWED_ORIGIN) {
+      // v1.5.0: both apex and www. are legitimate (the Worker route binds
+      // both) — the old exact-match check 403'd every sign-in from www.
+      if (origin && !allowedOrigins(env).includes(origin)) {
         return errorResponse("forbidden_origin", "Origin not allowed", 403);
       }
       const hasSession = getCookie(request, SESSION_COOKIE);
       if (hasSession) {
         const csrfCookie = getCookie(request, "csrf_token");
         const csrfHeader = request.headers.get("X-CSRF-Token");
-        if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+        if (!csrfCookie || !csrfHeader || !timingSafeEqual(csrfCookie, csrfHeader)) {
           return errorResponse("csrf_failed", "CSRF token mismatch or missing", 403);
         }
       }
@@ -1126,9 +1196,16 @@ export default {
       await logError(env, "api", `[${error_id}] ${detail}`, path);
       res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
     }
-    // attach CORS to every response
+    // attach CORS + baseline security headers to every response (v1.5.0)
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) headers.set(k, v as string);
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("X-Frame-Options", "DENY");
+    headers.set("Referrer-Policy", "same-origin");
+    // API responses are personal or operational data — never cacheable unless
+    // a route explicitly says otherwise (media uploads do). A heuristically
+    // cached /auth/me was bouncing signed-out users straight back to /portal.
+    if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store, private");
     return new Response(res.body, { status: res.status, headers });
   },
 } satisfies ExportedHandler<Env>;
@@ -1138,9 +1215,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* ---- public ---- */
 
-  if (path === "/api/v1/health" && method === "GET") {
+  /* v1.5.0: this token-gated probe used to be registered at /api/v1/health,
+     shadowing the public monitor endpoint further down (first match wins) —
+     the external uptime monitor got a permanent 401. Moved to /health/detail. */
+  if (path === "/api/v1/health/detail" && method === "GET") {
     const auth = request.headers.get("Authorization");
-    if (auth !== `Bearer ${env.SETUP_TOKEN}`) {
+    if (!env.SETUP_TOKEN || !timingSafeEqual(auth ?? "", `Bearer ${env.SETUP_TOKEN}`)) {
       return errorResponse("unauthorized", "Invalid health check token", 401);
     }
     const pragma = await env.DB.prepare(`PRAGMA user_version`).first<{ user_version: number }>();
@@ -1353,7 +1433,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       } else {
         scheme = "B";
         const parts = Object.fromEntries(
-          sig.trim().split(",").map((kv) => kv.split("=").map((x) => x.trim()) as [string, string]),
+          sig.trim().split(",").map((kv) => {
+            const i = kv.indexOf("=");
+            return [kv.slice(0, i).trim(), kv.slice(i + 1).trim()] as [string, string];
+          }),
         );
         if (parts.t && parts.s) {
           const expected = await hmacHex(env.TIKTOK_APP_SECRET, `${parts.t}${ev.body}`);
@@ -1394,7 +1477,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const sigHeader = request.headers.get("tiktok-signature") ?? request.headers.get("Tiktok-Signature") ?? "";
     const relaySecret = request.headers.get("x-webhook-secret") ?? "";
     const viaTikTok = sigHeader ? await verifyTikTokSignature(env, sigHeader, rawBody) : false;
-    const viaRelay = Boolean(env.TIKTOK_WEBHOOK_SECRET) && relaySecret === env.TIKTOK_WEBHOOK_SECRET;
+    const viaRelay = Boolean(env.TIKTOK_WEBHOOK_SECRET) && Boolean(relaySecret) &&
+      timingSafeEqual(relaySecret, env.TIKTOK_WEBHOOK_SECRET ?? "");
     const verified = viaTikTok || viaRelay;
 
     const body = (() => {
@@ -1405,21 +1489,35 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const orderId = String(data.order_id ?? data.orderId ?? "").trim();
     const rawStatus = String(data.order_status ?? data.status ?? "").toLowerCase();
 
-    // Always record the receipt — including unverified ones — so a signature
+    // Record the receipt — including unverified ones — so a signature
     // mismatch is visible and diagnosable instead of silently dropped.
-    await env.DB.prepare(
-      `INSERT INTO webhook_events (provider, event_type, order_ref, verified, headers, body)
-       VALUES ('tiktok', ?1, ?2, ?3, ?4, ?5)`,
-    ).bind(
-      String(body?.type ?? "unknown"),
-      orderId ? `TT-${orderId}` : null,
-      verified ? 1 : 0,
-      /* v1.4.220: store the actual signature value — it is derived and
-         public in transit, and without it a failed event can never be
-         replayed against a corrected secret to prove the fix. */
-      JSON.stringify({ signature: sigHeader || "absent", relay: relaySecret ? "present" : "absent" }),
-      rawBody.slice(0, 4000),
-    ).run();
+    // v1.5.0: unverified receipts are rate-limited per IP (the endpoint is
+    // unauthenticated — anyone could previously grow this table at 4 KB per
+    // request forever) and the table is trimmed to the newest 2000 rows.
+    const recordReceipt = verified ||
+      (await checkRateLimit(env, `webhook_unverified:${clientIp(request)}`, 30, 3600));
+    if (recordReceipt) {
+      await env.DB.prepare(
+        `INSERT INTO webhook_events (provider, event_type, order_ref, verified, headers, body)
+         VALUES ('tiktok', ?1, ?2, ?3, ?4, ?5)`,
+      ).bind(
+        String(body?.type ?? "unknown"),
+        orderId ? `TT-${orderId}` : null,
+        verified ? 1 : 0,
+        /* v1.4.220: store the actual signature value — it is derived and
+           public in transit, and without it a failed event can never be
+           replayed against a corrected secret to prove the fix. */
+        JSON.stringify({ signature: sigHeader || "absent", relay: relaySecret ? "present" : "absent" }),
+        rawBody.slice(0, 4000),
+      ).run();
+      if (Math.random() < 0.02) {
+        try {
+          await env.DB.prepare(
+            `DELETE FROM webhook_events WHERE id NOT IN (SELECT id FROM webhook_events ORDER BY id DESC LIMIT 2000)`,
+          ).run();
+        } catch { /* housekeeping only */ }
+      }
+    }
 
     if (!verified) {
       return errorResponse("unauthorized", "Signature verification failed", 401);
@@ -1615,24 +1713,34 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/auth/login" && method === "POST") {
-    const allowed = await checkRateLimit(env, `login:${clientIp(request)}`, 10, 900);
-    if (!allowed) {
-      return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
-    }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || !isNonEmptyString(body.email, 200) || !isNonEmptyString(body.password, 200)) {
       return errorResponse("invalid_input", "email and password are required", 400);
     }
+    const emailNorm = (body.email as string).toLowerCase().trim();
+    /* v1.5.0: only FAILED attempts count (10 per account+IP, plus a looser
+       per-IP ceiling of 30 for spray attacks). Successful sign-ins used to
+       consume the same budget, so ten good logins from one office IP locked
+       everyone behind that NAT out for 15 minutes. */
+    const keyAcct = `login:${clientIp(request)}:${emailNorm}`;
+    const keyIp = `loginip:${clientIp(request)}`;
+    if (await isRateLimited(env, keyAcct, 10, 900) || await isRateLimited(env, keyIp, 30, 900)) {
+      return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
+    }
     const user = await env.DB.prepare(
       `SELECT id, email, name, role, password_hash FROM users
-       WHERE email = ?1 AND is_active = 1`,
+       WHERE email = ?1 AND is_active = 1
+         AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
     )
-      .bind((body.email as string).toLowerCase().trim())
+      .bind(emailNorm)
       .first<SessionUser & { password_hash: string }>();
 
     if (!user || !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER))) {
+      await bumpRateLimit(env, keyAcct, 900);
+      await bumpRateLimit(env, keyIp, 900);
       return errorResponse("invalid_credentials", "Email or password is incorrect", 401);
     }
+    await resetRateLimit(env, keyAcct);
 
     // Two-factor (v1.4.37): the password alone does not create a session for
     // an account with 2FA on. Issue a short-lived challenge; the session is
@@ -1662,8 +1770,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* ---- two-factor authentication (v1.4.37) ---- */
 
   if (path === "/api/v1/auth/2fa/verify" && method === "POST") {
-    const allowed2fa = await checkRateLimit(env, `2fa:${clientIp(request)}`, 10, 900);
-    if (!allowed2fa) return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
+    // v1.5.0: failed codes count, successful verifications do not.
+    const key2fa = `2fa:${clientIp(request)}`;
+    if (await isRateLimited(env, key2fa, 10, 900)) {
+      return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
+    }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || !isNonEmptyString(body.challenge, 200) || !isNonEmptyString(body.code, 20)) {
       return errorResponse("invalid_input", "challenge and code are required", 400);
@@ -1686,23 +1797,34 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const code = (body.code as string).trim();
     let ok = await totpVerify(row.totp_secret, code);
     if (!ok) {
-      // Backup code path: single use, matched against stored hashes.
-      const hash = await sha256Hex(code.toUpperCase());
-      const backup = await env.DB.prepare(
-        `SELECT id FROM twofa_backup_codes WHERE user_id = ?1 AND code_hash = ?2 AND used_at IS NULL`,
-      ).bind(ch.user_id, hash).first<{ id: number }>();
-      if (backup) {
-        await env.DB.prepare(`UPDATE twofa_backup_codes SET used_at = datetime('now') WHERE id = ?1`)
-          .bind(backup.id).run();
-        await audit(env, ch.user_id, "auth.2fa_backup_used");
-        ok = true;
+      // Backup code path: single use. v1.5.0 codes are PBKDF2-hashed; codes
+      // issued before that were unsalted SHA-256 — both formats verify, so
+      // nobody's printed sheet dies with the upgrade.
+      const codeNorm = code.toUpperCase();
+      const { results: backups } = await env.DB.prepare(
+        `SELECT id, code_hash FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`,
+      ).bind(ch.user_id).all<{ id: number; code_hash: string }>();
+      const legacyHash = await sha256Hex(codeNorm);
+      for (const b of backups) {
+        const match = b.code_hash.startsWith("pbkdf2$")
+          ? await verifyPassword(codeNorm, b.code_hash, env.SESSION_PEPPER)
+          : timingSafeEqual(b.code_hash, legacyHash);
+        if (match) {
+          await env.DB.prepare(`UPDATE twofa_backup_codes SET used_at = datetime('now') WHERE id = ?1`)
+            .bind(b.id).run();
+          await audit(env, ch.user_id, "auth.2fa_backup_used");
+          ok = true;
+          break;
+        }
       }
     }
     if (!ok) {
       await env.DB.prepare(`UPDATE twofa_challenges SET attempts = attempts + 1 WHERE id = ?1`).bind(id).run();
+      await bumpRateLimit(env, key2fa, 900);
       return errorResponse("invalid_code", "That code is not correct", 401);
     }
     await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+    await resetRateLimit(env, key2fa);
     const token = await createSession(env, row.id);
     await audit(env, row.id, "auth.login_2fa");
     return json(
@@ -1769,7 +1891,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     for (const c of codes) {
       await env.DB.prepare(
         `INSERT INTO twofa_backup_codes (user_id, code_hash) VALUES (?1, ?2)`,
-      ).bind(me.id, await sha256Hex(c.toUpperCase())).run();
+      ).bind(me.id, await createPasswordHash(c.toUpperCase(), env.SESSION_PEPPER)).run();
     }
     await audit(env, me.id, "auth.2fa_enabled");
     return json({ ok: true, backup_codes: codes });
@@ -1796,12 +1918,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/logout" && method === "POST") {
     const raw = getCookie(request, SESSION_COOKIE);
     if (raw) {
-      await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`)
-        .bind(await sha256Hex(raw)).run();
+      const tokenHash = await sha256Hex(raw);
+      // v1.5.0: { all: true } signs out every device — a user who suspects a
+      // stolen session can self-revoke without waiting for an admin.
+      const bodyLo = (await request.json().catch(() => null)) as { all?: boolean } | null;
+      if (bodyLo?.all) {
+        const owner = await env.DB.prepare(`SELECT user_id FROM sessions WHERE id = ?1`)
+          .bind(tokenHash).first<{ user_id: number }>();
+        if (owner) {
+          await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(owner.user_id).run();
+          await audit(env, owner.user_id, "auth.logout_all");
+        }
+      } else {
+        await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`).bind(tokenHash).run();
+      }
     }
-    return json({ ok: true }, 200, {
-      "Set-Cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
-    });
+    // v1.5.0: the csrf_token cookie dies with the session — it used to
+    // outlive it and be replayed against the next sign-in on this browser.
+    return json({ ok: true }, 200, [
+      ["Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`],
+      ["Set-Cookie", `csrf_token=; Secure; SameSite=Lax; Path=/; Max-Age=0`],
+    ]);
   }
 
   /* ---- one-time super admin bootstrap ---- */
@@ -1957,10 +2094,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     const email = profile.email.toLowerCase().trim();
     let account = await env.DB.prepare(
-      `SELECT id, is_active FROM users WHERE email = ?1`,
+      // v1.5.0: also carry employment_status so an offboarded staff member
+      // cannot walk back in through Google.
+      `SELECT id, is_active, employment_status FROM users WHERE email = ?1`,
     )
       .bind(email)
-      .first<{ id: number; is_active: number }>();
+      .first<{ id: number; is_active: number; employment_status: string | null }>();
 
     if (!account) {
       // Every self-registration is a CUSTOMER — no exceptions (v1.4.35).
@@ -1970,14 +2109,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // assignment: /admin Users (admin tier) or HR staff creation. A staff
       // member who signs in with Google on an email an admin already
       // elevated keeps their assigned role — that path is unchanged.
-      let res: { id: number; is_active: number } | null = null;
+      let res: { id: number; is_active: number; employment_status: string | null } | null = null;
       try {
         res = await env.DB.prepare(
           `INSERT INTO users (email, password_hash, name, role, is_active)
-           VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active`,
+           VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active, employment_status`,
         )
           .bind(email, profile.name ?? email)
-          .first<{ id: number; is_active: number }>();
+          .first<{ id: number; is_active: number; employment_status: string | null }>();
       } catch (e) {
         throw new Error(`customer signup insert: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -1985,7 +2124,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       await audit(env, null, "auth.google_signup_customer", "users", String(account.id));
     }
 
-    if (!account.is_active) {
+    if (!account.is_active ||
+        ["resigned", "terminated"].includes(account.employment_status ?? "")) {
       return new Response(null, {
         status: 302,
         headers: { Location: "/admin?pending=1", "Set-Cookie": clearState },
@@ -2267,7 +2407,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0065 (invoice stock link)", `SELECT doc_id FROM manual_stockouts LIMIT 1`],
       // v1.4.277: the newer migrations join the probe — the card must name
       // the FULL pending set, not the set that existed when it was written.
-      ["0066 (prospects / Social tab)", `SELECT id FROM prospects LIMIT 1`],
+      ["0066 (prospects)", `SELECT id FROM prospects LIMIT 1`],
       ["0067 (growth pack)", `SELECT referred_by FROM prospects LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
@@ -2381,6 +2521,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ? bodyOb.left_on
       : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const statusOb = bodyOb.status === "terminated" ? "terminated" : "resigned";
+    /* v1.5.0: a resigned/terminated status now BLOCKS every sign-in path
+       (login query + Google OAuth below both reject it) and all sessions are
+       revoked here — so the account cannot be used again. is_active is left
+       untouched on purpose: flipping it to 0 would drop the leaver from their
+       own final-month payroll run (the payslip/M2E queries filter is_active),
+       i.e. they wouldn't get paid for their last month. */
     await env.DB.prepare(
       `UPDATE users SET employment_status = ?1, left_on = ?2, totp_secret = NULL, totp_enabled = 0 WHERE id = ?3`,
     ).bind(statusOb, leftOn, idOb).run();
@@ -2530,6 +2676,53 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ enquiries: results });
   }
 
+  /* v1.6.0 — customer order tracking. A signed-in customer sees their own
+     quotations, invoices (with the share link to the PDF) and live-session
+     history. SECURITY: only for accounts whose email is proven (Google
+     sign-in) — otherwise someone could register a stranger's email and read
+     their invoices. Password accounts get a clear notice to verify. Matches
+     the customer's users.email to the CRM customers registry by email. */
+  if (path === "/api/v1/account/orders" && method === "GET") {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    const acct = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ password_hash: string }>();
+    const verified = acct?.password_hash.startsWith("oauth$") ?? false;
+    if (!verified) {
+      return json({ locked: true, docs: [], lives: [] });
+    }
+    const email = user.email.toLowerCase().trim();
+    const { results: custRows } = await env.DB.prepare(
+      `SELECT id FROM customers WHERE lower(email) = ?1`,
+    ).bind(email).all<{ id: number }>();
+    const ids = custRows.map((c) => c.id);
+    if (ids.length === 0) return json({ locked: false, docs: [], lives: [] });
+    const placeholders = ids.map((_, i) => `?${i + 1}`).join(", ");
+    let docs: unknown[] = [], lives: unknown[] = [];
+    try {
+      docs = (await env.DB.prepare(
+        `SELECT doc_number, doc_type, total_cents, payment_status, delivery_status,
+                due_date, paid_at, share_token, created_at
+           FROM sales_documents WHERE customer_id IN (${placeholders})
+           ORDER BY created_at DESC LIMIT 100`,
+      ).bind(...ids).all()).results;
+    } catch { /* pre-share_token: fall back without it */
+      docs = (await env.DB.prepare(
+        `SELECT doc_number, doc_type, total_cents, payment_status, delivery_status,
+                due_date, created_at
+           FROM sales_documents WHERE customer_id IN (${placeholders})
+           ORDER BY created_at DESC LIMIT 100`,
+      ).bind(...ids).all()).results;
+    }
+    try {
+      lives = (await env.DB.prepare(
+        `SELECT session_date, start_time, end_time, platform, status
+           FROM live_sessions WHERE client_id IN (${placeholders})
+           ORDER BY session_date DESC LIMIT 50`,
+      ).bind(...ids).all()).results;
+    } catch { /* pre-live_sessions */ }
+    return json({ locked: false, docs, lives });
+  }
+
   /* ---- site content ---- */
 
 
@@ -2567,15 +2760,56 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   const mediaServe = path.match(/^\/api\/v1\/media\/file\/(.+)$/);
   if (mediaServe && method === "GET") {
     const key = decodeURIComponent(mediaServe[1]!);
-    // Keys under private/ (e.g. medical certificates) require staff auth.
-    if (key.startsWith("private/") && (!user || user.role === "customer")) {
-      return errorResponse("forbidden", "Staff access required", 403);
+    /* v1.5.0 SECURITY REWRITE — default-deny.
+       The old rule was a denylist ("private/ needs staff auth, everything
+       else is public"), which made database backups (backups/db-*.json.gz)
+       and claim receipts (claims/*) publicly downloadable. Now only
+       uploads/ (site media placed by the content team) is public; every
+       other prefix requires auth, and the sensitive ones check ownership. */
+    const isPublic = key.startsWith("uploads/");
+    if (!isPublic) {
+      if (!user || user.role === "customer") {
+        return errorResponse("forbidden", "Staff access required", 403);
+      }
+      if (key.startsWith("backups/") && !atLeast(user, "super_admin")) {
+        return errorResponse("forbidden", "Backups are super admin only — use the export button in /admin", 403);
+      }
+      // Staff documents (contracts, letters): the owner, HR, or management.
+      const mDoc = key.match(/^private\/staff-docs\/(\d+)-/);
+      if (mDoc && user.id !== Number(mDoc[1]) &&
+          !can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
+        return errorResponse("forbidden", "This document belongs to another staff member", 403);
+      }
+      // Payroll template: payroll roles only.
+      if (key.startsWith("private/m2e/") && !can(user.role, "payroll_export")) {
+        return errorResponse("forbidden", "Payroll access required", 403);
+      }
+      // Claim receipts / payment proofs: the claimant, payee, HR, or deciders.
+      const mClaim = key.match(/^claims\/(\d+)-/);
+      if (mClaim && !can(user.role, "hr_manage") && !can(user.role, "claims_decide") &&
+          !can(user.role, "exec_view")) {
+        const owner = await env.DB.prepare(
+          `SELECT user_id, payee_user_id FROM claims WHERE id = ?1`,
+        ).bind(Number(mClaim[1])).first<{ user_id: number; payee_user_id: number | null }>();
+        if (!owner || (owner.user_id !== user.id && owner.payee_user_id !== user.id)) {
+          return errorResponse("forbidden", "This receipt belongs to another claim", 403);
+        }
+      }
     }
     const obj = await env.MEDIA.get(key);
     if (!obj) return errorResponse("not_found", "File not found", 404);
     const headers = new Headers();
     obj.writeHttpMetadata(headers);
-    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    headers.set("X-Content-Type-Options", "nosniff");
+    const ct = headers.get("Content-Type") ?? "";
+    // Never let user-supplied markup execute on the API origin.
+    if (/svg|html|xml/i.test(ct)) {
+      headers.set("Content-Disposition", "attachment");
+    }
+    headers.set(
+      "Cache-Control",
+      isPublic ? "public, max-age=31536000, immutable" : "private, max-age=300",
+    );
     return new Response(obj.body, { headers });
   }
 
@@ -2598,8 +2832,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!request.body) return errorResponse("invalid_input", "Request body required", 400);
     
     const contentType = request.headers.get("Content-Type") ?? "application/octet-stream";
+    // v1.5.0: image/svg+xml removed — an SVG can carry <script> and executes
+    // on the API origin with access to the csrf_token cookie (stored XSS).
     const allowedTypes = [
-      "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml",
+      "image/jpeg", "image/png", "image/webp", "image/gif",
       "video/mp4", "video/webm",
       "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ];
@@ -2790,11 +3026,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind(id)
       .first<{ role: string }>();
     if (!target) return errorResponse("not_found", "User not found", 404);
-    if (target.role === "super_admin" && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can modify a super admin", 403);
+    /* v1.5.0: admin-tier targets require SUPER admin. ceo and admin share a
+       rank, so a CEO (no content_manage permission) could previously reset an
+       admin's password and sign in as them — a lateral capability gain. */
+    if (["super_admin", "admin"].includes(target.role) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can modify an admin-tier account", 403);
     }
-    if (body.role === "super_admin" && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can grant super admin", 403);
+    if (["super_admin", "admin"].includes(String(body.role ?? "")) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can grant admin-tier roles", 403);
     }
     if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
       return errorResponse("invalid_input", "You cannot change your own role", 400);
@@ -2836,8 +3075,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         }
       }
     }
-    if (typeof body.is_active === "number") {
-      if (String(user.id) === id && body.is_active === 0) {
+    if (typeof body.is_active === "number" || typeof body.is_active === "boolean") {
+      if (String(user.id) === id && !body.is_active) {
         return errorResponse("invalid_input", "You cannot deactivate your own account", 400);
       }
       await env.DB.prepare(`UPDATE users SET is_active = ?1 WHERE id = ?2`).bind(body.is_active ? 1 : 0, id).run();

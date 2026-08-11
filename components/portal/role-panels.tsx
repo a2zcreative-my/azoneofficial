@@ -17,6 +17,8 @@
  * these panels are conveniences, not the security boundary.
  */
 
+import { makeApi, getCsrfToken } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+const api = makeApi("/staff");
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { properName, firstName, displayName } from "@/lib/names";
@@ -31,39 +33,8 @@ import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 
-const API = "/api/v1/staff";
 
-function getCsrfToken() {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
-  return match ? match[1] : "";
-}
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers(init?.headers as Record<string, string> ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    return {
-      ok: res.ok,
-      status: res.status,
-      data: (res.status === 204 ? null : await res.json()) as T | null,
-    };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
 /** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
 function SubR({ t, children, className = "" }: { t: string; children: ReactNode; className?: string }) {

@@ -34,6 +34,26 @@
   --input: #e6e9ee;
   --ring: #1a2946;
   --radius: 0.5rem;
+
+  /* v1.5.0 — semantic status tokens. Before this, every status chip hand-
+     picked its own amber/green/red pair (338 raw palette classes, six
+     spellings of the same chip). Use these instead of raw Tailwind colours. */
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --info: #0369a1;
+  --info-soft: #e0f2fe;
+  /* v1.5.0 — ONE gold. The token said #c8a96a while StatCard, the KPI bar
+     and every PDF template shipped #C9A227 — two different golds side by
+     side. --gold-solid is the saturated gold for fills/bars; --brand-accent
+     stays the soft champagne for on-navy text. */
+  --gold-solid: #c9a227;
+  /* v1.5.0 — trading-desk accents (market green/red, used by the dashboard). */
+  --bull: #16a34a;
+  --bear: #dc2626;
 }
 
 @theme inline {
@@ -62,6 +82,19 @@
   --color-gold: var(--brand-accent);
   --color-gold-deep: var(--brand-accent-deep);
   --color-gold-soft: var(--brand-accent-soft);
+  --color-gold-solid: var(--gold-solid);
+
+  /* v1.5.0 semantic status utilities: bg-success/-soft, text-warning, … */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-bull: var(--bull);
+  --color-bear: var(--bear);
 
   --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
 
@@ -88,6 +121,17 @@
   --input: #263650;
   --ring: #c8a96a;
   --brand-accent-deep: #d4b57a; /* on dark, lighter gold keeps AA */
+  /* v1.5.0 status tokens, dark-mode tuned (soft = translucent tints) */
+  --success: #4ade80;
+  --success-soft: rgba(34, 197, 94, 0.16);
+  --warning: #fbbf24;
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --danger: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.16);
+  --info: #38bdf8;
+  --info-soft: rgba(14, 165, 233, 0.16);
+  --bull: #4ade80;
+  --bear: #f87171;
 }
 
 @layer base {

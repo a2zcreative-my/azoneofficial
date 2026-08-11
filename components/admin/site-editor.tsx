@@ -13,28 +13,12 @@
  * from a missing value.
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
 import { inputClass, btnClass } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
 
-const API = "/api/v1";
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-      ...init,
-    });
-    return {
-      ok: res.ok,
-      status: res.status,
-      data: (res.status === 204 ? null : await res.json()) as T | null,
-    };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
 
 interface Field {

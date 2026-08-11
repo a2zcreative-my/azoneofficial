@@ -6,6 +6,7 @@
  * (same origin via the azoneofficial.com/api/* route).
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
@@ -18,7 +19,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { inputClass, btnClass } from "@/lib/ui-styles";
+import { inputClass, btnClass, btnGhost } from "@/lib/ui-styles";
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
@@ -50,40 +51,8 @@ interface CrudItem {
   [key: string]: unknown;
 }
 
-function getCsrfToken() {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
-  return match ? match[1] : "";
-}
 
-async function api<T>(
-  path: string,
-  init?: RequestInit,
-) {
-  try {
-    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers(init?.headers as Record<string, string> ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    const data = res.status === 204 ? null : ((await res.json()) as T);
-    return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
-const btnGhost =
-  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
 /* ---------------- Enquiries ---------------- */
 
@@ -958,8 +927,11 @@ export default function AdminPage() {
           <div className="mt-8 flex justify-end border-t border-border pt-6">
             <button
               onClick={() => {
-                document.cookie = "azone_session=; path=/; max-age=0";
-                window.location.href = "/login";
+                /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
+                   could never clear it, so this button bounced users straight
+                   back here. A real server-side logout now. */
+                void api("/auth/logout", { method: "POST", body: JSON.stringify({}) })
+                  .then(() => { window.location.href = "/login"; });
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >

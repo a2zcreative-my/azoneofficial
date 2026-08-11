@@ -8,23 +8,12 @@
  *  - the latest nightly database backup in R2, with a "Back up now" button.
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 
 const API = "/api/v1";
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-      ...init,
-    });
-    return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };
-  } catch {
-    return { ok: false, data: null as T | null };
-  }
-}
 
 interface ErrRow { id: number; created_at: string; source: string; message: string; path?: string | null }
 interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null; migrations_pending?: string[]; migrations_all?: { name: string; applied: boolean }[] | null }

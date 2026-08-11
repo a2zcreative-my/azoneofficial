@@ -8,32 +8,15 @@
  * shown ONCE. Disabling requires the account password.
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
-import { card } from "@/lib/ui-styles";
+import { card, btnGhost, btnClass as btn } from "@/lib/ui-styles"; // v1.5.0: shared button styles
 import { useSaveToast } from "@/components/ui/save-toast";
 
-const API = "/api/v1";
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      ...init,
-    });
-    const data = (await res.json().catch(() => null)) as T | null;
-    return { ok: res.ok, data };
-  } catch {
-    return { ok: false, data: null };
-  }
-}
 
 const input =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm";
-const btn =
-  "inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium bg-primary text-primary-foreground disabled:opacity-50";
-const btnGhost =
-  "inline-flex h-9 items-center rounded-lg border border-border px-3 text-sm font-medium hover:bg-secondary";
 
 export function TwoFactorPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();

@@ -9,6 +9,8 @@
  * or hr_admin (hr_manage); COO/CCO see it read-only via exec view.
  */
 
+import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState } from "react";
 import { displayName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -20,19 +22,6 @@ import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 
 const API = "/api/v1/staff";
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      ...init,
-    });
-    const data = (await res.json().catch(() => null)) as T | null;
-    return { ok: res.ok, data };
-  } catch {
-    return { ok: false, data: null };
-  }
-}
 
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";

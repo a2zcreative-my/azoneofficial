@@ -2,16 +2,20 @@
 
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, btnClass } from "@/lib/ui-styles";
-import { dmy } from "@/lib/format";
+import { card, inputClass, btnClass, btnGhost, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { dmy, fmtRM } from "@/lib/format";
 
-const API = "/api/v1";
 
 interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
 interface Enquiry { id: number; message: string; category?: string | null; status: string; reply?: string | null; replied_at?: string | null; created_at: string }
+// v1.6.0: customer order tracking
+interface OrderDoc { doc_number: string; doc_type: string; total_cents: number; payment_status?: string | null; delivery_status?: string | null; due_date?: string | null; paid_at?: string | null; share_token?: string | null; created_at: string }
+interface LiveSession { session_date: string; start_time: string; end_time?: string | null; platform: string; status: string }
+const DOC_LABEL: Record<string, string> = { QT: "Quotation", DO: "Delivery order", INV: "Invoice" };
 /* v1.4.181: enquiry categories — mirror the server whitelist. */
 const ENQUIRY_CATS = [
   ["general", "General question"],
@@ -22,36 +26,8 @@ const ENQUIRY_CATS = [
 ] as const;
 const CAT_LABEL = Object.fromEntries(ENQUIRY_CATS) as Record<string, string>;
 
-function getCsrfToken() {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
-  return match ? match[1] : "";
-}
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers(init?.headers as Record<string, string> ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };
-  } catch {
-    return { ok: false, data: null };
-  }
-}
 
-const btnGhost =
-  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
@@ -62,7 +38,10 @@ export default function AccountPage() {
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [ask, setAsk] = useState("");
   const [askCat, setAskCat] = useState("general"); // v1.4.181
-  const [tab, setTab] = useState<"Account" | "Enquiries">("Account");
+  const [tab, setTab] = useState<"Account" | "Orders" | "Enquiries">("Account");
+  // v1.6.0: order tracking
+  const [orders, setOrders] = useState<{ docs: OrderDoc[]; lives: LiveSession[] } | null>(null);
+  const [ordersLocked, setOrdersLocked] = useState(false);
   const [sending, setSending] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
 
@@ -83,6 +62,10 @@ export default function AccountPage() {
         void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
           setEnquiries(e.data?.enquiries ?? []),
         );
+        void api<{ locked: boolean; docs: OrderDoc[]; lives: LiveSession[] }>("/account/orders").then((o) => {
+          if (o.data?.locked) setOrdersLocked(true);
+          setOrders({ docs: o.data?.docs ?? [], lives: o.data?.lives ?? [] });
+        });
       } else {
         window.location.replace("/login");
         return;
@@ -105,7 +88,7 @@ export default function AccountPage() {
             Welcome, {user.name.split(" ")[0]}
           </h1>
           <h1 className="text-lg font-semibold tracking-tight md:hidden">
-            {tab === "Enquiries" ? "My Enquiries" : "My Account"}
+            {tab === "Enquiries" ? "My Enquiries" : tab === "Orders" ? "My Orders" : "My Account"}
           </h1>
         </div>
         <button
@@ -123,7 +106,7 @@ export default function AccountPage() {
 
       {/* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */}
       <nav className="mt-6 hidden grid-cols-2 gap-2 md:grid" aria-label="Account sections">
-        {(["Account", "Enquiries"] as const).map((t) => (
+        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -145,7 +128,7 @@ export default function AccountPage() {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Account sections (mobile)"
       >
-        {(["Account", "Enquiries"] as const).map((t) => (
+        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -155,7 +138,7 @@ export default function AccountPage() {
             }`}
           >
             <span className={`h-1 w-6 rounded-full ${tab === t ? "bg-gold-deep" : "bg-transparent"}`} />
-            {t === "Enquiries" ? "My Enquiries" : "Account"}
+            {t === "Enquiries" ? "Enquiries" : t}
           </button>
         ))}
       </nav>
@@ -209,6 +192,100 @@ export default function AccountPage() {
         </div>
       </div>
 
+      )}
+
+      {tab === "Orders" && (
+      <div key="orders" className="screen-enter mt-4 space-y-4 md:mt-6">
+        {ordersLocked ? (
+          <div className={card}>
+            <p className="text-sm font-semibold">🔒 Verify your email to see your orders</p>
+            <p className="text-muted-foreground mt-1 text-sm">
+              To protect your order and invoice details, order history is shown
+              only to accounts with a verified email. Sign in with Google using
+              the email we have on file, or message us on WhatsApp and we&apos;ll
+              share your latest documents.
+            </p>
+            <a
+              href="https://wa.me/60123834821?text=Hi%20AZ%20ONE%20OFFICIAL%2C%20I%20would%20like%20to%20check%20my%20orders."
+              target="_blank" rel="noopener noreferrer" className={`${btnClass} mt-3`}
+            >
+              Ask on WhatsApp
+            </a>
+          </div>
+        ) : (
+          <>
+            <div className={card}>
+              <p className="text-sm font-semibold">🧾 My orders &amp; invoices</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                Your quotations, invoices and delivery orders. Tap an invoice to open its PDF.
+              </p>
+              {!orders ? (
+                <p className="text-muted-foreground mt-3 text-sm">Loading…</p>
+              ) : orders.docs.length === 0 ? (
+                <p className="text-muted-foreground mt-3 text-sm">No documents yet. When we prepare a quotation or invoice for you, it appears here.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {orders.docs.map((d) => {
+                    const paid = (d.payment_status ?? "").toLowerCase() === "paid";
+                    const chip = d.doc_type === "INV"
+                      ? (paid ? chipSuccess : chipWarn)
+                      : chipNeutral;
+                    const status = d.doc_type === "INV"
+                      ? (paid ? "Paid" : "Unpaid")
+                      : d.doc_type === "DO"
+                        ? (d.delivery_status ? d.delivery_status : "Pending")
+                        : "Quotation";
+                    const inner = (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="font-medium">{DOC_LABEL[d.doc_type] ?? d.doc_type}</span>
+                          <span className="text-muted-foreground ml-1.5 text-xs">{d.doc_number}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="tabular-nums font-semibold">{fmtRM(d.total_cents)}</span>
+                          <span className={chip}>{status}</span>
+                        </span>
+                      </div>
+                    );
+                    return (
+                      <div key={d.doc_number} className="border-border rounded-lg border p-3">
+                        {d.share_token ? (
+                          <a href={`/doc?t=${d.share_token}`} target="_blank" rel="noopener noreferrer" className="block hover:opacity-80">
+                            {inner}
+                          </a>
+                        ) : inner}
+                        <p className="text-muted-foreground mt-1 text-[11px]">
+                          {dmy(d.created_at)}
+                          {d.doc_type === "INV" && !paid && d.due_date ? ` · due ${dmy(d.due_date)}` : ""}
+                          {d.doc_type === "INV" && paid && d.paid_at ? ` · paid ${dmy(d.paid_at)}` : ""}
+                          {d.share_token ? " · tap to open PDF" : ""}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {orders && orders.lives.length > 0 && (
+              <div className={card}>
+                <p className="text-sm font-semibold">📺 My live sessions</p>
+                <div className="mt-2 space-y-1.5">
+                  {orders.lives.map((l, i) => (
+                    <div key={i} className="border-border flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+                      <span>
+                        {dmy(l.session_date)} · {l.start_time}{l.end_time ? `–${l.end_time}` : ""}
+                        <span className="text-muted-foreground ml-1.5 text-xs capitalize">{l.platform}</span>
+                      </span>
+                      <span className={l.status === "completed" ? chipSuccess : l.status === "cancelled" ? chipNeutral : chipWarn}>{l.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
       )}
 
       {tab === "Enquiries" && (

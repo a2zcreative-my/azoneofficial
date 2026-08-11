@@ -12,24 +12,13 @@
  * to the card, so it comes out at true dimensions on a normal printer.
  */
 
+import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+const api = makeApi("/staff");
 import { useCallback, useEffect, useState } from "react";
 import { card } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
 
-const API = "/api/v1/staff";
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-      ...init,
-    });
-    return { ok: res.ok, status: res.status, data: (res.status === 204 ? null : await res.json()) as T | null };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";

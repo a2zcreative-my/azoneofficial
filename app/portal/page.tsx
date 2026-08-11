@@ -8,13 +8,14 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
 import { addEventToCalendar } from "@/lib/event-ics";
-import { ProspectsPanel } from "@/components/portal/prospects-panel";
 import { StatCard, MiniBar } from "@/components/ui/stat-card";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -42,48 +43,14 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
-import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { card, inputClass, btnClass, btnGhost, btnHdr, btnSm, btnSmPrimary, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
+import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
-const API = "/api/v1";
 
 interface User { id: number; email: string; name: string; role: string; photo_key?: string | null; requires_2fa?: boolean }
 
-function getCsrfToken() {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
-  return match ? match[1] : "";
-}
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers(init?.headers as Record<string, string> ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    return { ok: res.ok, status: res.status, data: (res.status === 204 ? null : await res.json()) as T | null };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
-const btnGhost =
-  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
-// v1.4.146: header controls — compact on phones so avatar + title + all four
-// controls share ONE row (the old full-size buttons wrapped to a second row
-// and pushed the whole screen down).
-const btnHdr =
-  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
 
 /**
  * Attendance timestamps are stored in UTC (datetime('now') in D1) — correct
@@ -427,9 +394,10 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
       </div>
-      {/* v1.4.282 (CEO: "Quick Action on dashboard need to put top"): Quick
-          actions now leads; the hero band reads second. */}
-      <HeroBand user={user} />
+      {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
+          of today, the KPI target (auto-computed from history), product vs
+          service market targets, motivation and boost suggestions. */}
+      <TradingDesk user={user} />
 
       {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
           hero band already carries today + month + overall up top, so the
@@ -468,108 +436,276 @@ interface RevenueData {
    number, white + gold for the rest — the v1.4.253 one-fill rule applied to
    cards. Renders progressively: each card appears when its data arrives, and
    a role that can't see revenue simply gets the cards it can see. */
-interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; overdue_followups: number | null; open_quotations: number | null }
+interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; open_quotations: number | null }
 
-function HeroBand({ user }: { user: User }) {
+/* ================= v1.5.0 — the Sales Floor (trading-desk dashboard) =======
+   CEO brief: "my dashboard nice like a trading sales view — Today sales,
+   market target for my product and service, KPI target and motivation for
+   them to hit the requirement and suggestion to boost the sales."
+
+   One live view, four zones:
+   1. TICKER   — today's number in market green/red vs yesterday, month,
+                 all-time, unpaid (collections are revenue already earned).
+   2. KPI      — the month target with a pace marker. The target is AUTO-
+                 COMPUTED from history (beat last month by 10%, rounded up to
+                 the next RM500); a manually set target always wins.
+   3. MARKETS  — product vs service, each line measured against its own
+                 auto-target (its last month + 10%).
+   4. DESK NOTES — motivation tied to the actual pace, plus concrete,
+                 data-driven suggestions to boost sales (best live hour,
+                 unpaid invoices, open quotations, restocks).
+   Calendar and quick actions are untouched — this replaces only the band. */
+
+interface RevLineLite { key: string; label: string; total_cents: number; months: { month: string; cents: number }[] }
+interface HourBucket { hour: number; cents: number; orders: number }
+
+/** Auto-target: beat last month by 10%, rounded UP to the next RM500.
+    No history yet → no target (never invent a number). */
+function autoTargetCents(lastCents: number): number | null {
+  if (lastCents <= 0) return null;
+  const raised = lastCents * 1.1;
+  return Math.ceil(raised / 50_000) * 50_000;
+}
+
+function TradingDesk({ user }: { user: User }) {
   const [rev, setRev] = useState<RevenueData | null>(null);
   const [sum, setSum] = useState<DashSummary | null>(null);
+  const [mkLines, setMkLines] = useState<RevLineLite[] | null>(null);
+  const [hours, setHours] = useState<HourBucket[] | null>(null);
   const canRevenue = REVENUE_ROLES.includes(user.role);
   const canStatus = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"].includes(user.role);
   useEffect(() => {
-    if (canRevenue) void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+    if (canRevenue) {
+      void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+      void api<{ lines: RevLineLite[] }>(`/staff/revenue/lines`).then((r) => { if (r.ok && r.data) setMkLines(r.data.lines); });
+      void api<{ buckets: HourBucket[] }>(`/staff/sales/by-hour`).then((r) => { if (r.ok && r.data) setHours(r.data.buckets); });
+    }
     void api<DashSummary>(`/staff/dashboard/summary`).then((r) => { if (r.ok && r.data) setSum(r.data); });
   }, [canRevenue]);
 
-  const cards: ReactNode[] = [];
+  /* ---- shared derived figures ---- */
+  const monthTotal = rev ? rev.tiktok.this_cents + rev.invoiced.this_cents + (rev.other?.this_cents ?? 0) + (rev.manual?.this_cents ?? 0) : 0;
+  const lastTotal = rev ? rev.tiktok.last_cents + rev.invoiced.last_cents + (rev.other?.last_cents ?? 0) + (rev.manual?.last_cents ?? 0) : 0;
+  // Manual target (set on the Ecommerce tab) wins; otherwise auto from history.
+  const autoT = autoTargetCents(lastTotal);
+  const target = rev?.target_cents || autoT;
+  const targetIsAuto = !rev?.target_cents && !!autoT;
+  const nowM = new Date(Date.now() + 8 * 3600 * 1000);
+  const daysInMonth = new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() + 1, 0)).getUTCDate();
+  const dayOfMonth = nowM.getUTCDate();
+  const expectedPct = Math.round((dayOfMonth / daysInMonth) * 100);
+  const pct = target ? Math.round((monthTotal / target) * 100) : null;
+  const onPace = pct !== null && pct >= expectedPct;
+
+  /* ---- ticker cards ---- */
+  const ticker: ReactNode[] = [];
   if (canRevenue && rev?.today) {
     const t = rev.today;
     const todayTotal = t.tiktok_cents + t.invoiced_cents + (t.other_cents ?? 0) + (t.manual_cents ?? 0);
     const y = rev.yesterday?.total_cents ?? 0;
-    const trend = todayTotal === 0 && y === 0 ? null
-      : todayTotal >= y
-        ? `▲ ${fmtRM(todayTotal - y)} above yesterday`
-        : `▼ ${fmtRM(y - todayTotal)} below yesterday`;
-    cards.push(
-      <StatCard key="today" solid label="🔥 Today's sales"
-        value={fmtRM(todayTotal)}
-        bar={y > 0 ? { pct: Math.min(100, (todayTotal / y) * 100), label: `yesterday ${fmtRM(y)}` } : undefined}
-        sub={<>
+    const up = todayTotal >= y;
+    ticker.push(
+      <div key="today" className="rounded-xl bg-brand p-4 text-white shadow-sm">
+        <p className="text-[10px] font-semibold tracking-wider uppercase text-white/70">🔥 Today&apos;s sales · LIVE</p>
+        <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">{fmtRM(todayTotal)}</p>
+        {(todayTotal > 0 || y > 0) && (
+          <p className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${up ? "bg-bull/25 text-green-200" : "bg-bear/25 text-red-200"}`}>
+            {up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))} vs yesterday
+          </p>
+        )}
+        <p className="mt-1 text-xs text-white/80">
           {t.tiktok_orders} TikTok order{t.tiktok_orders === 1 ? "" : "s"}
           {t.invoiced_cents > 0 ? ` · invoiced ${fmtRM(t.invoiced_cents)}` : ""}
-          {trend ? <><br />{trend}</> : null}
-        </>} />,
+        </p>
+      </div>,
     );
   }
   if (canRevenue && rev) {
-    const monthTotal = rev.tiktok.this_cents + rev.invoiced.this_cents + (rev.other?.this_cents ?? 0) + (rev.manual?.this_cents ?? 0);
-    const target = rev.target_cents ?? 0;
-    cards.push(
-      <StatCard key="month" label={`Revenue — ${rev.month}`}
+    ticker.push(
+      <StatCard key="month" label={`Revenue — ${ym(rev.month)}`}
         value={fmtRM(monthTotal)}
-        bar={target > 0
-          ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of ${fmtRM(target)} target`, tone: monthTotal >= target ? "green" : "gold" }
-          : undefined}
-        sub={target > 0 ? undefined : "set a month target on the Sales revenue card to get a progress bar"} />,
+        bar={target ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of ${fmtRM(target)}${targetIsAuto ? " auto-target" : " target"}`, tone: monthTotal >= target ? "green" : "gold" } : undefined}
+        sub={target ? undefined : "first month of data — the auto-target starts next month"} />,
     );
-    // v1.4.276 (CEO: "1 more card to monitor overall business sales"): the
-    // whole business since day one — all four channels, every month summed
-    // server-side by the same SQL the month figures use. Renders only when
-    // there is a number to show (house rule: never display zero stats).
     if (rev.overall && rev.overall.total_cents > 0) {
       const ov = rev.overall;
       const best = ov.best;
       const thisMonthCents = ov.months.find((m) => m.month === rev.month)?.cents ?? 0;
-      cards.push(
-        <StatCard key="overall" label="📈 Overall sales — all time"
+      ticker.push(
+        <StatCard key="overall" label="📈 All-time — every channel"
           value={fmtRM(ov.total_cents)}
-          bar={best && best.cents > 0
-            ? { pct: (thisMonthCents / best.cents) * 100,
-                label: best.month === rev.month
-                  ? "this month is your best month yet"
-                  : `this month vs best (${ym(best.month)} · ${fmtRM(best.cents)})`,
-                tone: thisMonthCents >= best.cents ? "green" : "navy" }
-            : undefined}
-          sub={`${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business · since 20-07-2026`} />,
+          bar={best && best.cents > 0 ? { pct: (thisMonthCents / best.cents) * 100, label: best.month === rev.month ? "this month is your best yet 🏆" : `vs best month (${ym(best.month)} · ${fmtRM(best.cents)})`, tone: thisMonthCents >= best.cents ? "green" : "navy" } : undefined}
+          sub={`${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`} />,
       );
     }
     if (rev.outstanding && rev.outstanding.docs > 0) {
-      cards.push(
+      ticker.push(
         <StatCard key="out" accent="red" label="Unpaid invoices"
           value={fmtRM(rev.outstanding.cents)}
-          sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment`} />,
+          sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`} />,
       );
     }
   }
-  if (canStatus && sum) {
-    const rows: [string, number | null][] = [
-      ["Leave pending", sum.pending_leave],
-      ["Claims pending", sum.pending_claims],
-      ["OT pending", sum.pending_ot],
-      ["Low stock", sum.low_stock],
-      ["Follow-ups overdue", sum.overdue_followups],
-      ["Quotations open", sum.open_quotations],
-    ];
-    const shown = rows.filter(([, v]) => v !== null && v > 0);
-    cards.push(
-      <div key="status" className="border-border bg-card rounded-xl border border-t-2 border-t-[#1A2946] p-4 shadow-sm">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
-        {shown.length === 0
-          ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
-          : (
-            <div className="mt-1.5 space-y-1">
-              {shown.map(([label, v]) => (
-                <p key={label} className="flex items-baseline justify-between text-sm">
-                  <span>{label}</span>
-                  <span className="font-bold tabular-nums">{v}</span>
-                </p>
-              ))}
+
+  /* ---- market targets: product vs service ---- */
+  const thisM = rev?.month ?? "";
+  const lastM = rev?.last_month ?? "";
+  const markets = (mkLines ?? [])
+    .map((l) => {
+      const now = l.months.find((m) => m.month === thisM)?.cents ?? 0;
+      const last = l.months.find((m) => m.month === lastM)?.cents ?? 0;
+      const t = autoTargetCents(last);
+      return { key: l.key, label: l.label.split(" (")[0] ?? l.key, now, last, target: t };
+    })
+    .filter((m) => m.now > 0 || m.last > 0);
+
+  /* ---- motivation ---- */
+  let motivation: { emoji: string; text: string; cls: string } | null = null;
+  if (canRevenue && rev && target && pct !== null) {
+    const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
+    const needPerDay = Math.max(0, target - monthTotal) / daysLeft;
+    if (pct >= 100) {
+      motivation = { emoji: "🏆", text: `TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`, cls: "bg-success-soft text-success" };
+    } else if (onPace) {
+      motivation = { emoji: "✅", text: `On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`, cls: "bg-success-soft text-success" };
+    } else if (expectedPct - pct <= 15) {
+      motivation = { emoji: "⚡", text: `Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`, cls: "bg-warning-soft text-warning" };
+    } else {
+      motivation = { emoji: "🚀", text: `Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`, cls: "bg-danger-soft text-danger" };
+    }
+  }
+
+  /* ---- data-driven boost suggestions ---- */
+  const tips: string[] = [];
+  if (canRevenue && rev) {
+    const peak = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
+    if (peak && peak.cents > 0) {
+      tips.push(`Schedule the next LIVE at ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — your best-selling hour this week (${fmtRM(peak.cents)} across ${peak.orders} orders).`);
+    }
+    if (rev.outstanding && rev.outstanding.docs > 0) {
+      tips.push(`Chase the ${rev.outstanding.docs} unpaid invoice${rev.outstanding.docs === 1 ? "" : "s"} (${fmtRM(rev.outstanding.cents)}) — it's revenue you already earned.`);
+    }
+    if ((sum?.open_quotations ?? 0) > 0) {
+      tips.push(`${sum!.open_quotations} quotation${sum!.open_quotations === 1 ? "" : "s"} still open — a follow-up call today converts faster than a new lead.`);
+    }
+    if ((sum?.low_stock ?? 0) > 0) {
+      tips.push(`${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low on stock — restock before the next live so a bestseller never sells out mid-stream.`);
+    }
+    const weakest = markets.filter((m) => m.target && m.now < m.target).sort((a, b) => (a.now / a.target!) - (b.now / b.target!))[0];
+    if (weakest?.target) {
+      tips.push(`${weakest.label} is at ${Math.round((weakest.now / weakest.target) * 100)}% of its market target — ${fmtRM(weakest.target - weakest.now)} more takes it home.`);
+    }
+  }
+
+  if (ticker.length === 0 && !canStatus) return null;
+
+  return (
+    <div className="space-y-3 md:space-y-4">
+      {/* Zone 1 — the ticker */}
+      {ticker.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
+      )}
+
+      {/* Zone 2+3 — KPI + markets, one desk card */}
+      {canRevenue && rev && (target || markets.length > 0) && (
+        <div className={card}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold">📊 Sales floor — {ym(rev.month)}</p>
+            <p className="text-muted-foreground text-xs tabular-nums">day {dayOfMonth}/{daysInMonth} · pace {expectedPct}%</p>
+          </div>
+          {target && pct !== null && (
+            <div className="mt-3">
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-semibold tracking-wide uppercase">🎯 KPI — month target {targetIsAuto ? "(auto: last month +10%)" : ""}</span>
+                <span className="tabular-nums font-bold">{fmtRM(monthTotal)} / {fmtRM(target)}</span>
+              </div>
+              <div className="relative mt-1.5 h-5 w-full overflow-hidden rounded-full bg-secondary">
+                <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear"}`}
+                  style={{ width: `${Math.min(100, Math.max(pct, 1))}%` }} />
+                {/* pace marker: where the month says you SHOULD be */}
+                <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.min(99, expectedPct)}%` }} title={`pace: ${expectedPct}%`} />
+                <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
+                  style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
+                  {pct}%
+                </span>
+              </div>
             </div>
           )}
-      </div>,
-    );
-  }
-  if (cards.length === 0) return null;
-  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{cards}</div>;
+          {motivation && (
+            <p className={`mt-2.5 rounded-lg px-3 py-2 text-xs font-medium ${motivation.cls}`}>
+              {motivation.emoji} {motivation.text}
+            </p>
+          )}
+          {markets.length > 0 && (
+            <div className="mt-3">
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets — product · service</p>
+              <div className="mt-1.5 space-y-2">
+                {markets.map((m) => {
+                  const mPct = m.target ? Math.round((m.now / m.target) * 100) : null;
+                  return (
+                    <div key={m.key} className="flex items-center gap-2 text-sm">
+                      <span className="w-24 shrink-0 capitalize md:w-32">{m.label}</span>
+                      <div className="flex-1">
+                        <MiniBar pct={m.target ? (m.now / m.target) * 100 : (m.now > 0 ? 100 : 0)}
+                          tone={mPct !== null && mPct >= 100 ? "green" : m.key === "service" ? "gold" : "navy"} />
+                      </div>
+                      <span className="shrink-0 text-right text-xs tabular-nums md:text-sm">
+                        <span className="font-semibold">{fmtRM(m.now)}</span>
+                        {m.target && <span className="text-muted-foreground"> / {fmtRM(m.target)} ({mPct}%)</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-muted-foreground mt-1 text-[11px]">Each line&apos;s target = its own last month + 10% (auto). Momentum, per business.</p>
+            </div>
+          )}
+          {tips.length > 0 && (
+            <div className="mt-3">
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">💡 Boost the number</p>
+              <ul className="mt-1.5 space-y-1">
+                {tips.slice(0, 4).map((t) => (
+                  <li key={t} className="flex gap-2 text-xs">
+                    <span aria-hidden className="text-gold-deep">▸</span>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Zone 4 — needs attention (unchanged scope, semantic tokens) */}
+      {canStatus && sum && (() => {
+        const rows: [string, number | null][] = [
+          ["Leave pending", sum.pending_leave],
+          ["Claims pending", sum.pending_claims],
+          ["OT pending", sum.pending_ot],
+          ["Low stock", sum.low_stock],
+          ["Quotations open", sum.open_quotations],
+        ];
+        const shown = rows.filter(([, v]) => v !== null && v > 0);
+        return (
+          <div className="border-border bg-card rounded-xl border border-t-2 border-t-brand p-4 shadow-sm">
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
+            {shown.length === 0
+              ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
+              : (
+                <div className="mt-1.5 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
+                  {shown.map(([label, v]) => (
+                    <p key={label} className="flex items-baseline justify-between text-sm">
+                      <span>{label}</span>
+                      <span className="font-bold tabular-nums">{v}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+          </div>
+        );
+      })()}
+    </div>
+  );
 }
 
 function SalesRevenueCard({ role }: { role?: string }) {
@@ -666,7 +802,7 @@ function SalesRevenueCard({ role }: { role?: string }) {
           const nowM = new Date(Date.now() + 8 * 3600 * 1000);
           const daysInMonth = new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() + 1, 0)).getUTCDate();
           const expectedPct = Math.round((nowM.getUTCDate() / daysInMonth) * 100);
-          const barColor = pct >= 100 ? "bg-green-600" : pct >= 70 ? "bg-[#C9A227]" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+          const barColor = pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear";
           const onPace = pct >= expectedPct;
           return (
             <>
@@ -743,105 +879,7 @@ const EVENT_CATEGORIES = [
     trainings, classes and important dates are never missed. Managers
     (events_manage roles) add and remove events inline; everyone is
     bell-notified when one is created. */
-/* v1.4.266 (CEO: "add Famous search product in Malaysia which is related to
-   my product and my service… potential business"): what the country is
-   searching TODAY, with the rows that touch our world pinned to the top.
-
-   The source is Google Trends Malaysia (the official RSS, cached 3h in the
-   worker) — searches, i.e. DEMAND. Threads was evaluated and rejected as the
-   engine: its keyword API is gated behind Meta App Review, capped at 500
-   searches/7 days, and measures what people POST, not what they LOOK FOR. */
-const TREND_BUSINESS_KEYWORDS = [
-  // our products + the client's world
-  "tudung", "hijab", "shawl", "scarf", "elfia", "bawal", "instant",
-  // occasions that move modest fashion
-  "raya", "baju", "fashion", "kurung", "nikah", "kahwin", "wedding", "konvokesyen",
-  // our services + channels
-  "tiktok", "live", "shopee", "affiliate", "viral", "ecommerce", "e-commerce", "influencer",
-];
-
-function TrendingMYCard() {
-  const [data, setData] = useState<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null>(null);
-  /* v1.4.268 (CEO's screenshot showed only the generic failure line): the
-     card now separates the two failures it can have — the WORKER not having
-     the route yet (deploy) vs GOOGLE not answering (retry) — and the retry
-     button is real: ?refresh=1 drops the server cache before refetching. */
-  const [failed, setFailed] = useState<"" | "route" | "google">("");
-  const [detail, setDetail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const fetchTrends = useCallback(async (refresh: boolean) => {
-    setBusy(true);
-    const r = await api<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[]; error?: { message?: string } }>(`/staff/trends/my${refresh ? "?refresh=1" : ""}`);
-    setBusy(false);
-    if (r.ok && r.data?.items) { setData(r.data); setFailed(""); setDetail(""); return; }
-    /* v1.4.269 (his screenshot said "Staff route not found" inside the
-       GOOGLE branch): that message is the ROUTER's own 404 — the worker
-       predates the trends route — so it must land in the "route" state.
-       Only a reachable route's failure is a Google failure. */
-    const msg = r.data?.error?.message ?? "";
-    if (msg && !/route not found/i.test(msg)) { setFailed("google"); setDetail(msg); }
-    else setFailed("route");
-  }, []);
-  useEffect(() => { void fetchTrends(false); }, [fetchTrends]);
-
-  const hits = data ? data.items.filter((it) => {
-    const t = it.title.toLowerCase();
-    return TREND_BUSINESS_KEYWORDS.some((k) => t.includes(k));
-  }) : [];
-  const rest = data ? data.items.filter((it) => !hits.includes(it)) : [];
-
-  return (
-    <div className={card}>
-      <p className="text-sm font-semibold">🔎 Trending searches — Malaysia</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        What the country is googling right now (Google Trends, ~hourly). Rows touching our products or channels are pinned — each one is a live to plan, a hook to post, or a customer already searching.
-      </p>
-      {!data && !failed && <p className="text-muted-foreground mt-2 text-xs">Loading trends…</p>}
-      {failed === "route" && (
-        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          The server doesn&apos;t have the trends route yet — this card starts working after the next worker deploy (<span className="font-mono">cd worker && wrangler deploy</span>).
-        </p>
-      )}
-      {failed === "google" && (
-        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <p>{detail || "Google Trends could not be reached from the server just now."}</p>
-          <button type="button" className={`${rowBtn} mt-1.5`} disabled={busy}
-            onClick={() => void fetchTrends(true)}>{busy ? "Trying…" : "↻ Try again"}</button>
-        </div>
-      )}
-      {data && (
-        <>
-          {hits.length > 0 ? (
-            <div className="mt-2 space-y-1.5">
-              {hits.map((it) => (
-                <div key={it.title} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm">
-                  <span className="font-medium">🎯 {it.title}</span>
-                  {it.traffic && <span className="text-muted-foreground ml-1.5 text-xs">{it.traffic} searches</span>}
-                  {it.news && <p className="text-muted-foreground mt-0.5 text-xs">{it.news_url ? <a className="underline" href={it.news_url} target="_blank" rel="noreferrer">{it.news}</a> : it.news}</p>}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground mt-2 text-xs">Nothing in today&apos;s top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
-          )}
-          {rest.length > 0 && (
-            <DetailsToggle label={`All trending searches (${rest.length})`} className="mt-2">
-              <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sm">
-                {rest.map((it) => (
-                  <li key={it.title}>
-                    {it.title}
-                    {it.traffic && <span className="text-muted-foreground ml-1.5 text-xs">{it.traffic}</span>}
-                  </li>
-                ))}
-              </ol>
-            </DetailsToggle>
-          )}
-          <p className="text-muted-foreground mt-2 text-[11px]">Updated {dmyMYT(data.fetched_at)} MYT · source: Google Trends Malaysia</p>
-        </>
-      )}
-    </div>
-  );
-}
+/* v1.5.0: TrendingMYCard + TREND_BUSINESS_KEYWORDS removed with the Social tab. */
 
 function UpcomingEventsCard({ role }: { role: string }) {
   const [events, setEvents] = useState<CompanyEvent[]>([]);
@@ -2693,80 +2731,7 @@ function PnlCard() {
   );
 }
 
-/* v1.4.278 — 🎯 Pipeline insights ("business opportunities"): the funnel,
-   the win rate, which SOURCE actually closes, and the referral leaders —
-   the questions the pipeline exists to answer. Null until the worker has
-   the route (or 0066 hasn't run — the panel below already says so). */
-function PipelineInsightsCard() {
-  interface Insights { stages: { stage: string; n: number }[]; sources: { source: string; total: number; won: number }[]; referrers: { name: string; total: number; won: number }[] }
-  const [ins, setIns] = useState<Insights | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    void api<Insights>(`/staff/prospects/insights`).then((r) => { 
-      if (r.ok && r.data) setIns(r.data);
-      setLoading(false);
-    });
-  }, []);
-  
-  if (loading) {
-    return (
-      <div className={card}>
-        <p className="text-sm font-semibold">🎯 Pipeline insights</p>
-        <div className="mt-4 space-y-3 animate-pulse">
-          <div className="h-4 w-3/4 rounded bg-secondary"></div>
-          <div className="h-4 w-1/2 rounded bg-secondary"></div>
-          <div className="h-4 w-2/3 rounded bg-secondary"></div>
-        </div>
-      </div>
-    );
-  }
-  if (!ins) return null;
-  const ORDER = ["identified", "contacted", "replied", "meeting", "proposal", "won", "lost"];
-  const byStage = Object.fromEntries(ins.stages.map((s) => [s.stage, s.n]));
-  const totalAll = ins.stages.reduce((a, s) => a + s.n, 0);
-  if (totalAll === 0) return null; // never display zero stats
-  const won = byStage["won"] ?? 0;
-  const closed = won + (byStage["lost"] ?? 0);
-  const maxStage = Math.max(...ORDER.map((s) => byStage[s] ?? 0), 1);
-  return (
-    <div className={card}>
-      <p className="text-sm font-semibold">🎯 Pipeline insights</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {totalAll} prospect{totalAll === 1 ? "" : "s"} tracked
-        {closed > 0 ? ` · win rate ${Math.round((won / closed) * 100)}% of ${closed} closed` : " · nothing closed yet"}
-      </p>
-      <div className="mt-2 space-y-1.5">
-        {ORDER.filter((s) => (byStage[s] ?? 0) > 0).map((s) => (
-          <div key={s} className="flex items-center gap-2 text-sm">
-            <span className="w-24 shrink-0 capitalize">{s}</span>
-            <div className="flex-1"><MiniBar pct={((byStage[s] ?? 0) / maxStage) * 100} tone={s === "won" ? "green" : s === "lost" ? "red" : "navy"} /></div>
-            <span className="w-8 text-right tabular-nums">{byStage[s]}</span>
-          </div>
-        ))}
-      </div>
-      {ins.sources.length > 0 && (
-        <div className="mt-3">
-          <p className="text-muted-foreground text-xs font-semibold">WHICH SOURCE CLOSES</p>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            {ins.sources.map((s) => (
-              <span key={s.source} className="capitalize">{s.source}: <span className="font-medium tabular-nums">{s.won}/{s.total}</span> won</span>
-            ))}
-          </div>
-        </div>
-      )}
-      {ins.referrers.length > 0 && (
-        <div className="mt-3">
-          <p className="text-muted-foreground text-xs font-semibold">TOP REFERRERS</p>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            {ins.referrers.map((r) => (
-              <span key={r.name}>↗ {r.name}: <span className="font-medium tabular-nums">{r.won}/{r.total}</span> won</span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+/* v1.5.0: PipelineInsightsCard removed with the Social tab. */
 
 function ClientsCard() {
   interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
@@ -3899,11 +3864,191 @@ function UsersPanel({ role }: { role: string }) {
   );
 }
 
+/* ================= v1.6.0 — Leaderboard + targets/commission ================ */
+
+const TARGET_ADMIN_ROLES = ["super_admin", "admin", "ceo", "coo", "cco"];
+
+interface LeaderRow {
+  user_id: number; name: string; role: string; photo_key: string | null;
+  sales_cents: number; target_cents: number | null; pct: number | null;
+  commission_cents: number; rank: number;
+}
+
+/** The sales leaderboard — attributed sales per person this month, progress to
+    target, and the commission the active rules would pay. The motivational
+    heart of the sales floor. */
+function LeaderboardCard({ user }: { user: User }) {
+  const [rows, setRows] = useState<LeaderRow[] | null>(null);
+  const [hasRules, setHasRules] = useState(false);
+  const canSeeCommission = TARGET_ADMIN_ROLES.includes(user.role);
+  useEffect(() => {
+    void api<{ rows: LeaderRow[]; has_rules: boolean }>(`/staff/leaderboard`).then((r) => {
+      if (r.ok && r.data) { setRows(r.data.rows); setHasRules(r.data.has_rules); }
+      else setRows([]);
+    });
+  }, []);
+  if (!rows) return null;
+  const medal = (rank: number) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`);
+  const top = rows[0]?.sales_cents ?? 0;
+  return (
+    <div className={card}>
+      <p className="text-sm font-semibold">🏆 Sales leaderboard — this month</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Attributed sales per person: paid invoices they closed + TikTok GMV during their live sessions. The whole floor, ranked.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground mt-3 text-sm">No attributed sales yet this month — the board fills as invoices are paid and lives run.</p>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          {rows.map((r) => {
+            const isMe = r.user_id === user.id;
+            return (
+              <div key={r.user_id}
+                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${isMe ? "bg-gold-soft/50 ring-1 ring-gold" : r.rank <= 3 ? "bg-secondary/60" : ""}`}>
+                <span className="w-7 shrink-0 text-center text-base">{medal(r.rank)}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium">{r.name}</span>
+                  {isMe && <span className="text-gold-deep ml-1 text-[11px] font-semibold">you</span>}
+                  <span className="text-muted-foreground ml-1.5 text-[11px] capitalize">{r.role.replace(/_/g, " ")}</span>
+                </span>
+                <span className="hidden w-28 shrink-0 sm:block">
+                  <MiniBar pct={top > 0 ? (r.sales_cents / top) * 100 : 0} tone={r.rank === 1 ? "green" : "gold"} />
+                </span>
+                <span className="w-24 shrink-0 text-right tabular-nums font-semibold">{fmtRM(r.sales_cents)}</span>
+                {r.pct !== null && (
+                  <span className={`hidden w-12 shrink-0 text-right text-xs tabular-nums sm:block ${r.pct >= 100 ? "text-bull font-semibold" : "text-muted-foreground"}`}>{r.pct}%</span>
+                )}
+                {canSeeCommission && r.commission_cents > 0 && (
+                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-gold-deep" title="commission the active rules would pay">+{fmtRM(r.commission_cents)}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {canSeeCommission && !hasRules && rows.length > 0 && (
+        <p className="text-muted-foreground mt-2 text-[11px]">Add a commission rule below to show each person&apos;s payout here.</p>
+      )}
+    </div>
+  );
+}
+
+interface CommRule { id: number; name: string; base_pct: number; bonus_pct: number; applies_to: string; active: number }
+
+/** Management: per-person & per-team targets, and commission rules. */
+function TargetsCommissionCard() {
+  const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+  const [staff, setStaff] = useState<{ id: number; name: string; role: string }[]>([]);
+  const [userTargets, setUserTargets] = useState<Record<number, number>>({});
+  const [teamTargets, setTeamTargets] = useState<Record<string, number>>({});
+  const [rules, setRules] = useState<CommRule[] | null>(null);
+  const [draft, setDraft] = useState({ name: "", base_pct: "", bonus_pct: "", applies_to: "all" });
+  const { show: showToast, node: toastNode } = useSaveToast();
+
+  const loadTargets = useCallback(() => {
+    void api<{ staff: { id: number; name: string; role: string }[]; user_targets: { user_id: number; target_cents: number }[]; team_targets: { team: string; target_cents: number }[] }>(`/staff/targets?month=${month}`).then((r) => {
+      if (r.ok && r.data) {
+        setStaff(r.data.staff);
+        setUserTargets(Object.fromEntries(r.data.user_targets.map((t) => [t.user_id, t.target_cents])));
+        setTeamTargets(Object.fromEntries(r.data.team_targets.map((t) => [t.team, t.target_cents])));
+      }
+    });
+  }, [month]);
+  const loadRules = useCallback(() => {
+    void api<{ rules: CommRule[] }>(`/staff/commission/rules`).then((r) => { if (r.ok && r.data) setRules(r.data.rules); });
+  }, []);
+  useEffect(() => { loadTargets(); loadRules(); }, [loadTargets, loadRules]);
+
+  const saveTarget = async (scope: "user" | "team", id: number | string, rm: string) => {
+    const cents = Math.round(Number(rm) * 100);
+    if (!Number.isFinite(cents) || cents < 0) { showToast("No change", "Enter an amount first", "notice"); return; }
+    const res = await api(`/staff/targets`, { method: "POST", body: JSON.stringify({ scope, id, month, target_cents: cents }) });
+    if (res.ok) { showToast("Saved", `Target set for ${ym(month)}`); loadTargets(); }
+  };
+
+  return (
+    <div className={card}>
+      {toastNode}
+      <p className="text-sm font-semibold">🎯 Targets &amp; commission — {ym(month)}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Set each person&apos;s and each team&apos;s monthly goal, and the commission rules that pay them. Feeds the leaderboard and the dashboard.
+      </p>
+
+      <div className="mt-3">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Per-person targets (RM)</p>
+        <div className="mt-1.5 space-y-1">
+          {staff.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{s.name} <span className="text-muted-foreground text-[11px] capitalize">{s.role.replace(/_/g, " ")}</span></span>
+              <input type="number" min={0} step="100" className={`${inputClass} h-8 w-28 text-xs`}
+                defaultValue={userTargets[s.id] ? (userTargets[s.id] / 100).toString() : ""}
+                placeholder="e.g. 8000"
+                onBlur={(e) => { if (e.target.value) void saveTarget("user", s.id, e.target.value); }} />
+            </div>
+          ))}
+          {staff.length === 0 && <p className="text-muted-foreground text-xs">No staff to target yet.</p>}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Team targets (RM)</p>
+        <div className="mt-1.5 flex flex-wrap gap-3">
+          {["sales", "live"].map((team) => (
+            <label key={team} className="flex items-center gap-2 text-sm">
+              <span className="capitalize">{team}</span>
+              <input type="number" min={0} step="100" className={`${inputClass} h-8 w-32 text-xs`}
+                defaultValue={teamTargets[team] ? (teamTargets[team] / 100).toString() : ""}
+                placeholder="team goal"
+                onBlur={(e) => { if (e.target.value) void saveTarget("team", team, e.target.value); }} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-border pt-3">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Commission rules</p>
+        <div className="mt-1.5 space-y-1">
+          {(rules ?? []).map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="flex-1 min-w-0 truncate">
+                <span className="font-medium">{r.name}</span>
+                <span className="text-muted-foreground ml-1.5 text-xs">{r.base_pct}% base{r.bonus_pct ? ` + ${r.bonus_pct}% over target` : ""} · {r.applies_to === "all" ? "everyone" : r.applies_to.replace(/_/g, " ")}</span>
+              </span>
+              <button type="button" className={btnSm}
+                onClick={async () => { await api(`/staff/commission/rules/${r.id}`, { method: "PATCH", body: JSON.stringify({ active: r.active ? 0 : 1 }) }); loadRules(); }}>
+                {r.active ? "On" : "Off"}
+              </button>
+              <button type="button" className={`${btnSm} text-destructive`}
+                onClick={async () => { await api(`/staff/commission/rules/${r.id}`, { method: "DELETE" }); loadRules(); }}>
+                Remove
+              </button>
+            </div>
+          ))}
+          {rules && rules.length === 0 && <p className="text-muted-foreground text-xs">No rules yet — add one below (e.g. 1.5% base + 3% over target).</p>}
+        </div>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <input className={`${inputClass} h-8 w-40 text-xs`} placeholder="Rule name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <label className="text-xs">base %<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.base_pct} onChange={(e) => setDraft({ ...draft, base_pct: e.target.value })} /></label>
+          <label className="text-xs">bonus %<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.bonus_pct} onChange={(e) => setDraft({ ...draft, bonus_pct: e.target.value })} /></label>
+          <button type="button" className={btnSmPrimary}
+            disabled={!draft.name || !draft.base_pct}
+            onClick={async () => {
+              const res = await api(`/staff/commission/rules`, { method: "POST", body: JSON.stringify({ name: draft.name, base_pct: Number(draft.base_pct), bonus_pct: Number(draft.bonus_pct || 0), applies_to: draft.applies_to }) });
+              if (res.ok) { setDraft({ name: "", base_pct: "", bonus_pct: "", applies_to: "all" }); showToast("Saved", "Commission rule added"); loadRules(); }
+            }}>
+            Add rule
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // v1.4.101: order set by the CEO — Dashboard > News > HR > Staff Details >
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Social", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.4.267 Social
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed (CEO)
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4004,11 +4149,17 @@ export default function PortalPage() {
   // click/tap anywhere unlocks the audio context; polls before that stay
   // silent (the badge still updates). Toggleable via the 🔔/🔕 button.
   const [sound, setSound] = useState(true);
+  // v1.6.0: web-push permission state for this device.
+  const [pushState, setPushState] = useState<"default" | "granted" | "denied" | "unsupported">("default");
   useEffect(() => {
     setSound(localStorage.getItem("azone-notif-sound") !== "off");
+    setPushState(pushPermission());
   }, []);
   const audioRef = useRef<AudioContext | null>(null);
   const unreadRef = useRef<number | null>(null); // null = first load (no chime)
+  // v1.6.0: the SSE stream reads the latest list without re-subscribing.
+  const notifsRef = useRef<Notification[]>([]);
+  useEffect(() => { notifsRef.current = notifs; }, [notifs]);
   useEffect(() => {
     // Unlock on the first gesture so POLL-triggered chimes are allowed later.
     const unlock = () => {
@@ -4060,29 +4211,62 @@ export default function PortalPage() {
 
   useEffect(() => {
     if (!user) return;
+    // v1.6.0: chime + badge logic factored out so both the initial fetch, the
+    // safety-net poll, and the live SSE stream feed it.
+    const applyList = (list: Notification[]) => {
+      const nowUnread = list.filter((n) => !n.is_read).length;
+      if (unreadRef.current !== null && nowUnread > unreadRef.current &&
+          localStorage.getItem("azone-notif-sound") !== "off") {
+        void chime();
+      }
+      unreadRef.current = nowUnread;
+      setNotifs(list);
+    };
     const fetchNotifs = () =>
       void api<{ notifications: Notification[] }>("/staff/notifications").then((r) => {
-        const list = r.data?.notifications ?? [];
-        const nowUnread = list.filter((n) => !n.is_read).length;
-        // Chime only on an INCREASE after the first load — never on open,
-        // never on mark-as-read shrinkage.
-        if (unreadRef.current !== null && nowUnread > unreadRef.current &&
-            localStorage.getItem("azone-notif-sound") !== "off") {
-          void chime();
-        }
-        unreadRef.current = nowUnread;
-        setNotifs(list);
+        if (r.data?.notifications) applyList(r.data.notifications);
       });
     fetchNotifs();
-    // Live alerting (v1.4.31): announcements and assignments reach the bell
-    // without a reload — poll every 60s and whenever the tab regains focus.
-    const timer = window.setInterval(fetchNotifs, 60_000);
+
+    /* v1.6.0 REAL-TIME: an SSE stream delivers new notifications within
+       ~5 seconds instead of up to 60. The Worker stream self-closes after
+       ~20s and EventSource reconnects automatically. A slow 120s poll stays
+       as a safety net (and covers browsers where SSE is blocked). The chime
+       still fires on the same increase rule; server-side web-push covers the
+       tab-closed case. */
+    let es: EventSource | null = null;
+    let sinceId = 0;
+    const openStream = () => {
+      try {
+        sinceId = Math.max(sinceId, ...notifsRef.current.map((n) => n.id), 0);
+        es = new EventSource(`/api/v1/staff/notifications/stream?since=${sinceId}`, { withCredentials: true });
+        es.addEventListener("notifications", (ev) => {
+          try {
+            const incoming = JSON.parse((ev as MessageEvent).data) as Notification[];
+            if (!incoming.length) return;
+            const merged = [...incoming.reverse(), ...notifsRef.current]
+              .filter((n, i, a) => a.findIndex((x) => x.id === n.id) === i)
+              .sort((a, b) => b.id - a.id)
+              .slice(0, 50);
+            sinceId = Math.max(sinceId, ...incoming.map((n) => n.id));
+            applyList(merged);
+          } catch { /* ignore malformed frame */ }
+        });
+        es.onerror = () => { es?.close(); es = null; };
+      } catch { /* EventSource unsupported — the poll below carries it */ }
+    };
+    openStream();
+    const reconnect = window.setInterval(() => { if (!es) openStream(); }, 8000);
+    const timer = window.setInterval(fetchNotifs, 120_000);
     window.addEventListener("focus", fetchNotifs);
     return () => {
+      es?.close();
+      window.clearInterval(reconnect);
       window.clearInterval(timer);
       window.removeEventListener("focus", fetchNotifs);
     };
-  }, [user, tab, chime]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, chime]);
 
   const unread = notifs.filter((n) => !n.is_read).length;
   /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
@@ -4145,8 +4329,11 @@ export default function PortalPage() {
           <div className="mt-8 flex justify-end border-t border-border pt-6">
             <button
               onClick={() => {
-                document.cookie = "azone_session=; path=/; max-age=0";
-                window.location.href = "/login";
+                /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
+                   could never clear it, so this button looped users back to
+                   the same screen forever. A real server-side logout now. */
+                void api("/auth/logout", { method: "POST", body: JSON.stringify({}) })
+                  .then(() => { window.location.href = "/login"; });
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -4205,6 +4392,29 @@ export default function PortalPage() {
           >
             {sound ? "🔊" : "🔇"}
           </button>
+          {/* v1.6.0: push alerts to this device (works even with the tab
+              closed). Hidden where the browser can't do web push. */}
+          {pushState !== "unsupported" && (
+            <button
+              type="button"
+              className={btnHdr}
+              title={pushState === "granted" ? "Push alerts ON for this device — tap to turn off" : "Get push alerts on this device"}
+              aria-label="Toggle push alerts"
+              onClick={async () => {
+                if (pushState === "granted") {
+                  await disablePush();
+                  setPushState("default");
+                } else {
+                  const r = await enablePush();
+                  if (r === "ok") { setPushState("granted"); }
+                  else if (r === "unconfigured") window.alert("Push isn't set up on the server yet — ask your admin to add the VAPID keys.");
+                  else if (r === "denied") window.alert("Notifications are blocked for this site in your browser settings.");
+                }
+              }}
+            >
+              {pushState === "granted" ? "🔔✓" : "🔕"}
+            </button>
+          )}
           <button
             type="button"
             className={`${btnHdr} relative`}
@@ -4408,6 +4618,8 @@ export default function PortalPage() {
                 → Connection status last (plumbing below the business).
                 v1.4.277: Sales revenue leads the tab (moved from Dashboard
                 per CEO — the month summary above the channel detail). */}
+            {REVENUE_ROLES.includes(user.role) && <LeaderboardCard user={user} />}
+            {TARGET_ADMIN_ROLES.includes(user.role) && <TargetsCommissionCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
             {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
@@ -4418,18 +4630,7 @@ export default function PortalPage() {
             <ConnectionStatusCard />
           </div>
         )}
-        {activeTab === "Social" && (
-          <div className="space-y-4 md:space-y-6">
-            {/* v1.4.267 (CEO: "ensure that my dashboard not exploded… make a
-                new tabs under Social"): market-watching + prospecting live
-                together here — spot a trend, log the brand, work the stage.
-                The trends card MOVED off the Dashboard for the same reason. */}
-            {["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role) && <PipelineInsightsCard />}
-            <ProspectsPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
-              onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
-            <TrendingMYCard />
-          </div>
-        )}
+        {/* v1.5.0: Social tab removed on the CEO's direction. */}
         {activeTab === "Assets" && <AssetsPanel />}
         {activeTab === "Birthdays" && <BirthdaysPanel />}
         {activeTab === "Overview" && <OverviewPanel />}

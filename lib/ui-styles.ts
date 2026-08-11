@@ -52,3 +52,45 @@ export const th = "px-3 py-2 text-left text-xs font-semibold tracking-wide upper
 export const td = "px-3 py-2 text-sm";
 export const thR2 = "px-3 py-2 text-right text-xs font-semibold tracking-wide uppercase whitespace-nowrap text-muted-foreground";
 export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap";
+
+/* ===================== v1.5.0 — global style consolidation =====================
+   These strings existed as copy-pasted literals across the portal, admin and
+   account pages (btnGhost alone was pasted into four files with two different
+   paddings). One definition each, everywhere. */
+
+/** Secondary (outline) button — was duplicated in 4 files. */
+export const btnGhost =
+  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
+
+/** Compact header control (phones share one row). */
+export const btnHdr =
+  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
+
+/** Small buttons for table rows and dense cards. */
+export const btnSm =
+  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary";
+export const btnSmPrimary =
+  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50";
+
+/** Field labels — the two spellings that existed are now named. */
+export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";
+export const fieldLabelSm = "text-muted-foreground mb-1 block text-xs";
+
+/** Compact inputs (the ad-hoc `border-input bg-background px-2 py-1 …` family). */
+export const inputClassSm =
+  "rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring";
+
+/** Card-header row: title left, actions right, wraps politely on phones. */
+export const rowHead = "flex flex-wrap items-center justify-between gap-2";
+
+/** Bordered list row (the 5× duplicated `border-b py-2 last:border-0` row). */
+export const listRow =
+  "border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0";
+
+/** Status chips — semantic tokens instead of the six hand-mixed palettes. */
+export const chip = "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+export const chipNeutral = `${chip} bg-secondary`;
+export const chipSuccess = `${chip} bg-success-soft text-success`;
+export const chipWarn = `${chip} bg-warning-soft text-warning`;
+export const chipDanger = `${chip} bg-danger-soft text-danger`;
+export const chipInfo = `${chip} bg-info-soft text-info`;

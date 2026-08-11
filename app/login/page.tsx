@@ -6,6 +6,7 @@
  *   customer -> /account · staff roles -> /portal · CMS roles -> /admin
  */
 
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { inputClass, btnClassBlock as btnClass } from "@/lib/ui-styles";
@@ -27,33 +28,7 @@ function destinationFor(role: string): string {
   return "/admin";
 }
 
-function getCsrfToken() {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
-  return match ? match[1] : "";
-}
 
-async function api<T>(path: string, init?: RequestInit) {
-  try {
-    const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers(init?.headers as Record<string, string> ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    return { ok: res.ok, status: res.status, data: (await res.json().catch(() => null)) as T | null };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
 
 
 export default function LoginPage() {

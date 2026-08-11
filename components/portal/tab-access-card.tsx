@@ -28,7 +28,6 @@ const TABS: { name: string; label: string; hint: string }[] = [
   { name: "Sales", label: "Sales", hint: "CRM + documents" },
   { name: "Inventory", label: "Inventory", hint: "" },
   { name: "Ecommerce", label: "Ecommerce", hint: "TikTok cards" },
-  { name: "Social", label: "Social", hint: "trends + prospect pipeline" }, // v1.4.267
   { name: "Assets", label: "Assets", hint: "equipment register" },
   { name: "Birthdays", label: "Birthdays", hint: "" },
   { name: "Users", label: "Users", hint: "accounts — keep tight" },
@@ -60,8 +59,6 @@ const DEFAULTS: Record<string, string[] | null> = {
   Sales: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "admin"],
   Inventory: ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   Ecommerce: null,
-  Social: null, // v1.4.267 — every staff role logs finds
-
   Assets: ["hr_admin", "coo", "cco", "ceo", "admin"],
   Birthdays: ["ceo", "hr_admin", "coo", "cco", "admin"],
   Users: ["ceo", "coo"],

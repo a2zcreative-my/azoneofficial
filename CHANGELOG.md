@@ -2,6 +2,44 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.6.0] — 2026-08-11 — Sales leaderboard & commission engine, client order tracking, PWA + real-time notifications
+
+**Sales targets, commission & leaderboard**
+- New engine: per-person and per-team monthly targets (the company target stays on the revenue card), tiered commission rules (base % on all attributed sales + a bonus % on the amount above target — the "1.5% base + bonus over target" model), and a live leaderboard on the Ecommerce tab.
+- Attribution: each person's sales = paid invoices they closed (salesperson) + TikTok GMV that landed inside their live-session windows (the same attribution the LIVE GMV card uses). The leaderboard ranks the whole floor, highlights "you", and shows each person's commission estimate to management.
+- Management editor (CEO/COO/CCO/admin): set per-person and per-team targets and manage commission rules inline. Migration `0068` adds `user_sales_targets`, `team_sales_targets`, `commission_rules`.
+
+**Client order tracking (customer /account)**
+- New "Orders" tab: a signed-in customer sees their quotations, invoices (tap to open the share-link PDF) and live-session history. Invoices show paid/unpaid with due/paid dates.
+- Security: order history is shown only to accounts with a verified email (Google sign-in), so nobody can register a stranger's email to read their invoices; password accounts get a clear "verify to see your orders" notice with a WhatsApp fallback.
+
+**PWA + real-time notifications**
+- The portal notification bell is now real-time: an SSE stream (`/staff/notifications/stream`) delivers new notifications within ~5 seconds instead of up to 60, with a 120-second poll kept only as a safety net. The stream self-closes after ~20s and reconnects automatically — no connection is held open indefinitely.
+- Web push: staff can turn on push alerts per device (🔕/🔔✓ in the header) and receive notifications even with the tab closed. Full RFC 8291/8292 web-push implemented on Web Crypto in `worker/src/webpush.ts` — **needs three VAPID secrets** (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; generate with `npx web-push generate-vapid-keys`). Without them push is simply off and in-app + SSE still work.
+- The service worker (`public/sw.js`) now caches an offline app shell and handles push + notification clicks. The app was already installable (manifest + registered SW); this makes it work offline and push-capable.
+
+**Setup for this release**
+- Apply the migration: `cd worker && npx wrangler d1 migrations apply azoneofficial --remote` (adds 0068).
+- Optional (for push): set the three VAPID secrets via `wrangler secret put`.
+
+## [1.5.0] — 2026-08-11 — Security hardening, CCO login fix, Social removed, trading-style dashboard, global styles
+
+**Security & bug fixes (audit)**
+- Deleted committed secrets/backdoors: `test_tiktok.ts` (live TikTok app secret + seller token), `test-crypto.js` and `worker/update-all.sql` (the `SuperSecretPassword123` incident hash), `fix_portal.js`. **Rotate the TikTok app secret and reset the two affected passwords — assume the old values are public.**
+- **CCO cannot log in after logout** — root-caused and fixed on several fronts: (1) login rate limit now counts only FAILED attempts, keyed per account+IP, so successful sign-ins from one office IP no longer lock everyone out; (2) the 2FA-required "Sign out" button called `document.cookie` on an HttpOnly cookie (a no-op) and looped forever — it now calls `POST /auth/logout`; (3) `cco` added to `MANDATORY_2FA_ROLES` (was a transposition gap); (4) `www.` origin accepted so sign-in works on both hosts; (5) `/auth/me` and all API responses are now `no-store` so a stale "signed in" reply can't bounce a signed-out user back into the portal.
+- Media serving rewritten to default-deny: only `uploads/` is public; database backups, staff documents, payroll templates and claim receipts now require auth and ownership. SVG upload removed (stored-XSS vector). `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` added to every response.
+- Logout clears the `csrf_token` cookie and supports `{ all: true }` (sign out every device). CSRF and token comparisons now constant-time.
+- 2FA backup codes upgraded to PBKDF2 + widened keyspace (legacy SHA-256 codes still verify). Offboarding blocks every sign-in path via `employment_status` (login + Google OAuth) while keeping the leaver on their final payroll run.
+- Rate limiting made atomic (single upsert). Webhook receipts rate-limited and trimmed. Admin-tier accounts can only be modified by a super admin (a CEO could previously reset an admin's password).
+- **Error-notification flood fixed**: `tiktok_location` logged once per order on first import instead of every 30-minute sync pass; `error_log` de-duplicates identical entries within a 6-hour window and trims lazily. This is what produced the "22 new system errors since the last check" bell spam.
+- Runtime bugs fixed: Expenses tab (`month` → `mE`), Fulfilment drill-down and payroll commission-base (undefined `url`/`PAYROLL_PROC`), the "client gone quiet" cron (`notify` was never imported), returned/cancelled TikTok orders no longer deduct stock, `doc_type` filter bound as a parameter, download filenames sanitised.
+
+**Social tab removed** (CEO direction) — tab, panels (prospects pipeline, trends, pipeline insights) and Worker API routes removed. Prospect data is retained in the database, untouched.
+
+**Trading-style dashboard** — the hero band is now a Sales Floor: live today-vs-yesterday ticker in market green/red, a KPI target bar with a pace marker (target auto-computed from history: last month +10%, a manual target still wins), product-vs-service market targets, pace-aware motivation, and data-driven boost suggestions (best live hour, unpaid invoices, open quotations, restocks). The calendar is unchanged.
+
+**Global styles** — one shared `lib/api.ts` replaces 15 drifted per-file copies; `lib/ui-styles.ts` gains `btnGhost/btnHdr/btnSm/chip*` etc.; `styles/globals.css` gains semantic status tokens (`--success/--warning/--danger/--info`), one canonical gold (`--gold-solid`) and market `--bull/--bear`; hardcoded hex in the KPI cards replaced with tokens.
+
 ## [1.4.282] — 2026-08-11 — Quick actions first + the auditor's top-3 (migration health, permission matrix, offboarding)
 
 ### Rebased onto the 2026-08-11 security-fixes tree (all adopted): webhook 64KB body cap, generic 500 message (no detail leak), TikTok authorize requires a management session + audits the real user, 2FA setup blocked when already enabled, admin creation = super_admin only, HR staff-creation can no longer mint executives.

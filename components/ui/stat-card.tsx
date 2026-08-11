@@ -22,10 +22,10 @@ export function MiniBar({ pct, tone = "gold", className = "" }: {
 }) {
   const p = Math.max(0, Math.min(100, pct));
   const fill = {
-    gold: "bg-[#C9A227]",
-    green: "bg-green-500",
-    red: "bg-red-400",
-    navy: "bg-[#1A2946]",
+    gold: "bg-gold-solid", // v1.5.0: token, not hex
+    green: "bg-bull",
+    red: "bg-bear",
+    navy: "bg-brand",
     muted: "bg-muted-foreground/40",
   }[tone];
   return (
@@ -44,10 +44,10 @@ export function StatCard({ label, value, sub, bar, solid = false, accent }: {
   solid?: boolean;
   accent?: "gold" | "red" | "green"; // thin top edge on white cards
 }) {
-  const edge = accent === "red" ? "border-t-red-400" : accent === "green" ? "border-t-green-500" : "border-t-[#C9A227]";
+  const edge = accent === "red" ? "border-t-bear" : accent === "green" ? "border-t-bull" : "border-t-gold-solid"; // v1.5.0 tokens
   return (
     <div className={solid
-      ? "rounded-xl bg-[#1A2946] p-4 text-white shadow-sm"
+      ? "rounded-xl bg-brand p-4 text-white shadow-sm"
       : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`}>
       <p className={`text-[10px] font-semibold tracking-wider uppercase ${solid ? "text-white/70" : "text-muted-foreground"}`}>{label}</p>
       <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">{value}</p>
@@ -75,8 +75,8 @@ export function dueChip(dateISO: string | null | undefined, todayISO: string): {
   if (!dateISO) return null;
   const d = Math.round((new Date(dateISO + "T00:00:00Z").getTime() - new Date(todayISO + "T00:00:00Z").getTime()) / 86400_000);
   if (Number.isNaN(d)) return null;
-  if (d < 0) return { text: `${-d}d overdue`, cls: "bg-red-100 text-red-700" };
-  if (d === 0) return { text: "today", cls: "bg-amber-100 text-amber-800" };
+  if (d < 0) return { text: `${-d}d overdue`, cls: "bg-danger-soft text-danger" }; // v1.5.0 tokens
+  if (d === 0) return { text: "today", cls: "bg-warning-soft text-warning" };
   if (d <= 7) return { text: `in ${d}d`, cls: "bg-secondary text-foreground" };
   return null; // far-off dates need no chip — chips are for urgency, not decoration
 }

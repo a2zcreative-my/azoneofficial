@@ -33,5 +33,8 @@ export function can(role: Role | string | undefined | null, perm: keyof typeof P
   return PERMS[perm]!.includes(role as Role);
 }
 
-// Privileged roles that must have 2FA enabled
-export const MANDATORY_2FA_ROLES: Role[] = ["ceo", "super_admin", "admin", "coo", "hr_admin"];
+// Privileged roles that must have 2FA enabled.
+// v1.5.0: cco added — it holds team_manage / payroll_export / exec_view /
+// finance (strictly more than hr_admin, which was already on the list);
+// leaving it off was a transposition oversight.
+export const MANDATORY_2FA_ROLES: Role[] = ["ceo", "super_admin", "admin", "coo", "cco", "hr_admin"];

@@ -6,8 +6,33 @@
 import type { Env } from "./index";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
+import { sendPush, type PushKeys } from "./webpush";
 
 import { Role, can } from "./permissions";
+
+/** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
+function pushKeys(env: Env): PushKeys | null {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) return null;
+  return { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT };
+}
+
+/** v1.6.0: fire a web-push to every device a user has registered. Best-effort;
+    dead subscriptions (404/410) are pruned. Never throws. */
+export async function pushToUser(env: Env, userId: number, title: string, body: string, ref?: string): Promise<void> {
+  const keys = pushKeys(env);
+  if (!keys) return;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?1`,
+    ).bind(userId).all<{ id: number; endpoint: string; p256dh: string; auth: string }>();
+    for (const s of results) {
+      const status = await sendPush(keys, s, { title, body, ref: ref ?? null, url: "/portal" });
+      if (status === 404 || status === 410) {
+        await env.DB.prepare(`DELETE FROM push_subscriptions WHERE id = ?1`).bind(s.id).run();
+      }
+    }
+  } catch { /* push is best-effort; the in-app record is already saved */ }
+}
 
 export interface StaffUser {
   id: number;
@@ -49,12 +74,15 @@ function str(v: unknown, max = 2000): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
 }
 
-async function notify(
+export async function notify(
   env: Env, userId: number, kind: string, message: string, ref?: string,
 ): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, ?2, ?3, ?4)`,
   ).bind(userId, kind, message, ref ?? null).run();
+
+  // v1.6.0: web-push to the person's devices (best-effort, off when no VAPID).
+  await pushToUser(env, userId, "AZ ONE OFFICIAL", message, ref);
 
   // Off-platform delivery (email / WhatsApp relay). Only fires when a webhook
   // is configured; otherwise this is a no-op and notifications stay in-app.
@@ -317,6 +345,78 @@ async function revenueByMonth(env: Env): Promise<Record<string, number>> {
   return acc;
 }
 
+/* ===================== v1.6.0 — sales attribution & commission ============ */
+
+// Who may set targets and edit commission rules.
+const TARGET_ADMIN_ROLES = ["super_admin", "admin", "ceo", "coo", "cco"];
+
+interface CommissionRule {
+  id: number; name: string; base_pct: number; bonus_pct: number; applies_to: string; active: number;
+}
+
+/** Attributed sales (sen) per user for a month (YYYY-MM, MYT): paid invoices
+    where they are the salesperson + TikTok GMV landing inside their completed
+    live-session windows (the same attribution the LIVE GMV card already uses).
+    Returns Map<user_id, cents>. Armoured against pre-migration schemas. */
+async function attributedSalesByUser(env: Env, month: string): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const add = (uid: number | null, cents: number) => {
+    if (!uid) return;
+    out.set(uid, (out.get(uid) ?? 0) + (cents ?? 0));
+  };
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT salesperson_id AS uid, COALESCE(SUM(total_cents), 0) AS cents
+         FROM sales_documents
+        WHERE doc_type = 'INV' AND salesperson_id IS NOT NULL
+          AND paid_at IS NOT NULL AND strftime('%Y-%m', paid_at) = ?1
+        GROUP BY salesperson_id`,
+    ).bind(month).all<{ uid: number; cents: number }>();
+    for (const r of results) add(r.uid, r.cents);
+  } catch { /* pre-salesperson / pre-paid_at */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT s.host_user_id AS uid, COALESCE(SUM(p.order_amount_cents), 0) AS cents
+         FROM postage_records p
+         JOIN live_sessions s
+           ON s.status != 'cancelled' AND s.end_time IS NOT NULL
+          AND s.session_date = date(p.created_at, '+8 hours')
+          AND strftime('%H:%M', p.created_at, '+8 hours') >= s.start_time
+          AND strftime('%H:%M', p.created_at, '+8 hours') <= s.end_time
+        WHERE p.order_ref LIKE 'TT-%' AND p.status != 'returned'
+          AND p.order_amount_cents IS NOT NULL
+          AND strftime('%Y-%m', p.created_at, '+8 hours') = ?1
+        GROUP BY s.host_user_id`,
+    ).bind(month).all<{ uid: number; cents: number }>();
+    for (const r of results) add(r.uid, r.cents);
+  } catch { /* pre-live_sessions */ }
+  return out;
+}
+
+/** Commission (sen) for a person's attributed `sales` against their `target`,
+    under whichever active rule that applies to `role` yields the most (staff-
+    friendly): base_pct on all sales + bonus_pct on the amount above target. */
+function commissionFor(sales: number, target: number, role: string, rules: CommissionRule[]): number {
+  let best = 0;
+  for (const r of rules) {
+    if (!r.active) continue;
+    if (r.applies_to !== "all" && r.applies_to !== role) continue;
+    const base = sales * (r.base_pct / 100);
+    const over = target > 0 ? Math.max(0, sales - target) * (r.bonus_pct / 100) : 0;
+    best = Math.max(best, base + over);
+  }
+  return Math.round(best);
+}
+
+async function activeCommissionRules(env: Env): Promise<CommissionRule[]> {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, base_pct, bonus_pct, applies_to, active FROM commission_rules WHERE active = 1`,
+    ).all<CommissionRule>();
+    return results;
+  } catch { return []; }
+}
+
 export async function handleStaff(
   request: Request,
   env: Env,
@@ -346,7 +446,7 @@ export async function handleStaff(
   if (path === "/profile" && method === "PATCH") {
     // staff may update their own phone + name only
     const sets: string[] = [];
-    const vals: (string | number)[] = [];
+    const vals: (string | number | null)[] = [];
     if (typeof body?.phone === "string" && body.phone.length <= 40) {
       sets.push(`phone = ?${sets.length + 1}`);
       vals.push(body.phone.trim() || null);
@@ -498,111 +598,7 @@ export async function handleStaff(
     ).all();
     return json({ birthdays: results });
   }
-  // v1.4.267: who may CHANGE a prospect (stage/assignment/delete) — the tier
-  // that owns the sales pipeline. Reading + adding stays open to all staff.
-  const SALES_ROLES = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"];
-  /* ---- v1.4.267 Prospects — the team's shared lead list ----------------
-     Every staff role can READ and ADD (a live host who spots a brand mid-
-     scroll logs it in twenty seconds); stage changes, assignment and delete
-     are the sales tier's. Skew-armored: without migration 0066 every route
-     returns a clear 409 naming the migration instead of a 500. */
-  if (path === "/prospects" && method === "GET") {
-    try {
-      const { results } = await env.DB.prepare(
-        `SELECT p.*, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS assigned_name,
-                COALESCE(NULLIF(TRIM(c.full_name), ''), c.name) AS created_name
-         FROM prospects p
-         LEFT JOIN users a ON a.id = p.assigned_to
-         LEFT JOIN users c ON c.id = p.created_by
-         ORDER BY CASE WHEN p.stage IN ('won','lost') THEN 1 ELSE 0 END,
-                  p.next_followup IS NULL, p.next_followup, p.id DESC`,
-      ).all();
-      return json({ prospects: results, today: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) });
-    } catch (e) {
-      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-      throw e;
-    }
-  }
-
-  if (path === "/prospects" && method === "POST") {
-    const b = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const brand = String(b?.brand_name ?? "").trim();
-    if (!brand) return err("invalid_input", "Brand name is required", 400);
-    const SOURCES = ["tiktok", "shopee", "instagram", "facebook", "expo", "referral", "other"];
-    const source = SOURCES.includes(String(b?.source)) ? String(b?.source) : "other";
-    const CHANNELS = ["whatsapp", "dm", "email", "phone", ""];
-    const channel = CHANNELS.includes(String(b?.contact_channel ?? "")) ? String(b?.contact_channel ?? "") : "";
-    const fup = /^\d{4}-\d{2}-\d{2}$/.test(String(b?.next_followup ?? "")) ? String(b?.next_followup) : null;
-    const assigned = Number(b?.assigned_to) || null;
-    try {
-      const res = await env.DB.prepare(
-        `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, referred_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id`,
-      ).bind(brand, source, String(b?.niche ?? "").trim() || null, String(b?.contact_name ?? "").trim() || null,
-             channel || null, String(b?.contact_value ?? "").trim() || null, String(b?.notes ?? "").trim() || null,
-             assigned, fup, user.id, String(b?.referred_by ?? "").trim().slice(0, 120) || null).first<{ id: number }>()
-      .catch(async (e: unknown) => {
-        if (!String(e).includes("no such column")) throw e; // pre-0067 skew: retry without referred_by
-        return env.DB.prepare(
-          `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
-        ).bind(brand, source, String(b?.niche ?? "").trim() || null, String(b?.contact_name ?? "").trim() || null,
-               channel || null, String(b?.contact_value ?? "").trim() || null, String(b?.notes ?? "").trim() || null,
-               assigned, fup, user.id).first<{ id: number }>();
-      });
-      await audit(env, user.id, "prospect.create", "prospects", String(res?.id), { brand });
-      // hand-offs notify: logging a find FOR someone else tells them at once
-      if (assigned && assigned !== user.id) {
-        await notify(env, assigned, "prospect", `🎯 New prospect assigned to you: ${brand} (${source})`, `prospect:${res?.id}`);
-      }
-      return json({ id: res?.id }, 201);
-    } catch (e) {
-      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-      throw e;
-    }
-  }
-
-  {
-    const mP = path.match(/^\/prospects\/(\d+)$/);
-    if (mP && method === "PATCH") {
-      if (!SALES_ROLES.includes(user.role)) return err("forbidden", "Sales tier required to update a prospect", 403);
-      const b = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-      const sets: string[] = [];
-      const args: unknown[] = [];
-      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
-      const STAGES = ["identified", "contacted", "replied", "meeting", "proposal", "won", "lost"];
-      if (typeof b?.stage === "string" && STAGES.includes(b.stage)) { put("stage", b.stage); put("stage_changed_at", new Date().toISOString().slice(0, 19).replace("T", " ")); }
-      for (const col of ["brand_name", "niche", "contact_name", "contact_channel", "contact_value", "notes"] as const) {
-        if (typeof b?.[col] === "string") put(col, String(b[col]).trim() || null);
-      }
-      if (b && "assigned_to" in b) put("assigned_to", Number(b.assigned_to) || null);
-      if (typeof b?.next_followup === "string") {
-        put("next_followup", /^\d{4}-\d{2}-\d{2}$/.test(b.next_followup) ? b.next_followup : null);
-        put("followup_notified_on", null); // a new date re-arms the reminder
-      }
-      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-      try {
-        await env.DB.prepare(`UPDATE prospects SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`)
-          .bind(...args, Number(mP[1])).run();
-        await audit(env, user.id, "prospect.update", "prospects", mP[1], b ?? {});
-        return json({ ok: true });
-      } catch (e) {
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-        throw e;
-      }
-    }
-    if (mP && method === "DELETE") {
-      if (!SALES_ROLES.includes(user.role)) return err("forbidden", "Sales tier required", 403);
-      try {
-        await env.DB.prepare(`DELETE FROM prospects WHERE id = ?1`).bind(Number(mP[1])).run();
-        await audit(env, user.id, "prospect.delete", "prospects", mP[1]);
-        return json({ ok: true });
-      } catch (e) {
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-        throw e;
-      }
-    }
-  }
+  /* v1.5.0: prospects CRUD routes removed with the Social tab (data retained in DB). */
 
   /* v1.4.270: ONE fetch for the Dashboard's status-breakdown card — cheap
      COUNTs, each armored per table so a pending migration can never blank
@@ -622,28 +618,12 @@ export async function handleStaff(
       pending_claims: await n(`SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
       pending_ot: await n(`SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
       low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
-      overdue_followups: await n(`SELECT COUNT(*) AS c FROM prospects WHERE next_followup IS NOT NULL AND next_followup < '${todayS}' AND stage NOT IN ('won', 'lost')`),
       // v1.4.280: open quotations = QT docs not yet converted to an invoice
       open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'QT' AND converted_from IS NULL`),
     });
   }
 
-  if (path === "/trends/my" && method === "GET") {
-    // v1.4.266: any staff role — trend awareness is for the whole team.
-    // v1.4.268: ?refresh=1 (any staff) drops the cache first, so the card's
-    // "Try again" button is a real retry, not a read of the same miss.
-    if (new URL(request.url).searchParams.get("refresh") === "1") {
-      try { await env.DB.prepare(`DELETE FROM system_meta WHERE key = 'trends_my_cache'`).run(); } catch { /* fine */ }
-    }
-    const data = await trendsMY(env);
-    if (!data) {
-      const lastErr = await env.DB.prepare(
-        `SELECT message FROM error_log WHERE source = 'trends_my' ORDER BY id DESC LIMIT 1`,
-      ).first<{ message: string }>().catch(() => null);
-      return err("unavailable", `Google Trends could not be reached from the server${lastErr ? ` (${lastErr.message.slice(0, 140)})` : ""} — tap Try again in a minute`, 503);
-    }
-    return json(data);
-  }
+  /* v1.5.0: /trends/my removed with the Social tab. */
 
   if (path === "/staff-list" && method === "GET") {
     // v1.4.93: minimal staff list (id, name, role) for pickers like the
@@ -1113,7 +1093,7 @@ export async function handleStaff(
       return new Response(obj.body, {
         headers: {
           "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${(row.filename ?? "document").replace(/"/g, "")}"`,
+          "Content-Disposition": `attachment; filename="${(row.filename ?? "document").replace(/[^A-Za-z0-9._ -]/g, "_")}"`,
         },
       });
     }
@@ -2228,36 +2208,7 @@ export async function handleStaff(
     return json({ months });
   }
 
-  /* v1.4.278 — 🎯 pipeline insights ("business opportunities"): the funnel,
-     the win rate, WHICH SOURCE actually closes, and the referral leaders.
-     Same 409 convention as every prospects route when 0066 hasn't run. */
-  if (path === "/prospects/insights" && method === "GET") {
-    if (!["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)) {
-      return err("forbidden", "Sales access required", 403);
-    }
-    try {
-      const { results: stages } = await env.DB.prepare(
-        `SELECT stage, COUNT(*) AS n FROM prospects GROUP BY stage`,
-      ).all<{ stage: string; n: number }>();
-      const { results: sources } = await env.DB.prepare(
-        `SELECT source, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won
-         FROM prospects GROUP BY source ORDER BY won DESC, total DESC`,
-      ).all<{ source: string; total: number; won: number }>();
-      let referrers: { name: string; total: number; won: number }[] = [];
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT referred_by AS name, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won
-           FROM prospects WHERE referred_by IS NOT NULL AND TRIM(referred_by) != ''
-           GROUP BY referred_by ORDER BY won DESC, total DESC LIMIT 5`,
-        ).all<{ name: string; total: number; won: number }>();
-        referrers = results;
-      } catch { /* pre-0067 — the referral column arrives with the growth pack */ }
-      return json({ stages, sources, referrers });
-    } catch (e) {
-      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
-      throw e;
-    }
-  }
+  /* v1.5.0: /prospects/insights removed with the Social tab. */
 
   if (path === "/expenses" && method === "GET") {
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
@@ -2368,13 +2319,13 @@ export async function handleStaff(
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.status = 'approved' AND strftime('%Y-%m', c.claim_date) = ?1
        ORDER BY c.claim_date ASC`,
-    ).bind(month).all());
+    ).bind(mE).all()); // v1.5.0 fix: was `month` (undefined here) — every Expenses load 500'd
     ({ results: claimsPaid } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.paid_at IS NOT NULL AND strftime('%Y-%m', c.paid_at) = ?1
        ORDER BY c.paid_at DESC`,
-    ).bind(month).all());
+    ).bind(mE).all()); // v1.5.0 fix: was `month` (undefined here)
     ({ results: claimsDue } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.decided_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
@@ -2724,7 +2675,7 @@ export async function handleStaff(
     /* v1.4.222 (CEO: "clickable card which will appear the data of the
        fulfillment"): additive ?status= drills into one status — the
        month's orders behind that chip, newest first. */
-    const drill = url.searchParams.get("status");
+    const drill = new URL(request.url).searchParams.get("status"); // v1.5.0 fix: `url` was undefined here — drill-down clicks 500'd
     let orders: unknown[] | undefined;
     if (drill && ["preparing", "shipped", "in_transit", "delivered", "returned"].includes(drill)) {
       const { results } = await env.DB.prepare(
@@ -2810,8 +2761,11 @@ export async function handleStaff(
      in-month; other shipments; manual sales), self-contained here because
      /revenue's helpers are scoped inside that route. */
   if (path === "/payroll/commission-base" && method === "GET") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
-    const mCB = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    // v1.5.0 fix: PAYROLL_PROC was referenced before its declaration and
+    // `url` was undefined — the commission card 500'd on every open.
+    const PAYROLL_PROC_CB = ["super_admin", "admin", "ceo", "coo"];
+    if (!PAYROLL_PROC_CB.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const mCB = new URL(request.url).searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mCB)) return err("invalid_input", "month must be YYYY-MM", 400);
     // Queries mirror /revenue verbatim (v1.4.169/172 bases).
     const tt = await env.DB.prepare(
@@ -3214,13 +3168,15 @@ export async function handleStaff(
     if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
     const url = new URL(request.url);
     const t = url.searchParams.get("type");
-    const filter = t && ["QT", "DO", "INV"].includes(t) ? `WHERE d.doc_type = '${t}'` : "";
-    const { results } = await env.DB.prepare(
+    // v1.5.0: bound parameter instead of string interpolation (defence in depth)
+    const typed = t && ["QT", "DO", "INV"].includes(t) ? t : null;
+    const stmt = env.DB.prepare(
       `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
-       JOIN customers c ON c.id = d.customer_id ${filter}
+       JOIN customers c ON c.id = d.customer_id ${typed ? "WHERE d.doc_type = ?1" : ""}
        ORDER BY d.created_at DESC LIMIT 200`,
-    ).all();
+    );
+    const { results } = await (typed ? stmt.bind(typed) : stmt).all();
     return json({ docs: results });
   }
   if (path === "/docs" && method === "POST") {
@@ -4715,145 +4671,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
   return rows.length;
 }
 
-/* v1.4.266: what Malaysians are SEARCHING — Google Trends Malaysia RSS,
-   cached in system_meta for 3 hours. */
-const TRENDS_TTL_MS = 3 * 3600 * 1000;
-
-async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null> {
-  try {
-    const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'trends_my_cache'`)
-      .first<{ value: string }>();
-    if (cached) {
-      const c = JSON.parse(cached.value);
-      if (Date.now() - new Date(c.fetched_at).getTime() < TRENDS_TTL_MS) return c;
-    }
-  } catch { /* fall through to fetch */ }
-  try {
-    /* Google blocks direct fetches from Cloudflare datacenter IPs — the RSS
-       endpoint returns a valid-looking 200 with empty XML body. Strategy:
-       1. Try direct Google feeds first (cheapest, works if Google unblocks)
-       2. Fallback to allorigins.win proxy (fetches from non-CF IPs)
-       3. Fallback to rss2json.com (JSON API, no parsing needed) */
-    const GOOGLE_FEEDS = [
-      "https://trends.google.com/trending/rss?geo=MY",
-      "https://trends.google.com/trends/trendingsearches/daily/rss?geo=MY",
-    ];
-    const attempts: string[] = [];
-    let xml = "";
-
-    // Strategy 1: direct fetch
-    for (const feed of GOOGLE_FEEDS) {
-      try {
-        const r = await fetch(feed, {
-          headers: {
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-            "accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
-            "accept-language": "en-MY,en;q=0.9,ms;q=0.8",
-          },
-        });
-        if (!r.ok) { attempts.push(`direct-${feed.includes("daily") ? "legacy" : "current"} http ${r.status}`); continue; }
-        const body = await r.text();
-        if (!body.includes("<item>") && !body.includes("<item ")) {
-          attempts.push(`direct-${feed.includes("daily") ? "legacy" : "current"} no items (CF blocked)`);
-          continue;
-        }
-        xml = body;
-        break;
-      } catch (fe) {
-        attempts.push(`direct ${fe instanceof Error ? fe.message : String(fe)}`);
-      }
-    }
-
-    // Strategy 2: allorigins.win proxy (fetches on behalf, bypasses CF block)
-    if (!xml) {
-      try {
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent("https://trends.google.com/trending/rss?geo=MY")}`;
-        const r = await fetch(proxyUrl, { headers: { "user-agent": "curl/8.0" } });
-        if (r.ok) {
-          const body = await r.text();
-          if (body.includes("<item>") || body.includes("<item ")) { xml = body; }
-          else { attempts.push("allorigins no items"); }
-        } else {
-          attempts.push(`allorigins http ${r.status}`);
-        }
-      } catch (fe) {
-        attempts.push(`allorigins ${fe instanceof Error ? fe.message : String(fe)}`);
-      }
-    }
-
-    // Strategy 3: rss2json.com — returns JSON, skip the XML parser entirely
-    if (!xml) {
-      try {
-        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent("https://trends.google.com/trending/rss?geo=MY")}`;
-        const r = await fetch(apiUrl);
-        if (r.ok) {
-          const j = await r.json() as { status?: string; items?: { title?: string; description?: string; link?: string }[] };
-          if (j.status === "ok" && j.items && j.items.length > 0) {
-            const items = j.items.slice(0, 20).map((it) => ({
-              title: (it.title ?? "").trim(),
-              traffic: "",
-              news: "",
-              news_url: "",
-            })).filter((it) => it.title);
-            if (items.length > 0) {
-              const out = { fetched_at: new Date().toISOString(), items };
-              await env.DB.prepare(
-                `INSERT INTO system_meta (key, value) VALUES ('trends_my_cache', ?1)
-                 ON CONFLICT(key) DO UPDATE SET value = ?1`,
-              ).bind(JSON.stringify(out)).run();
-              return out;
-            }
-          }
-          attempts.push("rss2json no items");
-        } else {
-          attempts.push(`rss2json http ${r.status}`);
-        }
-      } catch (fe) {
-        attempts.push(`rss2json ${fe instanceof Error ? fe.message : String(fe)}`);
-      }
-    }
-
-    if (!xml) throw new Error(attempts.join("; ") || "all sources failed");
-
-    const items: { title: string; traffic: string; news: string; news_url: string }[] = [];
-    // Workers have no XML DOM — the feed is regular enough for a tag walk.
-    const blocks = xml.split(/<item[\s>]/).slice(1);
-    for (const b of blocks.slice(0, 20)) {
-      const tag = (name: string) => {
-        const m = b.match(new RegExp(`<${name}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${name}>`));
-        return m ? m[1]!.trim() : "";
-      };
-      const title = tag("title");
-      if (!title) continue;
-      const clean = (v: string) => v
-        .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'").replace(/&amp;/g, "&")
-        .replace(/<[^>]+>/g, "").trim();
-      items.push({
-        title: clean(title),
-        traffic: tag("ht:approx_traffic"),
-        news: clean(tag("ht:news_item_title")),
-        news_url: tag("ht:news_item_url"),
-      });
-    }
-    if (items.length === 0) throw new Error("rss parsed empty — " + attempts.join("; "));
-    const out = { fetched_at: new Date().toISOString(), items };
-    await env.DB.prepare(
-      `INSERT INTO system_meta (key, value) VALUES ('trends_my_cache', ?1)
-       ON CONFLICT(key) DO UPDATE SET value = ?1`,
-    ).bind(JSON.stringify(out)).run();
-    return out;
-  } catch (e) {
-    await logError(env, "trends_my", e instanceof Error ? e.message : String(e));
-    // stale cache beats nothing — return whatever we last had
-    try {
-      const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'trends_my_cache'`)
-        .first<{ value: string }>();
-      if (cached) return JSON.parse(cached.value);
-    } catch { /* nothing cached */ }
-    return null;
-  }
-}
+/* v1.5.0: trendsMY (Google Trends) removed with the Social tab. */
 
 /* ---- Sales & marketing: inventory ---- */
 
@@ -5495,7 +5313,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
       `INSERT INTO supplier_returns (item_id, sku, item_name, qty, unit_cost_cents, total_cents, supplier, reason, return_date, created_by)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
     ).bind(itemId, item.sku, item.name, qty, unitC, totalC, body.supplier, str(body.reason, 300) ? body.reason : null, body.return_date, user.id).first<{ id: number }>();
-    await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id, { qty, total_cents: totalC });
+    await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id != null ? String(res.id) : undefined, { qty, total_cents: totalC });
     return json({ ok: true, id: res?.id, stock: newStock }, 201);
   }
   /* v1.4.164 (CEO): edit an OUTSTANDING supplier return — qty, unit cost,
@@ -5836,6 +5654,241 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     await env.DB.prepare(`UPDATE notifications SET is_read = 1 WHERE user_id = ?1`)
       .bind(user.id).run();
     return json({ ok: true });
+  }
+
+  /* ===================== v1.6.0 — real-time notifications ================== */
+
+  /* SSE live stream: replaces the 60-second poll with ~5-second latency
+     without Durable Objects. The connection self-closes after ~20s and the
+     browser's EventSource reconnects automatically, so no connection is held
+     open indefinitely. `since` is the newest id the client already has. */
+  if (path === "/notifications/stream" && method === "GET") {
+    let lastId = Number(new URL(request.url).searchParams.get("since") ?? "0") || 0;
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const stream = new ReadableStream({
+      cancel() { cancelled = true; }, // client disconnected — stop polling at once
+      async start(controller) {
+        const send = (s: string) => { try { controller.enqueue(encoder.encode(s)); } catch { /* closed */ } };
+        send("retry: 5000\n\n");
+        const started = Date.now();
+        try {
+          while (!cancelled && Date.now() - started < 20000) {
+            const { results } = await env.DB.prepare(
+              `SELECT id, kind, message, ref, is_read, created_at FROM notifications
+               WHERE user_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT 30`,
+            ).bind(user.id, lastId).all<{ id: number }>();
+            if (results.length) {
+              for (const n of results) lastId = Math.max(lastId, n.id);
+              send(`event: notifications\ndata: ${JSON.stringify(results)}\n\n`);
+            } else {
+              send(`event: ping\ndata: ${lastId}\n\n`);
+            }
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+        } catch { /* client disconnected */ }
+        send(`event: bye\ndata: ${lastId}\n\n`);
+        try { controller.close(); } catch { /* already closed */ }
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
+  /* Web-push: the browser fetches the public key, subscribes, and posts the
+     subscription here. Unsubscribe removes it. */
+  if (path === "/push/public-key" && method === "GET") {
+    return json({ key: env.VAPID_PUBLIC_KEY ?? null });
+  }
+  if (path === "/push/subscribe" && method === "POST") {
+    const sub = body?.subscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | undefined;
+    const endpoint = sub?.endpoint;
+    const p256dh = sub?.keys?.p256dh;
+    const auth = sub?.keys?.auth;
+    if (!endpoint || !p256dh || !auth) return err("invalid_input", "A full push subscription is required", 400);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(endpoint) DO UPDATE SET user_id = ?1, p256dh = ?3, auth = ?4`,
+      ).bind(user.id, endpoint, p256dh, auth).run();
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0068 first", 409);
+      throw e;
+    }
+    return json({ ok: true });
+  }
+  if (path === "/push/unsubscribe" && method === "POST") {
+    const endpoint = typeof body?.endpoint === "string" ? body.endpoint : null;
+    if (endpoint) await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?1 AND user_id = ?2`).bind(endpoint, user.id).run();
+    return json({ ok: true });
+  }
+
+  /* ===================== v1.6.0 — targets · commission · leaderboard ======= */
+
+  /* The leaderboard: attributed sales per person this month, their target,
+     progress, and the commission the active rules would pay. Visible to any
+     role that can see revenue — it is the motivational heart of the sales
+     floor, so everyone who works the numbers sees the ranking. */
+  if (path === "/leaderboard" && method === "GET") {
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const month = new URL(request.url).searchParams.get("month")
+      ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return err("invalid_input", "month must be YYYY-MM", 400);
+
+    const sales = await attributedSalesByUser(env, month);
+    const rules = await activeCommissionRules(env);
+    const targets = new Map<number, number>();
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT user_id, target_cents FROM user_sales_targets WHERE month = ?1`,
+      ).bind(month).all<{ user_id: number; target_cents: number }>();
+      for (const t of results) targets.set(t.user_id, t.target_cents);
+    } catch { /* pre-0068 */ }
+
+    const { results: staff } = await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, photo_key FROM users
+       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+    ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
+
+    const rows = staff
+      .map((s) => {
+        const sold = sales.get(s.id) ?? 0;
+        const target = targets.get(s.id) ?? 0;
+        return {
+          user_id: s.id, name: s.name, role: s.role, photo_key: s.photo_key,
+          sales_cents: sold,
+          target_cents: target || null,
+          pct: target > 0 ? Math.round((sold / target) * 100) : null,
+          commission_cents: commissionFor(sold, target, s.role, rules),
+        };
+      })
+      .filter((r) => r.sales_cents > 0 || r.target_cents)
+      .sort((a, b) => b.sales_cents - a.sales_cents)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+
+    // The requesting user always sees their own line even at zero.
+    const meIncluded = rows.some((r) => r.user_id === user.id);
+    return json({ month, rows, has_rules: rules.length > 0, me_included: meIncluded, me: user.id });
+  }
+
+  /* Targets — per-person and per-team (the company target stays on
+     /revenue/target). Management only. */
+  if (path === "/targets" && method === "GET") {
+    if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+    const month = new URL(request.url).searchParams.get("month")
+      ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return err("invalid_input", "month must be YYYY-MM", 400);
+    let users: unknown[] = [], teams: unknown[] = [], company: number | null = null;
+    try {
+      users = (await env.DB.prepare(
+        `SELECT t.user_id, t.target_cents, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role
+         FROM user_sales_targets t JOIN users u ON u.id = t.user_id WHERE t.month = ?1`,
+      ).bind(month).all()).results;
+      teams = (await env.DB.prepare(`SELECT team, target_cents FROM team_sales_targets WHERE month = ?1`).bind(month).all()).results;
+      const c = await env.DB.prepare(`SELECT target_cents FROM sales_targets WHERE month = ?1`).bind(month).first<{ target_cents: number }>();
+      company = c?.target_cents ?? null;
+    } catch { /* pre-0068 */ }
+    const { results: staff } = await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
+       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') ORDER BY 2`,
+    ).all();
+    return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
+  }
+  if (path === "/targets" && method === "POST") {
+    if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+    const scope = String(body?.scope ?? "");
+    const month = String(body?.month ?? "");
+    const cents = Math.round(Number(body?.target_cents));
+    if (!/^\d{4}-\d{2}$/.test(month) || !Number.isFinite(cents) || cents < 0) {
+      return err("invalid_input", "scope, month (YYYY-MM) and target_cents are required", 400);
+    }
+    try {
+      if (scope === "user") {
+        const uid = Math.round(Number(body?.id));
+        if (!uid) return err("invalid_input", "id (user) required", 400);
+        await env.DB.prepare(
+          `INSERT INTO user_sales_targets (user_id, month, target_cents, set_by) VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(user_id, month) DO UPDATE SET target_cents = ?3, set_by = ?4`,
+        ).bind(uid, month, cents, user.id).run();
+        await audit(env, user.id, "target.set_user", "user_sales_targets", String(uid), { month, cents });
+      } else if (scope === "team") {
+        const team = String(body?.id ?? "").trim().slice(0, 40);
+        if (!team) return err("invalid_input", "id (team) required", 400);
+        await env.DB.prepare(
+          `INSERT INTO team_sales_targets (team, month, target_cents, set_by) VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(team, month) DO UPDATE SET target_cents = ?3, set_by = ?4`,
+        ).bind(team, month, cents, user.id).run();
+        await audit(env, user.id, "target.set_team", "team_sales_targets", team, { month, cents });
+      } else {
+        return err("invalid_input", "scope must be 'user' or 'team'", 400);
+      }
+      return json({ ok: true });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0068 first", 409);
+      throw e;
+    }
+  }
+
+  /* Commission rules — management CRUD. */
+  if (path === "/commission/rules" && method === "GET") {
+    if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT id, name, base_pct, bonus_pct, applies_to, active, created_at FROM commission_rules ORDER BY id DESC`,
+      ).all();
+      return json({ rules: results });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0068 first", 409);
+      throw e;
+    }
+  }
+  if (path === "/commission/rules" && method === "POST") {
+    if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+    const name = String(body?.name ?? "").trim().slice(0, 80);
+    const basePct = Number(body?.base_pct);
+    const bonusPct = Number(body?.bonus_pct ?? 0);
+    const appliesTo = String(body?.applies_to ?? "all").trim() || "all";
+    if (!name || !Number.isFinite(basePct) || basePct < 0 || basePct > 100 || !Number.isFinite(bonusPct) || bonusPct < 0 || bonusPct > 100) {
+      return err("invalid_input", "name and base_pct (0–100) are required; bonus_pct 0–100", 400);
+    }
+    try {
+      const res = await env.DB.prepare(
+        `INSERT INTO commission_rules (name, base_pct, bonus_pct, applies_to, created_by) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
+      ).bind(name, basePct, bonusPct, appliesTo, user.id).first<{ id: number }>();
+      await audit(env, user.id, "commission.rule_create", "commission_rules", String(res?.id), { name, basePct, bonusPct, appliesTo });
+      return json({ id: res?.id }, 201);
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0068 first", 409);
+      throw e;
+    }
+  }
+  {
+    const mR = path.match(/^\/commission\/rules\/(\d+)$/);
+    if (mR && (method === "PATCH" || method === "DELETE")) {
+      if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+      const id = Number(mR[1]);
+      if (method === "DELETE") {
+        await env.DB.prepare(`DELETE FROM commission_rules WHERE id = ?1`).bind(id).run();
+        await audit(env, user.id, "commission.rule_delete", "commission_rules", String(id));
+        return json({ ok: true });
+      }
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      if (typeof body?.active === "number" || typeof body?.active === "boolean") { sets.push(`active = ?${args.length + 1}`); args.push(body.active ? 1 : 0); }
+      if (Number.isFinite(Number(body?.base_pct))) { sets.push(`base_pct = ?${args.length + 1}`); args.push(Number(body!.base_pct)); }
+      if (Number.isFinite(Number(body?.bonus_pct))) { sets.push(`bonus_pct = ?${args.length + 1}`); args.push(Number(body!.bonus_pct)); }
+      if (typeof body?.name === "string" && body.name.trim()) { sets.push(`name = ?${args.length + 1}`); args.push(body.name.trim().slice(0, 80)); }
+      if (typeof body?.applies_to === "string" && body.applies_to.trim()) { sets.push(`applies_to = ?${args.length + 1}`); args.push(body.applies_to.trim()); }
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      await env.DB.prepare(`UPDATE commission_rules SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, id).run();
+      await audit(env, user.id, "commission.rule_update", "commission_rules", String(id), body ?? {});
+      return json({ ok: true });
+    }
   }
 
   return null; // not a staff route
