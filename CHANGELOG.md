@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.6.1] — 2026-08-11 — Dashboard KPI editing + Needs-attention placement
+
+- **Needs attention** moved into the top ticker row, right beside the "All-time — every channel" card (position 4), instead of a separate strip at the bottom of the dashboard. A rare "Unpaid invoices" card now falls after it so it never gets pushed out of the top row.
+- **Monthly KPI target is now set on the Dashboard.** The Sales Floor KPI section has an inline Set/Edit target control — restricted to super_admin, CEO and COO (server guard tightened to match: `admin` no longer sets the KPI). Setting the target turns on the progress bar and pace tracker immediately.
+- The editable KPI target block was **removed from the Ecommerce tab's Sales-revenue card** (it was a duplicate). That card keeps the per-channel breakdown and last-month KPI result for context; the target itself lives on the dashboard.
+
 ## [1.6.0] — 2026-08-11 — Sales leaderboard & commission engine, client order tracking, PWA + real-time notifications
 
 **Sales targets, commission & leaderboard**

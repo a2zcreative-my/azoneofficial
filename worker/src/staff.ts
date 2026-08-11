@@ -2869,9 +2869,10 @@ export async function handleStaff(
     return json({ ok: true });
   }
   if (path === "/revenue/target" && method === "POST") {
-    // v1.4.90: monthly sales KPI target — leadership only.
-    if (!["super_admin", "admin", "ceo", "coo"].includes(user.role)) {
-      return err("forbidden", "Only the CEO/COO set sales targets", 403);
+    // v1.4.90 / v1.6.1: monthly sales KPI target — set on the Dashboard by
+    // the super admin, CEO or COO only (the CEO's explicit list).
+    if (!["super_admin", "ceo", "coo"].includes(user.role)) {
+      return err("forbidden", "Only the super admin, CEO or COO set the sales KPI target", 403);
     }
     const mT = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     const cT = Math.round(Number(body?.target_cents));

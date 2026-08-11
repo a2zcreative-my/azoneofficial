@@ -474,14 +474,31 @@ function TradingDesk({ user }: { user: User }) {
   const [hours, setHours] = useState<HourBucket[] | null>(null);
   const canRevenue = REVENUE_ROLES.includes(user.role);
   const canStatus = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"].includes(user.role);
+  // v1.6.1 (CEO): the monthly KPI target is set right here on the dashboard,
+  // and only these three roles may change it.
+  const canEditKpi = ["super_admin", "ceo", "coo"].includes(user.role);
+  const [editingKpi, setEditingKpi] = useState(false);
+  const [kpiDraft, setKpiDraft] = useState("");
+  const { show: showKpiToast, node: kpiToastNode } = useSaveToast();
+  const loadRev = useCallback(() => {
+    void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+  }, []);
   useEffect(() => {
     if (canRevenue) {
-      void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
+      loadRev();
       void api<{ lines: RevLineLite[] }>(`/staff/revenue/lines`).then((r) => { if (r.ok && r.data) setMkLines(r.data.lines); });
       void api<{ buckets: HourBucket[] }>(`/staff/sales/by-hour`).then((r) => { if (r.ok && r.data) setHours(r.data.buckets); });
     }
     void api<DashSummary>(`/staff/dashboard/summary`).then((r) => { if (r.ok && r.data) setSum(r.data); });
-  }, [canRevenue]);
+  }, [canRevenue, loadRev]);
+
+  const saveKpi = async () => {
+    const v = Number(kpiDraft);
+    if (!rev) return;
+    if (!v || v <= 0) { showKpiToast("No change", "Enter a target amount first", "notice"); return; }
+    const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(v * 100) }) });
+    if (res.ok) { showKpiToast("Saved", `Monthly KPI target — ${fmtRM(Math.round(v * 100))}`); setEditingKpi(false); loadRev(); }
+  };
 
   /* ---- shared derived figures ---- */
   const monthTotal = rev ? rev.tiktok.this_cents + rev.invoiced.this_cents + (rev.other?.this_cents ?? 0) + (rev.manual?.this_cents ?? 0) : 0;
@@ -538,13 +555,44 @@ function TradingDesk({ user }: { user: User }) {
           sub={`${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`} />,
       );
     }
-    if (rev.outstanding && rev.outstanding.docs > 0) {
-      ticker.push(
-        <StatCard key="out" accent="red" label="Unpaid invoices"
-          value={fmtRM(rev.outstanding.cents)}
-          sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`} />,
-      );
-    }
+  }
+  // v1.6.1 (CEO): "Needs attention" sits in the top ticker row, right beside
+  // the All-time card (position 4), instead of a separate strip at the bottom.
+  if (canStatus && sum) {
+    const rows: [string, number | null][] = [
+      ["Leave pending", sum.pending_leave],
+      ["Claims pending", sum.pending_claims],
+      ["OT pending", sum.pending_ot],
+      ["Low stock", sum.low_stock],
+      ["Quotations open", sum.open_quotations],
+    ];
+    const shown = rows.filter(([, v]) => v !== null && v > 0);
+    ticker.push(
+      <div key="attention" className="border-border bg-card rounded-xl border border-t-2 border-t-brand p-4 shadow-sm">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
+        {shown.length === 0
+          ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
+          : (
+            <div className="mt-1.5 space-y-1">
+              {shown.map(([label, v]) => (
+                <p key={label} className="flex items-baseline justify-between text-sm">
+                  <span>{label}</span>
+                  <span className="font-bold tabular-nums">{v}</span>
+                </p>
+              ))}
+            </div>
+          )}
+      </div>,
+    );
+  }
+  // Unpaid invoices card comes last (only when there are any) so it never
+  // pushes "Needs attention" out of the top row.
+  if (canRevenue && rev?.outstanding && rev.outstanding.docs > 0) {
+    ticker.push(
+      <StatCard key="out" accent="red" label="Unpaid invoices"
+        value={fmtRM(rev.outstanding.cents)}
+        sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`} />,
+    );
   }
 
   /* ---- market targets: product vs service ---- */
@@ -601,34 +649,65 @@ function TradingDesk({ user }: { user: User }) {
 
   return (
     <div className="space-y-3 md:space-y-4">
-      {/* Zone 1 — the ticker */}
+      {kpiToastNode}
+      {/* Zone 1 — the ticker (Today · Revenue · All-time · Needs attention) */}
       {ticker.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
       )}
 
       {/* Zone 2+3 — KPI + markets, one desk card */}
-      {canRevenue && rev && (target || markets.length > 0) && (
+      {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
         <div className={card}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-sm font-semibold">📊 Sales floor — {ym(rev.month)}</p>
             <p className="text-muted-foreground text-xs tabular-nums">day {dayOfMonth}/{daysInMonth} · pace {expectedPct}%</p>
           </div>
-          {target && pct !== null && (
+
+          {/* v1.6.1: set/edit the monthly KPI target right here (CEO/COO/super). */}
+          {editingKpi ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
+              <span className="text-sm font-medium">Target for {ym(rev.month)}:</span>
+              <span className="flex items-center gap-1 text-sm">RM
+                <input type="number" min={0} step="0.01" autoFocus
+                  className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
+                  placeholder="e.g. 35000" value={kpiDraft}
+                  onChange={(e) => setKpiDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveKpi(); if (e.key === "Escape") setEditingKpi(false); }} />
+              </span>
+              <button type="button" className={btnSmPrimary} onClick={() => void saveKpi()}>Save target</button>
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setEditingKpi(false)}>Cancel</button>
+            </div>
+          ) : (
             <div className="mt-3">
-              <div className="flex items-baseline justify-between text-xs">
-                <span className="font-semibold tracking-wide uppercase">🎯 KPI — month target {targetIsAuto ? "(auto: last month +10%)" : ""}</span>
-                <span className="tabular-nums font-bold">{fmtRM(monthTotal)} / {fmtRM(target)}</span>
-              </div>
-              <div className="relative mt-1.5 h-5 w-full overflow-hidden rounded-full bg-secondary">
-                <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear"}`}
-                  style={{ width: `${Math.min(100, Math.max(pct, 1))}%` }} />
-                {/* pace marker: where the month says you SHOULD be */}
-                <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.min(99, expectedPct)}%` }} title={`pace: ${expectedPct}%`} />
-                <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
-                  style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
-                  {pct}%
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="font-semibold tracking-wide uppercase">
+                  🎯 KPI — month target {target ? (targetIsAuto ? "(auto: last month +10%)" : "") : ""}
+                </span>
+                <span className="flex items-baseline gap-2">
+                  {target ? <span className="tabular-nums font-bold">{fmtRM(monthTotal)} / {fmtRM(target)}</span> : <span className="text-muted-foreground">no target set</span>}
+                  {canEditKpi && (
+                    <button type="button" className="text-gold-deep text-xs font-medium underline"
+                      onClick={() => { setKpiDraft(rev.target_cents ? (rev.target_cents / 100).toString() : (target ? (target / 100).toString() : "")); setEditingKpi(true); }}>
+                      {rev.target_cents ? "Edit target" : "Set target"}
+                    </button>
+                  )}
                 </span>
               </div>
+              {target && pct !== null && (
+                <div className="relative mt-1.5 h-5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear"}`}
+                    style={{ width: `${Math.min(100, Math.max(pct, 1))}%` }} />
+                  {/* pace marker: where the month says you SHOULD be */}
+                  <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.min(99, expectedPct)}%` }} title={`pace: ${expectedPct}%`} />
+                  <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
+                    style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
+                    {pct}%
+                  </span>
+                </div>
+              )}
+              {!target && canEditKpi && (
+                <p className="text-muted-foreground mt-1 text-[11px]">Set this month&apos;s KPI target to turn on the progress bar and the pace tracker.</p>
+              )}
             </div>
           )}
           {motivation && (
@@ -675,50 +754,16 @@ function TradingDesk({ user }: { user: User }) {
           )}
         </div>
       )}
-
-      {/* Zone 4 — needs attention (unchanged scope, semantic tokens) */}
-      {canStatus && sum && (() => {
-        const rows: [string, number | null][] = [
-          ["Leave pending", sum.pending_leave],
-          ["Claims pending", sum.pending_claims],
-          ["OT pending", sum.pending_ot],
-          ["Low stock", sum.low_stock],
-          ["Quotations open", sum.open_quotations],
-        ];
-        const shown = rows.filter(([, v]) => v !== null && v > 0);
-        return (
-          <div className="border-border bg-card rounded-xl border border-t-2 border-t-brand p-4 shadow-sm">
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
-            {shown.length === 0
-              ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
-              : (
-                <div className="mt-1.5 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
-                  {shown.map(([label, v]) => (
-                    <p key={label} className="flex items-baseline justify-between text-sm">
-                      <span>{label}</span>
-                      <span className="font-bold tabular-nums">{v}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
 
-function SalesRevenueCard({ role }: { role?: string }) {
+function SalesRevenueCard() {
   const [rev, setRev] = useState<RevenueData | null>(null);
   const loadRev = useCallback(() => {
     void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
   }, []);
   useEffect(() => { loadRev(); }, [loadRev]);
-  const canTarget = ["super_admin", "admin", "ceo", "coo"].includes(role ?? "");
-  // v1.4.93: inline target editor — no more browser prompt() box.
-  const [editingTarget, setEditingTarget] = useState<null | "this" | "next">(null);
-  const [targetDraft, setTargetDraft] = useState("");
-  const { show: showToast, node: toastNode } = useSaveToast();
   if (!rev) return null;
   const rm = fmtRM; // v1.4.272: the global — a money figure must never render two ways
   // v1.4.169 (CEO: "everything count correctly and accurately"): total sales
@@ -736,15 +781,14 @@ function SalesRevenueCard({ role }: { role?: string }) {
   );
   return (
     <div className={card}>
-      {toastNode}
       <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         TikTok figures from synced order amounts (returned orders excluded).
         Invoiced figures count PAYMENTS RECEIVED (paid invoices, in the month
-        the payment landed) — comparable with Expenses. Since v1.4.169 the
-        Total also counts non-TikTok shipments (order amount on the postage
-        form) and manual sales (an Out − with a sold price) — every channel,
-        one number, and the KPI below tracks it.
+        the payment landed) — comparable with Expenses. The Total also counts
+        non-TikTok shipments (order amount on the postage form) and manual
+        sales (an Out − with a sold price) — every channel, one number.
+        {/* v1.6.1: the KPI target moved to the Dashboard (set by CEO/COO). */}
       </p>
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
           today leads the grid with the brand-gold accent. */}
@@ -759,96 +803,18 @@ function SalesRevenueCard({ role }: { role?: string }) {
         {box("Manual sales", rm(rev.manual?.this_cents ?? 0), `${rev.manual?.this_units ?? 0} unit${(rev.manual?.this_units ?? 0) === 1 ? "" : "s"} sold via Out − · last month ${rm(rev.manual?.last_cents ?? 0)}`)}
         {box("Total — all channels", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
       </div>
-      <div className="border-border mt-3 rounded-lg border p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold tracking-wide uppercase">🎯 Monthly sales target (KPI)</p>
-          {canTarget && !editingTarget && (
-            <button type="button" className="text-xs underline" onClick={() => { setTargetDraft(rev.target_cents ? (rev.target_cents / 100).toString() : ""); setEditingTarget("this"); }}>
-              {rev.target_cents ? "Edit target" : "Set target"}
-            </button>
-          )}
-        </div>
-        {editingTarget && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm">Target for {ym(editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month)}:</span>
-            <span className="flex items-center gap-1 text-sm">
-              RM
-              <input type="number" min={0} step="0.01" autoFocus
-                className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
-                placeholder="e.g. 20000" value={targetDraft}
-                onChange={(e) => setTargetDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") setEditingTarget(null); }} />
-            </span>
-            <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
-              onClick={async () => {
-                const v = Number(targetDraft);
-                const m = editingTarget === "next" ? (rev.next_month ?? rev.month) : rev.month;
-                const current = editingTarget === "next" ? (rev.next_target_cents ?? 0) : (rev.target_cents ?? 0);
-                if (!v || v <= 0) { showToast("No changes", "Enter a target amount first", "notice"); return; }
-                if (Math.round(v * 100) === current) { showToast("No changes", "Target unchanged", "notice"); setEditingTarget(null); return; }
-                const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: m, target_cents: Math.round(v * 100) }) });
-                if (res.ok) { showToast("Saved", `Sales target for ${ym(m)} — ${fmtRM(Math.round(v * 100))}`); setEditingTarget(null); loadRev(); }
-              }}>
-              Save target
-            </button>
-            <button type="button" className="text-xs underline" onClick={() => setEditingTarget(null)}>Cancel</button>
-          </div>
-        )}
-        {rev.target_cents ? (() => {
-          const pct = Math.min(100, Math.round((total / rev.target_cents) * 100));
-          // v1.4.160 (CEO: indicator colour to hit the target + a percentage
-          // progress bar): traffic-light tiers plus an on-pace check against
-          // how far through the month we are (MYT).
-          const nowM = new Date(Date.now() + 8 * 3600 * 1000);
-          const daysInMonth = new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() + 1, 0)).getUTCDate();
-          const expectedPct = Math.round((nowM.getUTCDate() / daysInMonth) * 100);
-          const barColor = pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear";
-          const onPace = pct >= expectedPct;
-          return (
-            <>
-              <div className="mt-2 relative h-5 w-full overflow-hidden rounded-full bg-secondary">
-                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.max(pct, 1)}%` }} />
-                <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
-                  style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
-                  {pct}%
-                </span>
-              </div>
-              <p className="text-muted-foreground mt-1 text-xs">
-                <span className="text-foreground font-semibold">{pct}%</span> of {rm(rev.target_cents)} achieved
-                {" "}({rm(total)}{pct >= 100 ? " — 🎉 target hit!" : ` · ${rm(Math.max(0, rev.target_cents - total))} to go`})
-              </p>
-              {pct < 100 && (
-                <p className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${onPace ? "bg-green-100 text-green-800" : expectedPct - pct <= 15 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-700"}`}>
-                  {onPace ? "✅ On track" : "⚠ Behind pace"} — day {nowM.getUTCDate()}/{daysInMonth}: expected ~{expectedPct}% by today
-                </p>
-              )}
-            </>
-          );
-        })() : (
-          <p className="text-muted-foreground mt-1 text-xs">No target set for this month yet.</p>
-        )}
-        {rev.last_target_cents ? (() => {
-          // v1.4.95: last month's KPI result stays visible this month — the
-          // team sees where they landed, and the bar to beat.
-          const lastPct = Math.round((lastTotal / rev.last_target_cents!) * 100);
-          const hit = lastPct >= 100;
-          return (
-            <p className={`mt-2 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
-              {hit ? "🏆" : "📈"} Last month ({ym(rev.last_month)}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
-              {hit ? "TARGET HIT — keep the streak going!" : "— this month is the comeback."}
-            </p>
-          );
-        })() : null}
-        {canTarget && !editingTarget && new Date(Date.now() + 8 * 3600 * 1000).getUTCDate() >= 25 && !rev.next_target_cents && rev.next_month && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-            ⏰ Month-end soon — set {ym(rev.next_month)}&apos;s target before the 30th/31st.{" "}
-            <button type="button" className="underline" onClick={() => { setTargetDraft(""); setEditingTarget("next"); }}>Set next month&apos;s target</button>
+      {/* v1.6.1: last month's KPI result stays as context; the editable KPI
+          target itself now lives on the Dashboard's Sales Floor. */}
+      {rev.last_target_cents ? (() => {
+        const lastPct = Math.round((lastTotal / rev.last_target_cents!) * 100);
+        const hit = lastPct >= 100;
+        return (
+          <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}>
+            {hit ? "🏆" : "📈"} Last month ({ym(rev.last_month)}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
+            {hit ? "TARGET HIT — keep the streak going!" : "— this month is the comeback."}
           </p>
-        )}
-        {rev.next_target_cents ? (
-          <p className="text-muted-foreground mt-2 text-xs">Next month&apos;s target already set: {rm(rev.next_target_cents)}.</p>
-        ) : null}
-      </div>
+        );
+      })() : null}
     </div>
   );
 }
@@ -3981,7 +3947,7 @@ function TargetsCommissionCard() {
             <div key={s.id} className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{s.name} <span className="text-muted-foreground text-[11px] capitalize">{s.role.replace(/_/g, " ")}</span></span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 w-28 text-xs`}
-                defaultValue={userTargets[s.id] != null ? (userTargets[s.id]! / 100).toString() : ""}
+                defaultValue={userTargets[s.id] ? (userTargets[s.id] / 100).toString() : ""}
                 placeholder="e.g. 8000"
                 onBlur={(e) => { if (e.target.value) void saveTarget("user", s.id, e.target.value); }} />
             </div>
@@ -3997,7 +3963,7 @@ function TargetsCommissionCard() {
             <label key={team} className="flex items-center gap-2 text-sm">
               <span className="capitalize">{team}</span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 w-32 text-xs`}
-                defaultValue={teamTargets[team] != null ? (teamTargets[team]! / 100).toString() : ""}
+                defaultValue={teamTargets[team] ? (teamTargets[team] / 100).toString() : ""}
                 placeholder="team goal"
                 onBlur={(e) => { if (e.target.value) void saveTarget("team", team, e.target.value); }} />
             </label>
@@ -4621,7 +4587,7 @@ export default function PortalPage() {
             {REVENUE_ROLES.includes(user.role) && <LeaderboardCard user={user} />}
             {TARGET_ADMIN_ROLES.includes(user.role) && <TargetsCommissionCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
-            {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard role={user.role} />}
+            {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
             {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             <LiveGmvCard />
