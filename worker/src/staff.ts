@@ -3729,9 +3729,18 @@ export async function handleStaff(
        it reads NOW. Two steps rather than a diff because a line can change
        SKU, not just quantity, and restore-then-deduct is right in every case. */
     let stockE: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
-    const edited = await env.DB.prepare(
-      `SELECT doc_type, doc_number, kind FROM sales_documents WHERE id = ?1`,
-    ).bind(idE).first<{ doc_type: string; doc_number: string; kind: string | null }>();
+    let edited: { doc_type: string; doc_number: string; kind?: string | null } | null = null;
+    try {
+      edited = await env.DB.prepare(
+        `SELECT doc_type, doc_number, kind FROM sales_documents WHERE id = ?1`,
+      ).bind(idE).first<{ doc_type: string; doc_number: string; kind: string | null }>();
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        edited = await env.DB.prepare(
+          `SELECT doc_type, doc_number FROM sales_documents WHERE id = ?1`,
+        ).bind(idE).first<{ doc_type: string; doc_number: string; kind?: string | null }>();
+      } else throw e;
+    }
     if (edited && edited.doc_type === "INV" && (edited.kind ?? "product") !== "service") {
       await restoreForInvoice(env, Number(idE), edited.doc_number);
       stockE = await deductForInvoice(env, Number(idE), edited.doc_number, JSON.stringify(itemsE), null, user.id);

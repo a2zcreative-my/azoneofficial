@@ -38,7 +38,7 @@ async function api<T>(path: string, init?: RequestInit) {
   }
 }
 
-const input =
+const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -50,7 +50,6 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
 const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
 
 interface Staff {
@@ -288,6 +287,7 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
 ];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
@@ -755,7 +755,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                           showToast("Offboarded", `${displayName(u)} — resigned, signed out everywhere, 2FA cleared`);
                           void load();
                         } else {
-                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.message ?? "Offboard failed" }));
+                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? "Offboard failed" }));
                         }
                       });
                     }}>

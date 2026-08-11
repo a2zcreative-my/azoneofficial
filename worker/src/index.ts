@@ -477,7 +477,7 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: { s
   // location still can't be extracted, record which keys/levels TikTok sent
   // so the unseen regional shape can be added to the chain.
   if (!city) {
-    await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] levels=[${(ra?.district_info ?? []).map((d) => d.address_level_name ?? "?").join(",")}]`);
+    await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] district_info=${JSON.stringify(ra?.district_info)}`);
   }
   return { items: groupLineItems(order?.line_items ?? []), city };
 }
@@ -610,8 +610,8 @@ async function runBackup(env: Env, actorId: number | null): Promise<
   try {
     const { results: tables } = await env.DB.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table'
-         AND name NOT LIKE 'sqlite\_%' ESCAPE '\'
-         AND name NOT LIKE '\_cf\_%' ESCAPE '\'
+         AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+         AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'
          AND name != 'd1_migrations'
        ORDER BY name`,
     ).all<{ name: string }>();
@@ -806,7 +806,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     )?.slice(0, 80) ?? null;
     // v1.4.190 diagnostic (privacy-safe: STRUCTURE only, never values).
     if (!cityNow) {
-      await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] levels=[${(ra?.district_info ?? []).map((d) => d.address_level_name ?? "?").join(",")}]`);
+      await logError(env, "tiktok_location", `order ${orderId}: ra_keys=[${Object.keys(ra ?? {}).join(",") || "ABSENT"}] district_info=${JSON.stringify(ra?.district_info)}`);
     }
     // v1.4.75: order amount in cents for the revenue dashboard. TikTok sends
     // the total as a decimal string; parse defensively, reject nonsense.

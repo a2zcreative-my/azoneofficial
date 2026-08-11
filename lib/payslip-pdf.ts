@@ -66,7 +66,7 @@ export function drawPayslip(p: PayslipData): string {
   y += 20;
   c.text(`PAYSLIP — ${MONTHS[Number(mm) - 1]} ${yy}`, M, y + 9, 9.75, { bold: true, colour: SLATE });
   y += 18;
-  c.line(M, y, M + W, y, HAIR, 0.7); y += 12;
+  c.line(M, y, M + W, HAIR, 0.7); y += 12;
 
   // ---- who and when: two label/value pairs per row, as printed
   const pairs: [string, string, string, string][] = [

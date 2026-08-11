@@ -21,7 +21,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
@@ -41,8 +41,8 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { card, inputClass, btnClass, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
+import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 const API = "/api/v1";
 
@@ -805,7 +805,7 @@ function TrendingMYCard() {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground mt-2 text-xs">Nothing in today's top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
+            <p className="text-muted-foreground mt-2 text-xs">Nothing in today&apos;s top 20 touches our keywords — the full list is below; a quiet day for the niche is normal.</p>
           )}
           {rest.length > 0 && (
             <DetailsToggle label={`All trending searches (${rest.length})`} className="mt-2">
@@ -848,6 +848,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
       .then((r) => { if (r.ok && r.data) setBdays(r.data.birthdays); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const bdayOn = (iso: string) => bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
   const loadEvents = useCallback(async () => {
@@ -2504,7 +2505,7 @@ function PackagesEditorCard({ role }: { role: string }) {
             const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
             const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
             if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
-            else showToast("Not saved", r.error ?? "Deploy the latest server first", "notice");
+            else showToast("Not saved", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server first", "notice");
           }}>Save rate card</button>
         </div>
       </div>
@@ -2556,7 +2557,7 @@ function BusinessLinesCard() {
         <table className="w-full border-collapse text-sm">
           <thead><tr className="border-border border-b">
             <th className={th}>MONTH</th>
-            {lines.map((l) => <th key={l.key} className={thR2}>{l.label.split(" ")[0].toUpperCase()}</th>)}
+            {lines.map((l) => <th key={l.key} className={thR2}>{(l.label.split(" ")[0] || "").toUpperCase()}</th>)}
             <th className={thR2}>TOTAL</th>
           </tr></thead>
           <tbody>
@@ -2740,6 +2741,7 @@ function ClientsCard() {
   const [clients, setClients] = useState<Cl[]>([]);
   const [sessions, setSessions] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
+  const { show: showRlToast, node: rlToastNode } = useSaveToast();
   useEffect(() => {
     void api<{ clients?: Cl[]; sessions?: Record<string, number> }>(`/staff/clients/summary`).then((r) => {
       if (r.ok) { setClients(r.data?.clients ?? []); setSessions(r.data?.sessions ?? {}); }
@@ -2770,7 +2772,7 @@ function ClientsCard() {
                   weapon + our best brochure. */}
               <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", r.error ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
                 try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
@@ -3911,14 +3913,14 @@ export default function PortalPage() {
      activeTab so an out-of-scope tab can never mount, not even one frame. */
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(`azone-tab:${user.id}`);
+      const saved = user ? window.localStorage.getItem(`azone-tab:${user.id}`) : null;
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
     } catch { /* private mode */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id]);
+  }, [user?.id]);
   useEffect(() => {
-    try { window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
-  }, [tab, user.id]);
+    try { if (user) window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
@@ -4038,6 +4040,28 @@ export default function PortalPage() {
     };
   }, [user, tab, chime]);
 
+  const unread = notifs.filter((n) => !n.is_read).length;
+  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
+     card on the Users tab. Absent tab = the built-in default below.
+     Rails: Dashboard + Profile always visible; super_admin ignores
+     overrides entirely (the escape hatch); fetch failure (old worker) =
+     defaults, so a split deploy can never blank the tab strip. */
+  const tabs = ALL_TABS.filter((t) => {
+    if (!user) return true;
+    if (t === "Dashboard" || t === "Profile") return true;
+    if (user.role === "super_admin") return true;
+    const ov = tabOverrides[t];
+    if (ov !== undefined) return ov.includes(user.role);
+    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
+    const allowed = TAB_ROLES[t];
+    return !allowed || allowed.includes(user.role);
+  });
+  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
+  useEffect(() => {
+    if (!tabs.includes(tab)) setTab("Dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.join("|"), tab]);
+
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
@@ -4062,27 +4086,6 @@ export default function PortalPage() {
       </div>
     );
   }
-
-  const unread = notifs.filter((n) => !n.is_read).length;
-  /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
-     card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
-     overrides entirely (the escape hatch); fetch failure (old worker) =
-     defaults, so a split deploy can never blank the tab strip. */
-  const tabs = ALL_TABS.filter((t) => {
-    if (t === "Dashboard" || t === "Profile") return true;
-    if (user.role === "super_admin") return true;
-    const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user.role);
-    if (t === "Sales") return SALES_ROLES.includes(user.role) || user.role === "ceo";
-    const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user.role);
-  });
-  // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
-  useEffect(() => {
-    if (!tabs.includes(tab)) setTab("Dashboard");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs.join("|"), tab]);
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
