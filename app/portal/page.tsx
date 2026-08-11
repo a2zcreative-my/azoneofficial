@@ -32,6 +32,7 @@ import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
+import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 import {
   AttendanceAdminPanel,
   BirthdaysPanel,
