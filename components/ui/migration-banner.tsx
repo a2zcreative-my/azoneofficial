@@ -9,7 +9,7 @@ export function MigrationBanner() {
     // Only check once per page load to avoid spamming
     fetch("/api/v1/health/migrations")
       .then((res) => res.json())
-      .then((data: any) => {
+      .then((data: { ok?: boolean; pending?: boolean }) => {
         if (data?.ok && data?.pending) {
           setPending(true);
         }
