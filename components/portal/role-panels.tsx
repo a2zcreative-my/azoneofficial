@@ -500,7 +500,11 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   // click SKU / Item (and Out today on the stock-out card) to sort, click
   // again to reverse. Defaults unchanged: inventory by SKU 1→end; stock-out
   // by today's hot sales first.
-  const [invSort, setInvSort] = useState<"sku" | "sku-desc" | "az" | "za">("sku");
+  // v1.4.281: all-column sort — col + asc/desc direction.
+  type InvCol = "sku" | "name" | "price" | "net" | "stock";
+  const [invSort, setInvSort] = useState<{ col: InvCol; asc: boolean }>({ col: "sku", asc: true });
+  const cycleInv = (col: InvCol) =>
+    setInvSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   const [ttSort, setTtSort] = useState<"hot" | "hot-asc" | "sku" | "sku-desc" | "az" | "za">("hot");
   // edit_id null = new stock out; set = editing that traceability row.
   /* v1.4.251 (CEO: "In + seem doesnt popup notifications … if I want to
@@ -567,10 +571,17 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
   // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
   const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
   const maxStock = Math.max(1, ...items.map((x) => x.stock)); // v1.4.270 row bars
-  const sortedItems = [...items].sort(invSort === "sku" ? bySku
-    : invSort === "sku-desc" ? (a, b) => bySku(b, a)
-    : invSort === "az" ? (a, b) => a.name.localeCompare(b.name)
-    : (a, b) => b.name.localeCompare(a.name));
+  const sortedItems = [...items].sort((a, b) => {
+    const dir = invSort.asc ? 1 : -1;
+    switch (invSort.col) {
+      case "sku":   return dir * bySku(a, b);
+      case "name":  return dir * a.name.localeCompare(b.name);
+      case "price": return dir * ((a.unit_price_cents ?? 0) - (b.unit_price_cents ?? 0));
+      case "net":   return dir * (Math.max(0, (a.unit_price_cents ?? 0) - (a.live_rebate_cents ?? 0)) - Math.max(0, (b.unit_price_cents ?? 0) - (b.live_rebate_cents ?? 0)));
+      case "stock": return dir * (a.stock - b.stock);
+      default:      return 0;
+    }
+  });
   // Hot = today's sales first (ties: month, then SKU) — deterministic.
   const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
   const sortedTtOut = [...ttOut].sort(ttSort === "hot" ? byToday
@@ -798,18 +809,36 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
           <table className="tbl-sticky w-full min-w-[780px] border-collapse">
             <thead>
               <tr className="border-border border-b">
-                <th className={`${th} cursor-pointer select-none`} title="Sort by SKU — click again to reverse"
-                  onClick={() => setInvSort((s) => (s === "sku" ? "sku-desc" : "sku"))}>
-                  SKU{invSort === "sku" ? " ▲" : invSort === "sku-desc" ? " ▼" : ""}</th>
-                <th className={`${th} cursor-pointer select-none`} title="Sort by item name A→Z — click again for Z→A"
-                  onClick={() => setInvSort((s) => (s === "az" ? "za" : "az"))}>
-                  Item{invSort === "az" ? " ▲" : invSort === "za" ? " ▼" : ""}</th>
-                <th className={thR2}>Price/unit</th>
+                {/* v1.4.281: all columns are sortable — click to asc, click again to desc */}
+                {([
+                  ["sku",  "SKU",               th],
+                  ["name", "Item",              th],
+                ] as [string, string, string][]).map(([col, label, cls]) => (
+                  <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                    title={`Sort by ${label} — click again to reverse`}
+                    onClick={() => cycleInv(col as "sku" | "name")}>
+                    {label}{invSort.col === col ? (invSort.asc ? " ▲" : " ▼") : ""}
+                  </th>
+                ))}
+                <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
+                  title="Sort by price — click again to reverse"
+                  onClick={() => cycleInv("price")}>
+                  Price/unit{invSort.col === "price" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                </th>
                 {/* v1.4.166: rebate is AUTO — list price − the actual sold
                     price from the latest TikTok firm order (never typed in) */}
                 <th className={thR2}>Live rebate (auto)</th>
-                <th className={thR2}>Net (live)</th>
-                <th className={thR2}>Stock</th><th className={th}>Status</th>
+                <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
+                  title="Sort by net (live) price — click again to reverse"
+                  onClick={() => cycleInv("net")}>
+                  Net (live){invSort.col === "net" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                </th>
+                <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
+                  title="Sort by stock qty — click again to reverse"
+                  onClick={() => cycleInv("stock")}>
+                  Stock{invSort.col === "stock" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                </th>
+                <th className={th}>Status</th>
                 {/* v1.4.162: these two columns had no subheads (CEO spotted it) */}
                 <th className={th}>Manual in / out</th><th className={th}>Actions</th>
               </tr>
