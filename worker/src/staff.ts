@@ -261,7 +261,7 @@ function leaveStageLabel(stage: string): string {
    forward) and the M2E bank-code map from the template's own list. Hoisted to
    module scope so the CSV route and the filled-.xlsm route share them. */
 export function paymentDateFor(payMonth: string): string {
-  const [py = 0, pm = 0] = payMonth.split("-").map(Number);
+  const [py, pm] = payMonth.split("-").map(Number);
   const ny = pm === 12 ? py + 1 : py;
   const nm = pm === 12 ? 1 : pm + 1;
   const d = new Date(Date.UTC(ny, nm - 1, 5));
@@ -292,33 +292,37 @@ function bankCode(name: string): string | null {
 
 const M2E_TEMPLATE_KEY = "private/m2e/template.xlsm";
 
-/* v1.4.278 — ALL-TIME revenue by MYT month, all four channels. ONE copy of
-   this arithmetic (v1.4.226 rule): /revenue's overall card AND /finance/pnl
-   both call it. Each channel armored so a pending migration blanks one
-   channel, never the caller. */
-async function revenueByMonth(env: Env): Promise<Record<string, number>> {
-  const acc: Record<string, number> = {};
-  const add = (m: string | null, c: number) => { if (m) acc[m] = (acc[m] ?? 0) + c; };
+/* v1.4.281 — THE ONE revenue arithmetic, now split by BUSINESS LINE
+   (CEO: "my company do 2 business which is one for product sales and the
+   other one is for service sales… make it expandable").
+   revenueLines() buckets every ringgit into a named line:
+     product = TikTok + Shopee/walk-in postage + manual sales + paid INV kind='product'
+     service = paid INV kind='service'
+     invoices = paid INV on a DB that predates migration 0061 (kind column
+       missing) — honest bucket, never guessed into a line.
+   revenueByMonth() = the SUM of all lines, so /revenue, /finance/pnl and
+   the business-lines card can never disagree. Adding a future line =
+   one more bucket here; every consumer inherits it. Each query armored. */
+async function revenueLines(env: Env): Promise<Record<string, Record<string, number>>> {
+  const lines: Record<string, Record<string, number>> = {};
+  const add = (line: string, m: string | null, c: number) => {
+    if (!m) return;
+    const bucket = (lines[line] ??= {});
+    bucket[m] = (bucket[m] ?? 0) + c;
+  };
   try {
     const { results } = await env.DB.prepare(
       `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
        FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
     ).all<{ m: string; cents: number }>();
-    for (const r of results) add(r.m, r.cents);
+    for (const r of results) add("product", r.m, r.cents);
   } catch { /* pre-postage */ }
-  try {
-    const { results } = await env.DB.prepare(
-      `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
-       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m`,
-    ).all<{ m: string; cents: number }>();
-    for (const r of results) add(r.m, r.cents);
-  } catch { /* pre-0060 */ }
   try {
     const { results } = await env.DB.prepare(
       `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(order_amount_cents), 0) AS cents
        FROM postage_records WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' GROUP BY m`,
     ).all<{ m: string; cents: number }>();
-    for (const r of results) add(r.m, r.cents);
+    for (const r of results) add("product", r.m, r.cents);
   } catch { /* pre-0048 */ }
   try {
     const { results } = await env.DB.prepare(
@@ -327,15 +331,41 @@ async function revenueByMonth(env: Env): Promise<Record<string, number>> {
               COALESCE(SUM(total_cents), 0) AS cents
        FROM manual_sales GROUP BY m`,
     ).all<{ m: string; cents: number }>();
-    for (const r of results) add(r.m, r.cents);
+    for (const r of results) add("product", r.m, r.cents);
   } catch {
     try {
       const { results } = await env.DB.prepare(
         `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
          FROM manual_sales GROUP BY m`,
       ).all<{ m: string; cents: number }>();
-      for (const r of results) add(r.m, r.cents);
+      for (const r of results) add("product", r.m, r.cents);
     } catch { /* pre-manual-sales */ }
+  }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m,
+              (CASE WHEN kind = 'service' THEN 'service' ELSE 'product' END) AS line,
+              COALESCE(SUM(total_cents), 0) AS cents
+       FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m, line`,
+    ).all<{ m: string; line: string; cents: number }>();
+    for (const r of results) add(r.line, r.m, r.cents);
+  } catch { /* pre-0061: no kind column — honest unclassified bucket */
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+         FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' GROUP BY m`,
+      ).all<{ m: string; cents: number }>();
+      for (const r of results) add("invoices", r.m, r.cents);
+    } catch { /* pre-0060 */ }
+  }
+  return lines;
+}
+
+async function revenueByMonth(env: Env): Promise<Record<string, number>> {
+  const lines = await revenueLines(env);
+  const acc: Record<string, number> = {};
+  for (const bucket of Object.values(lines)) {
+    for (const [m, c] of Object.entries(bucket)) acc[m] = (acc[m] ?? 0) + c;
   }
   return acc;
 }
@@ -388,10 +418,10 @@ export async function handleStaff(
   /* ---- staff directory (managers) ---- */
 
   if (path === "/users" && method === "POST") {
-    // HR-scoped staff creation. Deliberately cannot mint admin/super_admin/
-    // customer — those stay in /admin. HR onboards staff-level roles only.
+    // HR-scoped staff creation. Deliberately cannot mint admin/super_admin,
+    // executive, or customer accounts; those stay in /admin/super-admin flows.
     if (!can(user, "hr_manage")) return err("forbidden", "HR access required", 403);
-    const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
+    const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
     if (
       !body || !str(body.email, 200) || !str(body.name, 120) ||
       !str(body.password, 200) || (body.password as string).length < 10 ||
@@ -2183,6 +2213,29 @@ export async function handleStaff(
      (net_cents with the additive fallback — never a second formula);
      expenses by expense_date; claims = APPROVED, by claim_date. Every
      source armored; a month appears if ANY source has it. */
+  /* v1.4.281 — 🧩 business lines: the two businesses (product / service)
+     reported separately, from the SAME revenueLines() buckets that feed
+     every total. Expandable: response is lines[] — a future line appears
+     here automatically the day the helper buckets it. */
+  if (path === "/revenue/lines" && method === "GET") {
+    if (!can(user, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const buckets = await revenueLines(env);
+    const LABELS: Record<string, string> = {
+      product: "Product sales",
+      service: "Service sales",
+      invoices: "Invoices (run migration 0061 to split product/service)",
+    };
+    const lines = Object.entries(buckets)
+      .map(([key, months]) => {
+        const ms = Object.entries(months).sort(([a], [b]) => (a < b ? -1 : 1))
+          .map(([month, cents]) => ({ month, cents }));
+        return { key, label: LABELS[key] ?? key, total_cents: ms.reduce((a, x) => a + x.cents, 0), months: ms };
+      })
+      .filter((l) => l.total_cents > 0)
+      .sort((a, b) => b.total_cents - a.total_cents);
+    return json({ lines });
+  }
+
   if (path === "/finance/pnl" && method === "GET") {
     if (!can(user, "expenses")) return err("forbidden", "Expenses access required", 403);
     const rev = await revenueByMonth(env);

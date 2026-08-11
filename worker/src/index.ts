@@ -155,6 +155,7 @@ function getCookie(req: Request, name: string): string | null {
 const SESSION_COOKIE = "azone_session";
 const SESSION_TTL_HOURS = 12;
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
+const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 
 /* ================= Two-factor authentication (TOTP, v1.4.37) =================
@@ -1122,7 +1123,7 @@ export default {
       // v1.4.72: unexpected 500s land in the error log so /admin sees them
       // before staff report them.
       await logError(env, "api", detail, path);
-      res = errorResponse("internal", `Something went wrong: ${detail}`, 500);
+      res = errorResponse("internal", "Something went wrong. The error has been logged.", 500);
     }
     // attach CORS to every response
     const headers = new Headers(res.headers);
@@ -1364,7 +1365,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/integrations/tiktok/webhook" && method === "POST") {
     // TikTok signs its own requests (tiktok-signature); a relay such as
     // Make/Zapier can instead send x-webhook-secret. Either proves origin.
+    const len = Number(request.headers.get("Content-Length") ?? "0");
+    if (!Number.isFinite(len) || len <= 0 || len > MAX_WEBHOOK_BODY_BYTES) {
+      return errorResponse("payload_too_large", "Webhook payload is too large", 413);
+    }
     const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_WEBHOOK_BODY_BYTES) {
+      return errorResponse("payload_too_large", "Webhook payload is too large", 413);
+    }
     const sigHeader = request.headers.get("tiktok-signature") ?? request.headers.get("Tiktok-Signature") ?? "";
     const relaySecret = request.headers.get("x-webhook-secret") ?? "";
     const viaTikTok = sigHeader ? await verifyTikTokSignature(env, sigHeader, rawBody) : false;
@@ -1378,6 +1386,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const data = (body?.data ?? body ?? {}) as Record<string, unknown>;
     const orderId = String(data.order_id ?? data.orderId ?? "").trim();
     const rawStatus = String(data.order_status ?? data.status ?? "").toLowerCase();
+
+    if (verified) {
+      const existingEvent = await env.DB.prepare(
+        `SELECT id FROM webhook_events WHERE provider = 'tiktok' AND event_type = ?1 AND order_ref = ?2 AND body = ?3 AND verified = 1`
+      ).bind(String(body?.type ?? "unknown"), orderId ? `TT-${orderId}` : null, rawBody.slice(0, 4000)).first<{ id: number }>();
+      if (existingEvent) {
+        return json({ ok: true, ignored: "replay" });
+      }
+    }
 
     // Always record the receipt — including unverified ones — so a signature
     // mismatch is visible and diagnosable instead of silently dropped.
@@ -1487,15 +1504,51 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return json({ ok: true, status: rawStatus });
   }
 
+  if (path === "/api/v1/integrations/tiktok/start" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !["ceo", "coo", "admin", "super_admin"].includes(me.role)) {
+      return errorResponse("forbidden", "Management sign-in required", 403);
+    }
+    if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
+      return errorResponse("not_configured", "TikTok app credentials are not set", 503);
+    }
+    const state = randomSecret();
+    const url = new URL("https://auth.tiktok-shops.com/oauth/authorize");
+    url.searchParams.set("app_key", env.TIKTOK_APP_KEY);
+    url.searchParams.set("state", state);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: url.toString(),
+        "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+      },
+    });
+  }
+
   /* ---- TikTok seller authorization callback (v1.4.44) ----
      Point the app's Redirect URL here. TikTok returns ?code=…; this exchanges
      it for the access token that lets order webhooks resolve line items. */
   if (path === "/api/v1/integrations/tiktok/callback" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !["ceo", "coo", "admin", "super_admin"].includes(me.role)) {
+      return errorResponse("forbidden", "Management sign-in required", 403);
+    }
     if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) {
       return errorResponse("not_configured", "TikTok app credentials are not set", 503);
     }
-    const code = new URL(request.url).searchParams.get("code");
+    const url = new URL(request.url);
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
+    const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+
     if (!code) return errorResponse("invalid_input", "Missing authorization code", 400);
+    if (!state || !cookieState || state !== cookieState) {
+      return new Response(
+        JSON.stringify({ ok: false, code: "invalid_state", message: "Invalid or expired state parameter" }),
+        { status: 400, headers: { "Content-Type": "application/json", "Set-Cookie": clearState } }
+      );
+    }
     const tokenUrl = new URL("https://auth.tiktok-shops.com/api/v2/token/get");
     tokenUrl.searchParams.set("app_key", env.TIKTOK_APP_KEY);
     tokenUrl.searchParams.set("app_secret", env.TIKTOK_APP_SECRET);
@@ -1516,13 +1569,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
     // Order APIs need the shop_cipher — resolve and store it immediately.
     const cipherRes = await refreshTikTokShopCipher(env);
-    await audit(env, null, "tiktok.authorized", undefined, undefined, { shop_cipher: cipherRes.detail });
+    await audit(env, me.id, "tiktok.authorized", undefined, undefined, { shop_cipher: cipherRes.detail });
     return new Response(
       `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">
        <h2>TikTok Shop connected</h2>
        <p>AZ ONE OFFICIAL can now read order details and move inventory automatically.</p>
        <p><a href="/portal">Back to the staff portal</a></p></body>`,
-      { headers: { "Content-Type": "text/html; charset=utf-8" } },
+      { headers: { "Content-Type": "text/html; charset=utf-8", "Set-Cookie": clearState } },
     );
   }
 
@@ -1703,14 +1756,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!TWOFA_ELIGIBLE(me.role)) {
       return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
     }
+    const current = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_enabled: number }>();
+    if (current?.totp_enabled) {
+      return errorResponse("already_enabled", "Two-factor is already enabled", 409);
+    }
     // A fresh secret each time setup is opened; it only becomes active once a
     // code from it is verified in /enable.
     const secret = randomSecret();
-    await env.DB.prepare(`UPDATE users SET totp_secret = ?1 WHERE id = ?2`).bind(secret, me.id).run();
     const label = encodeURIComponent(`AZ ONE OFFICIAL:${me.email}`);
     return json({
       secret,
       otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=AZ%20ONE%20OFFICIAL&digits=6&period=30`,
+    }, 200, {
+      "Set-Cookie": `azone_2fa_pending=${secret}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
     });
   }
 
@@ -1721,13 +1780,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
     }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const row = await env.DB.prepare(`SELECT totp_secret FROM users WHERE id = ?1`)
-      .bind(me.id).first<{ totp_secret: string | null }>();
-    if (!row?.totp_secret) return errorResponse("invalid_state", "Start setup first", 400);
-    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(row.totp_secret, body.code as string))) {
+    const pendingSecret = getCookie(request, "azone_2fa_pending");
+    if (!pendingSecret) return errorResponse("invalid_state", "Start setup first or setup expired", 400);
+    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(pendingSecret, body.code as string))) {
       return errorResponse("invalid_code", "That code is not correct — check the time on your phone and try again", 400);
     }
-    await env.DB.prepare(`UPDATE users SET totp_enabled = 1 WHERE id = ?1`).bind(me.id).run();
+    await env.DB.prepare(`UPDATE users SET totp_secret = ?1, totp_enabled = 1 WHERE id = ?2`).bind(pendingSecret, me.id).run();
     // Fresh backup codes; the plain values are returned exactly once.
     await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(me.id).run();
     const codes = makeBackupCodes();
@@ -1737,7 +1795,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ).bind(me.id, await sha256Hex(c.toUpperCase())).run();
     }
     await audit(env, me.id, "auth.2fa_enabled");
-    return json({ ok: true, backup_codes: codes });
+    return json({ ok: true, backup_codes: codes }, 200, {
+      "Set-Cookie": `azone_2fa_pending=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    });
   }
 
   if (path === "/api/v1/auth/2fa/disable" && method === "POST") {
@@ -2575,6 +2635,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     if (roleWantedC === "super_admin" && !atLeast(user, "super_admin")) {
       return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
+    }
+    if (roleWantedC === "admin" && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can create an admin", 403);
     }
     const email = (body.email as string).toLowerCase().trim();
     // v1.4.180: domain policy aligned with the portal (v1.4.156–157) —
