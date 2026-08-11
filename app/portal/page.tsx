@@ -2566,9 +2566,7 @@ function BusinessLinesCard() {
           </div>
         ))}
       </div>
-      {lines.some((l) => l.key === "invoices") && (
-        <p className="mt-1.5 text-xs text-amber-700">Some paid invoices can&apos;t be split into product/service until migration 0061 runs (DEPLOY.bat does this).</p>
-      )}
+
       <div className="mt-3 overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead><tr className="border-border border-b">

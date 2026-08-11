@@ -124,7 +124,7 @@ export function ProspectsPanel({ canManage, onQuote }: { canManage: boolean; onQ
 
   if (notReady) {
     return <div className={card}><p className="text-sm font-semibold">📇 Prospects</p>
-      <p className="text-muted-foreground mt-1 text-xs">The server doesn&apos;t have the prospects update yet — run migration 0066 and redeploy the worker (<span className="font-mono">npx wrangler d1 migrations apply azoneofficial --remote</span>, then <span className="font-mono">cd worker && wrangler deploy</span>). The form appears once it&apos;s live, so nothing typed here can be lost.</p></div>;
+      <p className="text-muted-foreground mt-1 text-xs">Prospects are temporarily unavailable. Please try again shortly or contact your administrator.</p></div>;
   }
 
   return (
