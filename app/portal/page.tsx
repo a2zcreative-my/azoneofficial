@@ -58,15 +58,18 @@ function getCsrfToken() {
 async function api<T>(path: string, init?: RequestInit) {
   try {
     const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const csrfHeader = isMutating ? { "X-CSRF-Token": getCsrfToken() } : {};
+    const headers = new Headers(init?.headers as Record<string, string> ?? {});
+    if (init?.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (isMutating) {
+      const csrf = getCsrfToken();
+      if (csrf) headers.set("X-CSRF-Token", csrf);
+    }
     const res = await fetch(`${API}${path}`, {
       credentials: "include",
-      headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
-        ...csrfHeader,
-        ...(init?.headers as Record<string, string>),
-      },
       ...init,
+      headers,
     });
     return { ok: res.ok, status: res.status, data: (res.status === 204 ? null : await res.json()) as T | null };
   } catch {
