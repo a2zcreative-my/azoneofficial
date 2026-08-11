@@ -623,6 +623,8 @@ export async function handleStaff(
       pending_ot: await n(`SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
       low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
       overdue_followups: await n(`SELECT COUNT(*) AS c FROM prospects WHERE next_followup IS NOT NULL AND next_followup < '${todayS}' AND stage NOT IN ('won', 'lost')`),
+      // v1.4.280: open quotations = QT docs not yet converted to an invoice
+      open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'QT' AND converted_from IS NULL`),
     });
   }
 
@@ -4713,19 +4715,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
   return rows.length;
 }
 
-/* v1.4.266 (CEO: "add Famous search product in Malaysia which is related to
-   my product and my service… potential business"): what Malaysians are
-   SEARCHING is Google's data, and Google publishes a free official RSS of the
-   country's trending searches — top ~20, refreshed hourly, with a traffic
-   label and a related headline. No key, no scraping, no quota to blow.
-
-   (Threads was considered and rejected as the ENGINE: its keyword-search API
-   needs Meta App Review for advanced access, is capped at 500 searches per
-   rolling 7 days, and searches what people POST, not what they SEARCH —
-   chatter, not demand. Fine to eyeball manually once a trend is spotted.)
-
-   Cached in system_meta for 3 hours — the feed itself only shifts hourly,
-   and a Dashboard full of staff must not hammer Google on every load. */
+/* v1.4.266: what Malaysians are SEARCHING — Google Trends Malaysia RSS,
+   cached in system_meta for 3 hours. */
 const TRENDS_TTL_MS = 3 * 3600 * 1000;
 
 async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title: string; traffic: string; news: string; news_url: string }[] } | null> {
@@ -4738,19 +4729,20 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
     }
   } catch { /* fall through to fetch */ }
   try {
-    /* v1.4.268 (CEO's screenshot: the card showed only its failure line):
-       two official Google endpoints — the current one and the legacy daily
-       feed — tried in order, with a real browser UA and an RSS Accept
-       header. Google serves both today; if one 404s or blocks the request,
-       the other usually answers, and the failure reason is KEPT so the card
-       can say which it was instead of a generic shrug. */
-    const FEEDS = [
+    /* Google blocks direct fetches from Cloudflare datacenter IPs — the RSS
+       endpoint returns a valid-looking 200 with empty XML body. Strategy:
+       1. Try direct Google feeds first (cheapest, works if Google unblocks)
+       2. Fallback to allorigins.win proxy (fetches from non-CF IPs)
+       3. Fallback to rss2json.com (JSON API, no parsing needed) */
+    const GOOGLE_FEEDS = [
       "https://trends.google.com/trending/rss?geo=MY",
       "https://trends.google.com/trends/trendingsearches/daily/rss?geo=MY",
     ];
-    let xml = "";
     const attempts: string[] = [];
-    for (const feed of FEEDS) {
+    let xml = "";
+
+    // Strategy 1: direct fetch
+    for (const feed of GOOGLE_FEEDS) {
       try {
         const r = await fetch(feed, {
           headers: {
@@ -4759,29 +4751,80 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
             "accept-language": "en-MY,en;q=0.9,ms;q=0.8",
           },
         });
-        if (!r.ok) { attempts.push(`${feed.includes("daily") ? "legacy" : "current"} http ${r.status}`); continue; }
+        if (!r.ok) { attempts.push(`direct-${feed.includes("daily") ? "legacy" : "current"} http ${r.status}`); continue; }
         const body = await r.text();
-        if (!body.includes("<item>")) { attempts.push(`${feed.includes("daily") ? "legacy" : "current"} no items`); continue; }
+        if (!body.includes("<item>") && !body.includes("<item ")) {
+          attempts.push(`direct-${feed.includes("daily") ? "legacy" : "current"} no items (CF blocked)`);
+          continue;
+        }
         xml = body;
         break;
       } catch (fe) {
-        attempts.push(`${feed.includes("daily") ? "legacy" : "current"} ${fe instanceof Error ? fe.message : String(fe)}`);
+        attempts.push(`direct ${fe instanceof Error ? fe.message : String(fe)}`);
       }
     }
-    if (!xml) throw new Error(attempts.join("; ") || "no feed answered");
+
+    // Strategy 2: allorigins.win proxy (fetches on behalf, bypasses CF block)
+    if (!xml) {
+      try {
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent("https://trends.google.com/trending/rss?geo=MY")}`;
+        const r = await fetch(proxyUrl, { headers: { "user-agent": "curl/8.0" } });
+        if (r.ok) {
+          const body = await r.text();
+          if (body.includes("<item>") || body.includes("<item ")) { xml = body; }
+          else { attempts.push("allorigins no items"); }
+        } else {
+          attempts.push(`allorigins http ${r.status}`);
+        }
+      } catch (fe) {
+        attempts.push(`allorigins ${fe instanceof Error ? fe.message : String(fe)}`);
+      }
+    }
+
+    // Strategy 3: rss2json.com — returns JSON, skip the XML parser entirely
+    if (!xml) {
+      try {
+        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent("https://trends.google.com/trending/rss?geo=MY")}`;
+        const r = await fetch(apiUrl);
+        if (r.ok) {
+          const j = await r.json() as { status?: string; items?: { title?: string; description?: string; link?: string }[] };
+          if (j.status === "ok" && j.items && j.items.length > 0) {
+            const items = j.items.slice(0, 20).map((it) => ({
+              title: (it.title ?? "").trim(),
+              traffic: "",
+              news: "",
+              news_url: "",
+            })).filter((it) => it.title);
+            if (items.length > 0) {
+              const out = { fetched_at: new Date().toISOString(), items };
+              await env.DB.prepare(
+                `INSERT INTO system_meta (key, value) VALUES ('trends_my_cache', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = ?1`,
+              ).bind(JSON.stringify(out)).run();
+              return out;
+            }
+          }
+          attempts.push("rss2json no items");
+        } else {
+          attempts.push(`rss2json http ${r.status}`);
+        }
+      } catch (fe) {
+        attempts.push(`rss2json ${fe instanceof Error ? fe.message : String(fe)}`);
+      }
+    }
+
+    if (!xml) throw new Error(attempts.join("; ") || "all sources failed");
+
     const items: { title: string; traffic: string; news: string; news_url: string }[] = [];
     // Workers have no XML DOM — the feed is regular enough for a tag walk.
-    const blocks = xml.split("<item>").slice(1);
+    const blocks = xml.split(/<item[\s>]/).slice(1);
     for (const b of blocks.slice(0, 20)) {
       const tag = (name: string) => {
-        const m = b.match(new RegExp(`<${name}[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</${name}>`));
+        const m = b.match(new RegExp(`<${name}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${name}>`));
         return m ? m[1]!.trim() : "";
       };
       const title = tag("title");
       if (!title) continue;
-      // v1.4.268: the current feed entity-escapes its news markup
-      // (&lt;b&gt;…), so decode the common entities BEFORE stripping tags —
-      // the other order leaves literal "<b>" fragments in the card.
       const clean = (v: string) => v
         .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'").replace(/&amp;/g, "&")
@@ -4793,7 +4836,7 @@ async function trendsMY(env: Env): Promise<{ fetched_at: string; items: { title:
         news_url: tag("ht:news_item_url"),
       });
     }
-    if (items.length === 0) throw new Error("rss parsed empty");
+    if (items.length === 0) throw new Error("rss parsed empty — " + attempts.join("; "));
     const out = { fetched_at: new Date().toISOString(), items };
     await env.DB.prepare(
       `INSERT INTO system_meta (key, value) VALUES ('trends_my_cache', ?1)

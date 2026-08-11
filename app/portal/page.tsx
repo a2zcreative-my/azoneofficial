@@ -468,7 +468,7 @@ interface RevenueData {
    number, white + gold for the rest — the v1.4.253 one-fill rule applied to
    cards. Renders progressively: each card appears when its data arrives, and
    a role that can't see revenue simply gets the cards it can see. */
-interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; overdue_followups: number | null }
+interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; overdue_followups: number | null; open_quotations: number | null }
 
 function HeroBand({ user }: { user: User }) {
   const [rev, setRev] = useState<RevenueData | null>(null);
@@ -547,6 +547,7 @@ function HeroBand({ user }: { user: User }) {
       ["OT pending", sum.pending_ot],
       ["Low stock", sum.low_stock],
       ["Follow-ups overdue", sum.overdue_followups],
+      ["Quotations open", sum.open_quotations],
     ];
     const shown = rows.filter(([, v]) => v !== null && v > 0);
     cards.push(
