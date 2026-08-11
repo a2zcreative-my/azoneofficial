@@ -3947,7 +3947,7 @@ function TargetsCommissionCard() {
             <div key={s.id} className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{s.name} <span className="text-muted-foreground text-[11px] capitalize">{s.role.replace(/_/g, " ")}</span></span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 w-28 text-xs`}
-                defaultValue={userTargets[s.id] ? (userTargets[s.id] / 100).toString() : ""}
+                defaultValue={userTargets[s.id] != null ? (userTargets[s.id]! / 100).toString() : ""}
                 placeholder="e.g. 8000"
                 onBlur={(e) => { if (e.target.value) void saveTarget("user", s.id, e.target.value); }} />
             </div>
@@ -3963,7 +3963,7 @@ function TargetsCommissionCard() {
             <label key={team} className="flex items-center gap-2 text-sm">
               <span className="capitalize">{team}</span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 w-32 text-xs`}
-                defaultValue={teamTargets[team] ? (teamTargets[team] / 100).toString() : ""}
+                defaultValue={teamTargets[team] != null ? (teamTargets[team]! / 100).toString() : ""}
                 placeholder="team goal"
                 onBlur={(e) => { if (e.target.value) void saveTarget("team", team, e.target.value); }} />
             </label>
