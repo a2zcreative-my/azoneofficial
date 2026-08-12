@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.7.0] — 2026-08-11 — Sales Pipeline, Content, Stokis, Receipts/Credit Notes, dashboard pulse
+
+Four new business modules (migration **0069**) plus the dashboard company-pulse tiles.
+
+**Sales Pipeline (LEAD → WON)** — new Pipeline tab, rebuilt on the retained prospects data: Lead → Contacted → Meeting → Proposal → Negotiation → Won/Lost, with owner, follow-up date, source/niche/referral, and a "prepare quotation" jump to Sales. The follow-up reminder cron is back and now web-pushes the owner. Every staff role can log a lead; the sales tier moves stages. Legacy prospect stages are mapped on display.
+
+**Content management** — new Content tab: plan TikTok/Reel/Live/campaign content on a schedule, move each through IDEA → SCRIPT → SHOOT → EDIT → APPROVAL → POSTED, keep script + caption + campaign together, assign an owner (notified/pushed), and log performance after posting.
+
+**Stokis management** — new Stokis tab: register resellers (contact, location, commission %), record each purchase, and see per-stokis total, outstanding balance, this-month sales vs a monthly target, and the commission the rate would pay. Active/inactive status. Read + write gated to the sales/management tier.
+
+**Receipts, Credit Notes & Outstanding report** — on the Sales tab, a Documents panel: issue a numbered Receipt for any paid invoice (RC-AZOO… numbering, idempotent), raise a Credit Note against an invoice (CN-AZOO…), and a consolidated Outstanding-payments report across all clients. Receipts and credit notes print with the company letterhead (legal name, address, logo) via the browser's Save-as-PDF.
+
+**Dashboard company pulse** — a compact strip of live counters below the ticker: clients, active stokis, lives today, staff clocked in today, unpaid invoices, and a month cash-flow figure (invoices paid − expenses).
+
+**Setup for this release**
+- Apply the migration: `cd worker && npx wrangler d1 migrations apply azoneofficial --remote` (adds 0069). The Pipeline works once 0066/0069 are applied; the other modules need 0069.
+
 ## [1.6.1] — 2026-08-11 — Dashboard KPI editing + Needs-attention placement
 
 - **Needs attention** moved into the top ticker row, right beside the "All-time — every channel" card (position 4), instead of a separate strip at the bottom of the dashboard. A rare "Unpaid invoices" card now falls after it so it never gets pushed out of the top row.

@@ -161,7 +161,7 @@ function todayKL(): string {
   return `${y}${m}${d}`;
 }
 
-async function docNumber(env: Env, docType: "QT" | "DO" | "INV"): Promise<string> {
+async function docNumber(env: Env, docType: "QT" | "DO" | "INV" | "RC" | "CN"): Promise<string> {
   // Malaysia time (UTC+8) decides which business day the number belongs to
   const now = new Date(Date.now() + 8 * 3600 * 1000);
   const day = now.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD (counter key)
@@ -429,8 +429,11 @@ export async function handleStaff(
   // v1.4.115: /receipt carries a binary body exactly like /photo — JSON-parsing
   // it consumed the stream, which is why every claim receipt upload failed
   // (the R2 put received a disturbed body). Both binary routes are excluded.
+  // v1.7.0: the claims receipt upload is /claims/:id/receipt (binary); the new
+  // /docs/:id/receipt is JSON, so exclude only the claims one, not any /receipt.
+  const isClaimsReceipt = path.endsWith("/receipt") && path.startsWith("/claims/");
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !path.endsWith("/receipt") && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -620,6 +623,15 @@ export async function handleStaff(
       low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
       // v1.4.280: open quotations = QT docs not yet converted to an invoice
       open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'QT' AND converted_from IS NULL`),
+      // v1.7.0 company-pulse tiles for the dashboard
+      clients: await n(`SELECT COUNT(*) AS c FROM customers WHERE COALESCE(company, '') != 'Walk-in Customer'`),
+      active_stokis: await n(`SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
+      lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
+      attendance_today: await n(`SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`),
+      outstanding_invoices: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
+      // Cash flow proxy for the month: cash IN (paid invoices) - cash OUT (expenses).
+      cash_in_cents: await n(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
+      cash_out_cents: await n(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '+8 hours')`),
     });
   }
 
@@ -2812,7 +2824,7 @@ export async function handleStaff(
      not configurable (clock-in and payslips must never disappear), and
      super_admin ignores overrides entirely — the escape hatch if an
      assignment locks everyone (even the CEO) out of a tab. */
-  const TAB_ACCESS_TABS = ["Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Users"];
+  const TAB_ACCESS_TABS = ["Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Users"];
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {
@@ -5889,6 +5901,409 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       await env.DB.prepare(`UPDATE commission_rules SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, id).run();
       await audit(env, user.id, "commission.rule_update", "commission_rules", String(id), body ?? {});
       return json({ ok: true });
+    }
+  }
+
+  /* ===================== v1.7.0 — Sales Pipeline (LEAD -> WON) ============== */
+  // Rebuilt on the retained prospects table (0066/0067). Every staff role can
+  // READ and ADD a lead; the sales tier moves stages, assigns and deletes.
+  {
+    const PIPE_MANAGE = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"];
+    if (path === "/pipeline" && method === "GET") {
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT p.*, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS assigned_name,
+                  COALESCE(NULLIF(TRIM(c.full_name), ''), c.name) AS created_name
+           FROM prospects p
+           LEFT JOIN users a ON a.id = p.assigned_to
+           LEFT JOIN users c ON c.id = p.created_by
+           ORDER BY CASE WHEN p.stage IN ('won','lost') THEN 1 ELSE 0 END,
+                    p.next_followup IS NULL, p.next_followup, p.id DESC`,
+        ).all();
+        return json({ prospects: results, today: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+        throw e;
+      }
+    }
+    if (path === "/pipeline" && method === "POST") {
+      const brand = String(body?.brand_name ?? "").trim();
+      if (!brand) return err("invalid_input", "Brand / lead name is required", 400);
+      const SOURCES = ["tiktok", "shopee", "instagram", "facebook", "expo", "referral", "other"];
+      const source = SOURCES.includes(String(body?.source)) ? String(body?.source) : "other";
+      const CHANNELS = ["whatsapp", "dm", "email", "phone", ""];
+      const channel = CHANNELS.includes(String(body?.contact_channel ?? "")) ? String(body?.contact_channel ?? "") : "";
+      const fup = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.next_followup ?? "")) ? String(body?.next_followup) : null;
+      const assigned = Number(body?.assigned_to) || null;
+      try {
+        const res = await env.DB.prepare(
+          `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, referred_by, stage)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'lead') RETURNING id`,
+        ).bind(brand, source, String(body?.niche ?? "").trim() || null, String(body?.contact_name ?? "").trim() || null,
+               channel || null, String(body?.contact_value ?? "").trim() || null, String(body?.notes ?? "").trim() || null,
+               assigned, fup, user.id, String(body?.referred_by ?? "").trim().slice(0, 120) || null).first<{ id: number }>()
+          .catch(async (e: unknown) => {
+            if (!String(e).includes("no such column")) throw e; // pre-0067 skew: retry without referred_by
+            return env.DB.prepare(
+              `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, stage)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'lead') RETURNING id`,
+            ).bind(brand, source, String(body?.niche ?? "").trim() || null, String(body?.contact_name ?? "").trim() || null,
+                   channel || null, String(body?.contact_value ?? "").trim() || null, String(body?.notes ?? "").trim() || null,
+                   assigned, fup, user.id).first<{ id: number }>();
+          });
+        await audit(env, user.id, "pipeline.create", "prospects", String(res?.id), { brand });
+        if (assigned && assigned !== user.id) {
+          await notify(env, assigned, "prospect", `🎯 New lead assigned to you: ${brand} (${source})`, `prospect:${res?.id}`);
+        }
+        return json({ id: res?.id }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
+        throw e;
+      }
+    }
+    const mP = path.match(/^\/pipeline\/(\d+)$/);
+    if (mP && method === "PATCH") {
+      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required to update a lead", 403);
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
+      const STAGES = ["lead", "contacted", "meeting", "proposal", "negotiation", "won", "lost"];
+      if (typeof body?.stage === "string" && STAGES.includes(body.stage)) {
+        put("stage", body.stage);
+        put("stage_changed_at", new Date().toISOString().slice(0, 19).replace("T", " "));
+      }
+      for (const col of ["brand_name", "niche", "contact_name", "contact_channel", "contact_value", "notes", "referred_by"] as const) {
+        if (typeof body?.[col] === "string") put(col, String(body[col]).trim() || null);
+      }
+      if (body && "assigned_to" in body) put("assigned_to", Number(body.assigned_to) || null);
+      if (typeof body?.next_followup === "string") {
+        put("next_followup", /^\d{4}-\d{2}-\d{2}$/.test(body.next_followup) ? body.next_followup : null);
+        put("followup_notified_on", null); // a new date re-arms the reminder
+      }
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      try {
+        await env.DB.prepare(`UPDATE prospects SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mP[1])).run();
+        await audit(env, user.id, "pipeline.update", "prospects", mP[1], body ?? {});
+        return json({ ok: true });
+      } catch (e) {
+        if (String(e).includes("no such column")) {
+          // pre-0067 skew: retry without referred_by (only if that was the column).
+          const i = sets.findIndex((s) => s.startsWith("referred_by"));
+          if (i >= 0) {
+            sets.splice(i, 1); args.splice(i, 1);
+            try {
+              await env.DB.prepare(`UPDATE prospects SET ${sets.map((s, k) => s.replace(/\?\d+/, `?${k + 1}`)).join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mP[1])).run();
+              return json({ ok: true });
+            } catch { /* fall through to the generic handler below */ }
+          }
+        }
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
+        throw e;
+      }
+    }
+    if (mP && method === "DELETE") {
+      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      await env.DB.prepare(`DELETE FROM prospects WHERE id = ?1`).bind(Number(mP[1])).run();
+      await audit(env, user.id, "pipeline.delete", "prospects", mP[1]);
+      return json({ ok: true });
+    }
+    if (path === "/pipeline/insights" && method === "GET") {
+      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales access required", 403);
+      try {
+        const { results: stages } = await env.DB.prepare(`SELECT stage, COUNT(*) AS n FROM prospects GROUP BY stage`).all<{ stage: string; n: number }>();
+        const { results: sources } = await env.DB.prepare(
+          `SELECT source, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won FROM prospects GROUP BY source ORDER BY won DESC, total DESC`,
+        ).all<{ source: string; total: number; won: number }>();
+        return json({ stages, sources });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
+        throw e;
+      }
+    }
+  }
+
+  /* ===================== v1.7.0 — Content management ======================= */
+  {
+    const CONTENT_MANAGE = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
+    if (path === "/content" && method === "GET") {
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT c.*, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS assigned_name
+           FROM content_items c LEFT JOIN users u ON u.id = c.assigned_to
+           ORDER BY CASE WHEN c.stage = 'posted' THEN 1 ELSE 0 END,
+                    c.scheduled_date IS NULL, c.scheduled_date, c.id DESC LIMIT 300`,
+        ).all();
+        return json({ content: results });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (content) first", 409);
+        throw e;
+      }
+    }
+    if (path === "/content" && method === "POST") {
+      const title = String(body?.title ?? "").trim();
+      if (!title) return err("invalid_input", "A title is required", 400);
+      const KINDS = ["video", "reel", "live", "campaign", "other"];
+      const PLATFORMS = ["tiktok", "shopee", "instagram", "facebook", "other"];
+      const kind = KINDS.includes(String(body?.kind)) ? String(body?.kind) : "video";
+      const platform = PLATFORMS.includes(String(body?.platform)) ? String(body?.platform) : "tiktok";
+      const sched = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.scheduled_date ?? "")) ? String(body?.scheduled_date) : null;
+      const assigned = Number(body?.assigned_to) || null;
+      try {
+        const res = await env.DB.prepare(
+          `INSERT INTO content_items (title, kind, platform, scheduled_date, script, caption, campaign, assigned_to, notes, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+        ).bind(title, kind, platform, sched, String(body?.script ?? "").trim() || null, String(body?.caption ?? "").trim() || null,
+               String(body?.campaign ?? "").trim() || null, assigned, String(body?.notes ?? "").trim() || null, user.id).first<{ id: number }>();
+        await audit(env, user.id, "content.create", "content_items", String(res?.id), { title });
+        if (assigned && assigned !== user.id) await notify(env, assigned, "content", `🎬 Content assigned to you: ${title}`, `content:${res?.id}`);
+        return json({ id: res?.id }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (content) first", 409);
+        throw e;
+      }
+    }
+    const mC = path.match(/^\/content\/(\d+)$/);
+    if (mC && method === "PATCH") {
+      if (!CONTENT_MANAGE.includes(user.role)) return err("forbidden", "Content access required", 403);
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
+      const STAGES = ["idea", "script", "shoot", "edit", "approval", "posted"];
+      if (typeof body?.stage === "string" && STAGES.includes(body.stage)) {
+        put("stage", body.stage);
+        if (body.stage === "posted") put("posted_at", new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10));
+      }
+      for (const col of ["title", "kind", "platform", "script", "caption", "campaign", "performance", "notes"] as const) {
+        if (typeof body?.[col] === "string") put(col, String(body[col]).trim() || null);
+      }
+      if (typeof body?.scheduled_date === "string") put("scheduled_date", /^\d{4}-\d{2}-\d{2}$/.test(body.scheduled_date) ? body.scheduled_date : null);
+      if (body && "assigned_to" in body) put("assigned_to", Number(body.assigned_to) || null);
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      await env.DB.prepare(`UPDATE content_items SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mC[1])).run();
+      await audit(env, user.id, "content.update", "content_items", mC[1], body ?? {});
+      return json({ ok: true });
+    }
+    if (mC && method === "DELETE") {
+      if (!CONTENT_MANAGE.includes(user.role)) return err("forbidden", "Content access required", 403);
+      await env.DB.prepare(`DELETE FROM content_items WHERE id = ?1`).bind(Number(mC[1])).run();
+      await audit(env, user.id, "content.delete", "content_items", mC[1]);
+      return json({ ok: true });
+    }
+  }
+
+  /* ===================== v1.7.0 — Stokis management ======================== */
+  {
+    const STOKIS_MANAGE = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"];
+    if (path === "/stokis" && method === "GET") {
+      // v1.7.0: stokis rows carry contact PII + finance, so reading is gated to
+      // the same tier that manages them (not every staff role).
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales/management access required", 403);
+      const month = new URL(request.url).searchParams.get("month")
+        ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT s.*,
+             (SELECT COALESCE(SUM(o.amount_cents), 0) FROM stokis_orders o WHERE o.stokis_id = s.id) AS total_cents,
+             (SELECT COALESCE(SUM(o.amount_cents), 0) FROM stokis_orders o WHERE o.stokis_id = s.id AND o.payment_status = 'unpaid') AS balance_cents,
+             (SELECT COALESCE(SUM(o.amount_cents), 0) FROM stokis_orders o WHERE o.stokis_id = s.id AND strftime('%Y-%m', o.ordered_at) = ?1) AS month_cents,
+             (SELECT target_cents FROM stokis_targets t WHERE t.stokis_id = s.id AND t.month = ?1) AS target_cents
+           FROM stokis s ORDER BY s.status = 'inactive', s.name`,
+        ).bind(month).all<{ id: number; commission_pct: number; month_cents: number }>();
+        const rows = results.map((r) => ({ ...r, commission_cents: Math.round((r.month_cents ?? 0) * (r.commission_pct ?? 0) / 100) }));
+        return json({ stokis: rows, month });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (stokis) first", 409);
+        throw e;
+      }
+    }
+    if (path === "/stokis" && method === "POST") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      const name = String(body?.name ?? "").trim();
+      if (!name) return err("invalid_input", "Stokis name is required", 400);
+      const pct = Number(body?.commission_pct);
+      try {
+        const res = await env.DB.prepare(
+          `INSERT INTO stokis (name, company, phone, email, location, commission_pct, notes, joined_at, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
+        ).bind(name, String(body?.company ?? "").trim() || null, String(body?.phone ?? "").trim() || null,
+               String(body?.email ?? "").trim() || null, String(body?.location ?? "").trim() || null,
+               Number.isFinite(pct) && pct >= 0 ? pct : 0, String(body?.notes ?? "").trim() || null,
+               /^\d{4}-\d{2}-\d{2}$/.test(String(body?.joined_at ?? "")) ? String(body?.joined_at) : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
+               user.id).first<{ id: number }>();
+        await audit(env, user.id, "stokis.create", "stokis", String(res?.id), { name });
+        return json({ id: res?.id }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (stokis) first", 409);
+        throw e;
+      }
+    }
+    const mS = path.match(/^\/stokis\/(\d+)$/);
+    if (mS && method === "PATCH") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
+      for (const col of ["name", "company", "phone", "email", "location", "notes"] as const) {
+        if (typeof body?.[col] === "string") put(col, String(body[col]).trim() || null);
+      }
+      if (typeof body?.status === "string" && ["active", "inactive"].includes(body.status)) put("status", body.status);
+      if (Number.isFinite(Number(body?.commission_pct))) put("commission_pct", Number(body!.commission_pct));
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      await env.DB.prepare(`UPDATE stokis SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mS[1])).run();
+      await audit(env, user.id, "stokis.update", "stokis", mS[1], body ?? {});
+      return json({ ok: true });
+    }
+    if (mS && method === "DELETE") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      await env.DB.prepare(`DELETE FROM stokis WHERE id = ?1`).bind(Number(mS[1])).run();
+      await env.DB.prepare(`DELETE FROM stokis_orders WHERE stokis_id = ?1`).bind(Number(mS[1])).run();
+      await audit(env, user.id, "stokis.delete", "stokis", mS[1]);
+      return json({ ok: true });
+    }
+    // Orders / purchases under a stokis.
+    const mSO = path.match(/^\/stokis\/(\d+)\/orders$/);
+    if (mSO && method === "GET") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales/management access required", 403);
+      const { results } = await env.DB.prepare(
+        `SELECT id, amount_cents, qty, note, payment_status, ordered_at FROM stokis_orders WHERE stokis_id = ?1 ORDER BY ordered_at DESC, id DESC LIMIT 200`,
+      ).bind(Number(mSO[1])).all();
+      return json({ orders: results });
+    }
+    if (mSO && method === "POST") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      const cents = Math.round(Number(body?.amount_cents));
+      if (!Number.isFinite(cents) || cents < 0) return err("invalid_input", "amount_cents required", 400);
+      const paid = body?.payment_status === "paid" ? "paid" : "unpaid";
+      const orderedAt = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.ordered_at ?? "")) ? String(body?.ordered_at) : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const res = await env.DB.prepare(
+        `INSERT INTO stokis_orders (stokis_id, amount_cents, qty, note, payment_status, ordered_at, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+      ).bind(Number(mSO[1]), cents, Number(body?.qty) || null, String(body?.note ?? "").trim() || null, paid, orderedAt, user.id).first<{ id: number }>();
+      await audit(env, user.id, "stokis.order", "stokis_orders", String(res?.id), { stokis: mSO[1], cents });
+      return json({ id: res?.id }, 201);
+    }
+    const mOrd = path.match(/^\/stokis\/orders\/(\d+)$/);
+    if (mOrd && method === "PATCH") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      if (typeof body?.payment_status === "string" && ["paid", "unpaid"].includes(body.payment_status)) {
+        await env.DB.prepare(`UPDATE stokis_orders SET payment_status = ?1 WHERE id = ?2`).bind(body.payment_status, Number(mOrd[1])).run();
+        await audit(env, user.id, "stokis.order_pay", "stokis_orders", mOrd[1], { payment_status: body.payment_status });
+        return json({ ok: true });
+      }
+      return err("invalid_input", "payment_status required", 400);
+    }
+    if (mOrd && method === "DELETE") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      await env.DB.prepare(`DELETE FROM stokis_orders WHERE id = ?1`).bind(Number(mOrd[1])).run();
+      return json({ ok: true });
+    }
+    // Monthly target for a stokis.
+    const mST = path.match(/^\/stokis\/(\d+)\/target$/);
+    if (mST && method === "POST") {
+      if (!STOKIS_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
+      const month = String(body?.month ?? "");
+      const cents = Math.round(Number(body?.target_cents));
+      if (!/^\d{4}-\d{2}$/.test(month) || !Number.isFinite(cents) || cents < 0) return err("invalid_input", "month + target_cents required", 400);
+      await env.DB.prepare(
+        `INSERT INTO stokis_targets (stokis_id, month, target_cents, set_by) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(stokis_id, month) DO UPDATE SET target_cents = ?3, set_by = ?4`,
+      ).bind(Number(mST[1]), month, cents, user.id).run();
+      return json({ ok: true });
+    }
+  }
+
+  /* ===================== v1.7.0 — Receipts, Credit Notes, Outstanding ====== */
+  {
+    const DOC_MANAGE = can(user.role, "sales") || can(user.role, "finance") || can(user.role, "exec_view");
+    // Issue a payment receipt for a PAID invoice (idempotent — returns the
+    // existing receipt if one was already issued).
+    const mRcp = path.match(/^\/docs\/(\d+)\/receipt$/);
+    if (mRcp && method === "POST") {
+      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      const invId = Number(mRcp[1]);
+      const inv = await env.DB.prepare(
+        `SELECT id, doc_number, customer_id, total_cents, payment_status, payment_method, payment_ref, paid_at FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`,
+      ).bind(invId).first<{ id: number; doc_number: string; customer_id: number; total_cents: number; payment_status: string; payment_method: string | null; payment_ref: string | null; paid_at: string | null }>();
+      if (!inv) return err("not_found", "Invoice not found", 404);
+      if (inv.payment_status !== "paid") return err("invalid_input", "Only a PAID invoice can have a receipt", 400);
+      try {
+        const existing = await env.DB.prepare(`SELECT id, receipt_number FROM receipts WHERE invoice_id = ?1`).bind(invId).first<{ id: number; receipt_number: string }>();
+        if (existing) return json({ id: existing.id, receipt_number: existing.receipt_number, existed: true });
+        const number = await docNumber(env, "RC");
+        const token = crypto.randomUUID().replace(/-/g, "");
+        const res = await env.DB.prepare(
+          `INSERT INTO receipts (receipt_number, invoice_id, invoice_number, customer_id, amount_cents, payment_method, payment_ref, paid_at, share_token, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+        ).bind(number, invId, inv.doc_number, inv.customer_id, inv.total_cents, inv.payment_method, inv.payment_ref, inv.paid_at, token, user.id).first<{ id: number }>();
+        await audit(env, user.id, "receipt.issue", "receipts", String(res?.id), { invoice: inv.doc_number, amount: inv.total_cents });
+        return json({ id: res?.id, receipt_number: number }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (receipts) first", 409);
+        throw e;
+      }
+    }
+    // Issue a credit note against an invoice.
+    const mCn = path.match(/^\/docs\/(\d+)\/credit-note$/);
+    if (mCn && method === "POST") {
+      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      const invId = Number(mCn[1]);
+      const cents = Math.round(Number(body?.amount_cents));
+      const reason = String(body?.reason ?? "").trim();
+      if (!Number.isFinite(cents) || cents <= 0) return err("invalid_input", "A positive amount_cents is required", 400);
+      const inv = await env.DB.prepare(`SELECT id, doc_number, customer_id, total_cents FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`).bind(invId).first<{ id: number; doc_number: string; customer_id: number; total_cents: number }>();
+      if (!inv) return err("not_found", "Invoice not found", 404);
+      if (cents > inv.total_cents) return err("invalid_input", "Credit note cannot exceed the invoice total", 400);
+      try {
+        const number = await docNumber(env, "CN");
+        const token = crypto.randomUUID().replace(/-/g, "");
+        const res = await env.DB.prepare(
+          `INSERT INTO credit_notes (cn_number, invoice_id, invoice_number, customer_id, amount_cents, reason, share_token, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+        ).bind(number, invId, inv.doc_number, inv.customer_id, cents, reason || null, token, user.id).first<{ id: number }>();
+        await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents });
+        return json({ id: res?.id, cn_number: number }, 201);
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (credit notes) first", 409);
+        throw e;
+      }
+    }
+    if (path === "/receipts" && method === "GET") {
+      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT r.id, r.receipt_number, r.invoice_number, r.amount_cents, r.payment_method, r.payment_ref, r.paid_at, r.share_token, r.created_at, c.company
+           FROM receipts r LEFT JOIN customers c ON c.id = r.customer_id ORDER BY r.id DESC LIMIT 200`,
+        ).all();
+        return json({ receipts: results });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 first", 409);
+        throw e;
+      }
+    }
+    if (path === "/credit-notes" && method === "GET") {
+      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT n.id, n.cn_number, n.invoice_number, n.amount_cents, n.reason, n.share_token, n.created_at, c.company
+           FROM credit_notes n LEFT JOIN customers c ON c.id = n.customer_id ORDER BY n.id DESC LIMIT 200`,
+        ).all();
+        return json({ credit_notes: results });
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 first", 409);
+        throw e;
+      }
+    }
+    // Consolidated outstanding-payments report (unpaid invoices, oldest first).
+    if (path === "/reports/outstanding" && method === "GET") {
+      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      const { results } = await env.DB.prepare(
+        `SELECT d.id, d.doc_number, d.total_cents, d.due_date, d.created_at, c.company, c.phone
+         FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id
+         WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') != 'paid'
+         ORDER BY d.due_date IS NULL, d.due_date ASC, d.created_at ASC LIMIT 300`,
+      ).all<{ total_cents: number }>();
+      const total = results.reduce((a, r) => a + (r.total_cents ?? 0), 0);
+      return json({ invoices: results, total_cents: total, count: results.length });
     }
   }
 

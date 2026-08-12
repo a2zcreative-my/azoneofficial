@@ -31,6 +31,10 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { PipelinePanel } from "@/components/portal/pipeline-panel";
+import { ContentPanel } from "@/components/portal/content-panel";
+import { StokisPanel } from "@/components/portal/stokis-panel";
+import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
@@ -436,7 +440,9 @@ interface RevenueData {
    number, white + gold for the rest — the v1.4.253 one-fill rule applied to
    cards. Renders progressively: each card appears when its data arrives, and
    a role that can't see revenue simply gets the cards it can see. */
-interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; open_quotations: number | null }
+interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; open_quotations: number | null;
+  // v1.7.0 company pulse
+  clients?: number | null; active_stokis?: number | null; lives_today?: number | null; attendance_today?: number | null; outstanding_invoices?: number | null; cash_in_cents?: number | null; cash_out_cents?: number | null }
 
 /* ================= v1.5.0 — the Sales Floor (trading-desk dashboard) =======
    CEO brief: "my dashboard nice like a trading sales view — Today sales,
@@ -654,6 +660,31 @@ function TradingDesk({ user }: { user: User }) {
       {ticker.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
       )}
+
+      {/* v1.7.0 company pulse — one compact strip of live counters. */}
+      {canStatus && sum && (() => {
+        const cashIn = sum.cash_in_cents ?? 0;
+        const cashOut = sum.cash_out_cents ?? 0;
+        const net = cashIn - cashOut;
+        const tiles: { label: string; value: ReactNode; tone?: string }[] = [
+          { label: "Clients", value: sum.clients ?? 0 },
+          { label: "Active stokis", value: sum.active_stokis ?? 0 },
+          { label: "Lives today", value: sum.lives_today ?? 0 },
+          { label: "In today", value: sum.attendance_today ?? 0 },
+          { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0 },
+          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span> },
+        ];
+        return (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {tiles.map((t) => (
+              <div key={t.label} className="border-border bg-card rounded-lg border p-2.5 text-center">
+                <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
+                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.label}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Zone 2+3 — KPI + markets, one desk card */}
       {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
@@ -4014,7 +4045,7 @@ function TargetsCommissionCard() {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed (CEO)
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4045,6 +4076,10 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
   Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   Users: ["super_admin", "ceo", "coo"],
+  // v1.7.0: Pipeline is open to every staff role (log a lead in seconds);
+  // Content to the team that makes it; Stokis to the sales/management tier.
+  Content: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
+  Stokis: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
 };
 type TabName = (typeof ALL_TABS)[number];
 
@@ -4560,11 +4595,25 @@ export default function PortalPage() {
         {activeTab === "Sales" && SALES_ROLES.includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
             <Sales user={user} />
+            {/* v1.7.0: receipts, credit notes & outstanding report */}
+            <DocumentsPanel />
             <ClientsCard />
             <LiveEconomicsCard />
             <PackagesEditorCard role={user.role} />
             <CustomerEnquiriesCard />
           </div>
+        )}
+        {/* v1.7.0 new modules */}
+        {activeTab === "Pipeline" && (
+          <PipelinePanel
+            canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
+            onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
+        )}
+        {activeTab === "Content" && (
+          <ContentPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"].includes(user.role)} />
+        )}
+        {activeTab === "Stokis" && (
+          <StokisPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)} />
         )}
         {activeTab === "HR" && (
           <div className="space-y-4 md:space-y-6">

@@ -1079,9 +1079,29 @@ export default {
     } catch (e) {
       if (!String(e).includes("no such column")) await logError(env, "lowstock_cron", e instanceof Error ? e.message : String(e));
     }
-    /* v1.5.0: the Social tab (prospects pipeline + trends) was removed on the
-       CEO's direction — its follow-up reminder cron went with it. Prospect
-       data remains untouched in the database. */
+    /* v1.7.0: the Sales Pipeline (rebuilt from the retained prospects table)
+       has its follow-up reminders back — each pass bell-notifies (and web-
+       pushes) whoever owns a lead due today, once per due date. */
+    try {
+      const todayMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results: due } = await env.DB.prepare(
+        `SELECT id, brand_name, next_followup, assigned_to, created_by FROM prospects
+         WHERE next_followup IS NOT NULL AND next_followup <= ?1
+           AND stage NOT IN ('won', 'lost')
+           AND (followup_notified_on IS NULL OR followup_notified_on < ?1)
+         LIMIT 50`,
+      ).bind(todayMY).all<{ id: number; brand_name: string; next_followup: string; assigned_to: number | null; created_by: number | null }>();
+      for (const p of due) {
+        const who = p.assigned_to ?? p.created_by;
+        if (who) {
+          const late = p.next_followup < todayMY ? ` (was due ${p.next_followup})` : "";
+          await notify(env, who, "prospect", `📞 Follow up today: ${p.brand_name}${late} — Pipeline tab`, `prospect:${p.id}`);
+        }
+        await env.DB.prepare(`UPDATE prospects SET followup_notified_on = ?1 WHERE id = ?2`).bind(todayMY, p.id).run();
+      }
+    } catch (e) {
+      if (!String(e).includes("no such table")) console.error("pipeline_cron", e);
+    }
     /* v1.5.0 housekeeping: expired 2FA challenges and stale rate-limit rows
        used to accumulate forever. */
     try {
