@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.7.1] — 2026-08-11 — TikTok token auto-refresh
+
+- **Fix: TikTok "Expired credentials" no longer breaks the sync.** `tiktokToken()` read the stored access token but never refreshed it, so once TikTok's ~7-day access token lapsed, every order sync failed. It now auto-refreshes using the stored refresh token whenever the token is within a day of expiry (so any 30-minute sync pass renews it well ahead of time). Refresh failures are logged once (deduped) with the cause. No re-authorizing needed on a normal cycle.
+- Note: token refresh (and webhook signature verification) both require `TIKTOK_APP_SECRET` to match Partner Center — if the app secret was rotated, set it via `wrangler secret put TIKTOK_APP_SECRET` and the connection heals on the next sync.
+
 ## [1.7.0] — 2026-08-11 — Sales Pipeline, Content, Stokis, Receipts/Credit Notes, dashboard pulse
 
 Four new business modules (migration **0069**) plus the dashboard company-pulse tiles.

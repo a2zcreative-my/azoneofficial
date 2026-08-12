@@ -311,12 +311,60 @@ async function verifyTikTokSignature(env: Env, header: string, rawBody: string):
 
 
 
-/** Stored seller token, refreshed by the authorization callback. */
+/** v1.7.1: refresh the seller access token using the stored refresh token.
+    TikTok Shop access tokens expire (~7 days); the refresh token lasts far
+    longer, so this keeps the connection alive without a human re-authorizing.
+    Returns null (leaving the old token in place) if refresh fails — e.g. when
+    TIKTOK_APP_SECRET is stale, which is the real cause to fix. */
+async function refreshTikTokToken(
+  env: Env, refreshToken: string,
+): Promise<{ access_token: string; refresh_token: string; expire_in: number } | null> {
+  if (!env.TIKTOK_APP_KEY || !env.TIKTOK_APP_SECRET) return null;
+  const url = new URL("https://auth.tiktok-shops.com/api/v2/token/refresh");
+  url.searchParams.set("app_key", env.TIKTOK_APP_KEY);
+  url.searchParams.set("app_secret", env.TIKTOK_APP_SECRET);
+  url.searchParams.set("refresh_token", refreshToken);
+  url.searchParams.set("grant_type", "refresh_token");
+  try {
+    const res = await fetch(url.toString());
+    const data = (await res.json().catch(() => null)) as {
+      data?: { access_token?: string; refresh_token?: string; access_token_expire_in?: number };
+    } | null;
+    const tok = data?.data;
+    if (!tok?.access_token) return null;
+    return {
+      access_token: tok.access_token,
+      refresh_token: tok.refresh_token ?? refreshToken,
+      expire_in: tok.access_token_expire_in ?? 604800,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Stored seller token. v1.7.1: auto-refreshes shortly BEFORE expiry so the
+    order sync never dies on "Expired credentials". */
 async function tiktokToken(env: Env): Promise<{ access_token: string; shop_cipher: string | null } | null> {
   const row = await env.DB.prepare(
-    `SELECT access_token, shop_cipher FROM integration_tokens WHERE provider = 'tiktok'`,
-  ).first<{ access_token: string; shop_cipher: string | null }>();
-  return row ?? null;
+    `SELECT access_token, refresh_token, shop_cipher,
+            (expires_at IS NOT NULL AND expires_at <= datetime('now', '+1 day')) AS expiring
+     FROM integration_tokens WHERE provider = 'tiktok'`,
+  ).first<{ access_token: string; refresh_token: string | null; shop_cipher: string | null; expiring: number }>();
+  if (!row) return null;
+  if (row.expiring && row.refresh_token) {
+    const fresh = await refreshTikTokToken(env, row.refresh_token);
+    if (fresh) {
+      await env.DB.prepare(
+        `UPDATE integration_tokens SET access_token = ?1, refresh_token = ?2,
+           expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')
+         WHERE provider = 'tiktok'`,
+      ).bind(fresh.access_token, fresh.refresh_token, String(fresh.expire_in)).run();
+      return { access_token: fresh.access_token, shop_cipher: row.shop_cipher };
+    }
+    // Refresh failed — surface it once (deduped) so the cause is visible.
+    await logError(env, "tiktok_token_refresh", "Access token expired and refresh failed — re-authorize the TikTok app, or check that TIKTOK_APP_SECRET matches Partner Center.");
+  }
+  return { access_token: row.access_token, shop_cipher: row.shop_cipher };
 }
 
 /** TikTok Shop API request signing: every call carries app_key, timestamp and
