@@ -886,6 +886,17 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     }[] };
   } | null;
   if (!data || (typeof data.code === "number" && data.code !== 0)) {
+    // v1.7.2: an EXPIRED / unauthorized token is a known "please reconnect"
+    // state, not a system fault — return not_authorized so the 30-minute cron
+    // stays quiet (no error-log entry, no bell/push spam) and the UI shows a
+    // clear "reconnect TikTok" message instead of a red API error every pass.
+    const msg = String(data?.message ?? "").toLowerCase();
+    const authExpired =
+      data?.code === 105000 || data?.code === 105002 ||
+      /expired|access[_\s-]?token|x-tts-access-token|unauthor|credential|invalid.*token|token.*invalid/.test(msg);
+    if (authExpired) {
+      return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired — reconnect TikTok (Admin → integrations) and make sure TIKTOK_APP_SECRET matches Partner Center.", status: 401 };
+    }
     return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
   }
   const orders = data.data?.orders ?? [];
@@ -1261,7 +1272,13 @@ export default {
       console.error(err);
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
       const error_id = "ERR-" + crypto.randomUUID().split('-')[0].toUpperCase();
-      await logError(env, "api", `[${error_id}] ${detail}`, path);
+      // v1.7.2: the message stored in the log must NOT contain the random
+      // error_id — including it gave every occurrence of the SAME exception a
+      // unique message, which defeated the 6-hour de-dupe and produced the
+      // "api ×4 / ×5 new system errors" notification flood. The id still goes
+      // to the caller for support correlation; the log de-dupes on the stable
+      // (source + message + path) key.
+      await logError(env, "api", detail, path);
       res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
     }
     // attach CORS + baseline security headers to every response (v1.5.0)
@@ -1299,7 +1316,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     let pending = false;
     try {
       const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1`).all<{ name: string }>();
-      if (results.length === 0 || results[0].name !== "0067_growth_pack.sql") {
+      if (results.length === 0 || results[0].name !== "0069_business_modules.sql") {
         pending = true;
       }
     } catch { 
@@ -2477,6 +2494,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // the FULL pending set, not the set that existed when it was written.
       ["0066 (prospects)", `SELECT id FROM prospects LIMIT 1`],
       ["0067 (growth pack)", `SELECT referred_by FROM prospects LIMIT 1`],
+      // v1.6/v1.7: the newer migrations join the probe set (standing rule).
+      ["0068 (targets / commission / push)", `SELECT id FROM commission_rules LIMIT 1`],
+      ["0069 (stokis / content / receipts)", `SELECT id FROM stokis LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2558,6 +2578,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0065_stockout_doc_link",
       "0066_prospects",
       "0067_growth_pack",
+      "0068_features_v16",
+      "0069_business_modules",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.7.3] — 2026-08-12 — Health card knows migrations 0068/0069
+
+- The /admin System-health card, the migration probes and the yellow "migrations pending" banner now include 0068 (targets/commission/push) and 0069 (stokis/content/receipts) — so a deploy that forgets `wrangler d1 migrations apply` is named explicitly instead of surfacing as "temporarily unavailable" panels.
+
+## [1.7.2] — 2026-08-12 — Stop the TikTok/API error-notification flood
+
+- **Fix: the "N new system errors (api ×4/×5…)" bell flood.** Each unhandled API error logged a message that embedded a fresh random error id, so the 6-hour de-dupe (v1.5.0) never collapsed repeats and every poll counted as a brand-new error. The id now goes only to the caller's response; the stored log message is stable, so identical exceptions de-dupe and management stops being paged every 30 minutes. The id is still returned to the user for support correlation.
+- **Fix: an expired TikTok token no longer spams errors.** An expired/unauthorized TikTok token is now treated as a known "please reconnect" state (code not_authorized) rather than a system fault — the 30-minute cron stays silent about it (no error-log row, no bell/push), and the UI shows a clear "reconnect TikTok" message. Combined with v1.7.1 auto-refresh, a healthy connection renews itself; only a rotated app secret or a fully revoked token needs a human.
+
 ## [1.7.1] — 2026-08-11 — TikTok token auto-refresh
 
 - **Fix: TikTok "Expired credentials" no longer breaks the sync.** `tiktokToken()` read the stored access token but never refreshed it, so once TikTok's ~7-day access token lapsed, every order sync failed. It now auto-refreshes using the stored refresh token whenever the token is within a day of expiry (so any 30-minute sync pass renews it well ahead of time). Refresh failures are logged once (deduped) with the cause. No re-authorizing needed on a normal cycle.
