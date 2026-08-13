@@ -2814,7 +2814,7 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
 
 /* v1.5.0: PipelineInsightsCard removed with the Social tab. */
 
-export function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
+function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
   interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
   const [clients, setClients] = useState<Cl[]>([]);
   const [sessions, setSessions] = useState<Record<string, number>>({});
