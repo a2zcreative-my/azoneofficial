@@ -2786,6 +2786,17 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
   useEffect(() => {
     void api<{ months: PnlMonth[] }>(`/staff/finance/pnl`).then((r) => { if (r.ok && r.data) setMonths(r.data.months); });
   }, []);
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0 overflow-x-auto w-full">{node}</div> : (
+    <div className={card}>
+      <p className="text-sm font-semibold">💹 Profit &amp; loss — month by month</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps.
+        Payroll uses the same net figures as the M2E salary file.
+      </p>
+      <div className="mt-2 overflow-x-auto">{node}</div>
+    </div>
+  );
+
   if (!months) {
     return wrapCard(
       <div className="mt-2 space-y-3 animate-pulse px-4 sm:px-0">
@@ -2798,17 +2809,6 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
     return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No financial data available yet.</p>);
   }
   const rows = [...months].reverse(); // newest first
-  
-  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0 overflow-x-auto w-full">{node}</div> : (
-    <div className={card}>
-      <p className="text-sm font-semibold">💹 Profit &amp; loss — month by month</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps.
-        Payroll uses the same net figures as the M2E salary file.
-      </p>
-      <div className="mt-2 overflow-x-auto">{node}</div>
-    </div>
-  );
 
   return wrapCard(
     <table className="w-full border-collapse text-sm">
