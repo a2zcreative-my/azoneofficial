@@ -137,6 +137,7 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 }
 
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
@@ -581,7 +582,7 @@ function TradingDesk({ user }: { user: User }) {
           ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
           : (
             <div className="mt-1.5 space-y-1">
-              {shown.map(([label, v, tabName]) => (
+              {shown.map(([label, v, _tabName]) => (
                 <button type="button" key={label} onClick={() => setDetailModal(label)} className="flex w-full items-baseline justify-between text-sm hover:text-primary hover:underline">
                   <span>{label}</span>
                   <span className="font-bold tabular-nums">{v}</span>
