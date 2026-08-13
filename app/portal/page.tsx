@@ -2462,8 +2462,18 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
     </div>
   );
 
-  if (!loaded) return null;
-  if (!manager && sessions.length === 0) return null;
+  if (!loaded) {
+    return wrapCard(
+      <div className="mt-2 space-y-3 animate-pulse px-4 sm:px-0">
+        <div className="h-4 w-3/4 rounded bg-secondary"></div>
+        <div className="h-4 w-1/2 rounded bg-secondary"></div>
+        <div className="h-4 w-2/3 rounded bg-secondary"></div>
+      </div>
+    );
+  }
+  if (!manager && sessions.length === 0) {
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No live sessions scheduled.</p>);
+  }
 
   return wrapCard(
     <>
@@ -2776,7 +2786,17 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
   useEffect(() => {
     void api<{ months: PnlMonth[] }>(`/staff/finance/pnl`).then((r) => { if (r.ok && r.data) setMonths(r.data.months); });
   }, []);
-  if (!months || months.length === 0) return null;
+  if (!months) {
+    return wrapCard(
+      <div className="mt-2 space-y-3 animate-pulse px-4 sm:px-0">
+        <div className="h-4 w-full rounded bg-secondary"></div>
+        <div className="h-4 w-full rounded bg-secondary"></div>
+      </div>
+    );
+  }
+  if (months.length === 0) {
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No financial data available yet.</p>);
+  }
   const rows = [...months].reverse(); // newest first
   
   const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0 overflow-x-auto w-full">{node}</div> : (
@@ -2829,8 +2849,18 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
 
   const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold">💎 Clients</p><div className="mt-3">{node}</div></div>;
 
-  if (!loaded) return null;
-  if (clients.length === 0) return null;
+  if (!loaded) {
+    return wrapCard(
+      <div className="mt-2 space-y-3 animate-pulse px-4 sm:px-0">
+        <div className="h-4 w-3/4 rounded bg-secondary"></div>
+        <div className="h-4 w-1/2 rounded bg-secondary"></div>
+        <div className="h-4 w-2/3 rounded bg-secondary"></div>
+      </div>
+    );
+  }
+  if (clients.length === 0) {
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No active clients.</p>);
+  }
   const rm2 = fmtRM; // v1.4.272 global (this one even lacked thousand separators)
   return wrapCard(
     <>
