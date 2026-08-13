@@ -474,39 +474,39 @@ function autoTargetCents(lastCents: number): number | null {
 }
 
 function ActiveStokisSummary() {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<{ stokis: any[] }>('/staff/stokis').then(r => r.ok && r.data && setData(r.data.stokis.filter((s: any) => s.status === "active"))); }, []);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No active stokis.</p> : data.map((s: any) => <div key={s.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-bold">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div>;
+  const [data, setData] = useState<{ id: number; name: string; status: string; month_cents: number }[]>([]);
+  useEffect(() => { void api<{ stokis: { id: number; name: string; status: string; month_cents: number }[] }>('/staff/stokis').then(r => r.ok && r.data && setData(r.data.stokis.filter(s => s.status === "active"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No active stokis.</p> : data.map(s => <div key={s.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-bold">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div>;
 }
 
 function InTodaySummary() {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<any>('/staff/attendance/monitor').then(r => r.ok && r.data && setData(r.data.today || [])); }, []);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No one checked in today.</p> : data.map((u: any) => <div key={u.user_id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div>;
+  const [data, setData] = useState<{ user_id: number; name: string; clock_in: string }[]>([]);
+  useEffect(() => { void api<{ today: { user_id: number; name: string; clock_in: string }[] }>('/staff/attendance/monitor').then(r => r.ok && r.data && setData(r.data.today || [])); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No one checked in today.</p> : data.map(u => <div key={u.user_id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div>;
 }
 
 function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<{ docs: any[] }>('/staff/docs').then(r => r.ok && r.data && setData(r.data.docs.filter((d: any) => d.doc_type === kind && d.payment_status !== "paid"))); }, [kind]);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p> : data.map((d: any) => <div key={d.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{d.doc_number} ({d.company})</span><span className="font-bold text-red-600">{fmtRM(d.total_cents)}</span></div>)}</div>;
+  const [data, setData] = useState<SalesDoc[]>([]);
+  useEffect(() => { void api<{ docs: SalesDoc[] }>('/staff/docs').then(r => r.ok && r.data && setData(r.data.docs.filter(d => d.doc_type === kind && d.payment_status !== "paid"))); }, [kind]);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p> : data.map(d => <div key={d.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{d.doc_number} ({d.company})</span><span className="font-bold text-red-600">{fmtRM(d.total_cents)}</span></div>)}</div>;
 }
 
 function PendingLeaveSummary() {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<{ leave: any[] }>('/staff/leave?all=1').then(r => r.ok && r.data && setData(r.data.leave.filter((l: any) => l.status === "pending"))); }, []);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending leave requests.</p> : data.map((l: any) => <div key={l.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{l.user_name || "Unknown"} ({l.days} days)</p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div>;
+  const [data, setData] = useState<LeaveReq[]>([]);
+  useEffect(() => { void api<{ leave: LeaveReq[] }>('/staff/leave?all=1').then(r => r.ok && r.data && setData(r.data.leave.filter(l => l.status === "pending"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending leave requests.</p> : data.map(l => <div key={l.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{l.user_name || "Unknown"} ({l.days} days)</p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div>;
 }
 
 function PendingClaimsSummary() {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<{ claims: any[] }>('/staff/claims').then(r => r.ok && r.data && setData(r.data.claims.filter((c: any) => c.status === "pending"))); }, []);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending claims.</p> : data.map((c: any) => <div key={c.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{c.user_name || "Unknown"} - {c.category}</span><span className="font-bold">{fmtRM(c.amount_cents)}</span></div>)}</div>;
+  const [data, setData] = useState<{ id: number; user_name: string; category: string; amount_cents: number; status: string }[]>([]);
+  useEffect(() => { void api<{ claims: { id: number; user_name: string; category: string; amount_cents: number; status: string }[] }>('/staff/claims').then(r => r.ok && r.data && setData(r.data.claims.filter(c => c.status === "pending"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending claims.</p> : data.map(c => <div key={c.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{c.user_name || "Unknown"} - {c.category}</span><span className="font-bold">{fmtRM(c.amount_cents)}</span></div>)}</div>;
 }
 
 function LowStockSummary() {
-  const [data, setData] = useState<any[]>([]);
-  useEffect(() => { void api<{ items: any[] }>('/staff/inventory').then(r => r.ok && r.data && r.data.items && setData(r.data.items.filter((i: any) => (i.stock || 0) <= 5))); }, []);
-  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No low stock items.</p> : data.map((i: any) => <div key={i.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{i.name} ({i.sku})</span><span className="font-bold text-red-600">{i.stock} left</span></div>)}</div>;
+  const [data, setData] = useState<{ id: number; name: string; sku: string; stock: number }[]>([]);
+  useEffect(() => { void api<{ items: { id: number; name: string; sku: string; stock: number }[] }>('/staff/inventory').then(r => r.ok && r.data && r.data.items && setData(r.data.items.filter(i => (i.stock || 0) <= 5))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No low stock items.</p> : data.map(i => <div key={i.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{i.name} ({i.sku})</span><span className="font-bold text-red-600">{i.stock} left</span></div>)}</div>;
 }
 
 function TradingDesk({ user }: { user: User }) {
