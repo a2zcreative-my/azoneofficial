@@ -476,37 +476,43 @@ function autoTargetCents(lastCents: number): number | null {
 function ActiveStokisSummary() {
   const [data, setData] = useState<{ id: number; name: string; status: string; month_cents: number }[]>([]);
   useEffect(() => { void api<{ stokis: { id: number; name: string; status: string; month_cents: number }[] }>('/staff/stokis').then(r => r.ok && r.data && setData(r.data.stokis.filter(s => s.status === "active"))); }, []);
-  return <div className={card}><p className="text-sm font-semibold mb-3">⭐ Active Stokis</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No active stokis.</p> : data.map(s => <div key={s.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-bold">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No active stokis.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(s => <div key={s.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div>;
 }
 
 function InTodaySummary() {
   const [data, setData] = useState<{ user_id: number; name: string; clock_in: string }[]>([]);
   useEffect(() => { void api<{ today: { user_id: number; name: string; clock_in: string }[] }>('/staff/attendance/monitor').then(r => r.ok && r.data && setData(r.data.today || [])); }, []);
-  return <div className={card}><p className="text-sm font-semibold mb-3">📍 In Today</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No one checked in today.</p> : data.map(u => <div key={u.user_id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No one checked in today.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(u => <div key={u.user_id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div>;
 }
 
 function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
   const [data, setData] = useState<SalesDoc[]>([]);
   useEffect(() => { void api<{ docs: SalesDoc[] }>('/staff/docs').then(r => r.ok && r.data && setData(r.data.docs.filter(d => d.doc_type === kind && d.payment_status !== "paid"))); }, [kind]);
-  return <div className={card}><p className="text-sm font-semibold mb-3">{kind === "INV" ? "🧾 Unpaid Invoices" : "📄 Open Quotations"}</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p> : data.map(d => <div key={d.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{d.doc_number} ({d.company})</span><span className="font-bold text-red-600">{fmtRM(d.total_cents)}</span></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(d => <div key={d.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><span className="text-sm font-medium">{d.doc_number} <span className="font-normal text-muted-foreground">({d.company})</span></span><span className="font-bold text-red-600 tabular-nums">{fmtRM(d.total_cents)}</span></div>)}</div>;
 }
 
 function PendingLeaveSummary() {
   const [data, setData] = useState<LeaveReq[]>([]);
   useEffect(() => { void api<{ leave: LeaveReq[] }>('/staff/leave?all=1').then(r => r.ok && r.data && setData(r.data.leave.filter(l => l.status === "pending"))); }, []);
-  return <div className={card}><p className="text-sm font-semibold mb-3">🗓️ Pending Leave</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending leave requests.</p> : data.map(l => <div key={l.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{l.user_name || "Unknown"} ({l.days} days)</p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No pending leave requests.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(l => <div key={l.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{l.user_name || "Unknown"} <span className="font-normal text-muted-foreground">({l.days} days)</span></p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div>;
 }
 
 function PendingClaimsSummary() {
   const [data, setData] = useState<{ id: number; user_name: string; category: string; amount_cents: number; status: string }[]>([]);
   useEffect(() => { void api<{ claims: { id: number; user_name: string; category: string; amount_cents: number; status: string }[] }>('/staff/claims').then(r => r.ok && r.data && setData(r.data.claims.filter(c => c.status === "pending"))); }, []);
-  return <div className={card}><p className="text-sm font-semibold mb-3">💰 Pending Claims</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending claims.</p> : data.map(c => <div key={c.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{c.user_name || "Unknown"} - {c.category}</span><span className="font-bold">{fmtRM(c.amount_cents)}</span></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No pending claims.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(c => <div key={c.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{c.user_name || "Unknown"} <span className="font-normal text-muted-foreground">- {c.category}</span></p><span className="font-bold tabular-nums">{fmtRM(c.amount_cents)}</span></div>)}</div>;
 }
 
 function LowStockSummary() {
   const [data, setData] = useState<{ id: number; name: string; sku: string; stock: number }[]>([]);
   useEffect(() => { void api<{ items: { id: number; name: string; sku: string; stock: number }[] }>('/staff/inventory').then(r => r.ok && r.data && r.data.items && setData(r.data.items.filter(i => (i.stock || 0) <= 5))); }, []);
-  return <div className={card}><p className="text-sm font-semibold mb-3">📦 Low Stock Items</p><div className="space-y-3">{data.length === 0 ? <p className="text-sm">No low stock items.</p> : data.map(i => <div key={i.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{i.name} ({i.sku})</span><span className="font-bold text-red-600">{i.stock} left</span></div>)}</div></div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No low stock items.</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(i => <div key={i.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{i.name} <span className="font-normal text-muted-foreground">({i.sku})</span></p><span className="font-bold text-red-600 tabular-nums">{i.stock} left</span></div>)}</div>;
 }
 
 function TradingDesk({ user }: { user: User }) {
@@ -824,23 +830,23 @@ function TradingDesk({ user }: { user: User }) {
       )}
 
       {detailModal && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 backdrop-blur-sm" onClick={() => setDetailModal(null)}>
-          <div className="bg-background w-full max-w-6xl rounded-2xl shadow-2xl relative flex flex-col" style={{ minHeight: "300px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-5 py-4 shrink-0">
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-end sm:justify-center overflow-hidden bg-black/60 sm:p-6 backdrop-blur-sm transition-all animate-in fade-in" onClick={() => setDetailModal(null)}>
+          <div className="bg-background w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl relative flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-4 py-3 sm:px-5 sm:py-4 shrink-0 bg-muted/20 sm:rounded-t-2xl rounded-t-2xl">
               <h2 className="text-lg font-bold">{detailModal}</h2>
               <button type="button" className="rounded-full bg-secondary p-2 hover:bg-muted" onClick={() => setDetailModal(null)}>✕</button>
             </div>
-            <div className="overflow-y-auto p-5 relative" style={{ maxHeight: "calc(100vh - 120px)" }}>
-              {detailModal === "Clients" && <ClientsCard />}
+            <div className="overflow-y-auto w-full relative">
+              {detailModal === "Clients" && <ClientsCard inModal />}
               {detailModal === "Active stokis" && <ActiveStokisSummary />}
-              {detailModal === "Lives today" && <LiveScheduleCard user={user} />}
+              {detailModal === "Lives today" && <LiveScheduleCard user={user} inModal />}
               {detailModal === "In today" && <InTodaySummary />}
               {detailModal === "Unpaid inv." && <OutstandingDocsSummary kind="INV" />}
-              {detailModal === "Cash flow (mo)" && <PnlCard />}
+              {detailModal === "Cash flow (mo)" && <PnlCard inModal />}
               
               {detailModal === "Leave pending" && <PendingLeaveSummary />}
               {detailModal === "Claims pending" && <PendingClaimsSummary />}
-              {detailModal === "OT pending" && <OtApprovalsCard />}
+              {detailModal === "OT pending" && <OtApprovalsCard inModal />}
               {detailModal === "Low stock" && <LowStockSummary />}
               {detailModal === "Quotations open" && <OutstandingDocsSummary kind="QT" />}
             </div>
@@ -2328,7 +2334,7 @@ function LiveGmvCard() {
 
 /* v1.4.191 OT APPROVALS (CEO gap list): pending day-pairs decided here —
    only approved OT will ever feed payroll. */
-function OtApprovalsCard() {
+function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
   interface Pend { user_id: number; name: string; d: string; ot_in: string | null; ot_out: string | null }
   const [pending, setPending] = useState<Pend[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -2359,42 +2365,47 @@ function OtApprovalsCard() {
     const mins = (h2! * 60 + m2!) - (h1! * 60 + m1!);
     return mins > 0 ? ` · ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m` : "";
   };
-  return (
+
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : (
     <div className={card}>
-      {otConfirmNode}
       <p className="text-sm font-semibold">⏱ Overtime approvals</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        Completed OT day-pairs awaiting a decision. Only APPROVED overtime
-        will count when OT feeds payroll. The staff member is notified of
-        every decision.
-      </p>
-      <div className="mt-3 space-y-0">
-        {pending.map((p) => (
-          <div key={`${p.user_id}:${p.d}`} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-            <span className="min-w-0">
-              <span className="font-medium">{properName(p.name)}</span>{" "}
-              <span className="text-muted-foreground text-xs">{dmy(p.d)} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder="Note (optional)"
-                value={note[`${p.user_id}:${p.d}`] ?? ""}
-                onChange={(e) => setNote((n) => ({ ...n, [`${p.user_id}:${p.d}`]: e.target.value }))} />
-              <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
-                onClick={() => void decide(p, "approved")}>Approve</button>
-              <button type="button" className="text-destructive rounded border border-border px-2 py-0.5 text-xs"
-                onClick={() => void decide(p, "rejected")}>Reject</button>
-            </span>
-          </div>
-        ))}
-      </div>
+      <p className="text-muted-foreground mt-0.5 text-xs">Completed OT day-pairs awaiting a decision. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.</p>
+      <div className="mt-3 space-y-0">{node}</div>
     </div>
+  );
+
+  return (
+    <>
+      {otConfirmNode}
+      {wrapCard(
+        <>
+          {pending.map((p) => (
+            <div key={`${p.user_id}:${p.d}`} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50" : "py-2"}`}>
+          <span className="min-w-0">
+            <span className="font-medium">{properName(p.name)}</span>{" "}
+            <span className="text-muted-foreground text-xs">{dmy(p.d)} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder="Note (optional)"
+              value={note[`${p.user_id}:${p.d}`] ?? ""}
+              onChange={(e) => setNote((n) => ({ ...n, [`${p.user_id}:${p.d}`]: e.target.value }))} />
+            <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
+              onClick={() => void decide(p, "approved")}>Approve</button>
+            <button type="button" className="text-destructive rounded border border-border px-2 py-0.5 text-xs"
+              onClick={() => void decide(p, "rejected")}>Reject</button>
+          </span>
+        </div>
+          ))}
+        </>
+      )}
+    </>
   );
 }
 
 /* v1.4.191 LIVE SESSION ROSTER (CEO gap list): which host, which client,
    which platform, what slot. Managers schedule; hosts see their own and are
    bell-notified on assignment. */
-function LiveScheduleCard({ user }: { user: User }) {
+function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) {
   interface Sess { id: number; session_date: string; start_time: string; end_time?: string | null; platform: string; client_company?: string | null; client_name?: string | null; host_user_id: number; host_name: string; notes?: string | null; status: string }
   interface Opt { id: number; name?: string | null; company?: string | null; role?: string }
   const manager = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
@@ -2438,9 +2449,8 @@ function LiveScheduleCard({ user }: { user: User }) {
     await api(`/staff/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     void load();
   };
-  if (!loaded) return null;
-  if (!manager && sessions.length === 0) return null;
-  return (
+  
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : (
     <div className={card}>
       <p className="text-sm font-semibold">📺 Live session schedule</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
@@ -2448,6 +2458,15 @@ function LiveScheduleCard({ user }: { user: User }) {
           ? "The roster: which host goes live for which client, on which platform, at what slot. Hosts are bell-notified when assigned."
           : "Your upcoming live sessions — you are notified when a new one is assigned to you."}
       </p>
+      {node}
+    </div>
+  );
+
+  if (!loaded) return null;
+  if (!manager && sessions.length === 0) return null;
+
+  return wrapCard(
+    <>
       {manager && (
         <div className="mt-3 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
           <Sub t="Date"><input type="date" className={inputClass} value={draft.session_date} onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} /></Sub>
@@ -2481,7 +2500,7 @@ function LiveScheduleCard({ user }: { user: User }) {
       ) : (
         <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
           {sessions.map((sn) => (
-            <div key={sn.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+            <div key={sn.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-2" : ""}`}>
               <span className="min-w-0">
                 <span className="font-medium">{dmy(sn.session_date)}</span>{" "}
                 <span className="text-muted-foreground">{sn.start_time}{sn.end_time ? `–${sn.end_time}` : ""}</span>{" "}
@@ -2502,7 +2521,7 @@ function LiveScheduleCard({ user }: { user: User }) {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -2751,7 +2770,7 @@ function SalesHistoryCard() {
 /* v1.4.278 — 💹 Profit & loss by month ("…and also expenses"): revenue −
    expenses − payroll − approved claims = the number the business actually
    keeps. Renders null on a worker that predates the route. */
-function PnlCard() {
+function PnlCard({ inModal }: { inModal?: boolean } = {}) {
   interface PnlMonth { month: string; revenue_cents: number; expenses_cents: number; payroll_cents: number; claims_cents: number; net_cents: number }
   const [months, setMonths] = useState<PnlMonth[] | null>(null);
   useEffect(() => {
@@ -2759,40 +2778,43 @@ function PnlCard() {
   }, []);
   if (!months || months.length === 0) return null;
   const rows = [...months].reverse(); // newest first
-  return (
+  
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0 overflow-x-auto w-full">{node}</div> : (
     <div className={card}>
       <p className="text-sm font-semibold">💹 Profit &amp; loss — month by month</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps.
         Payroll uses the same net figures as the M2E salary file.
       </p>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead><tr className="border-border border-b">
-            <th className={th}>MONTH</th><th className={thR2}>REVENUE</th><th className={thR2}>EXPENSES</th>
-            <th className={thR2}>PAYROLL</th><th className={thR2}>CLAIMS</th><th className={thR2}>NET</th>
-          </tr></thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.month} className="border-border border-b last:border-0">
-                <td className={td}>{ym(m.month)}</td>
-                <td className={tdR2}>{fmtRM(m.revenue_cents)}</td>
-                <td className={tdR2}>{m.expenses_cents ? fmtRM(m.expenses_cents) : "—"}</td>
-                <td className={tdR2}>{m.payroll_cents ? fmtRM(m.payroll_cents) : "—"}</td>
-                <td className={tdR2}>{m.claims_cents ? fmtRM(m.claims_cents) : "—"}</td>
-                <td className={`${tdR2} font-semibold ${m.net_cents >= 0 ? "text-green-700" : "text-red-600"}`}>{fmtRM(m.net_cents)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <div className="mt-2 overflow-x-auto">{node}</div>
     </div>
+  );
+
+  return wrapCard(
+    <table className="w-full border-collapse text-sm">
+      <thead><tr className="border-border border-b">
+        <th className={th}>MONTH</th><th className={thR2}>REVENUE</th><th className={thR2}>EXPENSES</th>
+        <th className={thR2}>PAYROLL</th><th className={thR2}>CLAIMS</th><th className={thR2}>NET</th>
+      </tr></thead>
+      <tbody>
+        {rows.map((m) => (
+          <tr key={m.month} className="border-border border-b last:border-0">
+            <td className={td}>{ym(m.month)}</td>
+            <td className={tdR2}>{fmtRM(m.revenue_cents)}</td>
+            <td className={tdR2}>{m.expenses_cents ? fmtRM(m.expenses_cents) : "—"}</td>
+            <td className={tdR2}>{m.payroll_cents ? fmtRM(m.payroll_cents) : "—"}</td>
+            <td className={tdR2}>{m.claims_cents ? fmtRM(m.claims_cents) : "—"}</td>
+            <td className={`${tdR2} font-semibold ${m.net_cents >= 0 ? "text-green-700" : "text-red-600"}`}>{fmtRM(m.net_cents)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 /* v1.5.0: PipelineInsightsCard removed with the Social tab. */
 
-function ClientsCard() {
+export function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
   interface Cl { id: number; company: string; name?: string | null; invoices: number; invoiced_cents: number; paid_cents: number; quotations: number }
   const [clients, setClients] = useState<Cl[]>([]);
   const [sessions, setSessions] = useState<Record<string, number>>({});
@@ -2804,31 +2826,22 @@ function ClientsCard() {
       setLoaded(true);
     });
   }, []);
-  if (!loaded) {
-    return (
-      <div className={card}>
-        <p className="text-sm font-semibold">🤝 Clients</p>
-        <div className="mt-4 space-y-3 animate-pulse">
-          <div className="h-4 w-3/4 rounded bg-secondary"></div>
-          <div className="h-4 w-1/2 rounded bg-secondary"></div>
-          <div className="h-4 w-2/3 rounded bg-secondary"></div>
-        </div>
-      </div>
-    );
-  }
+
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold">💎 Clients</p><div className="mt-3">{node}</div></div>;
+
+  if (!loaded) return null;
   if (clients.length === 0) return null;
   const rm2 = fmtRM; // v1.4.272 global (this one even lacked thousand separators)
-  return (
-    <div className={card}>
-      <p className="text-sm font-semibold">🤝 Clients</p>
+  return wrapCard(
+    <>
       {rlToastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
         Per-client view from your sales documents and the live roster —
         invoiced, collected, quotations in play and sessions scheduled.
       </p>
-      <div className="mt-3 max-h-80 space-y-0 overflow-y-auto pr-1">
+      <div className={inModal ? "overflow-y-auto" : "mt-3 max-h-80 overflow-y-auto pr-1"}>
         {clients.map((c) => (
-          <div key={c.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+          <div key={c.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "py-2"}`}>
             <span className="min-w-0 font-medium">{c.company}</span>
             <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
               <span title="Invoiced total (all INV)">{rm2(c.invoiced_cents)} invoiced</span>
@@ -2849,7 +2862,7 @@ function ClientsCard() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
