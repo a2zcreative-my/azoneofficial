@@ -473,18 +473,44 @@ function autoTargetCents(lastCents: number): number | null {
   return Math.ceil(raised / 50_000) * 50_000;
 }
 
-function ActiveStokisSummary() {
+function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   const [data, setData] = useState<{ id: number; name: string; status: string; month_cents: number }[]>([]);
-  useEffect(() => { void api<{ stokis: { id: number; name: string; status: string; month_cents: number }[] }>('/staff/stokis').then(r => r.ok && r.data && setData(r.data.stokis.filter(s => s.status === "active"))); }, []);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No active stokis.</p>;
-  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(s => <div key={s.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div>;
+  useEffect(() => {
+    void api<{ stokis: { id: number; name: string; status: string; month_cents: number }[] }>('/staff/stokis')
+      .then(r => r.ok && r.data && setData(r.data.stokis.filter(s => s.status === "active")));
+  }, []);
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">⭐ Active Stokis</p>{node}</div>;
+  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No active stokis.</p>);
+  return wrap(
+    <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
+      {data.map(s => (
+        <div key={s.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "pb-2"}`}>
+          <p className="font-bold">{s.name}</p>
+          <p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function InTodaySummary() {
-  const [data, setData] = useState<{ user_id: number; name: string; clock_in: string }[]>([]);
-  useEffect(() => { void api<{ today: { user_id: number; name: string; clock_in: string }[] }>('/staff/attendance/monitor').then(r => r.ok && r.data && setData(r.data.today || [])); }, []);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No one checked in today.</p>;
-  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(u => <div key={u.user_id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div>;
+function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
+  const [data, setData] = useState<{ id: number; name: string; in_at?: string | null }[]>([]);
+  useEffect(() => {
+    void api<{ staff: { id: number; name: string; in_at?: string | null }[] }>('/staff/attendance/monitor')
+      .then(r => r.ok && r.data && setData(r.data.staff.filter(s => !!s.in_at)));
+  }, []);
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">📍 In Today</p>{node}</div>;
+  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No one checked in today.</p>);
+  return wrap(
+    <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
+      {data.map(u => (
+        <div key={u.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "pb-2"}`}>
+          <p className="font-medium text-sm">{u.name}</p>
+          <p className="text-muted-foreground text-xs">Checked in at {u.in_at?.slice(11, 16) || "unknown"}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
