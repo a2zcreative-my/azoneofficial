@@ -895,7 +895,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       data?.code === 105000 || data?.code === 105002 ||
       /expired|access[_\s-]?token|x-tts-access-token|unauthor|credential|invalid.*token|token.*invalid/.test(msg);
     if (authExpired) {
-      return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired — reconnect TikTok (Admin → integrations) and make sure TIKTOK_APP_SECRET matches Partner Center.", status: 401 };
+      return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches.", status: 401 };
     }
     return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
   }

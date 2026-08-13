@@ -137,6 +137,7 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 }
 
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
+  const [detailModal, setDetailModal] = useState<string | null>(null);
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
   const [otEligible, setOtEligible] = useState(false);
@@ -565,12 +566,12 @@ function TradingDesk({ user }: { user: User }) {
   // v1.6.1 (CEO): "Needs attention" sits in the top ticker row, right beside
   // the All-time card (position 4), instead of a separate strip at the bottom.
   if (canStatus && sum) {
-    const rows: [string, number | null][] = [
-      ["Leave pending", sum.pending_leave],
-      ["Claims pending", sum.pending_claims],
-      ["OT pending", sum.pending_ot],
-      ["Low stock", sum.low_stock],
-      ["Quotations open", sum.open_quotations],
+    const rows: [string, number | null, TabName][] = [
+      ["Leave pending", sum.pending_leave, "HR"],
+      ["Claims pending", sum.pending_claims, "Claims"],
+      ["OT pending", sum.pending_ot, "Attendance"],
+      ["Low stock", sum.low_stock, "Inventory"],
+      ["Quotations open", sum.open_quotations, "Sales"],
     ];
     const shown = rows.filter(([, v]) => v !== null && v > 0);
     ticker.push(
@@ -580,11 +581,11 @@ function TradingDesk({ user }: { user: User }) {
           ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
           : (
             <div className="mt-1.5 space-y-1">
-              {shown.map(([label, v]) => (
-                <p key={label} className="flex items-baseline justify-between text-sm">
+              {shown.map(([label, v, tabName]) => (
+                <button type="button" key={label} onClick={() => setDetailModal(label)} className="flex w-full items-baseline justify-between text-sm hover:text-primary hover:underline">
                   <span>{label}</span>
                   <span className="font-bold tabular-nums">{v}</span>
-                </p>
+                </button>
               ))}
             </div>
           )}
@@ -666,21 +667,21 @@ function TradingDesk({ user }: { user: User }) {
         const cashIn = sum.cash_in_cents ?? 0;
         const cashOut = sum.cash_out_cents ?? 0;
         const net = cashIn - cashOut;
-        const tiles: { label: string; value: ReactNode; tone?: string }[] = [
-          { label: "Clients", value: sum.clients ?? 0 },
-          { label: "Active stokis", value: sum.active_stokis ?? 0 },
-          { label: "Lives today", value: sum.lives_today ?? 0 },
-          { label: "In today", value: sum.attendance_today ?? 0 },
-          { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0 },
-          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span> },
+        const tiles: { label: string; value: ReactNode; tone?: string; tab?: TabName }[] = [
+          { label: "Clients", value: sum.clients ?? 0, tab: "Sales" },
+          { label: "Active stokis", value: sum.active_stokis ?? 0, tab: "Stokis" },
+          { label: "Lives today", value: sum.lives_today ?? 0, tab: "Attendance" },
+          { label: "In today", value: sum.attendance_today ?? 0, tab: "Attendance" },
+          { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0, tab: "Sales" },
+          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Expenses" },
         ];
         return (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {tiles.map((t) => (
-              <div key={t.label} className="border-border bg-card rounded-lg border p-2.5 text-center">
+              <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors">
                 <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
                 <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.label}</p>
-              </div>
+              </button>
             ))}
           </div>
         );
@@ -783,6 +784,31 @@ function TradingDesk({ user }: { user: User }) {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {detailModal && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 backdrop-blur-sm" onClick={() => setDetailModal(null)}>
+          <div className="bg-background w-full max-w-6xl rounded-2xl shadow-2xl relative flex flex-col" style={{ minHeight: "300px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-5 py-4 shrink-0">
+              <h2 className="text-lg font-bold">{detailModal}</h2>
+              <button type="button" className="rounded-full bg-secondary p-2 hover:bg-muted" onClick={() => setDetailModal(null)}>✕</button>
+            </div>
+            <div className="overflow-y-auto p-5 relative" style={{ maxHeight: "calc(100vh - 120px)" }}>
+              {detailModal === "Clients" && <ClientsCard />}
+              {detailModal === "Active stokis" && <StokisPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)} />}
+              {detailModal === "Lives today" && <LiveScheduleCard user={user} />}
+              {detailModal === "In today" && <Attendance user={user} />}
+              {detailModal === "Unpaid inv." && <DocumentsPanel />}
+              {detailModal === "Cash flow (mo)" && <PnlCard />}
+              
+              {detailModal === "Leave pending" && <HrAdminPanel />}
+              {detailModal === "Claims pending" && <ClaimsPanel userId={user.id} role={user.role} />}
+              {detailModal === "OT pending" && <OtApprovalsCard />}
+              {detailModal === "Low stock" && <InventoryPanel role={user.role} />}
+              {detailModal === "Quotations open" && <Sales user={user} />}
+            </div>
+          </div>
         </div>
       )}
     </div>
