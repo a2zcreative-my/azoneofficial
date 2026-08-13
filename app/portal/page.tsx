@@ -137,8 +137,6 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 }
 
 function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [detailModal, setDetailModal] = useState<string | null>(null);
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
   const [otEligible, setOtEligible] = useState(false);
@@ -476,6 +474,7 @@ function autoTargetCents(lastCents: number): number | null {
 }
 
 function TradingDesk({ user }: { user: User }) {
+  const [detailModal, setDetailModal] = useState<string | null>(null);
   const [rev, setRev] = useState<RevenueData | null>(null);
   const [sum, setSum] = useState<DashSummary | null>(null);
   const [mkLines, setMkLines] = useState<RevLineLite[] | null>(null);
