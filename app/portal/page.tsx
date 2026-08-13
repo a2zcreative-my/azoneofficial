@@ -473,6 +473,42 @@ function autoTargetCents(lastCents: number): number | null {
   return Math.ceil(raised / 50_000) * 50_000;
 }
 
+function ActiveStokisSummary() {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<{ stokis: any[] }>('/staff/stokis').then(r => r.ok && r.data && setData(r.data.stokis.filter((s: any) => s.status === "active"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No active stokis.</p> : data.map((s: any) => <div key={s.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-bold">{s.name}</p><p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p></div>)}</div>;
+}
+
+function InTodaySummary() {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<any>('/staff/attendance/monitor').then(r => r.ok && r.data && setData(r.data.today || [])); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No one checked in today.</p> : data.map((u: any) => <div key={u.user_id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{u.name}</p><p className="text-muted-foreground text-xs">Checked in at {u.clock_in?.slice(11, 16) || "unknown"}</p></div>)}</div>;
+}
+
+function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<{ docs: any[] }>('/staff/docs').then(r => r.ok && r.data && setData(r.data.docs.filter((d: any) => d.doc_type === kind && d.payment_status !== "paid"))); }, [kind]);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p> : data.map((d: any) => <div key={d.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{d.doc_number} ({d.company})</span><span className="font-bold text-red-600">{fmtRM(d.total_cents)}</span></div>)}</div>;
+}
+
+function PendingLeaveSummary() {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<{ leave: any[] }>('/staff/leave?all=1').then(r => r.ok && r.data && setData(r.data.leave.filter((l: any) => l.status === "pending"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending leave requests.</p> : data.map((l: any) => <div key={l.id} className="text-sm border-border border-b pb-2 last:border-0"><p className="font-medium">{l.user_name || "Unknown"} ({l.days} days)</p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div>;
+}
+
+function PendingClaimsSummary() {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<{ claims: any[] }>('/staff/claims').then(r => r.ok && r.data && setData(r.data.claims.filter((c: any) => c.status === "pending"))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No pending claims.</p> : data.map((c: any) => <div key={c.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{c.user_name || "Unknown"} - {c.category}</span><span className="font-bold">{fmtRM(c.amount_cents)}</span></div>)}</div>;
+}
+
+function LowStockSummary() {
+  const [data, setData] = useState<any[]>([]);
+  useEffect(() => { void api<{ items: any[] }>('/staff/inventory').then(r => r.ok && r.data && r.data.items && setData(r.data.items.filter((i: any) => (i.stock || 0) <= 5))); }, []);
+  return <div className="space-y-3">{data.length === 0 ? <p className="text-sm">No low stock items.</p> : data.map((i: any) => <div key={i.id} className="text-sm border-border border-b pb-2 flex justify-between last:border-0"><span>{i.name} ({i.sku})</span><span className="font-bold text-red-600">{i.stock} left</span></div>)}</div>;
+}
+
 function TradingDesk({ user }: { user: User }) {
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [rev, setRev] = useState<RevenueData | null>(null);
@@ -796,17 +832,17 @@ function TradingDesk({ user }: { user: User }) {
             </div>
             <div className="overflow-y-auto p-5 relative" style={{ maxHeight: "calc(100vh - 120px)" }}>
               {detailModal === "Clients" && <ClientsCard />}
-              {detailModal === "Active stokis" && <StokisPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)} />}
+              {detailModal === "Active stokis" && <ActiveStokisSummary />}
               {detailModal === "Lives today" && <LiveScheduleCard user={user} />}
-              {detailModal === "In today" && <Attendance user={user} />}
-              {detailModal === "Unpaid inv." && <DocumentsPanel />}
+              {detailModal === "In today" && <InTodaySummary />}
+              {detailModal === "Unpaid inv." && <OutstandingDocsSummary kind="INV" />}
               {detailModal === "Cash flow (mo)" && <PnlCard />}
               
-              {detailModal === "Leave pending" && <HrAdminPanel />}
-              {detailModal === "Claims pending" && <ClaimsPanel userId={user.id} role={user.role} />}
+              {detailModal === "Leave pending" && <PendingLeaveSummary />}
+              {detailModal === "Claims pending" && <PendingClaimsSummary />}
               {detailModal === "OT pending" && <OtApprovalsCard />}
-              {detailModal === "Low stock" && <InventoryPanel role={user.role} />}
-              {detailModal === "Quotations open" && <Sales user={user} />}
+              {detailModal === "Low stock" && <LowStockSummary />}
+              {detailModal === "Quotations open" && <OutstandingDocsSummary kind="QT" />}
             </div>
           </div>
         </div>
