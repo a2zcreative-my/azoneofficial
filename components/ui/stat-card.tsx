@@ -36,19 +36,19 @@ export function MiniBar({ pct, tone = "gold", className = "" }: {
 }
 
 /** One KPI card. `solid` = the navy hero (AT MOST ONE per band). */
-export function StatCard({ label, value, sub, bar, solid = false, accent }: {
+export function StatCard({ label, value, sub, bar, solid = false, accent, onClick }: {
   label: string;                 // tiny uppercase label
   value: ReactNode;              // the big figure
   sub?: ReactNode;               // one quiet line under it
   bar?: { pct: number; label?: string; tone?: "gold" | "green" | "red" | "navy" | "muted" };
   solid?: boolean;
   accent?: "gold" | "red" | "green"; // thin top edge on white cards
+  onClick?: () => void;
 }) {
   const edge = accent === "red" ? "border-t-bear" : accent === "green" ? "border-t-bull" : "border-t-gold-solid"; // v1.5.0 tokens
-  return (
-    <div className={solid
-      ? "rounded-xl bg-brand p-4 text-white shadow-sm"
-      : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`}>
+  
+  const inner = (
+    <>
       <p className={`text-[10px] font-semibold tracking-wider uppercase ${solid ? "text-white/70" : "text-muted-foreground"}`}>{label}</p>
       <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">{value}</p>
       {bar && (
@@ -57,7 +57,25 @@ export function StatCard({ label, value, sub, bar, solid = false, accent }: {
           {bar.label && <p className={`mt-1 text-[11px] ${solid ? "text-white/70" : "text-muted-foreground"}`}>{bar.label}</p>}
         </div>
       )}
-      {sub && <p className={`mt-1 text-xs ${solid ? "text-white/80" : "text-muted-foreground"}`}>{sub}</p>}
+      {sub && <p className={`mt-2 text-xs leading-snug ${solid ? "text-white/80" : "text-muted-foreground"}`}>{sub}</p>}
+    </>
+  );
+
+  const baseClasses = solid
+    ? "rounded-xl bg-brand p-4 text-white shadow-sm"
+    : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`;
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:border-primary focus:border-primary outline-none ${baseClasses}`}>
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div className={baseClasses}>
+      {inner}
     </div>
   );
 }
