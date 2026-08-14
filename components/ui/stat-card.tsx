@@ -62,12 +62,12 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
   );
 
   const baseClasses = solid
-    ? "rounded-xl bg-brand p-4 text-white shadow-sm"
-    : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`;
+    ? "rounded-2xl bg-gradient-to-br from-brand to-brand/90 p-4 md:p-5 text-white shadow-sm"
+    : `border-border bg-card rounded-2xl border border-t-2 ${edge} p-4 md:p-5 shadow-sm`;
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:border-primary focus:border-primary outline-none ${baseClasses}`}>
+      <button type="button" onClick={onClick} className={`block w-full text-left transition-all duration-300 hover:shadow-md hover:-translate-y-1 hover:border-primary focus:border-primary outline-none ${baseClasses}`}>
         {inner}
       </button>
     );
