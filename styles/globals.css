@@ -54,18 +54,6 @@
   /* v1.5.0 — trading-desk accents (market green/red, used by the dashboard). */
   --bull: #16a34a;
   --bear: #dc2626;
-
-  /* v1.8.0 — app-shell uplift tokens (UI-REDESIGN-PLAN.md). The reference
-     design's maroon/pink is TRANSLATED into the existing navy/gold system:
-     same roles, our hues. Flat tints only — the design mandate (no gradients)
-     stands. Radius caps: 16px cards, 24px shell. */
-  --shell-backdrop: #0d1526;      /* dark band behind the rounded canvas */
-  --brand-primary-soft: #243759;  /* rail active highlight / on-navy hover */
-  --tint-navy: rgba(26, 41, 70, 0.06); /* soft fills: calendar blocks, bg chart series */
-  --tint-gold: rgba(200, 169, 106, 0.16);
-  --radius-card: 16px;
-  --radius-shell: 24px;
-  --shadow-soft: 0 1px 2px rgba(13, 21, 38, 0.05), 0 8px 24px rgba(13, 21, 38, 0.06);
 }
 
 @theme inline {
@@ -108,16 +96,6 @@
   --color-bull: var(--bull);
   --color-bear: var(--bear);
 
-  /* v1.8.0 shell tokens as utilities: bg-shell, bg-brand-soft, bg-tint-navy,
-     bg-tint-gold, rounded-card, rounded-shell, shadow-soft */
-  --color-shell: var(--shell-backdrop);
-  --color-brand-soft: var(--brand-primary-soft);
-  --color-tint-navy: var(--tint-navy);
-  --color-tint-gold: var(--tint-gold);
-  --radius-card: var(--radius-card);
-  --radius-shell: var(--radius-shell);
-  --shadow-soft: var(--shadow-soft);
-
   --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -154,12 +132,6 @@
   --info-soft: rgba(14, 165, 233, 0.16);
   --bull: #4ade80;
   --bear: #f87171;
-  /* v1.8.0 shell tokens, dark-tuned in the same commit as light (plan rule). */
-  --shell-backdrop: #0a111f;
-  --brand-primary-soft: #1f2f4e;
-  --tint-navy: rgba(154, 166, 186, 0.08);
-  --tint-gold: rgba(200, 169, 106, 0.14);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 @layer base {
@@ -282,12 +254,6 @@ input[type="time"] {
   box-shadow: inset 0 1px 0 0 var(--border);
 }
 
-/* v1.8.0 — the icon rail scrolls when an account has more tabs than the
-   viewport is tall, but a visible scrollbar inside a 64px navy column reads
-   as a rendering bug. Scrolling still works (wheel, touch, keyboard). */
-.scrollbar-none {
-  scrollbar-width: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
+/* v1.8.0 — sidebar scroll area hides its scrollbar (icons only, no track). */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }

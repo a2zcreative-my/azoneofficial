@@ -35,11 +35,8 @@ export function MiniBar({ pct, tone = "gold", className = "" }: {
   );
 }
 
-/** One KPI card. `solid` = the navy hero (AT MOST ONE per band).
-    v1.8.0 (UI-REDESIGN-PLAN.md): optional `icon` squircle, `trend` line and
-    `hero` numerals — all additive, every existing call site renders as
-    before. */
-export function StatCard({ label, value, sub, bar, solid = false, accent, onClick, icon, trend, hero = false }: {
+/** One KPI card. `solid` = the navy hero (AT MOST ONE per band). */
+export function StatCard({ label, value, sub, bar, solid = false, accent, onClick }: {
   label: string;                 // tiny uppercase label
   value: ReactNode;              // the big figure
   sub?: ReactNode;               // one quiet line under it
@@ -47,39 +44,13 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
   solid?: boolean;
   accent?: "gold" | "red" | "green"; // thin top edge on white cards
   onClick?: () => void;
-  /** v1.8.0 — emoji/glyph in a soft-tinted squircle, top-right. */
-  icon?: ReactNode;
-  /** v1.8.0 — "+13% last month" style line; up = green, down = red. */
-  trend?: { text: string; dir?: "up" | "down" | "flat" };
-  /** v1.8.0 — oversized numerals (dashboard top band). */
-  hero?: boolean;
 }) {
   const edge = accent === "red" ? "border-t-bear" : accent === "green" ? "border-t-bull" : "border-t-gold-solid"; // v1.5.0 tokens
-  const trendCls =
-    trend?.dir === "down" ? (solid ? "text-red-300" : "text-bear") :
-    trend?.dir === "flat" ? (solid ? "text-white/70" : "text-muted-foreground") :
-    solid ? "text-green-300" : "text-bull";
-
+  
   const inner = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className={`text-[10px] font-semibold tracking-wider uppercase ${solid ? "text-white/70" : "text-muted-foreground"}`}>{label}</p>
-        {icon && (
-          <span aria-hidden className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base ${solid ? "bg-white/10" : "bg-tint-gold"}`}>
-            {icon}
-          </span>
-        )}
-      </div>
-      <p className={hero
-        ? "mt-1 text-3xl leading-none font-semibold tracking-tight tabular-nums md:text-4xl"
-        : "mt-1 text-2xl leading-tight font-bold tabular-nums"}>{value}</p>
-      {trend && (
-        <p className="mt-1.5 text-xs">
-          <span className={`font-medium ${trendCls}`}>
-            {trend.dir === "down" ? "▾ " : trend.dir === "flat" ? "" : "▴ "}{trend.text}
-          </span>
-        </p>
-      )}
+      <p className={`text-[10px] font-semibold tracking-wider uppercase ${solid ? "text-white/70" : "text-muted-foreground"}`}>{label}</p>
+      <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">{value}</p>
       {bar && (
         <div className="mt-2">
           <MiniBar pct={bar.pct} tone={solid ? "gold" : (bar.tone ?? "gold")} className={solid ? "bg-white/20" : ""} />
@@ -91,8 +62,8 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
   );
 
   const baseClasses = solid
-    ? "rounded-card bg-brand shadow-soft p-4 text-white"
-    : `border-border bg-card rounded-card shadow-soft border border-t-2 ${edge} p-4`;
+    ? "rounded-xl bg-brand p-4 text-white shadow-sm"
+    : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`;
 
   if (onClick) {
     return (

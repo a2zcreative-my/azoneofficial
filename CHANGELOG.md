@@ -2,30 +2,19 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
-## [1.8.2] — 2026-08-14 — Drill-downs, KPI de-worded, Clients fix, self-refreshing fulfilment
+## [1.8.0] — 2026-08-12 — The new portal shell: sidebar, global search, Schedule & Roster, dashboard cards
 
-- **Fix: "Clients: 1" tile vs "No active clients" sheet.** The drill-down's SQL (`c.company != 'Walk-in Customer'`) silently dropped customers with no company set (NULL != x is NULL in SQL) while the tile's count kept them. The list now uses the same COALESCE as the count, and a client without a company shows the person's name instead of a blank row. **Requires a worker deploy** (DEPLOY.bat covers it).
-- **Sales floor: numbers, not paragraphs** (CEO: "KPI too many words"). The Comeback/Push/On-pace sentence became a status chip + three stat boxes (To go · Per day · Days left); the 💡 Boost bullets became compact chips with the number first; the market-targets explainer sentence folded into its label.
-- **Tap the attendance ring for names.** Any slice (or legend row) opens that group's people — late and on-time with their clock-in times; other slices dim, tapped slice thickens. Tap again to close.
-- **Tap a map bubble (or state row) for the state summary** — shipments, share of the window, and the city breakdown behind it. Selected bubble rings gold, the rest dim.
-- **Fulfilment keeps itself fresh.** The card refetches every 60 s while visible and instantly when the app regains focus — no more waiting for a manual sync tap. (Note: TikTok webhook `signature FAILED` means real-time updates from TikTok are dead until `TIKTOK_APP_SECRET` matches Partner Center; the 30-minute cron still heals order data meanwhile.)
+Adopts the approved reference design's layout in AZ ONE's navy/gold brand. Phones keep the bottom navigation unchanged.
 
-## [1.8.1] — 2026-08-14 — Infographic pass on the dashboard cards
+**App shell (desktop)** — a fixed icon sidebar replaces the two-row tab pills on md+ screens, driven by the same tab list (CEO tab-access control, role gates and the no-flash clamp all reused). Top bar gains a global search: Ctrl/Cmd+K or the 🔎 field opens a command palette that jumps to tabs, staff, clients (revenue roles) and quick actions.
 
-- **Attendance today** now leads with the headline ("38% of the team has clocked in (3 of 8)"), every legend row carries its count, percentage and a proportion bar, and a warning strip names exactly who hasn't clocked in yet.
-- **Operations map** redrawn on the REAL Malaysia outline (Natural-Earth low-res, equirectangular-projected — no more freehand blobs), with state labels under every bubble, a top-state headline ("Johor leads with 86% of shipments"), and the side list upgraded to counts + percentages + proportion bars. Bubble size capped so a dominant state can't swallow the peninsula.
+**Schedule & Roster** (Attendance tab) — the reference's flagship screen: a week time-grid of live sessions (08:00–23:00) with conflict flags (double-booked host, host on approved leave), a session detail popover with mark-completed/cancel, stat chips (scheduled / available today / on leave / conflicts), a mini month calendar with session dots, an unassigned-requests rail fed by new client enquiries with one-tap Schedule, an "available today" list, and a click-to-assign modal that posts to the existing /live-sessions API. New Worker aggregate `GET /staff/roster?week=`. PDPA: leave details are scoped — managers see who is on leave (never the type); other staff see only their own.
 
-## [1.8.0] — 2026-08-13 — App-shell UI/UX uplift (reference-design re-skin)
+**Dashboard** — greeting header ("Hello, {name}!"), a Peak-hour tile in the pulse strip (opens the by-hour breakdown), and a new card row: Attendance-today donut (on time / late / not clocked in, tap for detail), Assignments-today table (host, client, time, status; jump to the roster), and month-by-month sales bars with the best month highlighted. Donut populations aligned to active staff only.
 
-Presentation-layer redesign per UI-REDESIGN-PLAN.md — **zero flow, permission, or API changes**; navy/gold kept throughout (the reference's maroon/pink translated to brand tokens, flat tints only, radius capped 16/24px).
+**Fixes along the way** — grid blocks clamp to the visible window; palette results grouped after ranking; clients lookup skipped for roles without revenue access (no guaranteed 403s); roster error state with retry; "Today" button always refreshes.
 
-- **AppShell** (`components/layout/app-shell.tsx`): desktop gets a dark backdrop band, a navy icon rail (lucide icons per tab, tooltips, same gated tab lists) and a rounded content canvas; phones keep the proven bottom-nav + More sheet, now with icons and a filled active pill. Adopted by /portal, /admin and /account. The v1.4.159/187 equal-width pill grid is retired by this — flagged for CEO sign-off.
-- **Context panel** (xl+ screens, /portal): mini month calendar with dot markers + the selected day's live sessions and events, on the navy column. Self-fetching, silent on failure.
-- **Dashboard uplift**: NEXT ASSIGNMENT navy hero card (your next session/event, countdown chip); the punch card now titles itself by state (Ready to clock in / On shift / Shift recorded) — same buttons, same rules; Attendance-today donut ring (on-time / late / not-clocked-in from /attendance/monitor; hides on 403); live-sessions bar chart (completed vs scheduled, hidden until two months exist); today's roster list with avatars; Operations map — shipments by state as bubbles on a stylised Malaysia silhouette with the exact numbers listed beside it (buyer_city grouping, inventory/exec readers).
-- **Schedule & roster week grid** (Attendance tab): Mon–Sun time grid of live sessions with tinted blocks, today-column highlight, tap/hover detail card, and a KPI strip (Scheduled / Hosts booked / On leave / Conflicts — conflicts = overlapping same-host slots). Phones get a day view with ‹ › paging. View layer only; creating stays in the Live Schedule card.
-- **Header**: Malay day line ("Selasa, 4 Ogos") + time-of-day greeting, both MYT (lib/format.ts dayLineMS/greetingWord). Mobile Dashboard titles itself "Today".
-- **Login**: navy backdrop, one rounded card — same form and flow.
-- **New primitives** (components/ui/): Avatar (photo → navy/gold initials fallback), DonutStat, BarChart (pure div/SVG — no chart library; palette validated with the dataviz six-checks script: gold-DEEP bars for contrast, neutral slate for "not clocked in"), MiniCalendar (Monday-first), SegmentedTabs, HoverCard. StatCard gains optional icon/trend/hero props (additive). New tokens in globals.css (+dark variants): shell backdrop, brand-soft, tint-navy/gold, radius-card/shell, shadow-soft.
+**Housekeeping** — the four hazard files that re-appeared via folder-merge (test_tiktok.ts, worker/update-all.sql, test-crypto.js, fix_portal.js) are deleted again. Reminder: unzip releases into a FRESH folder, not over the old one.
 
 ## [1.7.3] — 2026-08-12 — Health card knows migrations 0068/0069
 

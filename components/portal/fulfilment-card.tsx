@@ -60,28 +60,12 @@ export function FulfilmentCard() {
     } finally { setDrillBusy(false); }
   };
   useEffect(() => {
-    /* v1.8.2 (CEO: "fulfilment only updates when I click sync"): the card
-       now keeps ITSELF fresh — refetch every 60s while the tab is visible
-       and immediately when the app regains focus, so the numbers move when
-       the 30-minute server sync or a webhook lands, with no manual sync
-       tap. A failed refresh keeps the last good numbers on screen. */
     let alive = true;
-    const load = () =>
-      void fetch("/api/v1/staff/fulfilment/summary", { credentials: "include" })
-        .then(async (r) => (r.ok ? ((await r.json()) as FulfilSummary) : Promise.reject(new Error(String(r.status)))))
-        .then((v) => { if (alive) { setD(v); setErr(""); } })
-        .catch(() => { if (alive) setD((prev) => { if (!prev) setErr("unavailable"); return prev; }); });
-    load();
-    const t = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 60_000);
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
-    };
+    void fetch("/api/v1/staff/fulfilment/summary", { credentials: "include" })
+      .then(async (r) => (r.ok ? ((await r.json()) as FulfilSummary) : Promise.reject(new Error(String(r.status)))))
+      .then((v) => { if (alive) setD(v); })
+      .catch(() => { if (alive) setErr("unavailable"); });
+    return () => { alive = false; };
   }, []);
 
   if (err) return null; // old worker: render nothing, break nothing

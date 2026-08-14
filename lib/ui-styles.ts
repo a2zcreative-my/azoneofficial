@@ -94,37 +94,3 @@ export const chipSuccess = `${chip} bg-success-soft text-success`;
 export const chipWarn = `${chip} bg-warning-soft text-warning`;
 export const chipDanger = `${chip} bg-danger-soft text-danger`;
 export const chipInfo = `${chip} bg-info-soft text-info`;
-
-/* ===================== v1.8.0 — app-shell uplift (UI-REDESIGN-PLAN.md) =====
-   The reference design's surfaces, translated to navy/gold. New strings only —
-   nothing above changes, so every existing screen renders as before until a
-   screen opts in. */
-
-/** Stat tile — the upgraded KPI surface (16px radius, soft shadow). */
-export const tile =
-  "rounded-card border border-border bg-card p-4 shadow-soft md:p-5";
-
-/** Oversized hero numeral for stat tiles ("247", "10:00—12:30"). */
-export const heroNum =
-  "text-3xl leading-none font-semibold tracking-tight tabular-nums md:text-4xl";
-
-/** Icon in a soft-tinted squircle (stat tiles, list leads). */
-export const iconSquircle =
-  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tint-gold text-gold-deep";
-
-/** Icon-rail buttons (desktop shell). Rail bg is navy in BOTH themes. */
-export const railBtn =
-  "flex h-11 w-11 items-center justify-center rounded-xl text-white/65 transition-colors hover:bg-brand-soft hover:text-white focus-visible:bg-brand-soft";
-export const railBtnActive =
-  "flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-gold";
-
-/** Context-panel card (mini calendar + today list, left of the work area). */
-export const panelCard =
-  "rounded-card border border-border bg-card p-3 shadow-soft";
-
-/** Urgency chip for queue rows ("Urgent", "Tomorrow"). */
-export const chipUrgent = `${chip} bg-danger-soft text-danger`;
-
-/** The canvas — the rounded app surface that sits on the shell backdrop. */
-export const canvas =
-  "min-h-svh bg-background md:min-h-0 md:rounded-shell md:shadow-soft";

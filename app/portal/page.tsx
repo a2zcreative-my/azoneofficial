@@ -31,6 +31,10 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { RosterBoard } from "@/components/portal/roster-board";
+import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
+import { CommandPalette } from "@/components/layout/command-palette";
 import { PipelinePanel } from "@/components/portal/pipeline-panel";
 import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
@@ -48,13 +52,7 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass, btnGhost, btnHdr, btnSm, btnSmPrimary, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf, fmtRM, ym, dayLineMS, greetingWord } from "@/lib/format";
-/* v1.8.0 — app-shell uplift (UI-REDESIGN-PLAN.md) */
-import { AppShell } from "@/components/layout/app-shell";
-import { PortalContextPanel } from "@/components/portal/context-panel";
-import { NextAssignmentCard, AttendanceTodayCard, SessionsMonthChartCard, TodaySessionsCard } from "@/components/portal/dashboard-cards";
-import { WeekGridCard } from "@/components/portal/week-grid";
-import { OpsMapCard } from "@/components/portal/ops-map-card";
+import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 
 interface User { id: number; email: string; name: string; role: string; photo_key?: string | null; requires_2fa?: boolean }
@@ -295,17 +293,8 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   return (
     <div className="space-y-3 md:space-y-6">
-      {/* v1.8.0 (UI-REDESIGN-PLAN.md Phase 2/4): the reference's navy hero —
-          your next session/event with a countdown chip. Renders nothing when
-          there is nothing upcoming. */}
-      <NextAssignmentCard userId={user.id} />
-
       <div className={card}>
-        {/* v1.8.0: the punch card reads like the reference's action card —
-            same buttons, same rules, state-aware title. */}
-        <p className="text-sm font-semibold">
-          {hasOut ? "Shift recorded — thank you" : hasIn ? "On shift" : "Ready to clock in"}
-        </p>
+        <p className="text-sm font-semibold">Quick actions</p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -413,23 +402,10 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
       </div>
-      {/* v1.8.0 (Phase 2): the reference dashboard's middle band — the
-          attendance donut (HR/exec readers; hides itself on 403), the
-          sessions bar chart and today's roster. All presentation over
-          existing endpoints. */}
-      <div className="grid gap-3 md:gap-6 lg:grid-cols-2">
-        <AttendanceTodayCard />
-        <SessionsMonthChartCard />
-      </div>
-      <TodaySessionsCard />
-      {/* v1.8.0 (Phase 6): shipments-by-state bubbles (inventory/exec
-          readers; hides itself otherwise). */}
-      <OpsMapCard />
-
       {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
           of today, the KPI target (auto-computed from history), product vs
           service market targets, motivation and boost suggestions. */}
-      <TradingDesk user={user} />
+      <TradingDesk user={user} go={go} />
 
       {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
           hero band already carries today + month + overall up top, so the
@@ -470,7 +446,9 @@ interface RevenueData {
    a role that can't see revenue simply gets the cards it can see. */
 interface DashSummary { today: string; pending_leave: number | null; pending_claims: number | null; pending_ot: number | null; low_stock: number | null; open_quotations: number | null;
   // v1.7.0 company pulse
-  clients?: number | null; active_stokis?: number | null; lives_today?: number | null; attendance_today?: number | null; outstanding_invoices?: number | null; cash_in_cents?: number | null; cash_out_cents?: number | null }
+  clients?: number | null; active_stokis?: number | null; lives_today?: number | null; attendance_today?: number | null; outstanding_invoices?: number | null; cash_in_cents?: number | null; cash_out_cents?: number | null;
+  // v1.8.0 attendance donut
+  attendance_on_time?: number | null; attendance_late?: number | null; staff_total?: number | null }
 
 /* ================= v1.5.0 — the Sales Floor (trading-desk dashboard) =======
    CEO brief: "my dashboard nice like a trading sales view — Today sales,
@@ -569,7 +547,7 @@ function LowStockSummary() {
   return <div className="flex flex-col pb-4 sm:pb-0">{data.map(i => <div key={i.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{i.name} <span className="font-normal text-muted-foreground">({i.sku})</span></p><span className="font-bold text-red-600 tabular-nums">{i.stock} left</span></div>)}</div>;
 }
 
-function TradingDesk({ user }: { user: User }) {
+function TradingDesk({ user, go }: { user: User; go?: (t: TabName) => void }) {
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [rev, setRev] = useState<RevenueData | null>(null);
   const [sum, setSum] = useState<DashSummary | null>(null);
@@ -710,53 +688,59 @@ function TradingDesk({ user }: { user: User }) {
     })
     .filter((m) => m.now > 0 || m.last > 0);
 
-  /* ---- motivation — v1.8.2 infographic pass (CEO: "too many words").
-     The sentences became NUMBERS: a status chip + To-go / Per-day / Days-left
-     stat boxes. Same arithmetic, zero paragraphs. ---- */
-  const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
-  const kpiRemaining = target ? Math.max(0, target - monthTotal) : 0;
-  const needPerDay = kpiRemaining / daysLeft;
-  let motivation: { emoji: string; label: string; cls: string } | null = null;
+  /* ---- motivation ---- */
+  let motivation: { emoji: string; text: string; cls: string } | null = null;
   if (canRevenue && rev && target && pct !== null) {
+    const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
+    const needPerDay = Math.max(0, target - monthTotal) / daysLeft;
     if (pct >= 100) {
-      motivation = { emoji: "🏆", label: "Target smashed", cls: "bg-success-soft text-success" };
+      motivation = { emoji: "🏆", text: `TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`, cls: "bg-success-soft text-success" };
     } else if (onPace) {
-      motivation = { emoji: "✅", label: "On pace", cls: "bg-success-soft text-success" };
+      motivation = { emoji: "✅", text: `On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`, cls: "bg-success-soft text-success" };
     } else if (expectedPct - pct <= 15) {
-      motivation = { emoji: "⚡", label: "Push time", cls: "bg-warning-soft text-warning" };
+      motivation = { emoji: "⚡", text: `Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`, cls: "bg-warning-soft text-warning" };
     } else {
-      motivation = { emoji: "🚀", label: "Comeback mode", cls: "bg-danger-soft text-danger" };
+      motivation = { emoji: "🚀", text: `Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`, cls: "bg-danger-soft text-danger" };
     }
   }
 
-  /* ---- data-driven boost suggestions — v1.8.2: compact chips, the number
-     first, the fewest words that still say what to do. ---- */
-  const tips: { icon: string; text: string }[] = [];
+  /* ---- data-driven boost suggestions ---- */
+  const tips: string[] = [];
   if (canRevenue && rev) {
     const peak = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
     if (peak && peak.cents > 0) {
-      tips.push({ icon: "🕘", text: `Next LIVE ${String(peak.hour).padStart(2, "0")}:00 — best hour, ${fmtRM(peak.cents)}/wk` });
+      tips.push(`Schedule the next LIVE at ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — your best-selling hour this week (${fmtRM(peak.cents)} across ${peak.orders} orders).`);
     }
     if (rev.outstanding && rev.outstanding.docs > 0) {
-      tips.push({ icon: "💸", text: `${rev.outstanding.docs} unpaid inv. — collect ${fmtRM(rev.outstanding.cents)}` });
+      tips.push(`Chase the ${rev.outstanding.docs} unpaid invoice${rev.outstanding.docs === 1 ? "" : "s"} (${fmtRM(rev.outstanding.cents)}) — it's revenue you already earned.`);
     }
     if ((sum?.open_quotations ?? 0) > 0) {
-      tips.push({ icon: "📋", text: `${sum!.open_quotations} QT open — follow up today` });
+      tips.push(`${sum!.open_quotations} quotation${sum!.open_quotations === 1 ? "" : "s"} still open — a follow-up call today converts faster than a new lead.`);
     }
     if ((sum?.low_stock ?? 0) > 0) {
-      tips.push({ icon: "📦", text: `${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low — restock before the live` });
+      tips.push(`${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low on stock — restock before the next live so a bestseller never sells out mid-stream.`);
     }
     const weakest = markets.filter((m) => m.target && m.now < m.target).sort((a, b) => (a.now / a.target!) - (b.now / b.target!))[0];
     if (weakest?.target) {
-      tips.push({ icon: "📈", text: `${weakest.label}: ${fmtRM(weakest.target - weakest.now)} to its target` });
+      tips.push(`${weakest.label} is at ${Math.round((weakest.now / weakest.target) * 100)}% of its market target — ${fmtRM(weakest.target - weakest.now)} more takes it home.`);
     }
   }
 
   if (ticker.length === 0 && !canStatus) return null;
 
+  // v1.8.0: peak selling hour (reference "Peak activity time") from the
+  // by-hour data this component already loads.
+  const peakBucket = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
+  const nowMY = new Date(Date.now() + 8 * 3600 * 1000);
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   return (
     <div className="space-y-3 md:space-y-4">
       {kpiToastNode}
+      {/* v1.8.0 greeting (reference: "Hello, Sarah!") */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-xl font-bold tracking-tight md:text-2xl">Hello, {firstName(user.name)}! 👋</h2>
+        <p className="text-muted-foreground text-xs md:text-sm">{WEEKDAYS[nowMY.getUTCDay()]}, {dmy(nowMY.toISOString().slice(0, 10))}</p>
+      </div>
       {/* Zone 1 — the ticker (Today · Revenue · All-time · Needs attention) */}
       {ticker.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
@@ -774,9 +758,13 @@ function TradingDesk({ user }: { user: User }) {
           { label: "In today", value: sum.attendance_today ?? 0, tab: "Attendance" },
           { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0, tab: "Sales" },
           { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Expenses" },
+          // v1.8.0 (reference "Peak activity time"): the week's best-selling hour
+          ...(peakBucket && peakBucket.cents > 0
+            ? [{ label: "Peak hour (wk)", value: <span className="whitespace-nowrap">{String(peakBucket.hour).padStart(2, "0")}–{String((peakBucket.hour + 1) % 24).padStart(2, "0")}</span>, tab: "Ecommerce" as TabName }]
+            : []),
         ];
         return (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          <div className={`grid grid-cols-3 gap-2 ${tiles.length > 6 ? "sm:grid-cols-4 lg:grid-cols-7" : "sm:grid-cols-6"}`}>
             {tiles.map((t) => (
               <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors">
                 <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
@@ -843,29 +831,13 @@ function TradingDesk({ user }: { user: User }) {
             </div>
           )}
           {motivation && (
-            <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
-              <span className={`flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${motivation.cls}`}>
-                {motivation.emoji} {motivation.label}
-              </span>
-              {pct !== null && pct < 100 && (
-                <>
-                  {[
-                    { l: "To go", v: fmtRM(kpiRemaining) },
-                    { l: "Per day", v: fmtRM(Math.round(needPerDay)) },
-                    { l: "Days left", v: String(daysLeft) },
-                  ].map((s) => (
-                    <span key={s.l} className="border-border flex flex-col justify-center rounded-lg border px-3 py-1 text-center">
-                      <span className="text-sm leading-tight font-bold tabular-nums">{s.v}</span>
-                      <span className="text-muted-foreground text-[10px] tracking-wide uppercase">{s.l}</span>
-                    </span>
-                  ))}
-                </>
-              )}
-            </div>
+            <p className={`mt-2.5 rounded-lg px-3 py-2 text-xs font-medium ${motivation.cls}`}>
+              {motivation.emoji} {motivation.text}
+            </p>
           )}
           {markets.length > 0 && (
             <div className="mt-3">
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets · auto = last month +10%</p>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets — product · service</p>
               <div className="mt-1.5 space-y-2">
                 {markets.map((m) => {
                   const mPct = m.target ? Math.round((m.now / m.target) * 100) : null;
@@ -884,20 +856,40 @@ function TradingDesk({ user }: { user: User }) {
                   );
                 })}
               </div>
+              <p className="text-muted-foreground mt-1 text-[11px]">Each line&apos;s target = its own last month + 10% (auto). Momentum, per business.</p>
             </div>
           )}
           {tips.length > 0 && (
             <div className="mt-3">
               <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">💡 Boost the number</p>
-              {/* v1.8.2: chips, not sentences — the number leads. */}
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {tips.slice(0, 5).map((t) => (
-                  <span key={t.text} className="bg-secondary inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium">
-                    <span aria-hidden>{t.icon}</span>{t.text}
-                  </span>
+              <ul className="mt-1.5 space-y-1">
+                {tips.slice(0, 4).map((t) => (
+                  <li key={t} className="flex gap-2 text-xs">
+                    <span aria-hidden className="text-gold-deep">▸</span>
+                    <span>{t}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* v1.8.0 — reference-design cards: attendance donut · today's
+          assignments · month-by-month bars. */}
+      {canStatus && (
+        <div className="grid gap-3 md:gap-4 lg:grid-cols-3">
+          {sum && (
+            <AttendanceDonutCard
+              onTime={sum.attendance_on_time ?? 0}
+              late={sum.attendance_late ?? 0}
+              staffTotal={sum.staff_total ?? 0}
+              onOpen={() => setDetailModal("In today")}
+            />
+          )}
+          <TodayAssignmentsCard onOpenRoster={go ? () => go("Attendance") : undefined} />
+          {canRevenue && rev?.overall && rev.overall.months.length > 1 && (
+            <MonthlyBarsCard months={rev.overall.months} />
           )}
         </div>
       )}
@@ -916,6 +908,7 @@ function TradingDesk({ user }: { user: User }) {
               {detailModal === "In today" && <InTodaySummary />}
               {detailModal === "Unpaid inv." && <OutstandingDocsSummary kind="INV" />}
               {detailModal === "Cash flow (mo)" && <PnlCard inModal />}
+              {detailModal === "Peak hour (wk)" && <SalesByHourCard />}
               
               {detailModal === "Leave pending" && <PendingLeaveSummary />}
               {detailModal === "Claims pending" && <PendingClaimsSummary />}
@@ -2945,9 +2938,7 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
       <div className={inModal ? "overflow-y-auto" : "mt-3 max-h-80 overflow-y-auto pr-1"}>
         {clients.map((c) => (
           <div key={c.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "py-2"}`}>
-            {/* v1.8.2: a customer without a company set is still a client —
-                fall back to the person's name, never a blank row. */}
-            <span className="min-w-0 font-medium">{c.company || c.name || "Unnamed client"}</span>
+            <span className="min-w-0 font-medium">{c.company}</span>
             <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
               <span title="Invoiced total (all INV)">{rm2(c.invoiced_cents)} invoiced</span>
               <span className="font-medium text-green-700" title="Collected (paid invoices)">{rm2(c.paid_cents)} paid</span>
@@ -2960,7 +2951,7 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
                 if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
-                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company || c.name || "Client"} — paste it into WhatsApp`); }
+                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
               }}>🔗 Report link</button>
             </span>
@@ -4302,7 +4293,26 @@ export default function PortalPage() {
       .catch(() => { /* old worker: defaults apply */ });
   }, []);
   const [showNotifs, setShowNotifs] = useState(false);
-  /* v1.8.0: the More sheet (and its scroll lock) now lives inside AppShell. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  // v1.8.0: global search (Ctrl/Cmd+K)
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || (e as unknown as { metaKey?: boolean }).metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey as unknown as EventListener);
+    return () => window.removeEventListener("keydown", onKey as unknown as EventListener);
+  }, []);
+
+  // While the More sheet is open, the page behind must not scroll — the
+  // sheet then behaves like a native menu instead of a floating layer.
+  useEffect(() => {
+    document.body.style.overflow = moreOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [moreOpen]);
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -4523,18 +4533,28 @@ export default function PortalPage() {
      which can never name a tab outside this account's visible list. */
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
-  /* v1.8.0 (UI-REDESIGN-PLAN.md Phase 1): the outer frame is AppShell —
-     icon rail + rounded canvas on desktop, the same bottom nav on phones.
-     State, gating and every panel below are untouched: the shell only
-     renders the tab list this component already computed. */
+  const navItems = tabs.map((t) => ({ name: t, label: tabLabel(t) }));
   return (
-    <AppShell
-      tabs={tabs}
-      tab={activeTab}
-      onTab={setTab}
-      tabLabel={tabLabel}
-      context={<PortalContextPanel />}
-    >
+    <div className="md:pl-14">{/* v1.8.0 shell: content clears the fixed sidebar on desktop */}
+      <SidebarNav
+        items={navItems}
+        active={activeTab}
+        onSelect={(t) => setTab(t as TabName)}
+        onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        tabs={navItems}
+        canSeeClients={REVENUE_ROLES.includes(user.role)}
+        onTab={(t) => setTab(t as TabName)}
+        extraActions={[
+          { label: "Apply leave", hint: "action", run: () => { setTab("Leave"); setPaletteOpen(false); } },
+          ...(SALES_ROLES.includes(user.role) ? [{ label: "Create quotation", hint: "action", run: () => { setTab("Sales"); setPaletteOpen(false); } }] : []),
+          { label: "Toggle dark mode", hint: "action", run: () => { setDark((v) => !v); setPaletteOpen(false); } },
+        ]}
+      />
+    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div className="flex min-w-0 items-center gap-2 md:gap-3">
           {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
@@ -4553,16 +4573,33 @@ export default function PortalPage() {
             </span>
           )}
           <div className="min-w-0">
-            {/* v1.8.0: the reference's day-line + time-of-day greeting. */}
-            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.2em] uppercase md:block">{dayLineMS()}</p>
-            <h1 className="hidden truncate text-2xl font-semibold tracking-tight md:block">
-              {greetingWord()}, {user.name.split(" ")[0]}
+            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
+            <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
+              Welcome, {user.name.split(" ")[0]}
             </h1>
             {/* On phones the header reads like an app screen title. */}
-            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab === "Dashboard" ? "Today" : tabLabel(tab)}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+          {/* v1.8.0: global search — opens the palette (Ctrl/Cmd+K works anywhere) */}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-56 items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
+            aria-label="Search the portal"
+          >
+            <span>🔎 Search…</span>
+            <kbd className="bg-secondary rounded px-1.5 py-0.5 text-[10px] font-medium">Ctrl K</kbd>
+          </button>
+          <button
+            type="button"
+            className={`${btnHdr} md:hidden`}
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search the portal"
+          >
+            🔎
+          </button>
           <button
             type="button"
             className={btnHdr}
@@ -4655,10 +4692,86 @@ export default function PortalPage() {
         </div>
       )}
 
-      {/* v1.8.0: tab navigation (desktop rail + mobile bottom nav + More
-          sheet) is rendered by AppShell from the same gated `tabs` list.
-          The v1.4.159/187 equal-width pill grid it replaces is retired with
-          this redesign — flagged in UI-REDESIGN-PLAN.md for CEO sign-off. */}
+      {/* v1.8.0: the desktop tab-pill grid is replaced by the icon sidebar
+          (SidebarNav). Phones keep the bottom navigation below. */}
+
+      {/* App-style bottom navigation (v1.4.49) — phones only. The first four
+          of this person's tabs are one thumb-tap away; the rest are in More. */}
+      <nav
+        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Portal sections (mobile)"
+      >
+        {tabs.slice(0, 4).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
+              tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
+            {t === "Staff Details" ? "Staff" : t === "Announcements" ? "News" : t}
+          </button>
+        ))}
+        {tabs.length > 4 && (
+          <button
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
+              moreOpen || tabs.indexOf(tab) >= 4 ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${moreOpen || tabs.indexOf(tab) >= 4 ? "bg-gold-deep" : "bg-transparent"}`} />
+            More
+          </button>
+        )}
+      </nav>
+
+      {moreOpen && (
+        <div className="fixed inset-0 z-30 md:hidden">
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="absolute inset-0 cursor-pointer bg-black/40"
+            onClick={() => setMoreOpen(false)}
+          />
+          <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="w-9" />
+              <button
+                type="button"
+                aria-label="Close menu"
+                className="bg-border mx-auto h-1.5 w-12 rounded-full"
+                onClick={() => setMoreOpen(false)}
+              />
+              <button
+                type="button"
+                aria-label="Close"
+                className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
+                onClick={() => setMoreOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              {tabs.slice(4).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                  className={`min-h-14 rounded-lg border px-2 py-3 text-xs font-medium ${
+                    tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+                  }`}
+                >
+                  {tabLabel(t)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} />}
@@ -4671,11 +4784,10 @@ export default function PortalPage() {
         )}
         {activeTab === "Attendance" && (
           <div className="space-y-4 md:space-y-6">
+            {/* v1.8.0: the Schedule & Roster board (reference design) leads. */}
+            <RosterBoard canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)} />
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
-            {/* v1.8.0 (Phase 3): the reference's Schedule & Roster week grid.
-                View layer only — creating/editing stays in the card below. */}
-            <WeekGridCard />
             <LiveScheduleCard user={user} />
             {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
           </div>
@@ -4759,6 +4871,7 @@ export default function PortalPage() {
           </div>
         )}
       </main>
-    </AppShell>
+    </div>
+    </div>
   );
 }

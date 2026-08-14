@@ -1,313 +1,117 @@
 "use client";
 
-/* v1.8.0 — Dashboard uplift cards (UI-REDESIGN-PLAN.md Phases 2 & 4).
-   Four self-contained cards in the codebase's card idiom (each fetches its
-   own data, each fails silent — a dashboard tile must never take the
-   Dashboard down, and a 403 simply hides the card):
+/* v1.8.0 — reference-design dashboard cards: the attendance donut, today's
+   assignments table, and the compact month-by-month bars. All fed by data
+   the dashboard already loads (summary + revenue) or the roster endpoint. */
 
-     · NextAssignmentCard   — the reference's navy hero: your next live
-                              session / event with a countdown chip.
-     · AttendanceTodayCard  — the reference's donut: on-time / late /
-                              not-clocked-in from /attendance/monitor
-                              (HR + exec readers, same as the endpoint).
-     · SessionsMonthChartCard — the reference's bar chart, on live-session
-                              counts (everyone sees their own scope: the
-                              API already returns hosts only their own).
-     · TodaySessionsCard    — the reference's assignments table: today's
-                              roster with avatars and status chips.
+import { useEffect, useState } from "react";
+import { makeApi } from "@/lib/api";
+import { Donut } from "@/components/ui/donut";
+import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { fmtRM, ym } from "@/lib/format";
 
-   No new endpoints, no new permissions — presentation only. */
+const api = makeApi("/staff");
 
-import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
-import { mytToday } from "@/lib/format";
-import { tile } from "@/lib/ui-styles";
-import { Avatar } from "@/components/ui/avatar";
-import { DonutStat } from "@/components/ui/donut-stat";
-import { BarChart, type BarDatum } from "@/components/ui/bar-chart";
-import { chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
-
-interface Session {
-  id: number; session_date: string; start_time: string; end_time?: string | null;
-  platform?: string | null; client_name?: string | null; client_company?: string | null;
-  host_user_id: number; host_name?: string | null; status?: string | null;
-}
-interface EventRow { id: number; title: string; category: string; event_date: string; start_time?: string | null; location?: string | null }
-
-/** Minutes now in MYT. */
-function mytNowMins(): number {
-  const m = new Date(Date.now() + 8 * 3600 * 1000);
-  return m.getUTCHours() * 60 + m.getUTCMinutes();
-}
-function hmToMins(hm: string): number {
-  const [h, m] = hm.split(":").map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
-/* ── 1 · Next assignment (the navy hero) ─────────────────────────────── */
-
-export function NextAssignmentCard({ userId }: { userId: number }) {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [, tick] = useState(0); // minute tick for the countdown chip
-
-  useEffect(() => {
-    let alive = true;
-    void api<{ sessions: Session[] }>("/staff/live-sessions").then((r) => {
-      if (alive && r.ok && Array.isArray(r.data?.sessions)) setSessions(r.data.sessions);
-    }).catch(() => {});
-    void api<{ events: EventRow[] }>("/staff/events").then((r) => {
-      if (alive && r.ok && Array.isArray(r.data?.events)) setEvents(r.data.events);
-    }).catch(() => {});
-    const t = window.setInterval(() => tick((n) => n + 1), 60_000);
-    return () => { alive = false; window.clearInterval(t); };
-  }, []);
-
-  const today = mytToday();
-  const nowM = mytNowMins();
-
-  /* The next thing on YOUR plate: your own upcoming session first (hosts
-     get exactly their own from the API; for management "next session on
-     the roster" is the operational headline), else the next event. */
-  const next = useMemo(() => {
-    const mine = sessions.filter((s) => s.status !== "cancelled");
-    const upcoming = mine
-      .filter((s) => s.session_date > today || (s.session_date === today && hmToMins(s.start_time) + 1 > nowM))
-      .sort((a, b) => (a.session_date + a.start_time).localeCompare(b.session_date + b.start_time));
-    const own = upcoming.find((s) => s.host_user_id === userId);
-    return own ?? upcoming[0] ?? null;
-  }, [sessions, today, nowM, userId]);
-
-  const nextEvent = useMemo(() => {
-    return events
-      .filter((e) => e.event_date >= today)
-      .sort((a, b) => (a.event_date + (a.start_time ?? "")).localeCompare(b.event_date + (b.start_time ?? "")))[0] ?? null;
-  }, [events, today]);
-
-  if (!next && !nextEvent) return null;
-
-  const startsChip = (dateISO: string, hm?: string | null): string | null => {
-    if (dateISO !== today || !hm) return dateISO === today ? "Today" : null;
-    const diff = hmToMins(hm) - nowM;
-    if (diff <= 0) return "Now";
-    if (diff < 60) return `Starts in ${diff} minutes`;
-    if (diff < 8 * 60) return `Starts in ${Math.round(diff / 60)} h`;
-    return "Today";
-  };
-
-  if (next) {
-    const chip = startsChip(next.session_date, next.start_time);
-    return (
-      <section className="bg-brand rounded-card shadow-soft relative overflow-hidden p-4 text-white md:p-5" aria-label="Next assignment">
-        {/* flat decorative disc — a tint, not a gradient (design mandate) */}
-        <span aria-hidden className="bg-brand-soft absolute -top-10 -right-10 h-36 w-36 rounded-full" />
-        <p className="text-gold text-[10px] font-semibold tracking-[0.2em] uppercase">Next assignment</p>
-        <p className="relative mt-1.5 truncate text-xl font-semibold">{next.client_name ?? next.client_company ?? "Live session"}</p>
-        <p className="text-sm text-white/70">
-          {(next.platform ?? "live").toUpperCase()} · {next.host_name ?? ""}
-        </p>
-        <div className="relative mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-white/85">
-          <span>🕐 {next.start_time}{next.end_time ? `–${next.end_time}` : ""}</span>
-          <span>📅 {next.session_date === today ? "Today" : next.session_date}</span>
-          {chip && <span className="ml-auto rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium">{chip}</span>}
-        </div>
-      </section>
-    );
-  }
-
-  const ev = nextEvent!;
-  const chip = startsChip(ev.event_date, ev.start_time);
+/* ---- Attendance today (donut) ---- */
+export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
+  onTime: number; late: number; staffTotal: number; onOpen?: () => void;
+}) {
+  const notIn = Math.max(0, staffTotal - onTime - late);
   return (
-    <section className="bg-brand rounded-card shadow-soft relative overflow-hidden p-4 text-white md:p-5" aria-label="Next event">
-      <span aria-hidden className="bg-brand-soft absolute -top-10 -right-10 h-36 w-36 rounded-full" />
-      <p className="text-gold text-[10px] font-semibold tracking-[0.2em] uppercase">Next event</p>
-      <p className="relative mt-1.5 truncate text-xl font-semibold">{ev.title}</p>
-      <div className="relative mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-white/85">
-        {ev.start_time && <span>🕐 {ev.start_time}</span>}
-        <span>📅 {ev.event_date === today ? "Today" : ev.event_date}</span>
-        {ev.location && <span className="truncate">📍 {ev.location}</span>}
-        {chip && <span className="ml-auto rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium">{chip}</span>}
+    <button type="button" onClick={onOpen} className={`${card} block w-full text-left transition-colors hover:border-primary`}>
+      <p className="text-sm font-semibold">Attendance today</p>
+      <div className="mt-2">
+        <Donut
+          centerLabel={String(staffTotal)}
+          centerSub="staff"
+          slices={[
+            { label: "On time", value: onTime, color: "var(--success)" },
+            { label: "Late", value: late, color: "var(--warning)" },
+            { label: "Not clocked in", value: notIn, color: "var(--danger)" },
+          ]}
+        />
       </div>
-    </section>
+    </button>
   );
 }
 
-/* ── 2 · Attendance today donut (HR/exec readers) ────────────────────── */
+/* ---- Today's assignments (table) ---- */
+interface RosterSessionLite {
+  id: number; session_date: string; start_time: string; end_time: string | null;
+  platform: string; status: string; client: string | null; host_name: string;
+}
 
-interface MonitorRow { id: number; name: string; in_at: string | null; out_at: string | null }
-
-export function AttendanceTodayCard() {
-  const [rows, setRows] = useState<MonitorRow[] | null>(null);
-  /* v1.8.2 (CEO): tap a slice to see WHO is in that slice. */
-  const [seg, setSeg] = useState<number | null>(null);
-
+export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => void }) {
+  const [sessions, setSessions] = useState<RosterSessionLite[] | null>(null);
   useEffect(() => {
-    let alive = true;
-    void api<{ staff: MonitorRow[] }>("/staff/attendance/monitor").then((r) => {
-      if (alive && r.ok && Array.isArray(r.data?.staff)) setRows(r.data.staff);
-    }).catch(() => {});
-    return () => { alive = false; };
+    void api<{ sessions: RosterSessionLite[]; days: string[] }>(`/roster`).then((r) => {
+      if (r.ok && r.data?.sessions) {
+        const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        setSessions(r.data.sessions.filter((s) => s.session_date === todayS && s.status !== "cancelled"));
+      } else setSessions([]);
+    });
   }, []);
-
-  if (!rows) return null; // no access (403) or old worker — card simply absent
-
-  /* Late = first clock-in after 10:00 MYT (the shift rule the server
-     already applies to reports; recomputed here only for the ring split). */
-  const TEN_MYT = 10 * 60;
-  const groups: { name: string; time?: string }[][] = [[], [], []]; // on-time · late · missing
-  for (const r of rows) {
-    if (!r.in_at) { groups[2]!.push({ name: r.name }); continue; }
-    const d = new Date(r.in_at.replace(" ", "T") + (r.in_at.endsWith("Z") ? "" : "Z"));
-    const mins = ((d.getTime() / 60000) + 8 * 60) % (24 * 60);
-    const hh = String(Math.floor(mins / 60) % 24).padStart(2, "0");
-    const mm = String(Math.floor(mins % 60)).padStart(2, "0");
-    groups[mins <= TEN_MYT ? 0 : 1]!.push({ name: r.name, time: `${hh}:${mm}` });
-  }
-  const [onTime, late, missing] = [groups[0]!.length, groups[1]!.length, groups[2]!.length];
-  const present = onTime + late;
-  const presentPct = rows.length > 0 ? Math.round((present / rows.length) * 100) : 0;
-  const SEG_META = [
-    { title: "On time", cls: "bg-success-soft text-success" },
-    { title: "Late", cls: "bg-warning-soft text-warning" },
-    { title: "Not clocked in", cls: "bg-secondary text-muted-foreground" },
-  ] as const;
-
   return (
-    <section className={tile} aria-label="Attendance today">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-semibold">Attendance today</p>
-        <span className="text-muted-foreground text-xs">{mytToday()}</span>
+    <div className={card}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Assignments today</p>
+        {onOpenRoster && (
+          <button type="button" className="text-gold-deep text-xs font-medium underline" onClick={onOpenRoster}>
+            Open roster ↗
+          </button>
+        )}
       </div>
-      {/* v1.8.1 infographic pass: the headline reading first, then the ring. */}
-      <p className="mb-3 text-xs">
-        <span className="text-foreground text-base font-semibold tabular-nums">{presentPct}%</span>
-        <span className="text-muted-foreground"> of the team has clocked in ({present} of {rows.length}) · tap a slice for names</span>
-      </p>
-      <DonutStat
-        centerValue={rows.length}
-        centerLabel="staff"
-        onSegment={setSeg}
-        selected={seg}
-        segments={[
-          { label: "On time", value: onTime, tone: "success" },
-          { label: "Late", value: late, tone: "warning" },
-          /* neutral, not red — validated palette note in donut-stat.tsx */
-          { label: "Not clocked in", value: missing, tone: "muted" },
-        ]}
-      />
-      {/* Drill-down: the tapped slice's people (with their clock-in time). */}
-      {seg !== null && (
-        <div className={`mt-3 rounded-lg px-3 py-2 ${SEG_META[seg]!.cls}`}>
-          <p className="text-xs font-semibold">{SEG_META[seg]!.title} — {groups[seg]!.length}</p>
-          {groups[seg]!.length === 0 ? (
-            <p className="mt-0.5 text-xs opacity-80">Nobody in this group right now.</p>
-          ) : (
-            <ul className="mt-1 space-y-0.5">
-              {groups[seg]!.map((p) => (
-                <li key={p.name} className="flex items-center justify-between gap-2 text-xs">
-                  <span>{p.name}</span>
-                  {p.time && <span className="font-medium tabular-nums">{p.time}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {!sessions ? (
+        <p className="text-muted-foreground mt-2 text-sm">Loading…</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-muted-foreground mt-2 text-sm">No live sessions scheduled today.</p>
+      ) : (
+        <table className="mt-2 w-full border-collapse text-sm">
+          <thead><tr className="border-border border-b">
+            <th className={th}>HOST</th><th className={th}>CLIENT</th><th className={th}>TIME</th><th className={th}>STATUS</th>
+          </tr></thead>
+          <tbody>
+            {sessions.slice(0, 8).map((s) => (
+              <tr key={s.id} className="border-border border-b last:border-0">
+                <td className={td}>
+                  <span className="bg-brand mr-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" aria-hidden>
+                    {s.host_name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+                  </span>
+                  {s.host_name.split(" ")[0]}
+                </td>
+                <td className={td}><span className={chipNeutral}>{s.client ?? s.platform}</span></td>
+                <td className={`${td} tabular-nums whitespace-nowrap`}>{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</td>
+                <td className={td}>
+                  <span className={s.status === "completed" ? chipSuccess : chipWarn}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
-      {seg === null && missing > 0 && (
-        <p className="bg-warning-soft text-warning mt-3 rounded-lg px-3 py-2 text-xs font-medium">
-          ⏳ Not clocked in: {groups[2]!.map((p) => p.name.split(" ")[0]).join(", ")}
-        </p>
-      )}
-    </section>
+    </div>
   );
 }
 
-/* ── 3 · Sessions per month bars ─────────────────────────────────────── */
-
-export function SessionsMonthChartCard() {
-  const [sessions, setSessions] = useState<Session[] | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void api<{ sessions: Session[] }>("/staff/live-sessions").then((r) => {
-      if (alive && r.ok && Array.isArray(r.data?.sessions)) setSessions(r.data.sessions);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  /* The API returns a rolling window (−14 days onward), so this chart shows
-     the near-term picture: last month, this month and the scheduled future
-     — honest about its window rather than faking a year. */
-  const data: BarDatum[] = useMemo(() => {
-    if (!sessions) return [];
-    const byMonth = new Map<string, { total: number; done: number }>();
-    for (const s of sessions) {
-      const k = s.session_date.slice(0, 7);
-      const e = byMonth.get(k) ?? { total: 0, done: 0 };
-      e.total++;
-      if (s.status === "completed") e.done++;
-      byMonth.set(k, e);
-    }
-    return [...byMonth.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-6)
-      .map(([k, v]) => ({
-        label: new Date(k + "-01T00:00:00Z").toLocaleString("en-GB", { month: "short", timeZone: "UTC" }),
-        value: v.done,
-        bg: v.total,
-        hint: `${v.done} completed of ${v.total}`,
-      }));
-  }, [sessions]);
-
-  /* One lonely month renders as a meaningless full-height block — the chart
-     earns its card only once there are months to compare. */
-  if (!sessions || data.length < 2) return null;
-
+/* ---- Month-by-month bars (this year, all channels) ---- */
+export function MonthlyBarsCard({ months }: { months: { month: string; cents: number }[] }) {
+  if (months.length === 0) return null;
+  const max = Math.max(...months.map((m) => m.cents), 1);
+  const best = months.reduce((a, m) => (m.cents > a.cents ? m : a), months[0]!);
   return (
-    <section className={tile} aria-label="Live sessions by month">
-      <p className="mb-3 text-sm font-semibold">Live sessions</p>
-      <BarChart data={data} height={140} seriesLabel="Completed" bgLabel="Scheduled" />
-    </section>
-  );
-}
-
-/* ── 4 · Today's roster table ────────────────────────────────────────── */
-
-export function TodaySessionsCard() {
-  const [sessions, setSessions] = useState<Session[] | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void api<{ sessions: Session[] }>("/staff/live-sessions").then((r) => {
-      if (alive && r.ok && Array.isArray(r.data?.sessions)) setSessions(r.data.sessions);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  const today = mytToday();
-  const rows = (sessions ?? []).filter((s) => s.session_date === today && s.status !== "cancelled");
-  if (!sessions || rows.length === 0) return null;
-
-  return (
-    <section className={tile} aria-label="Today's live sessions">
-      <p className="mb-2 text-sm font-semibold">Today&apos;s live sessions</p>
-      <ul className="divide-border divide-y">
-        {rows.map((s) => (
-          <li key={s.id} className="flex items-center gap-3 py-2.5">
-            <Avatar name={s.host_name ?? "?"} size="md" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{s.host_name ?? "—"}</p>
-              <p className="text-muted-foreground truncate text-xs">
-                {s.client_name ?? s.client_company ?? "Live session"} · {(s.platform ?? "").toUpperCase()}
-              </p>
-            </div>
-            <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</span>
-            <span className={s.status === "completed" ? chipSuccess : s.status === "scheduled" ? chipNeutral : chipWarn}>
-              {s.status === "completed" ? "✓ Done" : s.status === "scheduled" ? "Scheduled" : (s.status ?? "")}
-            </span>
-          </li>
+    <div className={card}>
+      <p className="text-sm font-semibold">Sales by month</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">Every channel · bar vs your best month.</p>
+      <div className="mt-3 flex items-end gap-1.5" style={{ height: 84 }} aria-hidden>
+        {months.map((m) => (
+          <div key={m.month} className="flex flex-1 flex-col items-center gap-1" title={`${ym(m.month)} · ${fmtRM(m.cents)}`}>
+            <div className={`w-full rounded-t-md ${m.month === best.month ? "bg-gold-solid" : "bg-brand/25"}`}
+              style={{ height: `${Math.max(6, (m.cents / max) * 68)}px` }} />
+            <span className="text-muted-foreground text-[9px] tabular-nums">{m.month.slice(5)}</span>
+          </div>
         ))}
-      </ul>
-    </section>
+      </div>
+      <p className="text-muted-foreground mt-1.5 text-[11px]">🏆 Best: {ym(best.month)} · {fmtRM(best.cents)}</p>
+    </div>
   );
 }

@@ -2,8 +2,7 @@
 
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
-import { api } from "@/lib/api";
-import { AppShell } from "@/components/layout/app-shell"; // v1.8.0 // v1.5.0: one shared helper (was a per-file copy)
+import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -77,10 +76,8 @@ export default function AccountPage() {
 
   if (!checked || !user) return null;
 
-  /* v1.8.0 (UI-REDESIGN-PLAN.md Phase 5): AppShell frame — same three tabs. */
   return (
-    <AppShell tabs={["Account", "Orders", "Enquiries"] as const} tab={tab} onTab={setTab}
-      tabLabel={(t) => (t === "Enquiries" ? "My Enquiries" : t === "Orders" ? "My Orders" : "My Account")}>
+    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
       {toastNode}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
@@ -107,7 +104,44 @@ export default function AccountPage() {
         </button>
       </header>
 
-      {/* v1.8.0: navigation rendered by AppShell. */}
+      {/* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */}
+      <nav className="mt-6 hidden grid-cols-2 gap-2 md:grid" aria-label="Account sections">
+        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={
+              tab === t
+                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
+                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
+            }
+          >
+            {t === "Enquiries" ? "My Enquiries" : t}
+          </button>
+        ))}
+      </nav>
+
+      {/* App-style bottom navigation (v1.4.55) — phones only. */}
+      <nav
+        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Account sections (mobile)"
+      >
+        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
+              tab === t ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <span className={`h-1 w-6 rounded-full ${tab === t ? "bg-gold-deep" : "bg-transparent"}`} />
+            {t === "Enquiries" ? "Enquiries" : t}
+          </button>
+        ))}
+      </nav>
 
       {tab === "Account" && (
       <div key="acct" className="screen-enter mt-6 grid gap-6 sm:grid-cols-2">
@@ -349,6 +383,6 @@ export default function AccountPage() {
       <p className="text-muted-foreground mt-6 pb-2 text-center text-xs">
         <a className="underline" href="/privacy">Privacy Notice (PDPA)</a>
       </p>
-    </AppShell>
+    </div>
   );
 }

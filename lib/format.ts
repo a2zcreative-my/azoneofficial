@@ -55,26 +55,3 @@ export function ym(month: string | null | undefined): string {
   const p = month.split("-");
   return p.length === 2 ? `${p[1]}-${p[0]}` : month;
 }
-
-/* ===================== v1.8.0 — app-shell greeting (UI-REDESIGN-PLAN.md) ===
-   The reference header's day line is in Malay ("Selasa, 4 Ogos") — the
-   team's own language for the team's own portal. Public pages stay English.
-   Both helpers read MALAYSIA time, never the device clock (house rule). */
-
-const MS_DAYS = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
-const MS_MONTHS = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"];
-
-/** "Selasa, 4 Ogos" — today's MYT day line for the portal header. */
-export function dayLineMS(): string {
-  const today = mytToday(); // YYYY-MM-DD in MYT
-  const d = new Date(today + "T00:00:00Z");
-  return `${MS_DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MS_MONTHS[d.getUTCMonth()]}`;
-}
-
-/** "Good morning" / "Good afternoon" / "Good evening" by MYT hour. */
-export function greetingWord(): string {
-  const h = Number(
-    new Date().toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", hour12: false }),
-  );
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-}

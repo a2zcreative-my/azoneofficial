@@ -44,6 +44,14 @@ export interface StaffUser {
 const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
 const BD_STATUSES = ["open", "pending", "kiv", "closed_won", "closed_lost"];
 
+/** v1.8.0: "HH:MM" + n minutes → "HH:MM" (same day, clamped). */
+function addMinutes(hhmm: string, mins: number): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  if (!m) return hhmm;
+  const total = Math.min(23 * 60 + 59, Number(m[1]) * 60 + Number(m[2]) + mins);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 function stockStatus(stock: number): string {
   return stock === 0 ? "out_of_stock" : stock <= 5 ? "low" : "in_stock";
 }
@@ -628,6 +636,20 @@ export async function handleStaff(
       active_stokis: await n(`SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
       lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
       attendance_today: await n(`SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`),
+      /* v1.8.0 — the attendance donut: on-time (first clock-in <= 10:00 MYT,
+         same rule the punch flag uses), late (after 10:00), and the active
+         staff headcount so "not clocked in" is derivable. */
+      attendance_on_time: await n(`SELECT COUNT(*) AS c FROM (
+        SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
+        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
+      ) WHERE t <= '10:00'`),
+      attendance_late: await n(`SELECT COUNT(*) AS c FROM (
+        SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
+        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
+      ) WHERE t > '10:00'`),
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`),
       outstanding_invoices: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
       // Cash flow proxy for the month: cash IN (paid invoices) - cash OUT (expenses).
       cash_in_cents: await n(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
@@ -1044,6 +1066,121 @@ export async function handleStaff(
       await env.DB.prepare(`UPDATE live_sessions SET status = ?1 WHERE id = ?2`).bind(st, mLS[1]).run();
       await audit(env, user.id, "live.status", "live_sessions", mLS[1]!, { status: st });
       return json({ ok: true });
+    }
+  }
+
+  /* ================= v1.8.0 — Schedule & Roster board ======================
+     One aggregate for the week grid: sessions, approved leave, conflicts
+     (overlapping sessions per host, or a session whose host is on leave),
+     unassigned requests (new client enquiries), and who is free today.
+     Managers see everyone; other staff see their own sessions only. */
+  if (path === "/roster" && method === "GET") {
+    const mgrR = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
+    const wk = new URL(request.url).searchParams.get("week");
+    // Week starts Monday. Default: the Monday of the current MYT week.
+    const todayMY = new Date(Date.now() + 8 * 3600 * 1000);
+    const dow = (todayMY.getUTCDay() + 6) % 7; // 0 = Monday
+    const defStart = new Date(todayMY.getTime() - dow * 86400_000).toISOString().slice(0, 10);
+    const start = wk && /^\d{4}-\d{2}-\d{2}$/.test(wk) ? wk : defStart;
+    const startMs = Date.parse(start + "T00:00:00Z");
+    if (!Number.isFinite(startMs)) return err("invalid_input", "week must be YYYY-MM-DD", 400);
+    const days: string[] = [];
+    for (let i = 0; i < 7; i++) days.push(new Date(startMs + i * 86400_000).toISOString().slice(0, 10));
+    const end = days[6]!;
+    try {
+      const { results: sessions } = await env.DB.prepare(
+        mgrR
+          ? `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.status,
+                    s.client_id, COALESCE(c.company, s.client_name) AS client, s.notes,
+                    s.host_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS host_name, u.photo_key
+             FROM live_sessions s JOIN users u ON u.id = s.host_user_id
+             LEFT JOIN customers c ON c.id = s.client_id
+             WHERE s.session_date BETWEEN ?1 AND ?2
+             ORDER BY s.session_date, s.start_time LIMIT 400`
+          : `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.status,
+                    s.client_id, COALESCE(c.company, s.client_name) AS client, s.notes,
+                    s.host_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS host_name, u.photo_key
+             FROM live_sessions s JOIN users u ON u.id = s.host_user_id
+             LEFT JOIN customers c ON c.id = s.client_id
+             WHERE s.host_user_id = ?3 AND s.session_date BETWEEN ?1 AND ?2
+             ORDER BY s.session_date, s.start_time LIMIT 100`,
+      ).bind(...(mgrR ? [start, end] : [start, end, user.id]))
+        .all<{ id: number; session_date: string; start_time: string; end_time: string | null; host_user_id: number; status: string }>();
+
+      /* PDPA: leave (especially its TYPE) is HR data. Managers get the whole
+         floor WITHOUT the type; non-managers get only their own rows. The
+         conflict engine below still sees the manager-scope rows it needs. */
+      let onLeave: unknown[] = [];
+      try {
+        onLeave = (await env.DB.prepare(
+          mgrR
+            ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+               FROM leave_requests l JOIN users u ON u.id = l.user_id
+               WHERE l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1`
+            : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+               FROM leave_requests l JOIN users u ON u.id = l.user_id
+               WHERE l.user_id = ?3 AND l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1`,
+        ).bind(...(mgrR ? [start, end] : [start, end, user.id])).all()).results;
+      } catch { /* pre-migration */ }
+
+      // Conflicts: overlapping sessions for the same host, and sessions whose
+      // host has approved leave covering the session day.
+      const conflicts: { kind: string; session_ids: number[]; host_user_id: number; date: string }[] = [];
+      const live = sessions.filter((x) => x.status !== "cancelled");
+      const endOf = (x: { start_time: string; end_time: string | null }) => x.end_time ?? addMinutes(x.start_time, 60);
+      for (let i = 0; i < live.length; i++) {
+        for (let j = i + 1; j < live.length; j++) {
+          const a = live[i]!, b = live[j]!;
+          if (a.host_user_id !== b.host_user_id || a.session_date !== b.session_date) continue;
+          if (a.start_time < endOf(b) && b.start_time < endOf(a)) {
+            conflicts.push({ kind: "overlap", session_ids: [a.id, b.id], host_user_id: a.host_user_id, date: a.session_date });
+          }
+        }
+      }
+      const leaveRows = onLeave as { user_id: number; start_date: string; end_date: string }[];
+      for (const sess of live) {
+        if (leaveRows.some((l) => l.user_id === sess.host_user_id && l.start_date <= sess.session_date && l.end_date >= sess.session_date)) {
+          conflicts.push({ kind: "host_on_leave", session_ids: [sess.id], host_user_id: sess.host_user_id, date: sess.session_date });
+        }
+      }
+
+      // Unassigned requests: new customer enquiries (live/package) — the rail's
+      // "clients still requiring a host". Managers only.
+      let requests: unknown[] = [];
+      if (mgrR) {
+        try {
+          requests = (await env.DB.prepare(
+            `SELECT id, name, company, category, created_at FROM enquiries
+             WHERE status = 'new' ORDER BY created_at DESC LIMIT 8`,
+          ).all()).results;
+        } catch { /* enquiries always exists, but stay armoured */ }
+      }
+
+      // Available today: active staff (host-capable roles) with no live
+      // session today and no approved leave covering today.
+      const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      let available: unknown[] = [];
+      if (mgrR) {
+        const { results } = await env.DB.prepare(
+          `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.photo_key
+           FROM users u
+           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+             AND NOT EXISTS (SELECT 1 FROM live_sessions s2 WHERE s2.host_user_id = u.id
+                               AND s2.session_date = ?1 AND s2.status != 'cancelled')
+             AND NOT EXISTS (SELECT 1 FROM leave_requests l2 WHERE l2.user_id = u.id
+                               AND l2.status = 'approved' AND l2.start_date <= ?1 AND l2.end_date >= ?1)
+           ORDER BY 2 LIMIT 12`,
+        ).bind(todayS).all();
+        available = results;
+      }
+
+      return json({
+        week_start: start, days, manager: mgrR,
+        sessions, on_leave: onLeave, conflicts, requests, available_today: available,
+      });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0056 (live sessions) first", 409);
+      throw e;
     }
   }
 
@@ -2990,11 +3127,7 @@ export async function handleStaff(
               (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid') AS paid_cents,
               (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations
        FROM customers c
-       /* v1.8.2 FIX: c.company != '…' silently dropped NULL-company
-          customers (NULL != x is NULL in SQL), so the pulse tile counted a
-          client the drill-down list then denied existed ("Clients: 1" →
-          "No active clients"). Same COALESCE as the pulse count. */
-       WHERE COALESCE(c.company, '') != 'Walk-in Customer'
+       WHERE c.company != 'Walk-in Customer'
        ORDER BY invoiced_cents DESC, c.company LIMIT 200`,
     ).all();
     // live-session counts ride along when 0056 is applied
