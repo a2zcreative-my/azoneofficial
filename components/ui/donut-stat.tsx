@@ -26,13 +26,17 @@ export interface DonutSegment {
   tone: keyof typeof TONES;
 }
 
-export function DonutStat({ title, centerValue, centerLabel, segments, size = 148 }: {
+export function DonutStat({ title, centerValue, centerLabel, segments, size = 148, onSegment, selected }: {
   title?: string;
   /** The big number in the middle (defaults to the segment total). */
   centerValue?: string | number;
   centerLabel?: string;
   segments: DonutSegment[];
   size?: number;
+  /** v1.8.2 — tap a ring slice or legend row to drill down. The parent owns
+      what "drill down" means; pass the tapped index back (or null to clear). */
+  onSegment?: (index: number | null) => void;
+  selected?: number | null;
 }) {
   const total = segments.reduce((s, x) => s + Math.max(0, x.value), 0);
   const R = 40; // viewBox units
@@ -58,10 +62,13 @@ export function DonutStat({ title, centerValue, centerLabel, segments, size = 14
                 key={i}
                 cx="50" cy="50" r={R} fill="none"
                 stroke={TONES[s.tone]}
-                strokeWidth={thickness}
+                strokeWidth={selected === i ? thickness + 3 : thickness}
                 strokeDasharray={`${Math.max(0, dash - 2)} ${C - Math.max(0, dash - 2)}`}
                 strokeDashoffset={offset - 1} /* the 2px surface gap between fills */
                 strokeLinecap="butt"
+                opacity={selected !== null && selected !== undefined && selected !== i ? 0.35 : 1}
+                style={onSegment ? { cursor: "pointer" } : undefined}
+                onClick={onSegment ? () => onSegment(selected === i ? null : i) : undefined}
               />
             );
           })}
@@ -76,8 +83,13 @@ export function DonutStat({ title, centerValue, centerLabel, segments, size = 14
         <ul className="space-y-2">
           {segments.map((s, i) => {
             const pct = total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0;
+            const Row = onSegment ? "button" : "div";
             return (
               <li key={i} className="text-sm">
+                <Row
+                  {...(onSegment ? { type: "button" as const, onClick: () => onSegment(selected === i ? null : i), "aria-pressed": selected === i } : {})}
+                  className={`w-full rounded-md text-left ${onSegment ? "hover:bg-secondary/60 cursor-pointer px-1 py-0.5 -mx-1" : ""} ${selected === i ? "bg-secondary/60" : ""}`}
+                >
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: TONES[s.tone] }} aria-hidden />
@@ -93,6 +105,7 @@ export function DonutStat({ title, centerValue, centerLabel, segments, size = 14
                 <span className="bg-secondary mt-1 block h-1 w-full overflow-hidden rounded-full" aria-hidden>
                   <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: TONES[s.tone] }} />
                 </span>
+                </Row>
               </li>
             );
           })}

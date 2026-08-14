@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.8.2] — 2026-08-14 — Drill-downs, KPI de-worded, Clients fix, self-refreshing fulfilment
+
+- **Fix: "Clients: 1" tile vs "No active clients" sheet.** The drill-down's SQL (`c.company != 'Walk-in Customer'`) silently dropped customers with no company set (NULL != x is NULL in SQL) while the tile's count kept them. The list now uses the same COALESCE as the count, and a client without a company shows the person's name instead of a blank row. **Requires a worker deploy** (DEPLOY.bat covers it).
+- **Sales floor: numbers, not paragraphs** (CEO: "KPI too many words"). The Comeback/Push/On-pace sentence became a status chip + three stat boxes (To go · Per day · Days left); the 💡 Boost bullets became compact chips with the number first; the market-targets explainer sentence folded into its label.
+- **Tap the attendance ring for names.** Any slice (or legend row) opens that group's people — late and on-time with their clock-in times; other slices dim, tapped slice thickens. Tap again to close.
+- **Tap a map bubble (or state row) for the state summary** — shipments, share of the window, and the city breakdown behind it. Selected bubble rings gold, the rest dim.
+- **Fulfilment keeps itself fresh.** The card refetches every 60 s while visible and instantly when the app regains focus — no more waiting for a manual sync tap. (Note: TikTok webhook `signature FAILED` means real-time updates from TikTok are dead until `TIKTOK_APP_SECRET` matches Partner Center; the 30-minute cron still heals order data meanwhile.)
+
 ## [1.8.1] — 2026-08-14 — Infographic pass on the dashboard cards
 
 - **Attendance today** now leads with the headline ("38% of the team has clocked in (3 of 8)"), every legend row carries its count, percentage and a proportion bar, and a warning strip names exactly who hasn't clocked in yet.

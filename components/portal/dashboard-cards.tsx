@@ -138,6 +138,8 @@ interface MonitorRow { id: number; name: string; in_at: string | null; out_at: s
 
 export function AttendanceTodayCard() {
   const [rows, setRows] = useState<MonitorRow[] | null>(null);
+  /* v1.8.2 (CEO): tap a slice to see WHO is in that slice. */
+  const [seg, setSeg] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -152,17 +154,23 @@ export function AttendanceTodayCard() {
   /* Late = first clock-in after 10:00 MYT (the shift rule the server
      already applies to reports; recomputed here only for the ring split). */
   const TEN_MYT = 10 * 60;
-  let onTime = 0, late = 0;
-  const missingNames: string[] = [];
+  const groups: { name: string; time?: string }[][] = [[], [], []]; // on-time · late · missing
   for (const r of rows) {
-    if (!r.in_at) { missingNames.push(r.name.split(" ")[0] ?? r.name); continue; }
+    if (!r.in_at) { groups[2]!.push({ name: r.name }); continue; }
     const d = new Date(r.in_at.replace(" ", "T") + (r.in_at.endsWith("Z") ? "" : "Z"));
     const mins = ((d.getTime() / 60000) + 8 * 60) % (24 * 60);
-    if (mins <= TEN_MYT) onTime++; else late++;
+    const hh = String(Math.floor(mins / 60) % 24).padStart(2, "0");
+    const mm = String(Math.floor(mins % 60)).padStart(2, "0");
+    groups[mins <= TEN_MYT ? 0 : 1]!.push({ name: r.name, time: `${hh}:${mm}` });
   }
-  const missing = missingNames.length;
+  const [onTime, late, missing] = [groups[0]!.length, groups[1]!.length, groups[2]!.length];
   const present = onTime + late;
   const presentPct = rows.length > 0 ? Math.round((present / rows.length) * 100) : 0;
+  const SEG_META = [
+    { title: "On time", cls: "bg-success-soft text-success" },
+    { title: "Late", cls: "bg-warning-soft text-warning" },
+    { title: "Not clocked in", cls: "bg-secondary text-muted-foreground" },
+  ] as const;
 
   return (
     <section className={tile} aria-label="Attendance today">
@@ -173,11 +181,13 @@ export function AttendanceTodayCard() {
       {/* v1.8.1 infographic pass: the headline reading first, then the ring. */}
       <p className="mb-3 text-xs">
         <span className="text-foreground text-base font-semibold tabular-nums">{presentPct}%</span>
-        <span className="text-muted-foreground"> of the team has clocked in ({present} of {rows.length})</span>
+        <span className="text-muted-foreground"> of the team has clocked in ({present} of {rows.length}) · tap a slice for names</span>
       </p>
       <DonutStat
         centerValue={rows.length}
         centerLabel="staff"
+        onSegment={setSeg}
+        selected={seg}
         segments={[
           { label: "On time", value: onTime, tone: "success" },
           { label: "Late", value: late, tone: "warning" },
@@ -185,9 +195,27 @@ export function AttendanceTodayCard() {
           { label: "Not clocked in", value: missing, tone: "muted" },
         ]}
       />
-      {missing > 0 && (
+      {/* Drill-down: the tapped slice's people (with their clock-in time). */}
+      {seg !== null && (
+        <div className={`mt-3 rounded-lg px-3 py-2 ${SEG_META[seg]!.cls}`}>
+          <p className="text-xs font-semibold">{SEG_META[seg]!.title} — {groups[seg]!.length}</p>
+          {groups[seg]!.length === 0 ? (
+            <p className="mt-0.5 text-xs opacity-80">Nobody in this group right now.</p>
+          ) : (
+            <ul className="mt-1 space-y-0.5">
+              {groups[seg]!.map((p) => (
+                <li key={p.name} className="flex items-center justify-between gap-2 text-xs">
+                  <span>{p.name}</span>
+                  {p.time && <span className="font-medium tabular-nums">{p.time}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {seg === null && missing > 0 && (
         <p className="bg-warning-soft text-warning mt-3 rounded-lg px-3 py-2 text-xs font-medium">
-          ⏳ Not clocked in: {missingNames.join(", ")}
+          ⏳ Not clocked in: {groups[2]!.map((p) => p.name.split(" ")[0]).join(", ")}
         </p>
       )}
     </section>

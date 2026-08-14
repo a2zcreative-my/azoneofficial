@@ -55,6 +55,8 @@ function stateOf(city: string | null | undefined): string {
 
 export function OpsMapCard() {
   const [rows, setRows] = useState<PostageRow[] | null>(null);
+  /* v1.8.2 (CEO): tap a bubble (or a list row) → that state's summary. */
+  const [picked, setPicked] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -110,10 +112,14 @@ export function OpsMapCard() {
                must not swallow its neighbours' labels. */
             const r = 7 + (n / max) * 9;
             const short = s === "Kuala Lumpur" ? "KL" : s === "Negeri Sembilan" ? "N9" : s;
+            const dim = picked !== null && picked !== s;
             return (
-              <g key={s}>
+              <g key={s} onClick={() => setPicked((p) => (p === s ? null : s))}
+                style={{ cursor: "pointer" }} opacity={dim ? 0.35 : 1}
+                role="button" aria-label={`${s}: ${n} shipments — tap for summary`}>
                 <circle cx={x} cy={y} r={r} className="fill-brand" opacity={0.92} />
-                <circle cx={x} cy={y} r={r} fill="none" stroke="var(--background)" strokeWidth="2" />
+                <circle cx={x} cy={y} r={r} fill="none"
+                  stroke={picked === s ? "var(--gold-solid)" : "var(--background)"} strokeWidth="2" />
                 <text x={x} y={y + 3} textAnchor="middle"
                   style={{ fill: "var(--brand-accent)", fontSize: 9, fontWeight: 600 }}>{n}</text>
                 {/* state label under the bubble — identity never size-alone */}
@@ -130,6 +136,9 @@ export function OpsMapCard() {
             const pct = total > 0 ? Math.round((n / total) * 100) : 0;
             return (
               <li key={s} className="text-sm">
+                <button type="button" aria-pressed={picked === s}
+                  onClick={() => setPicked((p) => (p === s ? null : s))}
+                  className={`-mx-1 w-full rounded-md px-1 py-0.5 text-left ${picked === s ? "bg-secondary/70" : "hover:bg-secondary/50"}`}>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground truncate">{s}</span>
                   <span className="font-medium tabular-nums">
@@ -140,6 +149,7 @@ export function OpsMapCard() {
                 <span className="bg-secondary mt-1 block h-1 w-full overflow-hidden rounded-full" aria-hidden>
                   <span className="bg-gold-deep block h-full rounded-full" style={{ width: `${pct}%` }} />
                 </span>
+                </button>
               </li>
             );
           })}
@@ -148,6 +158,39 @@ export function OpsMapCard() {
           )}
         </ul>
       </div>
+
+      {/* v1.8.2 — the tapped state's summary: share + city breakdown. */}
+      {picked && (() => {
+        const n = byState.find(([s]) => s === picked)?.[1] ?? 0;
+        const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+        const cities = new Map<string, number>();
+        for (const r of rows) {
+          if (stateOf(r.buyer_city) !== picked) continue;
+          const c = (r.buyer_city ?? "").trim() || "(no city recorded)";
+          cities.set(c, (cities.get(c) ?? 0) + 1);
+        }
+        const cityList = [...cities.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+        return (
+          <div className="bg-tint-gold mt-3 rounded-lg px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">📍 {picked}</p>
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setPicked(null)}>close</button>
+            </div>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              <span className="text-foreground font-semibold tabular-nums">{n}</span> shipment{n === 1 ? "" : "s"} ·{" "}
+              <span className="text-gold-deep font-semibold tabular-nums">{pct}%</span> of the last {total}
+            </p>
+            <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+              {cityList.map(([c, k]) => (
+                <li key={c} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-muted-foreground truncate">{c}</span>
+                  <span className="font-medium tabular-nums">{k}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
     </section>
   );
 }

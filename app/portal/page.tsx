@@ -710,41 +710,45 @@ function TradingDesk({ user }: { user: User }) {
     })
     .filter((m) => m.now > 0 || m.last > 0);
 
-  /* ---- motivation ---- */
-  let motivation: { emoji: string; text: string; cls: string } | null = null;
+  /* ---- motivation — v1.8.2 infographic pass (CEO: "too many words").
+     The sentences became NUMBERS: a status chip + To-go / Per-day / Days-left
+     stat boxes. Same arithmetic, zero paragraphs. ---- */
+  const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
+  const kpiRemaining = target ? Math.max(0, target - monthTotal) : 0;
+  const needPerDay = kpiRemaining / daysLeft;
+  let motivation: { emoji: string; label: string; cls: string } | null = null;
   if (canRevenue && rev && target && pct !== null) {
-    const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
-    const needPerDay = Math.max(0, target - monthTotal) / daysLeft;
     if (pct >= 100) {
-      motivation = { emoji: "🏆", text: `TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`, cls: "bg-success-soft text-success" };
+      motivation = { emoji: "🏆", label: "Target smashed", cls: "bg-success-soft text-success" };
     } else if (onPace) {
-      motivation = { emoji: "✅", text: `On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`, cls: "bg-success-soft text-success" };
+      motivation = { emoji: "✅", label: "On pace", cls: "bg-success-soft text-success" };
     } else if (expectedPct - pct <= 15) {
-      motivation = { emoji: "⚡", text: `Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`, cls: "bg-warning-soft text-warning" };
+      motivation = { emoji: "⚡", label: "Push time", cls: "bg-warning-soft text-warning" };
     } else {
-      motivation = { emoji: "🚀", text: `Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`, cls: "bg-danger-soft text-danger" };
+      motivation = { emoji: "🚀", label: "Comeback mode", cls: "bg-danger-soft text-danger" };
     }
   }
 
-  /* ---- data-driven boost suggestions ---- */
-  const tips: string[] = [];
+  /* ---- data-driven boost suggestions — v1.8.2: compact chips, the number
+     first, the fewest words that still say what to do. ---- */
+  const tips: { icon: string; text: string }[] = [];
   if (canRevenue && rev) {
     const peak = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
     if (peak && peak.cents > 0) {
-      tips.push(`Schedule the next LIVE at ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — your best-selling hour this week (${fmtRM(peak.cents)} across ${peak.orders} orders).`);
+      tips.push({ icon: "🕘", text: `Next LIVE ${String(peak.hour).padStart(2, "0")}:00 — best hour, ${fmtRM(peak.cents)}/wk` });
     }
     if (rev.outstanding && rev.outstanding.docs > 0) {
-      tips.push(`Chase the ${rev.outstanding.docs} unpaid invoice${rev.outstanding.docs === 1 ? "" : "s"} (${fmtRM(rev.outstanding.cents)}) — it's revenue you already earned.`);
+      tips.push({ icon: "💸", text: `${rev.outstanding.docs} unpaid inv. — collect ${fmtRM(rev.outstanding.cents)}` });
     }
     if ((sum?.open_quotations ?? 0) > 0) {
-      tips.push(`${sum!.open_quotations} quotation${sum!.open_quotations === 1 ? "" : "s"} still open — a follow-up call today converts faster than a new lead.`);
+      tips.push({ icon: "📋", text: `${sum!.open_quotations} QT open — follow up today` });
     }
     if ((sum?.low_stock ?? 0) > 0) {
-      tips.push(`${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low on stock — restock before the next live so a bestseller never sells out mid-stream.`);
+      tips.push({ icon: "📦", text: `${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low — restock before the live` });
     }
     const weakest = markets.filter((m) => m.target && m.now < m.target).sort((a, b) => (a.now / a.target!) - (b.now / b.target!))[0];
     if (weakest?.target) {
-      tips.push(`${weakest.label} is at ${Math.round((weakest.now / weakest.target) * 100)}% of its market target — ${fmtRM(weakest.target - weakest.now)} more takes it home.`);
+      tips.push({ icon: "📈", text: `${weakest.label}: ${fmtRM(weakest.target - weakest.now)} to its target` });
     }
   }
 
@@ -839,13 +843,29 @@ function TradingDesk({ user }: { user: User }) {
             </div>
           )}
           {motivation && (
-            <p className={`mt-2.5 rounded-lg px-3 py-2 text-xs font-medium ${motivation.cls}`}>
-              {motivation.emoji} {motivation.text}
-            </p>
+            <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+              <span className={`flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${motivation.cls}`}>
+                {motivation.emoji} {motivation.label}
+              </span>
+              {pct !== null && pct < 100 && (
+                <>
+                  {[
+                    { l: "To go", v: fmtRM(kpiRemaining) },
+                    { l: "Per day", v: fmtRM(Math.round(needPerDay)) },
+                    { l: "Days left", v: String(daysLeft) },
+                  ].map((s) => (
+                    <span key={s.l} className="border-border flex flex-col justify-center rounded-lg border px-3 py-1 text-center">
+                      <span className="text-sm leading-tight font-bold tabular-nums">{s.v}</span>
+                      <span className="text-muted-foreground text-[10px] tracking-wide uppercase">{s.l}</span>
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
           )}
           {markets.length > 0 && (
             <div className="mt-3">
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets — product · service</p>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets · auto = last month +10%</p>
               <div className="mt-1.5 space-y-2">
                 {markets.map((m) => {
                   const mPct = m.target ? Math.round((m.now / m.target) * 100) : null;
@@ -864,20 +884,19 @@ function TradingDesk({ user }: { user: User }) {
                   );
                 })}
               </div>
-              <p className="text-muted-foreground mt-1 text-[11px]">Each line&apos;s target = its own last month + 10% (auto). Momentum, per business.</p>
             </div>
           )}
           {tips.length > 0 && (
             <div className="mt-3">
               <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">💡 Boost the number</p>
-              <ul className="mt-1.5 space-y-1">
-                {tips.slice(0, 4).map((t) => (
-                  <li key={t} className="flex gap-2 text-xs">
-                    <span aria-hidden className="text-gold-deep">▸</span>
-                    <span>{t}</span>
-                  </li>
+              {/* v1.8.2: chips, not sentences — the number leads. */}
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {tips.slice(0, 5).map((t) => (
+                  <span key={t.text} className="bg-secondary inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium">
+                    <span aria-hidden>{t.icon}</span>{t.text}
+                  </span>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
         </div>
@@ -2926,7 +2945,9 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
       <div className={inModal ? "overflow-y-auto" : "mt-3 max-h-80 overflow-y-auto pr-1"}>
         {clients.map((c) => (
           <div key={c.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "py-2"}`}>
-            <span className="min-w-0 font-medium">{c.company}</span>
+            {/* v1.8.2: a customer without a company set is still a client —
+                fall back to the person's name, never a blank row. */}
+            <span className="min-w-0 font-medium">{c.company || c.name || "Unnamed client"}</span>
             <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
               <span title="Invoiced total (all INV)">{rm2(c.invoiced_cents)} invoiced</span>
               <span className="font-medium text-green-700" title="Collected (paid invoices)">{rm2(c.paid_cents)} paid</span>
@@ -2939,7 +2960,7 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
                 if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
-                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
+                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company || c.name || "Client"} — paste it into WhatsApp`); }
                 catch { showRlToast("Report link", url, "notice"); }
               }}>🔗 Report link</button>
             </span>

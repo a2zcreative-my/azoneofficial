@@ -2990,7 +2990,11 @@ export async function handleStaff(
               (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid') AS paid_cents,
               (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations
        FROM customers c
-       WHERE c.company != 'Walk-in Customer'
+       /* v1.8.2 FIX: c.company != '…' silently dropped NULL-company
+          customers (NULL != x is NULL in SQL), so the pulse tile counted a
+          client the drill-down list then denied existed ("Clients: 1" →
+          "No active clients"). Same COALESCE as the pulse count. */
+       WHERE COALESCE(c.company, '') != 'Walk-in Customer'
        ORDER BY invoiced_cents DESC, c.company LIMIT 200`,
     ).all();
     // live-session counts ride along when 0056 is applied
