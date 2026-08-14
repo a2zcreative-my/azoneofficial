@@ -4285,7 +4285,7 @@ function TargetsCommissionCard() {
 const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
-const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
+// const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
