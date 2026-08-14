@@ -14,7 +14,7 @@
   --brand-accent-soft: #e6d7b8;
 
   /* Semantic tokens (shadcn/ui compatible) */
-  --background: #f8fafc; /* Premium off-white to make cards pop */
+  --background: #ffffff;
   --foreground: #1a2946;
   --card: #ffffff;
   --card-foreground: #1a2946;
@@ -22,7 +22,7 @@
   --popover-foreground: #1a2946;
   --primary: #1a2946;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9; /* Slate-100 for secondary backgrounds */
+  --secondary: #f6f7f9;
   --secondary-foreground: #1a2946;
   --muted: #f6f7f9;
   --muted-foreground: #5d6778;

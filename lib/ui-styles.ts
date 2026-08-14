@@ -14,25 +14,25 @@
  * for surfaces and form fields.
  */
 
-/** Every card in every app. One padding, everywhere. Uplifted to rounded-2xl with shadow. */
-export const card = "rounded-2xl border border-border bg-card p-4 md:p-5 shadow-sm";
+/** Every card in every app. One padding, everywhere. */
+export const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
-  "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring transition-shadow shadow-sm";
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
 export const inputClassLg =
-  "w-full rounded-xl border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm transition-shadow shadow-sm";
+  "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm";
 
 /** Standard primary button. */
 export const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/90 hover:-translate-y-0.5 shadow-sm hover:shadow-md active:translate-y-0 active:shadow-sm inline-flex h-9 items-center rounded-xl px-4 text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none";
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 
 /** Full-width variant — sign-in and other single-action forms. */
 export const btnClassBlock =
-  "bg-primary text-primary-foreground hover:bg-primary/90 hover:-translate-y-0.5 shadow-sm hover:shadow-md active:translate-y-0 active:shadow-sm inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none";
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors disabled:opacity-50";
 
 /** A row of labelled fields.
  *
@@ -60,17 +60,17 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 
 /** Secondary (outline) button — was duplicated in 4 files. */
 export const btnGhost =
-  "inline-flex h-9 items-center rounded-xl border border-border px-4 text-sm font-medium transition-all duration-300 hover:bg-secondary hover:shadow-sm";
+  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
 /** Compact header control (phones share one row). */
 export const btnHdr =
-  "inline-flex h-8 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-all duration-300 hover:bg-secondary hover:shadow-sm md:h-9 md:px-3";
+  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
-  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium transition-colors hover:bg-secondary hover:shadow-sm";
+  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary";
 export const btnSmPrimary =
-  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-all hover:bg-primary/90 hover:shadow-sm disabled:opacity-50";
+  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50";
 
 /** Field labels — the two spellings that existed are now named. */
 export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";

@@ -744,12 +744,11 @@ function TradingDesk({ user }: { user: User }) {
           { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Expenses" },
         ];
         return (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {tiles.map((t) => (
-              <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card shadow-sm hover:shadow-md hover:-translate-y-1 hover:border-primary/50 group flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition-all duration-300 relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <p className="text-lg leading-tight font-bold tabular-nums relative z-10">{t.value}</p>
-                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase mt-0.5 relative z-10">{t.label}</p>
+              <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors">
+                <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
+                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.label}</p>
               </button>
             ))}
           </div>
