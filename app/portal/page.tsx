@@ -34,7 +34,7 @@ import { AssetsPanel } from "@/components/portal/assets-panel";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { RosterBoard } from "@/components/portal/roster-board";
 import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
-import { SelfieCapture } from "@/components/portal/selfie-capture";
+import { GeofenceCard } from "@/components/portal/geofence-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { getLang, setLang as persistLang, t as tr, type Lang } from "@/lib/i18n";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -182,9 +182,25 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
 
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
   const [punchError, setPunchError] = useState("");
-  // v1.9.0: clock-in can carry a selfie key (optional — never blocks the punch)
-  const [selfieOpen, setSelfieOpen] = useState(false);
-  const punch = async (type: string, selfieKey?: string | null) => {
+  /* v1.9.1 — office geofence replaces the selfie step. When a fence is set
+     (management, Users tab), the punch grabs the phone's position first and
+     the server refuses punches outside the radius. No fence → old behaviour. */
+  const [fence, setFence] = useState<{ configured: boolean; radius_m?: number; label?: string } | null>(null);
+  useEffect(() => {
+    void api<{ configured: boolean; radius_m?: number; label?: string }>(`/staff/attendance/geofence`)
+      .then((r) => setFence(r.ok && r.data ? r.data : { configured: false }));
+  }, []);
+  const getGps = () => new Promise<string | null>((resolve) => {
+    try {
+      if (typeof navigator === "undefined" || !("geolocation" in navigator)) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve(`${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
+      );
+    } catch { resolve(null); } // insecure-context throw etc. — never wedge the buttons
+  });
+  const punch = async (type: string) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
     // clocking in gets an instant popup (and the server refuses it too).
     if (type === "clock_out" && !today.some((r) => r.type === "clock_in")) {
@@ -198,9 +214,27 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     setBusy(type);
     setPunchError("");
+    // Location is only requested when the office fence is ON (no permission
+    // prompt for teams that never enable it). If the fence status hasn't
+    // loaded yet we still ask — the server is the enforcer either way.
+    const needsGps = fence === null || fence.configured;
+    const gps = needsGps ? await getGps() : null;
+    // A likely duplicate (button shows ✓) is sent WITHOUT blocking on
+    // location — the server answers "already punched" before the fence check.
+    const likelyDup = type === "clock_in" ? today.some((r) => r.type === "clock_in") : today.some((r) => r.type === "clock_out");
+    if (fence?.configured && !gps && !likelyDup) {
+      setBusy("");
+      setPunchToast({
+        title: "Location needed",
+        sub: `Office check-in is on — allow location access in your browser, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 4200);
+      return;
+    }
     const res = await api<{ flag?: string; error?: { message?: string } }>(`/staff/attendance`, {
       method: "POST",
-      body: JSON.stringify({ type, ...(selfieKey ? { selfie_key: selfieKey } : {}) }),
+      body: JSON.stringify({ type, ...(gps ? { gps } : {}) }),
     });
     setBusy("");
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
@@ -230,6 +264,15 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     } else if ((res.data?.error as { code?: string } | undefined)?.code === "no_clock_in") {
       setPunchToast({ title: "Clock in first", sub: res.data?.error?.message ?? "Clock in before clocking out.", variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 3600);
+    } else if (["too_far", "location_required"].includes((res.data?.error as { code?: string } | undefined)?.code ?? "")) {
+      // v1.9.1: geofence refusals get a toast, not the red error line — being
+      // outside the fence is expected behaviour, not a system fault.
+      setPunchToast({
+        title: (res.data?.error as { code?: string }).code === "too_far" ? "📍 Too far from the office" : "📍 Location needed",
+        sub: res.data?.error?.message ?? "Move closer to the office and try again.",
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 5200);
     } else {
       setPunchError(res.data?.error?.message ?? "Punch failed — try again.");
     }
@@ -252,9 +295,12 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     setBusy(type);
     setPunchError("");
+    // v1.9.1: OT punches are gated by the same office fence as clock punches
+    // (they're the paid hours) — carry the position when the fence is on.
+    const otGps = (fence === null || fence.configured) ? await getGps() : null;
     const res = await api<{ at?: string; error?: { message?: string } }>(`/staff/attendance/ot`, {
       method: "POST",
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ type, ...(otGps ? { gps: otGps } : {}) }),
     });
     setBusy("");
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
@@ -304,7 +350,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             ragged wrapping; the desktop keeps its inline row. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button type="button" className={`${btnClass} justify-center sm:justify-start`} disabled={!!busy}
-            onClick={() => { if (hasIn) { void punch("clock_in"); } else { setSelfieOpen(true); } }}>
+            onClick={() => void punch("clock_in")}>
             {hasIn ? tr("Clocked in ✓", lang) : tr("Clock in", lang)}
           </button>
           <button type="button" className={`${btnGhost} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_out")}>
@@ -335,11 +381,19 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         )}
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
         {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} variant={punchToast.variant} />}
-        {selfieOpen && (
-          <SelfieCapture
-            onCancel={() => setSelfieOpen(false)}
-            onDone={(key) => { setSelfieOpen(false); void punch("clock_in", key); }}
-          />
+        {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
+            from the cron, for the person who has the tab open right now. */}
+        {hasIn && !hasOut && nowMins >= 18 * 60 + 30 && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            ⏰ {tr("Don't forget to clock out", lang)}{hasOtIn && !hasOtOut ? " (and OT out when overtime ends)" : ""} — {tr("tap Clock out before you leave.", lang)}
+          </p>
+        )}
+        {fence?.configured && (
+          <p className="text-muted-foreground mt-2 text-[11px]">
+            📍 {tr("Office check-in is on", lang)} — {lang === "ms"
+              ? `daftar masuk/keluar hanya dalam ${fence.radius_m ?? 100} m dari ${fence.label ?? "pejabat"}.`
+              : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}
+          </p>
         )}
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0 && todayOt.length === 0
@@ -4231,7 +4285,7 @@ function TargetsCommissionCard() {
 const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
-// const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
+const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
 
 /** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
@@ -4889,6 +4943,7 @@ export default function PortalPage() {
         {activeTab === "Users" && (
           <div className="space-y-4 md:space-y-6">
             {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
+            {["super_admin", "ceo", "coo"].includes(user.role) && <GeofenceCard />}
             <UsersPanel role={user.role} />
           </div>
         )}

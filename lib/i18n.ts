@@ -44,6 +44,10 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Apply leave": { en: "Apply leave", ms: "Mohon cuti" },
   "Create quotation": { en: "Create quotation", ms: "Buat sebut harga" },
   "Notifications": { en: "Notifications", ms: "Pemberitahuan" },
+  // v1.9.1 — geofence + clock-out reminder chrome
+  "Don't forget to clock out": { en: "Don't forget to clock out", ms: "Jangan lupa daftar keluar" },
+  "tap Clock out before you leave.": { en: "tap Clock out before you leave.", ms: "tekan Daftar keluar sebelum pulang." },
+  "Office check-in is on": { en: "Office check-in is on", ms: "Daftar kehadiran di pejabat diaktifkan" },
 };
 
 export function getLang(): Lang {

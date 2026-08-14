@@ -82,6 +82,67 @@ function str(v: unknown, max = 2000): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
 }
 
+/* v1.9.1 — office geofence for clock in/out (replaces the selfie step).
+   One system_meta row holds the office point + radius; the punch route
+   refuses punches taken outside it. Honest limitation, stated to the CEO:
+   browser GPS comes from the client and can be spoofed by a determined
+   user with dev tools — this stops casual "clock in from bed", it is not
+   forensic proof of presence. The IP + user-agent already stored on every
+   punch remain the cross-check. */
+const GEOFENCE_KEY = "attendance_geofence";
+const GEOFENCE_ADMIN_ROLES = ["super_admin", "ceo", "coo"];
+
+interface Geofence { lat: number; lng: number; radius_m: number; label: string }
+
+async function getGeofence(env: Env): Promise<Geofence | null> {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`)
+      .bind(GEOFENCE_KEY).first<{ value: string }>();
+    if (!row) return null;
+    const g = JSON.parse(row.value) as Partial<Geofence>;
+    if (typeof g.lat !== "number" || typeof g.lng !== "number" || typeof g.radius_m !== "number") return null;
+    return { lat: g.lat, lng: g.lng, radius_m: g.radius_m, label: typeof g.label === "string" && g.label ? g.label : "the office" };
+  } catch { return null; } // pre-0057 (no system_meta) — geofence simply off
+}
+
+/** Great-circle distance in metres (haversine — plenty for a 100 m fence). */
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/* One gate used by BOTH the clock punch and the OT punch (review finding:
+   gating only clock in/out left OT — the PAID punches — open to a sofa).
+   When a fence is configured, body.gps must be "lat,lng[,acc]" and inside
+   radius + min(acc, 150) m. Accuracy grace: GPS in a building is fuzzy;
+   the 150 m cap stops a spoofed accuracy=99999 from voiding the fence.
+   Returns { resp } to refuse, or { gps } (validated, or null when no fence
+   is configured) to proceed. */
+async function gateGeofence(
+  env: Env, body: Record<string, unknown> | null, verb: string,
+): Promise<{ resp: Response; gps?: undefined } | { resp?: undefined; gps: string | null }> {
+  const gpsRaw = str(body?.gps, 100) ? (body!.gps as string).trim() : null;
+  const fence = await getGeofence(env);
+  if (!fence) return { gps: gpsRaw };
+  const gm = gpsRaw ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?$/.exec(gpsRaw) : null;
+  const plat = gm ? Number(gm[1]) : NaN;
+  const plng = gm ? Number(gm[2]) : NaN;
+  if (!gm || plat < -90 || plat > 90 || plng < -180 || plng > 180) {
+    return { resp: err("location_required", `Location is required to ${verb} — allow location access in your browser and try again.`, 400) };
+  }
+  const acc = gm[3] ? Math.min(Number(gm[3]), 150) : 0;
+  const dist = haversineM(plat, plng, fence.lat, fence.lng);
+  if (dist > fence.radius_m + acc) {
+    const shown = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+    return { resp: err("too_far", `You appear to be ~${shown} from ${fence.label} — you can only ${verb} within ${fence.radius_m} m of it.`, 403) };
+  }
+  return { gps: gpsRaw };
+}
+
 export async function notify(
   env: Env, userId: number, kind: string, message: string, ref?: string,
 ): Promise<void> {
@@ -441,7 +502,7 @@ export async function handleStaff(
   // /docs/:id/receipt is JSON, so exclude only the claims one, not any /receipt.
   const isClaimsReceipt = path.endsWith("/receipt") && path.startsWith("/claims/");
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && path !== "/attendance/selfie"
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -575,42 +636,53 @@ export async function handleStaff(
     return json({ ok: true, role: newRole, employment_status: status ?? target.employment_status });
   }
 
-  /* v1.9.0 — selfie clock-in, step 1: upload the capture (binary body).
-     Returns the R2 key; the punch that follows carries it as selfie_key.
-     Own selfies only; small cap so a phone photo can't blow storage. */
-  if (path === "/attendance/selfie" && method === "POST") {
-    if (!request.body) return err("invalid_input", "Image body required", 400);
-    const ctS = request.headers.get("Content-Type") ?? "";
-    if (!["image/jpeg", "image/png", "image/webp"].includes(ctS)) {
-      return err("invalid_input", "Only JPEG/PNG/WEBP images are allowed", 400);
+  /* v1.9.1 — office geofence (replaces the v1.9.0 selfie step; selfies
+     already on record stay viewable through the media route).
+     GET: every staff member learns whether a fence is on (their punch flow
+     needs to know to ask for location) + radius/label for the hint text.
+     Coordinates themselves go only to the roles that can edit them.
+     POST: super_admin/ceo/coo set, move or clear the fence. */
+  if (path === "/attendance/geofence" && method === "GET") {
+    const fence = await getGeofence(env);
+    const isGeoAdmin = GEOFENCE_ADMIN_ROLES.includes(user.role);
+    if (!fence) return json({ configured: false, can_edit: isGeoAdmin });
+    return json({
+      configured: true,
+      can_edit: isGeoAdmin,
+      radius_m: fence.radius_m,
+      label: fence.label,
+      ...(isGeoAdmin ? { lat: fence.lat, lng: fence.lng } : {}),
+    });
+  }
+  if (path === "/attendance/geofence" && method === "POST") {
+    if (!GEOFENCE_ADMIN_ROLES.includes(user.role)) {
+      return err("forbidden", "Only the CEO, COO or super admin can change the office geofence", 403);
     }
-    /* v1.9.0 review fix: the cap is ENFORCED, not advisory. A missing or
-       nonsense Content-Length is rejected, and the body is read with a hard
-       byte ceiling so a lying client can't stream past it. */
-    const MAX_SELFIE = 3 * 1024 * 1024;
-    const lenS = Number(request.headers.get("Content-Length"));
-    if (!Number.isFinite(lenS) || lenS <= 0 || lenS > MAX_SELFIE) {
-      return err("invalid_input", "Selfie must be 1 byte – 3 MB with a valid Content-Length", 413);
+    if (body && body.clear === true) {
+      await env.DB.prepare(`DELETE FROM system_meta WHERE key = ?1`).bind(GEOFENCE_KEY).run();
+      await audit(env, user.id, "attendance.geofence_clear", "system_meta", GEOFENCE_KEY);
+      return json({ ok: true, configured: false });
     }
-    const readerS = request.body.getReader();
-    const chunksS: Uint8Array[] = [];
-    let totalS = 0;
-    for (;;) {
-      const { done, value } = await readerS.read();
-      if (done) break;
-      totalS += value.byteLength;
-      if (totalS > MAX_SELFIE) {
-        try { await readerS.cancel(); } catch { /* closed */ }
-        return err("invalid_input", "Selfie too large — keep it under 3 MB", 413);
-      }
-      chunksS.push(value);
+    /* Review fix: NUMBERS ONLY. A NaN on the client serialises to JSON null,
+       and Number(null) === 0 — which would silently save a fence at 0°,0°
+       (the Gulf of Guinea) and lock the whole company out of clocking in.
+       typeof checks close that hole. */
+    const latG = typeof body?.lat === "number" && Number.isFinite(body.lat) ? body.lat : NaN;
+    const lngG = typeof body?.lng === "number" && Number.isFinite(body.lng) ? body.lng : NaN;
+    const radiusG = typeof body?.radius_m === "number" && Number.isFinite(body.radius_m) ? Math.round(body.radius_m) : NaN;
+    if (!Number.isFinite(latG) || latG < -90 || latG > 90 || !Number.isFinite(lngG) || lngG < -180 || lngG > 180) {
+      return err("invalid_input", "lat/lng must be valid coordinates (use the 'Use my current location' button at the office)", 400);
     }
-    const bufS = new Uint8Array(totalS);
-    { let oS = 0; for (const c of chunksS) { bufS.set(c, oS); oS += c.byteLength; } }
-    const extS = ctS.includes("png") ? "png" : ctS.includes("webp") ? "webp" : "jpg";
-    const keyS = `private/attendance/${user.id}-${Date.now()}.${extS}`;
-    await env.MEDIA.put(keyS, bufS.buffer as ArrayBuffer, { httpMetadata: { contentType: ctS } });
-    return json({ selfie_key: keyS }, 201);
+    if (!Number.isFinite(radiusG) || radiusG < 20 || radiusG > 2000) {
+      return err("invalid_input", "radius_m must be 20–2000 metres (100–200 m is typical: GPS in a building is rarely sharper)", 400);
+    }
+    const labelG = str(body?.label, 60) ? (body!.label as string).trim() : "the office";
+    const fenceG: Geofence = { lat: Math.round(latG * 1e6) / 1e6, lng: Math.round(lngG * 1e6) / 1e6, radius_m: radiusG, label: labelG };
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`,
+    ).bind(GEOFENCE_KEY, JSON.stringify(fenceG)).run();
+    await audit(env, user.id, "attendance.geofence_set", "system_meta", GEOFENCE_KEY, { ...fenceG });
+    return json({ ok: true, configured: true, ...fenceG });
   }
 
   const photoMatch = path.match(/^\/users\/(\d+)\/photo$/);
@@ -892,41 +964,23 @@ export async function handleStaff(
     } else {
       flag = mins < 18 * 60 ? "early_out" : "completed";
     }
-    /* v1.9.0: the punch may carry a selfie key from /attendance/selfie —
-       only one this user just uploaded (prefix check stops key spoofing).
-       Pre-0070 databases fall back to the old insert. */
-    let selfieKey = str(body.selfie_key, 200) && (body.selfie_key as string).startsWith(`private/attendance/${user.id}-`)
-      ? (body.selfie_key as string) : null;
-    if (selfieKey) {
-      // Replay guard: the key embeds its upload timestamp — a selfie older
-      // than 10 minutes can't be attached to a fresh punch.
-      const tsM = /-(\d{13})\./.exec(selfieKey);
-      if (!tsM || Date.now() - Number(tsM[1]) > 10 * 60 * 1000) selfieKey = null;
-    }
-    try {
-      await env.DB.prepare(
-        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, selfie_key)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-      ).bind(
-        user.id,
-        body.type,
-        request.headers.get("CF-Connecting-IP"),
-        (request.headers.get("User-Agent") ?? "").slice(0, 300),
-        str(body.gps, 100) ? body.gps : null,
-        selfieKey,
-      ).run();
-    } catch (e) {
-      if (!String(e).includes("no such column")) throw e;
-      await env.DB.prepare(
-        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
-      ).bind(
-        user.id, body.type,
-        request.headers.get("CF-Connecting-IP"),
-        (request.headers.get("User-Agent") ?? "").slice(0, 300),
-        str(body.gps, 100) ? body.gps : null,
-      ).run();
-    }
+    /* v1.9.1 — OFFICE GEOFENCE (replaces the selfie step). Placed AFTER the
+       dup/no_clock_in checks (an "already punched" answer never needs
+       location, and a refusal creates no record) and BEFORE the INSERT.
+       Server-side check — the UI hint is courtesy, this line is the rule.
+       No fence configured → punches behave exactly as before. */
+    const gate = await gateGeofence(env, body, body.type === "clock_in" ? "clock in" : "clock out");
+    if (gate.resp) return gate.resp;
+    const gpsVal = gate.gps;
+    await env.DB.prepare(
+      `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).bind(
+      user.id, body.type,
+      request.headers.get("CF-Connecting-IP"),
+      (request.headers.get("User-Agent") ?? "").slice(0, 300),
+      gpsVal,
+    ).run();
     return json({ ok: true, flag }, 201);
   }
 
@@ -1464,6 +1518,13 @@ export async function handleStaff(
           409,
         );
       }
+      /* v1.9.1 review fix: OT punches are gated by the SAME office fence as
+         clock punches — OT hours are the paid ones, leaving them open would
+         let the fence be bypassed for exactly the records that feed payroll.
+         (ot_records has no gps column — the check gates, it doesn't store;
+         the IP below remains the stored cross-check.) */
+      const otGate = await gateGeofence(env, body, body.type === "ot_in" ? "record OT in" : "record OT out");
+      if (otGate.resp) return otGate.resp;
       await env.DB.prepare(
         `INSERT INTO ot_records (user_id, type, ip, user_agent)
          VALUES (?1, ?2, ?3, ?4)`,
@@ -1488,22 +1549,14 @@ export async function handleStaff(
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const targetUser = url.searchParams.get("user_id");
     const forUser = targetUser && can(user.role, "hr_manage") ? Number(targetUser) : user.id;
-    // v1.9.0: selfie_key rides along (armoured pre-0070). The media route
-    // enforces owner/HR/management access on the file itself.
-    let results: unknown[];
-    try {
-      results = (await env.DB.prepare(
-        `SELECT type, ip, created_at, selfie_key FROM attendance_records
-         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
-         ORDER BY created_at DESC LIMIT 400`,
-      ).bind(forUser, month).all()).results;
-    } catch {
-      results = (await env.DB.prepare(
-        `SELECT type, ip, created_at FROM attendance_records
-         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
-         ORDER BY created_at DESC LIMIT 400`,
-      ).bind(forUser, month).all()).results;
-    }
+    // v1.9.1: the selfie step was replaced by the office geofence, so
+    // selfie_key no longer rides along (nothing in the UI rendered it).
+    // Selfies already in R2 stay behind the owner/HR media gate.
+    const results = (await env.DB.prepare(
+      `SELECT type, ip, created_at FROM attendance_records
+       WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+       ORDER BY created_at DESC LIMIT 400`,
+    ).bind(forUser, month).all()).results;
     // v1.4.155: overtime punches ride along (own dashboard + HR views). Guarded
     // so the endpoint keeps working before migration 0044 lands.
     let ot: unknown[] = [];

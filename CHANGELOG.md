@@ -2,6 +2,29 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.9.1] — 2026-08-14 — Office geofence clock in/out + clock-out reminders
+
+**Office check-in (geofence) — replaces the selfie step** (CEO: "instead of using face checking, can I use location"). Management (super_admin/CEO/COO) sets the office point + radius on the **Users tab → 📍 Office check-in** card — easiest with the "Use my current location" button while standing at the office (pasting "lat, lng" from Google Maps also works and auto-fills both boxes). Once ON:
+
+- **Clock in, clock out, OT in and OT out** all require the phone's position and must be inside the radius — enforced **server-side** (the distance check runs in the Worker; the UI is only the messenger). Outside the fence → a clear "~X km from AZ ONE HQ" refusal; no record is created.
+- Accuracy grace: up to 150 m of the phone's reported GPS accuracy counts toward "inside" (GPS in a building drifts), capped so a spoofed accuracy can't void the fence. 100–200 m is a realistic radius.
+- The position is stored on the punch (`gps` column, present since 0003 — **no new migration**), alongside the IP + user-agent already recorded.
+- Fence OFF (or never set) → punches behave exactly as before, and staff get **no location permission prompt at all**.
+- Honest limit, stated on the card: browser GPS comes from the client and a determined user with dev tools can fake it. This stops casual clock-in-from-bed; the stored IP is the cross-check.
+
+**Clock-out reminders** ("how to remind them to check out"):
+
+- **18:30 MYT** — anyone with today's clock-in and no clock-out gets a bell + web push: "remember to tap Clock out before you leave the office." Staff currently inside an OT window (OT in without OT out) are **not** nagged mid-overtime.
+- **22:00 MYT** — a firmer reminder for everyone still open, OT or not, including the fix path ("already home? ask HR/admin for a manual clock-out").
+- Each stage fires **once per person per day** (notification-ref dedupe), stops by itself after midnight MYT, and runs ahead of the TikTok sync in the cron so a sync failure can never swallow it.
+- On the Dashboard itself, an amber "⏰ Don't forget to clock out" banner appears from 18:30 for anyone still clocked in (EN/BM).
+
+**Selfie clock-in removed** — camera modal, upload route and the punch's selfie attachment are gone; migration 0070 stays (the column is harmless), and selfies already recorded remain in private R2 storage behind the owner/HR media gate.
+
+**Review fixes baked in:** OT-skip in the reminder cron reads `ot_records` (not `attendance_records`, whose CHECK constraint can't even hold OT rows); the geofence save rejects non-numeric coordinates on both client and server (a `NaN → JSON null → 0` chain could otherwise have saved a fence at 0°,0° and locked everyone out); OT punches share the same fence gate as clock punches; "already punched" answers never demand location.
+
+**Setup:** deploy worker + site (`pnpm build` locally first). No migration to apply. No new secrets.
+
 ## [1.9.0] — 2026-08-14 — Phase 4: drag-and-drop roster, selfie clock-in, themes, BM, ops map
 
 **Drag-and-drop rescheduling** (Schedule & Roster, desktop) — managers drag a scheduled session block to another day/time (30-minute snap, grab-point aware); a confirm bar shows the exact new slot before anything saves. Both the new and (on reassignment) the previous host are notified. `PATCH /live-sessions/:id` now accepts date/time/host changes. Overnight sessions keep their end time. Touch devices keep the tap-popover flow.

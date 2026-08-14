@@ -1107,6 +1107,54 @@ export default {
       }
       return;
     }
+    /* v1.9.1 CLOCK-OUT REMINDERS (CEO: "how to remind them to clock out").
+       Every 30-min pass after 18:30 MYT: anyone with today's clock-in but no
+       clock-out gets a bell + web push. Runs BEFORE the TikTok sync so a
+       sync crash can never swallow a reminder pass. Two stages, each once
+       per day (the notification ref row is the dedupe):
+         stage 1 ≥18:30 — gentle nudge; SKIPS staff currently inside an OT
+                          window (ot_in without ot_out in ot_records —
+                          they're working late on purpose, don't nag them
+                          mid-overtime);
+         stage 2 ≥22:00 — firmer reminder, OT or not: at 10 pm an open shift
+                          is almost always a forgotten punch-out.
+       After midnight MYT "today" rolls over, so reminders stop by themselves. */
+    try {
+      const mytR = new Date(Date.now() + 8 * 3600 * 1000);
+      const minsR = mytR.getUTCHours() * 60 + mytR.getUTCMinutes();
+      const todayR = mytR.toISOString().slice(0, 10);
+      if (minsR >= 18 * 60 + 30) {
+        const stage = minsR >= 22 * 60 ? 2 : 1;
+        const refR = `clockout${stage}:${todayR}`;
+        /* Review fix: OT punches live in ot_records, NOT attendance_records
+           (its CHECK constraint doesn't even allow ot_* types) — counting
+           them in the wrong table made the skip a no-op. */
+        const otSkip = stage === 1
+          ? `AND (SELECT COUNT(*) FROM ot_records oi WHERE oi.user_id = u.id AND oi.type = 'ot_in'  AND date(oi.created_at, '+8 hours') = ?1)
+             <= (SELECT COUNT(*) FROM ot_records oo WHERE oo.user_id = u.id AND oo.type = 'ot_out' AND date(oo.created_at, '+8 hours') = ?1)`
+          : "";
+        const { results: openShifts } = await env.DB.prepare(
+          `SELECT u.id FROM users u
+           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+             AND EXISTS (SELECT 1 FROM attendance_records ai WHERE ai.user_id = u.id AND ai.type = 'clock_in'  AND date(ai.created_at, '+8 hours') = ?1)
+             AND NOT EXISTS (SELECT 1 FROM attendance_records ao WHERE ao.user_id = u.id AND ao.type = 'clock_out' AND date(ao.created_at, '+8 hours') = ?1)
+             AND NOT EXISTS (SELECT 1 FROM notifications nr WHERE nr.user_id = u.id AND nr.ref = ?2)
+             ${otSkip}
+           LIMIT 200`,
+        ).bind(todayR, refR).all<{ id: number }>();
+        for (const s of openShifts) {
+          await notify(
+            env, s.id, "attendance",
+            stage === 1
+              ? "⏰ Still clocked in — remember to tap Clock out before you leave the office."
+              : "🌙 It's past 10 pm and you're still clocked in. At the office? Tap Clock out now. Already home? Ask HR/admin for a manual clock-out so today's attendance stays accurate.",
+            refR,
+          );
+        }
+      }
+    } catch (e) {
+      if (!String(e).includes("no such")) console.error("clockout_cron", e);
+    }
     const res = await runTikTokSync(env, null);
     if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
       await logError(env, "tiktok_cron", res.message);
