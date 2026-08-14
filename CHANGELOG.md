@@ -2,6 +2,11 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.8.1] — 2026-08-14 — Infographic pass on the dashboard cards
+
+- **Attendance today** now leads with the headline ("38% of the team has clocked in (3 of 8)"), every legend row carries its count, percentage and a proportion bar, and a warning strip names exactly who hasn't clocked in yet.
+- **Operations map** redrawn on the REAL Malaysia outline (Natural-Earth low-res, equirectangular-projected — no more freehand blobs), with state labels under every bubble, a top-state headline ("Johor leads with 86% of shipments"), and the side list upgraded to counts + percentages + proportion bars. Bubble size capped so a dominant state can't swallow the peninsula.
+
 ## [1.8.0] — 2026-08-13 — App-shell UI/UX uplift (reference-design re-skin)
 
 Presentation-layer redesign per UI-REDESIGN-PLAN.md — **zero flow, permission, or API changes**; navy/gold kept throughout (the reference's maroon/pink translated to brand tokens, flat tints only, radius capped 16/24px).

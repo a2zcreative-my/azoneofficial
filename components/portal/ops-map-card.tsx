@@ -36,13 +36,14 @@ const CITY_TO_STATE: [string, string][] = [
   ["labuan", "Labuan"],
 ];
 
-/* Bubble anchors on the 420×230 viewBox below. */
+/* Bubble anchors on the 420×230 viewBox — projected from real state
+   coordinates with the same equirectangular projection as the outline. */
 const STATE_POS: Record<string, [number, number]> = {
-  Perlis: [52, 22], Kedah: [58, 44], Penang: [44, 66], Perak: [70, 84],
-  Kelantan: [98, 48], Terengganu: [120, 62], Pahang: [104, 104],
-  Selangor: [70, 122], "Kuala Lumpur": [82, 130], Putrajaya: [80, 140],
-  "Negeri Sembilan": [92, 146], Melaka: [96, 164], Johor: [116, 186],
-  Sarawak: [268, 168], Sabah: [352, 82], Labuan: [330, 96],
+  Perlis: [14.4, 61.3], Kedah: [17.9, 67.9], Penang: [17.1, 82.7], Perak: [32.8, 99.5],
+  Kelantan: [56.7, 69.4], Terengganu: [75.3, 89.1], Pahang: [70.4, 116],
+  Selangor: [39.3, 129.5], "Kuala Lumpur": [48.6, 126.4], Putrajaya: [45.5, 134.7],
+  "Negeri Sembilan": [53.8, 138.9], Melaka: [56.9, 149.4], Johor: [82.8, 157.5],
+  Sarawak: [275.7, 147.2], Sabah: [360.7, 84.9], Labuan: [326.3, 85.4],
 };
 
 function stateOf(city: string | null | undefined): string {
@@ -75,49 +76,75 @@ export function OpsMapCard() {
   if (!rows || rows.length === 0) return null; // 403, empty, or old worker
   const placeable = byState.filter(([s]) => STATE_POS[s]);
   const max = Math.max(1, ...placeable.map(([, n]) => n));
+  const total = rows.length;
+  const [topState, topN] = byState[0] ?? ["—", 0];
+  const topPct = total > 0 ? Math.round((topN / total) * 100) : 0;
 
   return (
     <section className={tile} aria-label="Orders by state">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <p className="text-sm font-semibold">Operations map</p>
-        <span className="text-muted-foreground text-xs">last {rows.length} shipments</span>
+        <span className="text-muted-foreground text-xs">last {total} shipments</span>
       </div>
-      <div className="grid items-center gap-4 md:grid-cols-[1fr_180px]">
+      {/* v1.8.1 infographic pass: the headline reading before the picture. */}
+      <p className="mb-2 text-xs">
+        <span className="text-foreground text-base font-semibold">{topState}</span>
+        <span className="text-muted-foreground"> leads with </span>
+        <span className="text-gold-deep font-semibold tabular-nums">{topPct}%</span>
+        <span className="text-muted-foreground"> of shipments ({topN} of {total})</span>
+      </p>
+      <div className="grid items-center gap-4 md:grid-cols-[1fr_200px]">
         <svg viewBox="0 0 420 230" role="img" className="w-full"
           aria-label={`Shipments by state: ${byState.map(([s, n]) => `${s} ${n}`).join(", ")}`}>
-          {/* Stylised silhouettes — peninsular Malaysia + Borneo strip.
-              A glance-level shape, deliberately simplified (≈design-mandate
-              minimalism), tinted with the brand token. */}
-          <path
-            d="M46 12 C60 6 72 14 74 28 C90 30 104 36 112 50 C124 54 130 66 128 80 C124 96 118 108 112 118 C106 134 108 150 118 164 C126 176 128 190 120 200 C110 212 96 210 88 200 C78 188 70 174 64 158 C56 140 54 122 56 106 C50 92 48 76 50 60 C44 46 40 26 46 12 Z"
-            className="fill-tint-navy" />
-          <path
-            d="M230 190 C244 172 260 158 278 150 C294 142 310 128 320 112 C328 96 338 82 352 70 C364 60 380 58 392 66 C402 74 404 88 396 98 C386 112 376 124 368 138 C356 152 344 164 330 172 C312 182 294 190 276 196 C260 200 242 200 230 190 Z"
-            className="fill-tint-navy" />
+          {/* v1.8.1 — the REAL outline: Natural-Earth low-res Malaysia
+              (world.geo.json MYS), equirectangular-projected into this
+              viewBox. Low-poly on purpose — a glance-level map in a flat
+              brand tint, but now the actual country. */}
+          <path strokeLinejoin="round" className="fill-tint-navy stroke-tint-navy" strokeWidth="6"
+            d="M32.5 66.2 L34.2 76.8 L47.8 74.4 L54.6 65.8 L59.4 67.8 L71.6 80.3 L80.3 94.2 L81.5 108.1 L79.3 117.6 L81.3 124.7 L82.9 137.0 L90.2 142.7 L98.3 161.0 L97.9 168.0 L83.2 169.4 L63.6 154.1 L39.1 137.6 L36.6 127.0 L24.6 113.2 L21.8 96.0 L14.3 84.7 L16.6 69.6 L12.0 60.8 L15.6 57.1 L32.5 66.2 Z" />
+          <path strokeLinejoin="round" className="fill-tint-navy stroke-tint-navy" strokeWidth="6"
+            d="M396.3 102.0 L381.0 109.0 L363.1 105.6 L339.2 105.5 L332.0 129.1 L324.1 136.3 L313.4 165.2 L296.5 169.6 L276.9 163.8 L267.0 165.6 L254.9 176.1 L241.6 174.6 L228.3 178.8 L214.1 167.1 L210.6 153.2 L225.8 160.3 L241.8 156.5 L246.0 138.9 L254.9 135.0 L279.7 130.5 L294.6 114.1 L304.8 101.0 L314.2 111.7 L318.6 104.7 L328.5 105.3 L329.7 92.1 L330.6 81.9 L346.6 67.5 L357.1 51.3 L365.4 51.2 L376.1 61.7 L377.0 70.7 L390.7 76.5 L408.0 82.7 L406.5 90.8 L392.6 91.9 L396.3 102.0 Z" />
           {placeable.map(([s, n]) => {
             const [x, y] = STATE_POS[s]!;
-            const r = 8 + (n / max) * 12;
+            /* Cap the bubbles to the peninsula's scale — a dominant state
+               must not swallow its neighbours' labels. */
+            const r = 7 + (n / max) * 9;
+            const short = s === "Kuala Lumpur" ? "KL" : s === "Negeri Sembilan" ? "N9" : s;
             return (
               <g key={s}>
                 <circle cx={x} cy={y} r={r} className="fill-brand" opacity={0.92} />
                 <circle cx={x} cy={y} r={r} fill="none" stroke="var(--background)" strokeWidth="2" />
-                <text x={x} y={y + 3.5} textAnchor="middle"
-                  style={{ fill: "var(--brand-accent)", fontSize: 10, fontWeight: 600 }}>{n}</text>
-                <title>{s}: {n} shipment{n === 1 ? "" : "s"}</title>
+                <text x={x} y={y + 3} textAnchor="middle"
+                  style={{ fill: "var(--brand-accent)", fontSize: 9, fontWeight: 600 }}>{n}</text>
+                {/* state label under the bubble — identity never size-alone */}
+                <text x={x} y={y + r + 9} textAnchor="middle"
+                  style={{ fill: "var(--muted-foreground)", fontSize: 8, fontWeight: 500 }}>{short}</text>
+                <title>{s}: {n} shipment{n === 1 ? "" : "s"} ({Math.round((n / total) * 100)}%)</title>
               </g>
             );
           })}
         </svg>
-        {/* the exact numbers — never circle-size-only */}
-        <ul className="space-y-1">
-          {byState.slice(0, 6).map(([s, n]) => (
-            <li key={s} className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground truncate">{s}</span>
-              <span className="font-medium tabular-nums">{n}</span>
-            </li>
-          ))}
+        {/* the exact numbers with proportion bars — never circle-size-only */}
+        <ul className="space-y-2">
+          {byState.slice(0, 6).map(([s, n]) => {
+            const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+            return (
+              <li key={s} className="text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground truncate">{s}</span>
+                  <span className="font-medium tabular-nums">
+                    {n}
+                    <span className="text-muted-foreground ml-1.5 text-xs font-normal">{pct}%</span>
+                  </span>
+                </div>
+                <span className="bg-secondary mt-1 block h-1 w-full overflow-hidden rounded-full" aria-hidden>
+                  <span className="bg-gold-deep block h-full rounded-full" style={{ width: `${pct}%` }} />
+                </span>
+              </li>
+            );
+          })}
           {byState.length > 6 && (
-            <li className="text-muted-foreground text-xs">+ {byState.length - 6} more</li>
+            <li className="text-muted-foreground text-xs">+ {byState.length - 6} more states</li>
           )}
         </ul>
       </div>

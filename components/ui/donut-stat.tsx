@@ -73,16 +73,29 @@ export function DonutStat({ title, centerValue, centerLabel, segments, size = 14
       </div>
       <div className="min-w-32 flex-1">
         {title && <p className="mb-2 text-sm font-semibold">{title}</p>}
-        <ul className="space-y-1.5">
-          {segments.map((s, i) => (
-            <li key={i} className="flex items-center justify-between gap-3 text-sm">
-              <span className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: TONES[s.tone] }} aria-hidden />
-                <span className="text-muted-foreground">{s.label}</span>
-              </span>
-              <span className="font-medium tabular-nums">{s.value}</span>
-            </li>
-          ))}
+        <ul className="space-y-2">
+          {segments.map((s, i) => {
+            const pct = total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0;
+            return (
+              <li key={i} className="text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: TONES[s.tone] }} aria-hidden />
+                    <span className="text-muted-foreground">{s.label}</span>
+                  </span>
+                  <span className="font-medium tabular-nums">
+                    {s.value}
+                    <span className="text-muted-foreground ml-1.5 text-xs font-normal">{pct}%</span>
+                  </span>
+                </div>
+                {/* v1.8.1 infographic pass: a quiet proportion bar per row —
+                    the % as geometry, not only as a number. */}
+                <span className="bg-secondary mt-1 block h-1 w-full overflow-hidden rounded-full" aria-hidden>
+                  <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: TONES[s.tone] }} />
+                </span>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

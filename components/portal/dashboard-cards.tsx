@@ -152,13 +152,17 @@ export function AttendanceTodayCard() {
   /* Late = first clock-in after 10:00 MYT (the shift rule the server
      already applies to reports; recomputed here only for the ring split). */
   const TEN_MYT = 10 * 60;
-  let onTime = 0, late = 0, missing = 0;
+  let onTime = 0, late = 0;
+  const missingNames: string[] = [];
   for (const r of rows) {
-    if (!r.in_at) { missing++; continue; }
+    if (!r.in_at) { missingNames.push(r.name.split(" ")[0] ?? r.name); continue; }
     const d = new Date(r.in_at.replace(" ", "T") + (r.in_at.endsWith("Z") ? "" : "Z"));
     const mins = ((d.getTime() / 60000) + 8 * 60) % (24 * 60);
     if (mins <= TEN_MYT) onTime++; else late++;
   }
+  const missing = missingNames.length;
+  const present = onTime + late;
+  const presentPct = rows.length > 0 ? Math.round((present / rows.length) * 100) : 0;
 
   return (
     <section className={tile} aria-label="Attendance today">
@@ -166,6 +170,11 @@ export function AttendanceTodayCard() {
         <p className="text-sm font-semibold">Attendance today</p>
         <span className="text-muted-foreground text-xs">{mytToday()}</span>
       </div>
+      {/* v1.8.1 infographic pass: the headline reading first, then the ring. */}
+      <p className="mb-3 text-xs">
+        <span className="text-foreground text-base font-semibold tabular-nums">{presentPct}%</span>
+        <span className="text-muted-foreground"> of the team has clocked in ({present} of {rows.length})</span>
+      </p>
       <DonutStat
         centerValue={rows.length}
         centerLabel="staff"
@@ -176,6 +185,11 @@ export function AttendanceTodayCard() {
           { label: "Not clocked in", value: missing, tone: "muted" },
         ]}
       />
+      {missing > 0 && (
+        <p className="bg-warning-soft text-warning mt-3 rounded-lg px-3 py-2 text-xs font-medium">
+          ⏳ Not clocked in: {missingNames.join(", ")}
+        </p>
+      )}
     </section>
   );
 }
