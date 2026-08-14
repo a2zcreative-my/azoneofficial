@@ -77,9 +77,11 @@ export default function AccountPage() {
   if (!checked || !user) return null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
+    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-5 md:py-6 md:pb-6">
       {toastNode}
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+      {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
+          the sticky header overhung the viewport by 4px each side. */}
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
             My account
@@ -87,7 +89,8 @@ export default function AccountPage() {
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             Welcome, {user.name.split(" ")[0]}
           </h1>
-          <h1 className="text-lg font-semibold tracking-tight md:hidden">
+          {/* v1.11.0: app screen title weight/size, matching /portal. */}
+          <h1 className="text-xl font-bold tracking-tight md:hidden">
             {tab === "Enquiries" ? "My Enquiries" : tab === "Orders" ? "My Orders" : "My Account"}
           </h1>
         </div>
@@ -122,25 +125,36 @@ export default function AccountPage() {
         ))}
       </nav>
 
-      {/* App-style bottom navigation (v1.4.55) — phones only. */}
+      {/* App-style bottom navigation (v1.4.55) — phones only.
+          v1.11.0: same shell as /portal and /admin — icon per tab, the active
+          one in a filled navy rounded square with the label beneath. */}
       <nav
         className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Account sections (mobile)"
       >
-        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-              tab === t ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            <span className={`h-1 w-6 rounded-full ${tab === t ? "bg-gold-deep" : "bg-transparent"}`} />
-            {t === "Enquiries" ? "Enquiries" : t}
-          </button>
-        ))}
+        {([["Account", "👤"], ["Orders", "📦"], ["Enquiries", "📨"]] as const).map(([t, icon]) => {
+          const active = tab === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
+              aria-current={active ? "page" : undefined}
+              className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+            >
+              <span
+                aria-hidden
+                className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                {icon}
+              </span>
+              <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {tab === "Account" && (

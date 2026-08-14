@@ -1,5 +1,13 @@
+# The WEBSITE itself, published as a Workers-assets worker from out/.
+# The API is a SEPARATE worker (worker/wrangler.toml, name azoneofficial-api)
+# and the D1 binding lives there — running `wrangler d1 ...` from this folder
+# will always fail with "Couldn't find a D1 DB 'azoneofficial'".
 name = "azoneofficial"
 compatibility_date = "2024-03-20"
+
+# v1.11.1: pinned so `wrangler deploy` can never stop to ask which Cloudflare
+# account to publish to when the login has access to more than one.
+account_id = "39fe816a63f159da3b17cc254a89d105"
 
 [assets]
 directory = "out"

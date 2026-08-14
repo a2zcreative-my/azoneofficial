@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.11.1] — 2026-08-14 — Admin + Account app shell, deploy script rebuilt
+
+**One shell across all three signed-in surfaces.** The mobile app shell introduced on `/portal` in v1.10.0 now renders identically on **`/admin`** and **`/account`**: every tab carries an icon, the active tab sits in a filled navy rounded square with its label in navy underneath, the bar is `min-h-16` with the phone's home-indicator inset respected, and labels truncate so a long name ("Testimonials") can't unbalance the row. The three navigations are class-for-class identical. Desktop is untouched — `/admin` keeps its tab-pill grid, `/account` its two-column nav, `/portal` its icon sidebar.
+
+- **`/admin`** — a local `TAB_ICONS` map covers all 12 tabs (admin's names are its own, so the glyphs are defined here rather than pulled from the sidebar's shared map; where names overlap the two agree). The More sheet gained tab icons and bottom padding that clears the taller nav plus the safe-area inset — the last row of tabs was half-covered and untappable on notched iPhones. Role filtering is unchanged: Users/Staff/Audit stay hidden from non-admins, and because admin's More sheet holds only overflow tabs (no Preferences, unlike `/portal`), gating it on `rest.length > 0` remains correct.
+- **`/account`** — the three customer tabs get 👤 / 📦 / 📨.
+- **Both** — the sticky mobile header no longer overhangs the viewport by 4px each side (`-mx-5`/`px-5` → `-mx-4`/`px-4`, matching the wrapper's own mobile padding), page bottom padding rose to `pb-28` for the taller bar, and the mobile `h1` steps up to `text-xl font-bold` to read as an app screen title.
+
+**DEPLOY.bat rebuilt.** The old script had three faults, all visible in the last deploy log: it ran D1 migrations from the project root (where `wrangler.toml` is the *website assets* config and carries no D1 binding, hence "Couldn't find a D1 DB 'azoneofficial'"); it built the site into `out\` but never published it, because no root `wrangler deploy` step existed; and its error checks missed wrangler's Windows exit codes, so a failed step didn't stop the run. It is now five explicit steps — install → migrations (from `worker\`) → API deploy → site build → **site publish** — with a real `%errorlevel%` check after each, a guard that `worker\wrangler.toml` is present, and a refreshed post-deploy checklist.
+
+**Housekeeping.** Removed a stray `test_tiktok.ts` that carried the TikTok app secret and an access token in plain text, plus `test-crypto.js`, `fix_portal.js`, `worker/update-all.sql`, and the eleven never-imported components from the abandoned parallel redesign. `outputFileTracingRoot` is pinned in `next.config.ts` so Next stops warning about the inferred workspace root.
+
+**Setup:** `pnpm install && pnpm build`, then deploy. Front-end only — no Worker change, no migration, no secrets.
+
 ## [1.10.0] — 2026-08-14 — Mobile app shell (CEO-approved reference design)
 
 Phones only — the desktop keeps the v1.8.0 sidebar shell pixel-for-pixel. Pure front-end: **no Worker change, no migration, no secrets**; deploy is site-only.

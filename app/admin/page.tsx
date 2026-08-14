@@ -859,6 +859,25 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
+/* v1.11.0: the mobile bottom nav shows an icon per tab, exactly like /portal
+   and the desktop sidebar. Admin's tab names are its own (Website, Portfolio,
+   Advanced…), so this map is local rather than the sidebar's shared ICONS —
+   where the names overlap the glyphs deliberately agree. */
+const TAB_ICONS: Record<Tab, string> = {
+  Dashboard: "▦",
+  Website: "🌐",
+  Enquiries: "📨",
+  Portfolio: "🖼",
+  Testimonials: "💬",
+  Posts: "📝",
+  Media: "🖇",
+  Users: "🔐",
+  Staff: "🗂",
+  Audit: "🕵",
+  Account: "👤",
+  Advanced: "⚙",
+};
+
 const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
 
 /** Plain-language purpose line shown under the tab bar. */
@@ -949,9 +968,14 @@ export default function AdminPage() {
     setUser(null);
   };
 
+  /* v1.11.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset (same
+     as /portal), and pb-24 left the last card tucked under it on notched
+     phones. */
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-24 md:px-5 md:py-6 md:pb-6">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex flex-wrap items-center justify-between gap-4 border-b px-5 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-5 md:py-6 md:pb-6">
+      {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
+          the sticky header overhung the viewport by 4px each side. */}
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
             Admin
@@ -959,7 +983,9 @@ export default function AdminPage() {
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             AZ ONE OFFICIAL
           </h1>
-          <h1 className="text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
+          {/* v1.11.0: on phones this reads as an app screen title, matching
+              /portal's mobile h1 weight and size. */}
+          <h1 className="text-xl font-bold tracking-tight md:hidden">{tab}</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground text-sm">
@@ -1007,31 +1033,56 @@ export default function AdminPage() {
               style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
               aria-label="Admin sections (mobile)"
             >
-              {primary.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                  className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-                    tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
-                  }`}
-                >
-                  <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
-                  {t}
-                </button>
-              ))}
-              {rest.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMoreOpen((v) => !v)}
-                  className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-                    moreOpen || rest.includes(tab) ? "text-primary" : "text-muted-foreground"
-                  }`}
-                >
-                  <span className={`h-1 w-6 rounded-full ${moreOpen || rest.includes(tab) ? "bg-gold-deep" : "bg-transparent"}`} />
-                  More
-                </button>
-              )}
+              {/* v1.11.0 (reference design, ported from /portal): each tab
+                  shows its icon; the active one sits in a filled navy rounded
+                  square with the label in navy underneath. */}
+              {primary.map((t) => {
+                const active = tab === t && !moreOpen;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                    aria-current={active ? "page" : undefined}
+                    className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+                  >
+                    <span
+                      aria-hidden
+                      className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                      }`}
+                    >
+                      {TAB_ICONS[t] ?? "▪"}
+                    </span>
+                    {/* truncate: longer names ("Testimonials") must not wrap
+                        and unbalance the row on narrow phones */}
+                    <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
+                  </button>
+                );
+              })}
+              {/* Unlike /portal, admin's More sheet holds only overflow tabs —
+                  there are no mobile Preferences here — so gating on
+                  rest.length stays correct. */}
+              {rest.length > 0 && (() => {
+                const active = moreOpen || rest.includes(tab);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((v) => !v)}
+                    className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+                  >
+                    <span
+                      aria-hidden
+                      className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                      }`}
+                    >
+                      ⋯
+                    </span>
+                    <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>More</span>
+                  </button>
+                );
+              })()}
             </nav>
             {moreOpen && (
               <div className="fixed inset-0 z-30 md:hidden">
@@ -1041,7 +1092,10 @@ export default function AdminPage() {
                   className="absolute inset-0 cursor-pointer bg-black/40"
                   onClick={() => setMoreOpen(false)}
                 />
-                <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16">
+                {/* v1.11.0: bottom padding clears the taller nav PLUS the
+                    phone's home-indicator inset — pb-16 left the last row of
+                    tabs half-covered and untappable on notched iPhones. */}
+                <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="w-9" />
                     <button
@@ -1065,10 +1119,11 @@ export default function AdminPage() {
                         key={t}
                         type="button"
                         onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                        className={`min-h-14 rounded-lg border px-2 py-3 text-xs font-medium ${
+                        className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-medium ${
                           tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                         }`}
                       >
+                        <span aria-hidden className="text-base">{TAB_ICONS[t] ?? "▪"}</span>
                         {t}
                       </button>
                     ))}
