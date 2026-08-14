@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.8.0] — 2026-08-13 — App-shell UI/UX uplift (reference-design re-skin)
+
+Presentation-layer redesign per UI-REDESIGN-PLAN.md — **zero flow, permission, or API changes**; navy/gold kept throughout (the reference's maroon/pink translated to brand tokens, flat tints only, radius capped 16/24px).
+
+- **AppShell** (`components/layout/app-shell.tsx`): desktop gets a dark backdrop band, a navy icon rail (lucide icons per tab, tooltips, same gated tab lists) and a rounded content canvas; phones keep the proven bottom-nav + More sheet, now with icons and a filled active pill. Adopted by /portal, /admin and /account. The v1.4.159/187 equal-width pill grid is retired by this — flagged for CEO sign-off.
+- **Context panel** (xl+ screens, /portal): mini month calendar with dot markers + the selected day's live sessions and events, on the navy column. Self-fetching, silent on failure.
+- **Dashboard uplift**: NEXT ASSIGNMENT navy hero card (your next session/event, countdown chip); the punch card now titles itself by state (Ready to clock in / On shift / Shift recorded) — same buttons, same rules; Attendance-today donut ring (on-time / late / not-clocked-in from /attendance/monitor; hides on 403); live-sessions bar chart (completed vs scheduled, hidden until two months exist); today's roster list with avatars; Operations map — shipments by state as bubbles on a stylised Malaysia silhouette with the exact numbers listed beside it (buyer_city grouping, inventory/exec readers).
+- **Schedule & roster week grid** (Attendance tab): Mon–Sun time grid of live sessions with tinted blocks, today-column highlight, tap/hover detail card, and a KPI strip (Scheduled / Hosts booked / On leave / Conflicts — conflicts = overlapping same-host slots). Phones get a day view with ‹ › paging. View layer only; creating stays in the Live Schedule card.
+- **Header**: Malay day line ("Selasa, 4 Ogos") + time-of-day greeting, both MYT (lib/format.ts dayLineMS/greetingWord). Mobile Dashboard titles itself "Today".
+- **Login**: navy backdrop, one rounded card — same form and flow.
+- **New primitives** (components/ui/): Avatar (photo → navy/gold initials fallback), DonutStat, BarChart (pure div/SVG — no chart library; palette validated with the dataviz six-checks script: gold-DEEP bars for contrast, neutral slate for "not clocked in"), MiniCalendar (Monday-first), SegmentedTabs, HoverCard. StatCard gains optional icon/trend/hero props (additive). New tokens in globals.css (+dark variants): shell backdrop, brand-soft, tint-navy/gold, radius-card/shell, shadow-soft.
+
 ## [1.7.3] — 2026-08-12 — Health card knows migrations 0068/0069
 
 - The /admin System-health card, the migration probes and the yellow "migrations pending" banner now include 0068 (targets/commission/push) and 0069 (stokis/content/receipts) — so a deploy that forgets `wrangler d1 migrations apply` is named explicitly instead of surfacing as "temporarily unavailable" panels.

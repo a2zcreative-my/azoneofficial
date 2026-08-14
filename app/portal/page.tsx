@@ -48,7 +48,13 @@ import {
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { card, inputClass, btnClass, btnGhost, btnHdr, btnSm, btnSmPrimary, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { dmy, mytToday, mytDateOf, fmtRM, ym, dayLineMS, greetingWord } from "@/lib/format";
+/* v1.8.0 — app-shell uplift (UI-REDESIGN-PLAN.md) */
+import { AppShell } from "@/components/layout/app-shell";
+import { PortalContextPanel } from "@/components/portal/context-panel";
+import { NextAssignmentCard, AttendanceTodayCard, SessionsMonthChartCard, TodaySessionsCard } from "@/components/portal/dashboard-cards";
+import { WeekGridCard } from "@/components/portal/week-grid";
+import { OpsMapCard } from "@/components/portal/ops-map-card";
 
 
 interface User { id: number; email: string; name: string; role: string; photo_key?: string | null; requires_2fa?: boolean }
@@ -289,8 +295,17 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   return (
     <div className="space-y-3 md:space-y-6">
+      {/* v1.8.0 (UI-REDESIGN-PLAN.md Phase 2/4): the reference's navy hero —
+          your next session/event with a countdown chip. Renders nothing when
+          there is nothing upcoming. */}
+      <NextAssignmentCard userId={user.id} />
+
       <div className={card}>
-        <p className="text-sm font-semibold">Quick actions</p>
+        {/* v1.8.0: the punch card reads like the reference's action card —
+            same buttons, same rules, state-aware title. */}
+        <p className="text-sm font-semibold">
+          {hasOut ? "Shift recorded — thank you" : hasIn ? "On shift" : "Ready to clock in"}
+        </p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -398,6 +413,19 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
           )}
         </div>
       </div>
+      {/* v1.8.0 (Phase 2): the reference dashboard's middle band — the
+          attendance donut (HR/exec readers; hides itself on 403), the
+          sessions bar chart and today's roster. All presentation over
+          existing endpoints. */}
+      <div className="grid gap-3 md:gap-6 lg:grid-cols-2">
+        <AttendanceTodayCard />
+        <SessionsMonthChartCard />
+      </div>
+      <TodaySessionsCard />
+      {/* v1.8.0 (Phase 6): shipments-by-state bubbles (inventory/exec
+          readers; hides itself otherwise). */}
+      <OpsMapCard />
+
       {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
           of today, the KPI target (auto-computed from history), product vs
           service market targets, motivation and boost suggestions. */}
@@ -744,12 +772,11 @@ function TradingDesk({ user }: { user: User }) {
           { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Expenses" },
         ];
         return (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {tiles.map((t) => (
-              <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card shadow-sm hover:shadow-md hover:-translate-y-1 hover:border-primary/50 group flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition-all duration-300 relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <p className="text-lg leading-tight font-bold tabular-nums relative z-10">{t.value}</p>
-                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase mt-0.5 relative z-10">{t.label}</p>
+              <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors">
+                <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
+                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.label}</p>
               </button>
             ))}
           </div>
@@ -4254,14 +4281,7 @@ export default function PortalPage() {
       .catch(() => { /* old worker: defaults apply */ });
   }, []);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  // While the More sheet is open, the page behind must not scroll — the
-  // sheet then behaves like a native menu instead of a floating layer.
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [moreOpen]);
+  /* v1.8.0: the More sheet (and its scroll lock) now lives inside AppShell. */
 
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
@@ -4482,8 +4502,18 @@ export default function PortalPage() {
      which can never name a tab outside this account's visible list. */
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
+  /* v1.8.0 (UI-REDESIGN-PLAN.md Phase 1): the outer frame is AppShell —
+     icon rail + rounded canvas on desktop, the same bottom nav on phones.
+     State, gating and every panel below are untouched: the shell only
+     renders the tab list this component already computed. */
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
+    <AppShell
+      tabs={tabs}
+      tab={activeTab}
+      onTab={setTab}
+      tabLabel={tabLabel}
+      context={<PortalContextPanel />}
+    >
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div className="flex min-w-0 items-center gap-2 md:gap-3">
           {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
@@ -4502,12 +4532,13 @@ export default function PortalPage() {
             </span>
           )}
           <div className="min-w-0">
-            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
-            <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
-              Welcome, {user.name.split(" ")[0]}
+            {/* v1.8.0: the reference's day-line + time-of-day greeting. */}
+            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.2em] uppercase md:block">{dayLineMS()}</p>
+            <h1 className="hidden truncate text-2xl font-semibold tracking-tight md:block">
+              {greetingWord()}, {user.name.split(" ")[0]}
             </h1>
             {/* On phones the header reads like an app screen title. */}
-            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab === "Dashboard" ? "Today" : tabLabel(tab)}</h1>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
@@ -4603,106 +4634,10 @@ export default function PortalPage() {
         </div>
       )}
 
-      {/* v1.4.159 (CEO): every tab pill the SAME width; v1.4.187 (CEO: "tabs
-          width was not same with card width"): the rows now form a full-width
-          GRID — equal columns filling the container exactly, so the pill rows
-          are flush with the card edges below (v1.4.213: 17 tabs — the second row
-          8). Same standard in /admin and /account. */}
-      <nav className="mt-6 hidden gap-2 md:grid" aria-label="Portal sections"
-        style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 8)}, minmax(0, 1fr))` }}>
-        {tabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={
-              t === tab
-                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
-            }
-          >
-            {tabLabel(t)}
-          </button>
-        ))}
-      </nav>
-
-      {/* App-style bottom navigation (v1.4.49) — phones only. The first four
-          of this person's tabs are one thumb-tap away; the rest are in More. */}
-      <nav
-        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-        aria-label="Portal sections (mobile)"
-      >
-        {tabs.slice(0, 4).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-              tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
-            {t === "Staff Details" ? "Staff" : t === "Announcements" ? "News" : t}
-          </button>
-        ))}
-        {tabs.length > 4 && (
-          <button
-            type="button"
-            onClick={() => setMoreOpen((v) => !v)}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-              moreOpen || tabs.indexOf(tab) >= 4 ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            <span className={`h-1 w-6 rounded-full ${moreOpen || tabs.indexOf(tab) >= 4 ? "bg-gold-deep" : "bg-transparent"}`} />
-            More
-          </button>
-        )}
-      </nav>
-
-      {moreOpen && (
-        <div className="fixed inset-0 z-30 md:hidden">
-          <button
-            type="button"
-            aria-label="Close menu"
-            className="absolute inset-0 cursor-pointer bg-black/40"
-            onClick={() => setMoreOpen(false)}
-          />
-          <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="w-9" />
-              <button
-                type="button"
-                aria-label="Close menu"
-                className="bg-border mx-auto h-1.5 w-12 rounded-full"
-                onClick={() => setMoreOpen(false)}
-              />
-              <button
-                type="button"
-                aria-label="Close"
-                className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
-                onClick={() => setMoreOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-2.5">
-              {tabs.slice(4).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                  className={`min-h-14 rounded-lg border px-2 py-3 text-xs font-medium ${
-                    tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
-                  }`}
-                >
-                  {tabLabel(t)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* v1.8.0: tab navigation (desktop rail + mobile bottom nav + More
+          sheet) is rendered by AppShell from the same gated `tabs` list.
+          The v1.4.159/187 equal-width pill grid it replaces is retired with
+          this redesign — flagged in UI-REDESIGN-PLAN.md for CEO sign-off. */}
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} />}
@@ -4717,6 +4652,9 @@ export default function PortalPage() {
           <div className="space-y-4 md:space-y-6">
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
+            {/* v1.8.0 (Phase 3): the reference's Schedule & Roster week grid.
+                View layer only — creating/editing stays in the card below. */}
+            <WeekGridCard />
             <LiveScheduleCard user={user} />
             {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
           </div>
@@ -4800,6 +4738,6 @@ export default function PortalPage() {
           </div>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }

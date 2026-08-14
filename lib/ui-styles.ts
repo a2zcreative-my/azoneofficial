@@ -14,25 +14,25 @@
  * for surfaces and form fields.
  */
 
-/** Every card in every app. One padding, everywhere. Uplifted to rounded-2xl with shadow. */
-export const card = "rounded-2xl border border-border bg-card p-4 md:p-5 shadow-sm";
+/** Every card in every app. One padding, everywhere. */
+export const card = "rounded-lg border border-border bg-card p-4 md:p-5";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
-  "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring transition-shadow shadow-sm";
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
 export const inputClassLg =
-  "w-full rounded-xl border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm transition-shadow shadow-sm";
+  "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm";
 
 /** Standard primary button. */
 export const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/90 hover:-translate-y-0.5 shadow-sm hover:shadow-md active:translate-y-0 active:shadow-sm inline-flex h-9 items-center rounded-xl px-4 text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none";
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
 
 /** Full-width variant — sign-in and other single-action forms. */
 export const btnClassBlock =
-  "bg-primary text-primary-foreground hover:bg-primary/90 hover:-translate-y-0.5 shadow-sm hover:shadow-md active:translate-y-0 active:shadow-sm inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none";
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors disabled:opacity-50";
 
 /** A row of labelled fields.
  *
@@ -60,17 +60,17 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 
 /** Secondary (outline) button — was duplicated in 4 files. */
 export const btnGhost =
-  "inline-flex h-9 items-center rounded-xl border border-border px-4 text-sm font-medium transition-all duration-300 hover:bg-secondary hover:shadow-sm";
+  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
 /** Compact header control (phones share one row). */
 export const btnHdr =
-  "inline-flex h-8 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-all duration-300 hover:bg-secondary hover:shadow-sm md:h-9 md:px-3";
+  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
-  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium transition-colors hover:bg-secondary hover:shadow-sm";
+  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary";
 export const btnSmPrimary =
-  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-all hover:bg-primary/90 hover:shadow-sm disabled:opacity-50";
+  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50";
 
 /** Field labels — the two spellings that existed are now named. */
 export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";
@@ -94,3 +94,37 @@ export const chipSuccess = `${chip} bg-success-soft text-success`;
 export const chipWarn = `${chip} bg-warning-soft text-warning`;
 export const chipDanger = `${chip} bg-danger-soft text-danger`;
 export const chipInfo = `${chip} bg-info-soft text-info`;
+
+/* ===================== v1.8.0 — app-shell uplift (UI-REDESIGN-PLAN.md) =====
+   The reference design's surfaces, translated to navy/gold. New strings only —
+   nothing above changes, so every existing screen renders as before until a
+   screen opts in. */
+
+/** Stat tile — the upgraded KPI surface (16px radius, soft shadow). */
+export const tile =
+  "rounded-card border border-border bg-card p-4 shadow-soft md:p-5";
+
+/** Oversized hero numeral for stat tiles ("247", "10:00—12:30"). */
+export const heroNum =
+  "text-3xl leading-none font-semibold tracking-tight tabular-nums md:text-4xl";
+
+/** Icon in a soft-tinted squircle (stat tiles, list leads). */
+export const iconSquircle =
+  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tint-gold text-gold-deep";
+
+/** Icon-rail buttons (desktop shell). Rail bg is navy in BOTH themes. */
+export const railBtn =
+  "flex h-11 w-11 items-center justify-center rounded-xl text-white/65 transition-colors hover:bg-brand-soft hover:text-white focus-visible:bg-brand-soft";
+export const railBtnActive =
+  "flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-gold";
+
+/** Context-panel card (mini calendar + today list, left of the work area). */
+export const panelCard =
+  "rounded-card border border-border bg-card p-3 shadow-soft";
+
+/** Urgency chip for queue rows ("Urgent", "Tomorrow"). */
+export const chipUrgent = `${chip} bg-danger-soft text-danger`;
+
+/** The canvas — the rounded app surface that sits on the shell backdrop. */
+export const canvas =
+  "min-h-svh bg-background md:min-h-0 md:rounded-shell md:shadow-soft";

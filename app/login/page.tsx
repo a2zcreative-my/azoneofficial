@@ -118,8 +118,11 @@ export default function LoginPage() {
     }
   };
 
+  /* v1.8.0 (UI-REDESIGN-PLAN.md Phase 5): the sign-in door gets the shell
+     treatment — navy backdrop, one rounded card. Same form, same flow. */
   return (
-    <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
+    <div className="bg-shell flex min-h-svh items-center justify-center px-4 py-10">
+      <div className="bg-background rounded-shell shadow-soft w-full max-w-sm px-6 py-8 sm:px-8">
       <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
@@ -287,6 +290,7 @@ export default function LoginPage() {
       </div>
       </>
       )}
+      </div>
     </div>
   );
 }
