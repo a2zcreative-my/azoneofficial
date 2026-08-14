@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.10.0] — 2026-08-14 — Mobile app shell (CEO-approved reference design)
+
+Phones only — the desktop keeps the v1.8.0 sidebar shell pixel-for-pixel. Pure front-end: **no Worker change, no migration, no secrets**; deploy is site-only.
+
+**App bar** — the mobile header calms down to avatar + a bold screen title (**"Today"** on the Dashboard, BM *"Hari ini"*; the tab name elsewhere) + four controls in the reference design's soft rounded squares: 🔎 search, 🔔 bell (unread badge kept), 🌙 dark mode, Sign out. Sound, push alerts, EN/BM and the 🎨 theme preset move to the More sheet's new **Preferences** row (bilingual labels) — set-once switches, not daily taps. Desktop header unchanged.
+
+**NEXT EVENT hero card** — a navy panel at the top of the mobile Dashboard: gold letter-spaced eyebrow, the event title big, 🗓 date (DD-MM-YYYY) + 📍 location, the soft decorative circles, and an "in N days" chip. Fed by Upcoming events, falling back to the sooner of the next public holiday (year-end aware) or staff birthday; hides when there's nothing. Tapping scrolls to the Upcoming events card. Fixed navy (`bg-brand`) so the gold eyebrow stays readable in dark mode and restyles under the Plum preset; the fetches don't even run on desktop, where the card can never be seen.
+
+**On shift** — the quick-actions card takes the reference design's presentation: the heading reads **"On shift"** (BM *"Sedang bertugas"*) while clocked in, and the buttons grow to tall rounded-xl app buttons on phones (identical from `md` up). Class changes only — the v1.9.1 geofence flow, clock-out banner, OT punches and all guards are byte-for-byte untouched.
+
+**Bottom navigation** — each tab now shows the same icon the desktop sidebar uses, and the active tab sits in a **filled navy rounded square** with its label in navy underneath, exactly like the mockup. Labels truncate so BM ("Papan Pemuka") can't unbalance the row. **More now always renders** (review fix: a role trimmed to ≤4 tabs would otherwise lose the Preferences entirely) and its sheet gained tab icons + the Preferences strip, with bottom padding that clears the nav plus the iPhone home-indicator inset (review fix: the row was half-covered and untappable before).
+
+**Card language** — every card portal-wide is `rounded-2xl` on phones via the one shared token (`md:rounded-lg` keeps desktop identical); dashboard card headings step up to 15px on phones.
+
+**Other review fixes baked in:** page bottom padding raised for the taller nav; the quick-action breakpoint moved sm→md so the whole mobile shell flips at one width; ghost buttons only dim when disabled on phones (desktop had no such rule); header no longer overhangs the viewport by 4px each side; the mobile title reads the clamped active tab.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Worker untouched.
+
 ## [1.9.1] — 2026-08-14 — Office geofence clock in/out + clock-out reminders
 
 **Office check-in (geofence) — replaces the selfie step** (CEO: "instead of using face checking, can I use location"). Management (super_admin/CEO/COO) sets the office point + radius on the **Users tab → 📍 Office check-in** card — easiest with the "Use my current location" button while standing at the office (pasting "lat, lng" from Google Maps also works and auto-fills both boxes). Once ON:

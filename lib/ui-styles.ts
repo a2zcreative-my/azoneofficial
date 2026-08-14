@@ -14,8 +14,10 @@
  * for surfaces and form fields.
  */
 
-/** Every card in every app. One padding, everywhere. */
-export const card = "rounded-lg border border-border bg-card p-4 md:p-5";
+/** Every card in every app. One padding, everywhere.
+    v1.10.0: phones get the reference design's rounder, calmer card
+    (rounded-2xl); the desktop keeps its v1.8.0 look exactly (md:rounded-lg). */
+export const card = "rounded-2xl md:rounded-lg border border-border bg-card p-4 md:p-5";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
@@ -62,9 +64,11 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 export const btnGhost =
   "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
 
-/** Compact header control (phones share one row). */
+/** Compact header control (phones share one row).
+    v1.10.0: phones get the reference design's soft rounded square (h-9,
+    rounded-xl); desktop keeps its previous look. */
 export const btnHdr =
-  "inline-flex h-8 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:px-3";
+  "inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:rounded-lg md:px-3";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =

@@ -31,7 +31,8 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
-import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { SidebarNav, ICONS } from "@/components/layout/sidebar-nav";
+import { NextEventCard } from "@/components/portal/next-event-card";
 import { RosterBoard } from "@/components/portal/roster-board";
 import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
 import { GeofenceCard } from "@/components/portal/geofence-card";
@@ -342,32 +343,49 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   const isWeekendMYT = [0, 6].includes(new Date(Date.now() + 8 * 3600 * 1000).getUTCDay());
   const showOt = otEligible && (isWeekendMYT || nowMins >= 18 * 60 || todayOt.length > 0);
 
+  /* v1.10.0 (reference design): the mockup's punchy action buttons — taller
+     and rounder on phones, pixel-identical to btnClass/btnGhost from `sm` up.
+     Self-contained strings (NOT btnClass + overrides): two conflicting
+     unprefixed utilities like h-9 + h-12 resolve by stylesheet order, not
+     class order — a silent trap. Class changes ONLY; every handler, guard
+     and geofence path is untouched. */
+  const qaPrimary = "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex items-center px-4 transition-colors disabled:opacity-50 h-12 justify-center rounded-xl text-[15px] font-semibold md:h-9 md:justify-start md:rounded-lg md:text-sm md:font-medium";
+  const qaGhost = "border-border inline-flex items-center border px-4 transition-colors hover:bg-secondary max-md:disabled:opacity-50 h-12 justify-center rounded-xl text-[15px] font-semibold md:h-9 md:justify-start md:rounded-lg md:text-sm md:font-medium";
+
   return (
     <div className="space-y-3 md:space-y-6">
+      {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
+      <NextEventCard lang={lang} />
       <div className={card}>
-        <p className="text-sm font-semibold">{tr("Quick actions", lang)}</p>
+        {/* "On shift" once clocked in (the reference design's heading),
+            "Quick actions" before that. */}
+        <p className="text-[15px] font-semibold md:text-sm">
+          {hasIn && !hasOut ? tr("On shift", lang) : tr("Quick actions", lang)}
+        </p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
-            ragged wrapping; the desktop keeps its inline row. */}
-        <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <button type="button" className={`${btnClass} justify-center sm:justify-start`} disabled={!!busy}
+            ragged wrapping; the desktop keeps its inline row. v1.10.0: the
+            flip moved sm→md so the whole mobile shell (nav, hero, cards,
+            buttons) switches at ONE breakpoint. */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap">
+          <button type="button" className={qaPrimary} disabled={!!busy}
             onClick={() => void punch("clock_in")}>
             {hasIn ? tr("Clocked in ✓", lang) : tr("Clock in", lang)}
           </button>
-          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_out")}>
+          <button type="button" className={qaGhost} disabled={!!busy} onClick={() => void punch("clock_out")}>
             {hasOut ? tr("Clocked out ✓", lang) : tr("Clock out", lang)}
           </button>
-          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Leave")}>{tr("Apply leave", lang)}</button>
+          <button type="button" className={qaGhost} onClick={() => go("Leave")}>{tr("Apply leave", lang)}</button>
           {SALES_ROLES.includes(user.role) && (
-            <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Sales")}>{tr("Create quotation", lang)}</button>
+            <button type="button" className={qaGhost} onClick={() => go("Sales")}>{tr("Create quotation", lang)}</button>
           )}
           {showOt && (
             <>
               <button type="button"
-                className={`${hasOtIn ? btnGhost : btnClass} justify-center sm:justify-start`}
+                className={hasOtIn ? qaGhost : qaPrimary}
                 disabled={!!busy} onClick={() => void punchOt("ot_in")}>
                 {hasOtIn ? "OT in ✓" : "OT in"}
               </button>
-              <button type="button" className={`${btnGhost} justify-center sm:justify-start`}
+              <button type="button" className={qaGhost}
                 disabled={!!busy} onClick={() => void punchOt("ot_out")}>
                 {hasOtOut ? "OT out ✓" : "OT out"}
               </button>
@@ -409,7 +427,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           three-column day view → Upcoming events. */}
       <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
-          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+          <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Leave")} onKeyDown={(e) => e.key === "Enter" && go("Leave")}>
             Pending leave
             {leave.length > 0 && (
@@ -429,7 +447,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           )}
         </div>
         <div className={card}>
-          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+          <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Tasks")} onKeyDown={(e) => e.key === "Enter" && go("Tasks")}>
             My open tasks
             {tasks.length > 0 && (
@@ -449,7 +467,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           )}
         </div>
         <div className={card}>
-          <p className="cursor-pointer text-sm font-semibold" role="button" tabIndex={0}
+          <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Announcements")} onKeyDown={(e) => e.key === "Enter" && go("Announcements")}>
             News
             {anns.length > 0 && (
@@ -477,7 +495,10 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           hero band already carries today + month + overall up top, so the
           detailed month card was the Dashboard's third telling of the same
           story. Ecommerce is where the channel detail lives. */}
-      <UpcomingEventsCard role={user.role} />
+      {/* v1.10.0: id anchor — the mobile hero card scrolls here on tap */}
+      <div id="upcoming-events" className="scroll-mt-16">
+        <UpcomingEventsCard role={user.role} />
+      </div>
     </div>
   );
 }
@@ -4632,8 +4653,10 @@ export default function PortalPage() {
           { label: "Toggle dark mode", hint: "action", run: () => { setDark((v) => !v); setPaletteOpen(false); } },
         ]}
       />
-    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-24 md:px-5 md:py-6 md:pb-6">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-5 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+    {/* v1.10.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset,
+        pb-24 left the last card's edge underneath it on notched phones. */}
+    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-28 md:px-5 md:py-6 md:pb-6">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div className="flex min-w-0 items-center gap-2 md:gap-3">
           {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
@@ -4655,8 +4678,12 @@ export default function PortalPage() {
             <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
               {tr("Welcome", lang)}, {user.name.split(" ")[0]}
             </h1>
-            {/* On phones the header reads like an app screen title. */}
-            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tr(tab, lang)}</h1>
+            {/* On phones the header reads like an app screen title.
+                v1.10.0: the Dashboard says "Today" (the reference design's
+                home title); every other tab keeps its own name. */}
+            <h1 className="truncate text-xl font-bold tracking-tight md:hidden">
+              {activeTab === "Dashboard" ? tr("Today", lang) : tr(activeTab, lang)}
+            </h1>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
@@ -4678,9 +4705,12 @@ export default function PortalPage() {
           >
             🔎
           </button>
+          {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
+              taps — on phones they live in the More sheet's Preferences row
+              so the app bar keeps just search · bell · dark · sign out. */}
           <button
             type="button"
-            className={btnHdr}
+            className={`${btnHdr} hidden md:inline-flex`}
             title={sound ? "Notification sound ON — tap to mute" : "Notification sound OFF — tap to unmute"}
             aria-label={sound ? "Mute notification sound" : "Unmute notification sound"}
             onClick={() => {
@@ -4697,7 +4727,7 @@ export default function PortalPage() {
           {pushState !== "unsupported" && (
             <button
               type="button"
-              className={btnHdr}
+              className={`${btnHdr} hidden md:inline-flex`}
               title={pushState === "granted" ? "Push alerts ON for this device — tap to turn off" : "Get push alerts on this device"}
               aria-label="Toggle push alerts"
               onClick={async () => {
@@ -4736,7 +4766,7 @@ export default function PortalPage() {
             aria-label="Switch colour theme" onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}>
             🎨
           </button>
-          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
+          <button type="button" className={`${btnHdr} hidden text-xs font-semibold md:inline-flex`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
             aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
             {lang === "ms" ? "BM" : "EN"}
           </button>
@@ -4789,31 +4819,56 @@ export default function PortalPage() {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Portal sections (mobile)"
       >
-        {tabs.slice(0, 4).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-              tab === t && !moreOpen ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
-            {tr(t, lang)}
-          </button>
-        ))}
-        {tabs.length > 4 && (
-          <button
-            type="button"
-            onClick={() => setMoreOpen((v) => !v)}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium ${
-              moreOpen || tabs.indexOf(tab) >= 4 ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            <span className={`h-1 w-6 rounded-full ${moreOpen || tabs.indexOf(tab) >= 4 ? "bg-gold-deep" : "bg-transparent"}`} />
-            {tr("More", lang)}
-          </button>
-        )}
+        {/* v1.10.0 (reference design): each tab shows its sidebar icon; the
+            active one sits in a filled navy rounded square — same visual
+            language as the desktop sidebar's gold square. */}
+        {tabs.slice(0, 4).map((t) => {
+          const active = tab === t && !moreOpen;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+              aria-current={active ? "page" : undefined}
+              className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+            >
+              <span
+                aria-hidden
+                className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                {ICONS[t] ?? "▪"}
+              </span>
+              {/* truncate: BM labels ("Papan Pemuka") must not wrap and
+                  unbalance the row on narrow phones */}
+              <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr(t, lang)}</span>
+            </button>
+          );
+        })}
+        {/* v1.10.0 review fix: More renders UNCONDITIONALLY — the mobile
+            Preferences (sound/push/language/theme) live in its sheet, and a
+            role trimmed to ≤4 tabs would otherwise lose them entirely. */}
+        {(() => {
+          const active = moreOpen || tabs.indexOf(tab) >= 4;
+          return (
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+            >
+              <span
+                aria-hidden
+                className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                ⋯
+              </span>
+              <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr("More", lang)}</span>
+            </button>
+          );
+        })()}
       </nav>
 
       {moreOpen && (
@@ -4824,7 +4879,10 @@ export default function PortalPage() {
             className="absolute inset-0 cursor-pointer bg-black/40"
             onClick={() => setMoreOpen(false)}
           />
-          <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-16">
+          {/* v1.10.0 review fix: bottom padding clears the taller nav PLUS the
+              phone's home-indicator inset — the old pb-16 left the Preferences
+              row half-covered and untappable on notched iPhones. */}
+          <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
             <div className="mb-3 flex items-center justify-between">
               <span className="w-9" />
               <button
@@ -4842,19 +4900,77 @@ export default function PortalPage() {
                 ✕
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2.5">
-              {tabs.slice(4).map((t) => (
+            {tabs.length > 4 && (
+              <div className="grid grid-cols-3 gap-2.5">
+                {tabs.slice(4).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+                    className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-medium ${
+                      tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+                    }`}
+                  >
+                    <span aria-hidden className="text-base">{ICONS[t] ?? "▪"}</span>
+                    {tr(t, lang)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* v1.10.0: the set-once switches displaced from the app bar —
+                sound, push alerts, language, colour theme. Same handlers as
+                the desktop header buttons. */}
+            <p className="text-muted-foreground mt-4 mb-1.5 text-[10px] font-semibold tracking-wider uppercase">{tr("Preferences", lang)}</p>
+            <div className={`grid gap-2.5 ${pushState !== "unsupported" ? "grid-cols-4" : "grid-cols-3"}`}>
+              <button
+                type="button"
+                className="border-border flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium hover:bg-secondary"
+                onClick={() => {
+                  const next = !sound;
+                  setSound(next);
+                  localStorage.setItem("azone-notif-sound", next ? "on" : "off");
+                  if (next) void chime();
+                }}
+              >
+                <span aria-hidden className="text-base">{sound ? "🔊" : "🔇"}</span>
+                {sound ? (lang === "ms" ? "Bunyi" : "Sound on") : (lang === "ms" ? "Senyap" : "Muted")}
+              </button>
+              {pushState !== "unsupported" && (
                 <button
-                  key={t}
                   type="button"
-                  onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                  className={`min-h-14 rounded-lg border px-2 py-3 text-xs font-medium ${
-                    tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
-                  }`}
+                  className="border-border flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium hover:bg-secondary"
+                  onClick={async () => {
+                    if (pushState === "granted") {
+                      await disablePush();
+                      setPushState("default");
+                    } else {
+                      const r = await enablePush();
+                      if (r === "ok") { setPushState("granted"); }
+                      else if (r === "unconfigured") window.alert("Push isn't set up on the server yet — ask your admin to add the VAPID keys.");
+                      else if (r === "denied") window.alert("Notifications are blocked for this site in your browser settings.");
+                    }
+                  }}
                 >
-                  {tr(t, lang)}
+                  <span aria-hidden className="text-base">{pushState === "granted" ? "🔔✓" : "🔕"}</span>
+                  {pushState === "granted" ? (lang === "ms" ? "Push aktif" : "Push on") : (lang === "ms" ? "Push tutup" : "Push off")}
                 </button>
-              ))}
+              )}
+              <button
+                type="button"
+                className="border-border flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium hover:bg-secondary"
+                onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}
+              >
+                <span aria-hidden className="text-base font-bold">{lang === "ms" ? "BM" : "EN"}</span>
+                {lang === "ms" ? "Bahasa" : "English"}
+              </button>
+              <button
+                type="button"
+                className="border-border flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium hover:bg-secondary"
+                onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
+              >
+                <span aria-hidden className="text-base">🎨</span>
+                {theme === "plum" ? (lang === "ms" ? "Ungu" : "Plum") : (lang === "ms" ? "Biru" : "Navy")}
+              </button>
             </div>
           </div>
         </div>

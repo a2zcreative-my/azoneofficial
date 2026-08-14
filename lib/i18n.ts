@@ -48,6 +48,13 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Don't forget to clock out": { en: "Don't forget to clock out", ms: "Jangan lupa daftar keluar" },
   "tap Clock out before you leave.": { en: "tap Clock out before you leave.", ms: "tekan Daftar keluar sebelum pulang." },
   "Office check-in is on": { en: "Office check-in is on", ms: "Daftar kehadiran di pejabat diaktifkan" },
+  // v1.10.0 — mobile app shell
+  "Today": { en: "Today", ms: "Hari ini" },
+  "On shift": { en: "On shift", ms: "Sedang bertugas" },
+  "Preferences": { en: "Preferences", ms: "Tetapan" },
+  "Next event": { en: "Next event", ms: "Acara akan datang" },
+  "Public holiday": { en: "Public holiday", ms: "Cuti umum" },
+  "Birthday": { en: "Birthday", ms: "Hari lahir" },
 };
 
 export function getLang(): Lang {

@@ -7,7 +7,9 @@
 
 interface SidebarItem { name: string; label: string }
 
-const ICONS: Record<string, string> = {
+/* v1.10.0: exported — the mobile bottom nav renders the SAME icon per tab,
+   so the two navigations speak one visual language. */
+export const ICONS: Record<string, string> = {
   Dashboard: "▦",
   Overview: "◫",
   Announcements: "📣",

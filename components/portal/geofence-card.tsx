@@ -136,7 +136,7 @@ export function GeofenceCard() {
             onChange={(e) => {
               // Pasting "1.4927, 103.7414" straight from Google Maps fills both boxes.
               const pair = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(e.target.value);
-              if (pair) { setLat(pair[1] || ""); setLng(pair[2] || ""); } else { setLat(e.target.value); }
+              if (pair) { setLat(pair[1]); setLng(pair[2]); } else { setLat(e.target.value); }
             }} />
         </label>
         <label className="block">
