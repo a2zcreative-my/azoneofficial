@@ -94,4 +94,3 @@ export const chipSuccess = `${chip} bg-success-soft text-success`;
 export const chipWarn = `${chip} bg-warning-soft text-warning`;
 export const chipDanger = `${chip} bg-danger-soft text-danger`;
 export const chipInfo = `${chip} bg-info-soft text-info`;
-export const tile = card;

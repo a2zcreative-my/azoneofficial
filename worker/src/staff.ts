@@ -441,7 +441,7 @@ export async function handleStaff(
   // /docs/:id/receipt is JSON, so exclude only the claims one, not any /receipt.
   const isClaimsReceipt = path.endsWith("/receipt") && path.startsWith("/claims/");
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && path !== "/attendance/selfie"
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -573,6 +573,44 @@ export async function handleStaff(
       employment_status: status ?? target.employment_status ?? "unchanged",
     });
     return json({ ok: true, role: newRole, employment_status: status ?? target.employment_status });
+  }
+
+  /* v1.9.0 — selfie clock-in, step 1: upload the capture (binary body).
+     Returns the R2 key; the punch that follows carries it as selfie_key.
+     Own selfies only; small cap so a phone photo can't blow storage. */
+  if (path === "/attendance/selfie" && method === "POST") {
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const ctS = request.headers.get("Content-Type") ?? "";
+    if (!["image/jpeg", "image/png", "image/webp"].includes(ctS)) {
+      return err("invalid_input", "Only JPEG/PNG/WEBP images are allowed", 400);
+    }
+    /* v1.9.0 review fix: the cap is ENFORCED, not advisory. A missing or
+       nonsense Content-Length is rejected, and the body is read with a hard
+       byte ceiling so a lying client can't stream past it. */
+    const MAX_SELFIE = 3 * 1024 * 1024;
+    const lenS = Number(request.headers.get("Content-Length"));
+    if (!Number.isFinite(lenS) || lenS <= 0 || lenS > MAX_SELFIE) {
+      return err("invalid_input", "Selfie must be 1 byte – 3 MB with a valid Content-Length", 413);
+    }
+    const readerS = request.body.getReader();
+    const chunksS: Uint8Array[] = [];
+    let totalS = 0;
+    for (;;) {
+      const { done, value } = await readerS.read();
+      if (done) break;
+      totalS += value.byteLength;
+      if (totalS > MAX_SELFIE) {
+        try { await readerS.cancel(); } catch { /* closed */ }
+        return err("invalid_input", "Selfie too large — keep it under 3 MB", 413);
+      }
+      chunksS.push(value);
+    }
+    const bufS = new Uint8Array(totalS);
+    { let oS = 0; for (const c of chunksS) { bufS.set(c, oS); oS += c.byteLength; } }
+    const extS = ctS.includes("png") ? "png" : ctS.includes("webp") ? "webp" : "jpg";
+    const keyS = `private/attendance/${user.id}-${Date.now()}.${extS}`;
+    await env.MEDIA.put(keyS, bufS.buffer as ArrayBuffer, { httpMetadata: { contentType: ctS } });
+    return json({ selfie_key: keyS }, 201);
   }
 
   const photoMatch = path.match(/^\/users\/(\d+)\/photo$/);
@@ -854,18 +892,41 @@ export async function handleStaff(
     } else {
       flag = mins < 18 * 60 ? "early_out" : "completed";
     }
-    await env.DB.prepare(
-      `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
-    ).bind(
-      user.id,
-      body.type,
-      request.headers.get("CF-Connecting-IP"),
-      (request.headers.get("User-Agent") ?? "").slice(0, 300),
-      // Store the computed flag in the gps column's place would be wrong; keep
-      // gps as-is and return the flag so the UI can confirm it to the user.
-      str(body.gps, 100) ? body.gps : null,
-    ).run();
+    /* v1.9.0: the punch may carry a selfie key from /attendance/selfie —
+       only one this user just uploaded (prefix check stops key spoofing).
+       Pre-0070 databases fall back to the old insert. */
+    let selfieKey = str(body.selfie_key, 200) && (body.selfie_key as string).startsWith(`private/attendance/${user.id}-`)
+      ? (body.selfie_key as string) : null;
+    if (selfieKey) {
+      // Replay guard: the key embeds its upload timestamp — a selfie older
+      // than 10 minutes can't be attached to a fresh punch.
+      const tsM = /-(\d{13})\./.exec(selfieKey);
+      if (!tsM || Date.now() - Number(tsM[1]) > 10 * 60 * 1000) selfieKey = null;
+    }
+    try {
+      await env.DB.prepare(
+        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, selfie_key)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(
+        user.id,
+        body.type,
+        request.headers.get("CF-Connecting-IP"),
+        (request.headers.get("User-Agent") ?? "").slice(0, 300),
+        str(body.gps, 100) ? body.gps : null,
+        selfieKey,
+      ).run();
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      await env.DB.prepare(
+        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      ).bind(
+        user.id, body.type,
+        request.headers.get("CF-Connecting-IP"),
+        (request.headers.get("User-Agent") ?? "").slice(0, 300),
+        str(body.gps, 100) ? body.gps : null,
+      ).run();
+    }
     return json({ ok: true, flag }, 201);
   }
 
@@ -1061,11 +1122,55 @@ export async function handleStaff(
       if (!["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)) {
         return err("forbidden", "Session scheduling is for management", 403);
       }
+      /* v1.9.0: PATCH also reschedules (date/time/host) — the roster's
+         drag-and-drop backend. Status keeps its old contract. */
+      const setsLS: string[] = [];
+      const argsLS: unknown[] = [];
+      const putLS = (col: string, v: unknown) => { setsLS.push(`${col} = ?${argsLS.length + 1}`); argsLS.push(v); };
       const st = ["scheduled", "completed", "cancelled"].includes(String(body?.status)) ? String(body?.status) : null;
-      if (!st) return err("invalid_input", "status must be scheduled/completed/cancelled", 400);
-      await env.DB.prepare(`UPDATE live_sessions SET status = ?1 WHERE id = ?2`).bind(st, mLS[1]).run();
-      await audit(env, user.id, "live.status", "live_sessions", mLS[1]!, { status: st });
+      if (st) putLS("status", st);
+      if (typeof body?.session_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.session_date)) putLS("session_date", body.session_date);
+      if (typeof body?.start_time === "string" && /^\d{2}:\d{2}$/.test(body.start_time)) putLS("start_time", body.start_time);
+      if (typeof body?.end_time === "string" && /^\d{2}:\d{2}$/.test(body.end_time)) putLS("end_time", body.end_time);
+      if (Number(body?.host_user_id)) {
+        const nh = await env.DB.prepare(`SELECT id, is_active, role FROM users WHERE id = ?1`).bind(Number(body!.host_user_id)).first<{ id: number; is_active: number; role: string }>();
+        if (!nh || !nh.is_active || ["customer", "super_admin", "admin"].includes(nh.role)) return err("invalid_input", "Host must be an active staff member", 400);
+        putLS("host_user_id", nh.id);
+      }
+      if (setsLS.length === 0) return err("invalid_input", "Nothing to update (status, session_date, start_time, end_time, host_user_id)", 400);
+      const before = await env.DB.prepare(`SELECT session_date, start_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; host_user_id: number }>();
+      await env.DB.prepare(`UPDATE live_sessions SET ${setsLS.join(", ")} WHERE id = ?${argsLS.length + 1}`).bind(...argsLS, mLS[1]).run();
+      const after = await env.DB.prepare(`SELECT session_date, start_time, end_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; end_time: string | null; host_user_id: number }>();
+      // Tell the host when their session moved (or when it became theirs).
+      if (after && before && (before.session_date !== after.session_date || before.start_time !== after.start_time || before.host_user_id !== after.host_user_id)) {
+        await notify(env, after.host_user_id, "live",
+          `📺 Live session ${before.host_user_id !== after.host_user_id ? "assigned to you" : "rescheduled"}: ${after.session_date.split("-").reverse().join("-")} ${after.start_time}${after.end_time ? `–${after.end_time}` : ""}`,
+          `live:${mLS[1]}`);
+        if (before.host_user_id !== after.host_user_id) {
+          await notify(env, before.host_user_id, "live",
+            `📺 Your live session on ${before.session_date.split("-").reverse().join("-")} ${before.start_time} was reassigned to another host.`,
+            `live:${mLS[1]}`);
+        }
+      }
+      await audit(env, user.id, "live.update", "live_sessions", mLS[1]!, (body ?? {}) as Record<string, unknown>);
       return json({ ok: true });
+    }
+  }
+
+  /* v1.9.0 — orders by buyer city (the ops-map card). revenue_view. */
+  if (path === "/orders/geo" && method === "GET") {
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT lower(TRIM(buyer_city)) AS city, COUNT(*) AS orders, COALESCE(SUM(order_amount_cents), 0) AS cents
+         FROM postage_records
+         WHERE buyer_city IS NOT NULL AND TRIM(buyer_city) != '' AND status != 'returned'
+         GROUP BY lower(TRIM(buyer_city)) ORDER BY orders DESC LIMIT 100`,
+      ).all<{ city: string; orders: number; cents: number }>();
+      return json({ cities: results });
+    } catch (e) {
+      if (String(e).includes("no such column")) return json({ cities: [] });
+      throw e;
     }
   }
 
@@ -1383,11 +1488,22 @@ export async function handleStaff(
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const targetUser = url.searchParams.get("user_id");
     const forUser = targetUser && can(user.role, "hr_manage") ? Number(targetUser) : user.id;
-    const { results } = await env.DB.prepare(
-      `SELECT type, ip, created_at FROM attendance_records
-       WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
-       ORDER BY created_at DESC LIMIT 400`,
-    ).bind(forUser, month).all();
+    // v1.9.0: selfie_key rides along (armoured pre-0070). The media route
+    // enforces owner/HR/management access on the file itself.
+    let results: unknown[];
+    try {
+      results = (await env.DB.prepare(
+        `SELECT type, ip, created_at, selfie_key FROM attendance_records
+         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+         ORDER BY created_at DESC LIMIT 400`,
+      ).bind(forUser, month).all()).results;
+    } catch {
+      results = (await env.DB.prepare(
+        `SELECT type, ip, created_at FROM attendance_records
+         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+         ORDER BY created_at DESC LIMIT 400`,
+      ).bind(forUser, month).all()).results;
+    }
     // v1.4.155: overtime punches ride along (own dashboard + HR views). Guarded
     // so the endpoint keeps working before migration 0044 lands.
     let ot: unknown[] = [];

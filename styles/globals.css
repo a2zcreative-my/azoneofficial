@@ -257,3 +257,32 @@ input[type="time"] {
 /* v1.8.0 — sidebar scroll area hides its scrollbar (icons only, no track). */
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* ===== v1.9.0 — "Plum & Rose" theme preset (the reference design's palette).
+   Applied via <html data-theme="plum">. Navy & Gold stays the default; this
+   swaps only the brand tokens, so every component keeps working. */
+html[data-theme="plum"] {
+  --brand-primary: #5b2342;
+  --brand-accent: #e7b9cd;      /* rose — on-dark text/accents */
+  --brand-accent-deep: #8d3f63; /* readable rose on white */
+  --brand-accent-soft: #f5dde8;
+  --primary: #5b2342;
+  --secondary: #faf4f7;
+  --muted: #faf4f7;
+  --accent: #e7b9cd;
+  --ring: #5b2342;
+  --gold-solid: #b04a77;        /* the "fill" colour: rose instead of gold */
+}
+html[data-theme="plum"].dark {
+  --background: #241019;
+  --card: #2f1621;
+  --popover: #2f1621;
+  --primary: #f3e3eb;
+  --primary-foreground: #5b2342;
+  --secondary: #3a1c2a;
+  --muted: #3a1c2a;
+  --border: #4a2536;
+  --input: #4a2536;
+  --ring: #e7b9cd;
+  --brand-accent-deep: #e0a1bd;
+}

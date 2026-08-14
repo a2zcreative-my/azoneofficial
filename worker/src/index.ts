@@ -1316,7 +1316,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     let pending = false;
     try {
       const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1`).all<{ name: string }>();
-      if (results.length === 0 || results[0].name !== "0069_business_modules.sql") {
+      if (results.length === 0 || results[0].name !== "0070_selfie_clockin.sql") {
         pending = true;
       }
     } catch { 
@@ -2497,6 +2497,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // v1.6/v1.7: the newer migrations join the probe set (standing rule).
       ["0068 (targets / commission / push)", `SELECT id FROM commission_rules LIMIT 1`],
       ["0069 (stokis / content / receipts)", `SELECT id FROM stokis LIMIT 1`],
+      ["0070 (selfie clock-in)", `SELECT selfie_key FROM attendance_records LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2580,6 +2581,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0067_growth_pack",
       "0068_features_v16",
       "0069_business_modules",
+      "0070_selfie_clockin",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -2873,6 +2875,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // Payroll template: payroll roles only.
       if (key.startsWith("private/m2e/") && !can(user.role, "payroll_export")) {
         return errorResponse("forbidden", "Payroll access required", 403);
+      }
+      // v1.9.0 — clock-in selfies: the owner, HR or management only. Any key
+      // under the prefix that does NOT parse to an owner id is denied (fail
+      // closed, review fix), never silently opened to all staff.
+      if (key.startsWith("private/attendance/")) {
+        const mSelf = key.match(/^private\/attendance\/(\d+)-/);
+        const ownerId = mSelf ? Number(mSelf[1]) : NaN;
+        if (!Number.isFinite(ownerId) ||
+            (user.id !== ownerId && !can(user.role, "hr_manage") && !can(user.role, "exec_view"))) {
+          return errorResponse("forbidden", "This selfie belongs to another staff member", 403);
+        }
       }
       // Claim receipts / payment proofs: the claimant, payee, HR, or deciders.
       const mClaim = key.match(/^claims\/(\d+)-/);

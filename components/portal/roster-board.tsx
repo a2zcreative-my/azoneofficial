@@ -46,6 +46,10 @@ function shiftWeek(weekStart: string, weeks: number): string {
   return new Date(Date.parse(weekStart + "T00:00:00Z") + weeks * 7 * 86400_000).toISOString().slice(0, 10);
 }
 const DAY_LABEL = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+function toHHMM(minsTotal: number): string {
+  const m = Math.max(0, Math.min(23 * 60 + 45, minsTotal));
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
 
 export function RosterBoard({ canManage }: { canManage: boolean }) {
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -57,6 +61,10 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
   const [draft, setDraft] = useState({ session_date: "", start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [notReady, setNotReady] = useState(false);
+  /* v1.9.0 drag-and-drop: drag a block to another day/slot; a confirm bar
+     appears before anything is saved. */
+  const [drag, setDrag] = useState<{ id: number; grabOffsetY: number } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ s: RosterSession; date: string; start: string; end: string | null } | null>(null);
 
   const [failed, setFailed] = useState(false);
   const load = useCallback(async (w: string) => {
@@ -197,8 +205,31 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                 ))}
                 {/* day columns */}
                 {data.days.map((d, di) => (
-                  <div key={d} className={`relative border-l border-border/60 ${d === todayS ? "bg-gold-soft/20" : ""}`}
-                    style={{ gridColumn: di + 2, gridRow: 1 }}>
+                  <div key={d} className={`relative border-l border-border/60 ${d === todayS ? "bg-gold-soft/20" : ""} ${drag ? "outline-dashed outline-1 outline-gold/60" : ""}`}
+                    style={{ gridColumn: di + 2, gridRow: 1 }}
+                    onDragOver={(e) => { if (drag) { e.preventDefault(); } }}
+                    onDrop={(e) => {
+                      if (!drag) return;
+                      e.preventDefault();
+                      const sess = data.sessions.find((x) => x.id === drag.id);
+                      if (!sess) { setDrag(null); return; }
+                      const rect = (e.currentTarget as unknown as { getBoundingClientRect(): { top: number } }).getBoundingClientRect();
+                      // review fix: subtract the grab offset so the block's TOP
+                      // edge (not the cursor) decides the new slot.
+                      const y = (e as unknown as { clientY: number }).clientY - rect.top - drag.grabOffsetY;
+                      // snap to 30-minute slots inside the visible window
+                      const slot = Math.round(((y / HOUR_PX) * 60 + DAY_START * 60) / 30) * 30;
+                      const startM = Math.max(DAY_START * 60, Math.min((DAY_END - 1) * 60 + 30, slot));
+                      const durM = (sess.end_time ? mins(sess.end_time) : mins(sess.start_time) + 60) - mins(sess.start_time);
+                      setPendingMove({
+                        s: sess, date: d,
+                        start: toHHMM(startM),
+                        // overnight sessions (end < start) keep their end time
+                        // untouched instead of collapsing to 30 minutes.
+                        end: sess.end_time && durM > 0 ? toHHMM(startM + Math.max(30, durM)) : null,
+                      });
+                      setDrag(null);
+                    }}>
                     {active.filter((s) => s.session_date === d).map((s) => {
                       const top = Math.min(gridHeight - 22, Math.max(0, ((mins(s.start_time) - DAY_START * 60) / 60) * HOUR_PX));
                       const endM = s.end_time ? mins(s.end_time) : mins(s.start_time) + 60;
@@ -206,12 +237,25 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                       // sessions pin to the edge instead of overflowing
                       const height = Math.min(gridHeight - top, Math.max(22, ((endM - mins(s.start_time)) / 60) * HOUR_PX - 2));
                       const conflict = conflictIds.has(s.id);
+                      const isDragging = drag?.id === s.id;
                       return (
-                        <button key={s.id} type="button" onClick={() => setOpenSession(openSession === s.id ? null : s.id)}
-                          title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}`}
+                        <button key={s.id} type="button" onClick={() => { if (!drag) setOpenSession(openSession === s.id ? null : s.id); }}
+                          title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${canManage ? " — drag to reschedule (desktop)" : ""}`}
+                          draggable={canManage && s.status === "scheduled"}
+                          onDragStart={(e) => {
+                            const ev = e as unknown as { clientY: number; currentTarget: { getBoundingClientRect(): { top: number } }; dataTransfer: { effectAllowed: string; setData(t: string, v: string): void } };
+                            // review fix: remember WHERE on the block it was grabbed,
+                            // so the drop keeps the block's top edge, not the cursor.
+                            setDrag({ id: s.id, grabOffsetY: ev.clientY - ev.currentTarget.getBoundingClientRect().top });
+                            try {
+                              ev.dataTransfer.setData("text/plain", String(s.id)); // Firefox requires setData or the drag cancels
+                              ev.dataTransfer.effectAllowed = "move";
+                            } catch { /* ok */ }
+                          }}
+                          onDragEnd={() => setDrag(null)}
                           className={`absolute inset-x-0.5 overflow-hidden rounded-md border px-1.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition-opacity hover:opacity-90 ${
                             conflict ? "border-warning bg-warning-soft" : s.status === "completed" ? "border-success bg-success-soft" : "border-brand/30 bg-brand/10"
-                          }`}
+                          } ${isDragging ? "opacity-40" : ""} ${canManage && s.status === "scheduled" ? "cursor-grab active:cursor-grabbing" : ""}`}
                           style={{ top, height }}>
                           <span className="block truncate font-semibold">{conflict ? "⚠ " : ""}{s.client ?? "Live"}</span>
                           <span className="text-muted-foreground block truncate tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {s.host_name.split(" ")[0]}</span>
@@ -223,6 +267,31 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
               </div>
             </div>
           </div>
+
+          {/* v1.9.0 drag-to-reschedule confirm bar */}
+          {pendingMove && (
+            <div className="border-gold bg-gold-soft/60 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
+              <span>
+                Move <span className="font-semibold">{pendingMove.s.client ?? "Live"}</span> ({pendingMove.s.host_name.split(" ")[0]}) →{" "}
+                <span className="font-semibold tabular-nums">{dmy(pendingMove.date)} · {pendingMove.start}{pendingMove.end ? `–${pendingMove.end}` : ""}</span>?
+              </span>
+              <span className="flex gap-2">
+                <button type="button" className={btnSm} disabled={saving} onClick={async () => {
+                  setSaving(true);
+                  const r = await api<{ error?: { message?: string } }>(`/live-sessions/${pendingMove.s.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ session_date: pendingMove.date, start_time: pendingMove.start, ...(pendingMove.end ? { end_time: pendingMove.end } : {}) }),
+                  });
+                  setSaving(false);
+                  if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not reschedule", "notice"); return; }
+                  showToast("Rescheduled", `${pendingMove.s.client ?? "Live"} → ${dmy(pendingMove.date)} ${pendingMove.start}`);
+                  setPendingMove(null);
+                  void load(week);
+                }}>{saving ? "Moving…" : "✓ Confirm move"}</button>
+                <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setPendingMove(null)}>Cancel</button>
+              </span>
+            </div>
+          )}
 
           {/* detail popover (tap a block) */}
           {sel && (

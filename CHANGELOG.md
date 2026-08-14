@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.9.0] — 2026-08-14 — Phase 4: drag-and-drop roster, selfie clock-in, themes, BM, ops map
+
+**Drag-and-drop rescheduling** (Schedule & Roster, desktop) — managers drag a scheduled session block to another day/time (30-minute snap, grab-point aware); a confirm bar shows the exact new slot before anything saves. Both the new and (on reassignment) the previous host are notified. `PATCH /live-sessions/:id` now accepts date/time/host changes. Overnight sessions keep their end time. Touch devices keep the tap-popover flow.
+
+**Selfie clock-in** — Clock in opens the front camera (mirror preview, square crop); the capture uploads to private R2 storage and attaches to the punch. Deliberately optional: no camera, no permission, or Skip all still clock in — attendance is never blocked by a webcam. Selfies are viewable only by the owner, HR and management (media gate, fail-closed), keys are single-purpose (10-minute replay window, per-user prefix), and the upload has a hard 3 MB enforced cap. Migration **0070** adds `attendance_records.selfie_key`.
+
+**Plum & Rose theme preset** — the 🎨 button switches between Navy & Gold (default) and the reference design's plum palette; a pure token swap (light + dark tuned), stored per device.
+
+**Bahasa Melayu chrome** — the EN/BM button translates the portal chrome: tab names, sidebar, bottom navigation, header, quick actions and the greeting. Data and deep panels remain English by design (honest bilingual chrome over a half-translated app).
+
+**Operations map** (Ecommerce tab) — TikTok orders by buyer city grouped into Malaysian states, drawn as bubbles on a schematic Malaysia with a top-states list. Revenue roles only.
+
+**Setup:** apply migration 0070 (`cd worker && npx wrangler d1 migrations apply azoneofficial --remote`) and deploy worker + site.
+
 ## [1.8.0] — 2026-08-12 — The new portal shell: sidebar, global search, Schedule & Roster, dashboard cards
 
 Adopts the approved reference design's layout in AZ ONE's navy/gold brand. Phones keep the bottom navigation unchanged.

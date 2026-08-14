@@ -34,6 +34,9 @@ import { AssetsPanel } from "@/components/portal/assets-panel";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { RosterBoard } from "@/components/portal/roster-board";
 import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
+import { SelfieCapture } from "@/components/portal/selfie-capture";
+import { OpsMapCard } from "@/components/portal/ops-map";
+import { getLang, setLang as persistLang, t as tr, type Lang } from "@/lib/i18n";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { PipelinePanel } from "@/components/portal/pipeline-panel";
 import { ContentPanel } from "@/components/portal/content-panel";
@@ -140,7 +143,7 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
   );
 }
 
-function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
+function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => void; lang?: Lang }) {
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
   const [otEligible, setOtEligible] = useState(false);
@@ -179,7 +182,9 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
 
   const [punchToast, setPunchToast] = useState<{ title: string; sub: string; variant?: "success" | "notice" } | null>(null);
   const [punchError, setPunchError] = useState("");
-  const punch = async (type: string) => {
+  // v1.9.0: clock-in can carry a selfie key (optional — never blocks the punch)
+  const [selfieOpen, setSelfieOpen] = useState(false);
+  const punch = async (type: string, selfieKey?: string | null) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
     // clocking in gets an instant popup (and the server refuses it too).
     if (type === "clock_out" && !today.some((r) => r.type === "clock_in")) {
@@ -195,7 +200,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
     setPunchError("");
     const res = await api<{ flag?: string; error?: { message?: string } }>(`/staff/attendance`, {
       method: "POST",
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ type, ...(selfieKey ? { selfie_key: selfieKey } : {}) }),
     });
     setBusy("");
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
@@ -294,19 +299,20 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
   return (
     <div className="space-y-3 md:space-y-6">
       <div className={card}>
-        <p className="text-sm font-semibold">Quick actions</p>
+        <p className="text-sm font-semibold">{tr("Quick actions", lang)}</p>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <button type="button" className={`${btnClass} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_in")}>
-            {hasIn ? "Clocked in ✓" : "Clock in"}
+          <button type="button" className={`${btnClass} justify-center sm:justify-start`} disabled={!!busy}
+            onClick={() => { if (hasIn) { void punch("clock_in"); } else { setSelfieOpen(true); } }}>
+            {hasIn ? tr("Clocked in ✓", lang) : tr("Clock in", lang)}
           </button>
           <button type="button" className={`${btnGhost} justify-center sm:justify-start`} disabled={!!busy} onClick={() => void punch("clock_out")}>
-            {hasOut ? "Clocked out ✓" : "Clock out"}
+            {hasOut ? tr("Clocked out ✓", lang) : tr("Clock out", lang)}
           </button>
-          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Leave")}>Apply leave</button>
+          <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Leave")}>{tr("Apply leave", lang)}</button>
           {SALES_ROLES.includes(user.role) && (
-            <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Sales")}>Create quotation</button>
+            <button type="button" className={`${btnGhost} justify-center sm:justify-start`} onClick={() => go("Sales")}>{tr("Create quotation", lang)}</button>
           )}
           {showOt && (
             <>
@@ -329,6 +335,12 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
         )}
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
         {punchToast && <PunchToast title={punchToast.title} sub={punchToast.sub} variant={punchToast.variant} />}
+        {selfieOpen && (
+          <SelfieCapture
+            onCancel={() => setSelfieOpen(false)}
+            onDone={(key) => { setSelfieOpen(false); void punch("clock_in", key); }}
+          />
+        )}
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0 && todayOt.length === 0
             ? "No attendance recorded today."
@@ -405,7 +417,7 @@ function Dashboard({ user, go }: { user: User; go: (t: TabName) => void }) {
       {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
           of today, the KPI target (auto-computed from history), product vs
           service market targets, motivation and boost suggestions. */}
-      <TradingDesk user={user} go={go} />
+      <TradingDesk user={user} go={go} lang={lang} />
 
       {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
           hero band already carries today + month + overall up top, so the
@@ -547,7 +559,7 @@ function LowStockSummary() {
   return <div className="flex flex-col pb-4 sm:pb-0">{data.map(i => <div key={i.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{i.name} <span className="font-normal text-muted-foreground">({i.sku})</span></p><span className="font-bold text-red-600 tabular-nums">{i.stock} left</span></div>)}</div>;
 }
 
-function TradingDesk({ user, go }: { user: User; go?: (t: TabName) => void }) {
+function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) => void; lang?: Lang }) {
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [rev, setRev] = useState<RevenueData | null>(null);
   const [sum, setSum] = useState<DashSummary | null>(null);
@@ -738,7 +750,7 @@ function TradingDesk({ user, go }: { user: User; go?: (t: TabName) => void }) {
       {kpiToastNode}
       {/* v1.8.0 greeting (reference: "Hello, Sarah!") */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-xl font-bold tracking-tight md:text-2xl">Hello, {firstName(user.name)}! 👋</h2>
+        <h2 className="text-xl font-bold tracking-tight md:text-2xl">{tr("Hello", lang)}, {firstName(user.name)}! 👋</h2>
         <p className="text-muted-foreground text-xs md:text-sm">{WEEKDAYS[nowMY.getUTCDay()]}, {dmy(nowMY.toISOString().slice(0, 10))}</p>
       </div>
       {/* Zone 1 — the ticker (Today · Revenue · All-time · Needs attention) */}
@@ -4283,6 +4295,18 @@ export default function PortalPage() {
     try { if (user) window.localStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
   }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
+  // v1.9.0: Plum & Rose theme preset + EN/BM chrome language (per device)
+  const [theme, setTheme] = useState<"navy" | "plum">("navy");
+  const [lang, setLangState] = useState<Lang>("en");
+  useEffect(() => {
+    setTheme(localStorage.getItem("azone-theme-preset") === "plum" ? "plum" : "navy");
+    setLangState(getLang());
+  }, []);
+  useEffect(() => {
+    if (theme === "plum") document.documentElement.setAttribute("data-theme", "plum");
+    else document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("azone-theme-preset", theme);
+  }, [theme]);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   /* v1.4.219: CEO-managed tab access overrides (system_meta). */
   const [tabOverrides, setTabOverrides] = useState<Record<string, string[]>>({});
@@ -4533,7 +4557,7 @@ export default function PortalPage() {
      which can never name a tab outside this account's visible list. */
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
-  const navItems = tabs.map((t) => ({ name: t, label: tabLabel(t) }));
+  const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
   return (
     <div className="md:pl-14">{/* v1.8.0 shell: content clears the fixed sidebar on desktop */}
       <SidebarNav
@@ -4573,12 +4597,12 @@ export default function PortalPage() {
             </span>
           )}
           <div className="min-w-0">
-            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">Staff Portal</p>
+            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">{tr("Staff Portal", lang)}</p>
             <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
-              Welcome, {user.name.split(" ")[0]}
+              {tr("Welcome", lang)}, {user.name.split(" ")[0]}
             </h1>
             {/* On phones the header reads like an app screen title. */}
-            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tab}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-tight md:hidden">{tr(tab, lang)}</h1>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
@@ -4589,7 +4613,7 @@ export default function PortalPage() {
             className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-56 items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
             aria-label="Search the portal"
           >
-            <span>🔎 Search…</span>
+            <span>🔎 {tr("Search…", lang)}</span>
             <kbd className="bg-secondary rounded px-1.5 py-0.5 text-[10px] font-medium">Ctrl K</kbd>
           </button>
           <button
@@ -4653,6 +4677,15 @@ export default function PortalPage() {
               </span>
             )}
           </button>
+          {/* v1.9.0: theme preset + chrome language */}
+          <button type="button" className={`${btnHdr} hidden md:inline-flex`} title={theme === "plum" ? "Theme: Plum & Rose — switch to Navy & Gold" : "Theme: Navy & Gold — switch to Plum & Rose"}
+            aria-label="Switch colour theme" onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}>
+            🎨
+          </button>
+          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
+            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
+            {lang === "ms" ? "BM" : "EN"}
+          </button>
           <button type="button" className={btnHdr} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
             {dark ? "☀️" : "🌙"}
           </button>
@@ -4661,7 +4694,7 @@ export default function PortalPage() {
             className={`${btnHdr} whitespace-nowrap`}
             onClick={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
           >
-            Sign out
+            {tr("Sign out", lang)}
           </button>
         </div>
       </header>
@@ -4712,7 +4745,7 @@ export default function PortalPage() {
             }`}
           >
             <span className={`h-1 w-6 rounded-full ${tab === t && !moreOpen ? "bg-gold-deep" : "bg-transparent"}`} />
-            {t === "Staff Details" ? "Staff" : t === "Announcements" ? "News" : t}
+            {tr(t, lang)}
           </button>
         ))}
         {tabs.length > 4 && (
@@ -4724,7 +4757,7 @@ export default function PortalPage() {
             }`}
           >
             <span className={`h-1 w-6 rounded-full ${moreOpen || tabs.indexOf(tab) >= 4 ? "bg-gold-deep" : "bg-transparent"}`} />
-            More
+            {tr("More", lang)}
           </button>
         )}
       </nav>
@@ -4765,7 +4798,7 @@ export default function PortalPage() {
                     tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                   }`}
                 >
-                  {tabLabel(t)}
+                  {tr(t, lang)}
                 </button>
               ))}
             </div>
@@ -4774,7 +4807,7 @@ export default function PortalPage() {
       )}
 
       <main key={tab} className="screen-enter mt-4 md:mt-6">
-        {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} />}
+        {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} lang={lang} />}
         {activeTab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
         {activeTab === "Expenses" && (
           <div className="space-y-4 md:space-y-6">
@@ -4845,6 +4878,7 @@ export default function PortalPage() {
             <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
             {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
+            {REVENUE_ROLES.includes(user.role) && <OpsMapCard />}
             <ConnectionStatusCard />
           </div>
         )}
