@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.20.1] — 2026-08-15 — Operations map: real Malaysia, clickable states
+
+**Real geography (Ecommerce tab).** The schematic two-blob silhouette is gone. The map now draws all 16 states and federal territories with real boundary geometry (Natural Earth data, projected as the standard two insets: Peninsular Malaysia | Sabah & Sarawak). The geometry ships as ~6 KB of inline SVG paths — no map library, no new dependency.
+
+**Every state is clickable (and keyboard-operable).** Tap or click a state — or focus it and press Enter — and the side panel shows that state's order count, revenue, share of national orders and top buyer cities inline, without leaving the tab. "All states" returns to the national summary, whose Top-states rows are also clickable shortcuts. States with orders fill gold (intensity scales with order count) and carry a navy count bubble with a gold ring; the selected state gets a highlight outline. Verified in light, dark and both brand presets, at desktop and 390 px. Card heading emoji removed per the no-emoji rule.
+
 ## [1.20.0] — 2026-08-15 — C4 + C5: the modules finally talk to each other
 
 The last two consolidation phases. No migration — every change rides on existing tables.
