@@ -36,7 +36,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, ShieldOk } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
-import { OrdersPanel } from "@/components/portal/orders-panel";
+import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/company-monitor";
 import { CashFlowPanel, ReconciliationPanel } from "@/components/portal/finance-panels";
 import { CommissionPanel, AdsFundPanel } from "@/components/portal/commission-panels";
 import { PurchasingPanel, AccountingPanel } from "@/components/portal/purchasing-panels";
@@ -59,7 +59,6 @@ import {
   BirthdaysPanel,
   HrPanel,
   InventoryPanel,
-  OverviewPanel,
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
@@ -1162,7 +1161,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
           { label: "Lives today", value: sum.lives_today ?? 0, tab: "Attendance" },
           { label: "In today", value: sum.attendance_today ?? 0, tab: "Attendance" },
           { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0, tab: "Sales" },
-          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Expenses" },
+          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Finance" },
           // v1.8.0 (reference "Peak activity time"): the week's best-selling hour
           ...(peakBucket && peakBucket.cents > 0
             ? [{ label: "Peak hour (wk)", value: <span className="whitespace-nowrap">{String(peakBucket.hour).padStart(2, "0")}–{String((peakBucket.hour + 1) % 24).padStart(2, "0")}</span>, tab: "Ecommerce" as TabName }]
@@ -2715,93 +2714,10 @@ async function printDoc(id: number) {
    official /analytics shop_lives endpoint. Honest states: TikTok's own
    error verbatim while the Data & Insights (Analytics) scope is missing.
    LIVE Rewards (diamonds) is creator-side and NOT in the Shop API. */
-/* v1.4.206 (CEO: "remove it Live engagement — TikTok since I cant get the
-   API!"): LiveEngagementCard REMOVED entirely. The LIVE analytics scope
-   (creator.data.live.read.public) is not grantable to a Shop-seller app —
-   confirmed 04-08-2026 via Partner Center (Publish → Unavailable) and the
-   shop's consent page (7 Shop scopes only). The worker route
-   /api/v1/live-analytics stays dormant and harmless; if TikTok ever grants
-   the scope via support ticket, rebuild the card against the Live Room
-   Core Stats / GMV Trend / Interactive Trends endpoints (different family
-   from the one previously coded). */
-function LiveGmvCard() {
-  interface Gmv {
-    today: { cents: number; orders: number };
-    month: { cents: number; orders: number };
-    week: { d: string; c: number; n: number }[];
-    my_sessions_today: { c: number; n: number } | null;
-  }
-  const [gmv, setGmv] = useState<Gmv | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
-  useEffect(() => {
-    const load = () => void api<Gmv>(`/staff/gmv`).then((r) => {
-      if (r.ok && r.data) { setGmv(r.data); setState("ready"); }
-      else setState("unavailable");
-    });
-    load();
-    const t = window.setInterval(load, 300_000);
-    return () => window.clearInterval(t);
-  }, []);
-  // v1.4.194: never vanish silently — say what's happening instead.
-  if (state !== "ready" || !gmv) {
-    return (
-      <div className={card}>
-        <p className="text-sm font-semibold">🔥 Live GMV — TikTok</p>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {state === "loading"
-            ? "Loading today's live GMV…"
-            : "Live GMV needs the latest server — run the worker deploy from the current release, then refresh."}
-        </p>
-      </div>
-    );
-  }
-  const rm2 = fmtRM; // v1.4.272 global
-  return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">🔥 Live GMV — TikTok</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            Gross merchandise value from TikTok orders (returned orders
-            excluded), Malaysia time. Updates every 5 minutes and on refresh.
-          </p>
-        </div>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <div className="rounded-lg border border-amber-300 bg-amber-100 px-3 py-2">
-          <p className="text-[11px] font-semibold tracking-wide text-amber-900 uppercase">Today</p>
-          <p className="text-lg font-bold text-amber-900">{rm2(gmv.today.cents)}</p>
-          <p className="text-xs text-amber-900">{gmv.today.orders} order{gmv.today.orders === 1 ? "" : "s"}</p>
-        </div>
-        <div className="bg-secondary rounded-lg px-3 py-2">
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">This month</p>
-          <p className="text-lg font-bold">{rm2(gmv.month.cents)}</p>
-          <p className="text-muted-foreground text-xs">{gmv.month.orders} order{gmv.month.orders === 1 ? "" : "s"}</p>
-        </div>
-        {gmv.my_sessions_today && (
-          <div className="col-span-2 rounded-lg border border-green-300 bg-green-100 px-3 py-2 sm:col-span-1">
-            <p className="text-[11px] font-semibold tracking-wide text-green-900 uppercase">During your live today</p>
-            <p className="text-lg font-bold text-green-900">{rm2(gmv.my_sessions_today.c)}</p>
-            <p className="text-xs text-green-900">{gmv.my_sessions_today.n} order{gmv.my_sessions_today.n === 1 ? "" : "s"} in your session window</p>
-          </div>
-        )}
-      </div>
-      {/* v1.4.196 (CEO): detail rows hide behind one click — minimalist view */}
-      {gmv.week.length > 0 && (
-        <DetailsToggle label="Last 7 days">
-          <div className="mt-1 space-y-0">
-            {gmv.week.map((w) => (
-              <div key={w.d} className="border-border flex items-center justify-between border-b py-1 text-sm last:border-0">
-                <span className="text-muted-foreground text-xs">{dmy(w.d)}</span>
-                <span className="text-xs">{w.n} order{w.n === 1 ? "" : "s"} · <span className="font-medium">{rm2(w.c)}</span></span>
-              </div>
-            ))}
-          </div>
-        </DetailsToggle>
-      )}
-    </div>
-  );
-}
+/* v1.19.0 (consolidation C1): LiveGmvCard deleted — it showed the same
+   TikTok month GMV as SalesRevenueCard's TikTok box on the SAME tab, from a
+   second endpoint that could disagree on NULL-amount rows. One number, one
+   card. (/staff/gmv itself survives: LiveEconomicsCard uses it.) */
 
 /* v1.4.191 OT APPROVALS (CEO gap list): pending day-pairs decided here —
    only approved OT will ever feed payroll. */
@@ -3390,6 +3306,28 @@ function CustomerEnquiriesCard() {
     });
     void load();
   };
+  /* v1.20.0 C4: one click carries an enquiry into the Pipeline as a lead —
+     before this, a won enquiry was re-typed by hand (or never made it).
+     The enquiry is marked "qualified" in the same stroke so the two funnels
+     stop drifting apart. */
+  const [converted, setConverted] = useState<Record<number, boolean>>({});
+  const toLead = async (e2: Enq) => {
+    const r = await api<{ id?: number }>(`/staff/pipeline`, {
+      method: "POST",
+      body: JSON.stringify({
+        brand_name: e2.company?.trim() || e2.name,
+        source: "other",
+        contact_name: e2.name,
+        contact_channel: e2.email ? "email" : e2.phone ? "phone" : "",
+        contact_value: e2.email || e2.phone || "",
+        notes: `From enquiry #${e2.id}${e2.category ? ` (${CAT[e2.category] ?? e2.category})` : ""}: ${e2.message}`.slice(0, 900),
+      }),
+    });
+    if (r.ok) {
+      setConverted((c) => ({ ...c, [e2.id]: true }));
+      await setStatus(e2.id, "qualified");
+    }
+  };
   // v1.4.191: in-app reply — the customer reads it on /account.
   const [replyDraft, setReplyDraft] = useState<Record<number, string>>({});
   const [replyOpen, setReplyOpen] = useState<number | null>(null);
@@ -3452,8 +3390,16 @@ function CustomerEnquiriesCard() {
                   <button type="button" className="text-xs underline" onClick={() => setReplyOpen(null)}>Cancel</button>
                 </span>
               ) : (
-                <button type="button" className="mt-1 text-xs underline"
-                  onClick={() => setReplyOpen(e.id)}>{e.reply ? "✎ Update reply" : "↩ Reply in-app"}</button>
+                <span>
+                  <button type="button" className="mt-1 text-xs underline"
+                    onClick={() => setReplyOpen(e.id)}>{e.reply ? "✎ Update reply" : "↩ Reply in-app"}</button>
+                  {/* v1.20.0 C4: hand the enquiry to the Pipeline as a lead. */}
+                  <button type="button" className="text-gold-deep mt-1 ml-3 text-xs font-semibold underline-offset-2 hover:underline disabled:opacity-50"
+                    disabled={!!converted[e.id]}
+                    onClick={() => void toLead(e)}>
+                    {converted[e.id] ? "✓ Lead created below" : "→ Convert to lead"}
+                  </button>
+                </span>
               )}
               <p className="text-muted-foreground mt-0.5 text-[10px]">{e.email} · {mytDateTime(e.created_at)} MYT</p>
             </div>
@@ -4621,7 +4567,11 @@ function TargetsCommissionCard() {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Orders", "Cash Flow", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis; v1.18.0 ERP: Orders + Cash Flow + Reconciliation + Commission + Ads Fund + Purchasing + Accounting
+/* v1.19.0 (consolidation C1, CEO-approved): 28 tabs -> 22. Orders retired
+   (sales_documents is the one recorder); Overview folded into Dashboard/
+   Tasks/Inventory; Birthdays folded into Staff Details; Cash Flow merged
+   into the renamed Finance tab. Tables were NOT dropped. */
+const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis; v1.18.0 ERP: Orders + Cash Flow + Reconciliation + Commission + Ads Fund + Purchasing + Accounting
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 // const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4639,14 +4589,11 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   // Expense claims (v1.4.75): CEO/COO/CCO/HR submit; the CEO decides.
   Claims: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "editor", "marketing", "live_host", "super_admin", "admin"], // v1.4.106: every staff role claims
   // Company expenses (v1.4.87): CEO and COO per spec.
-  Expenses: ["ceo", "coo", "super_admin", "admin"],
+  Finance: ["ceo", "coo", "super_admin", "admin"],
   // Inventory & tracking: sales_marketing only among staff (editor/marketing
   // and everyone else are excluded).
   Inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   // Read-only company monitor. CEO + COO + CCO + admin tier.
-  Overview: ["ceo", "coo", "cco", "super_admin", "admin"],
-  // CEO can manage birthdays (their one write exception); HR tier too.
-  Birthdays: ["ceo", "hr_admin", "coo", "cco", "super_admin", "admin"],
   // Employee records: IDs, position, department, staff list, birth dates.
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
@@ -4654,8 +4601,6 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Users: ["super_admin", "ceo", "coo"],
   /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
      worker matrix is the one actually enforced. */
-  Orders: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
-  "Cash Flow": ["super_admin", "admin", "ceo", "coo"],
   Reconciliation: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   "Ads Fund": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
@@ -5343,10 +5288,15 @@ export default function PortalPage() {
       <main key={tab} className="screen-enter mt-4 md:mt-6">
         {activeTab === "Dashboard" && <Dashboard user={user} go={setTab} lang={lang} />}
         {activeTab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
-        {activeTab === "Expenses" && (
+        {activeTab === "Finance" && (
           <div className="space-y-4 md:space-y-6">
             <PnlCard />
             <ExpensesPanel />
+            {/* v1.19.0 C2: the bank ledger lives INSIDE Finance now — money
+                out recorded as a paid expense / payroll run / claim payout
+                auto-appears here as a movement; manual rows stay for money
+                in and anything else. One tab, one ringgit, no re-typing. */}
+            <CashFlowPanel />
           </div>
         )}
         {activeTab === "Attendance" && (
@@ -5355,19 +5305,21 @@ export default function PortalPage() {
             <RosterBoard canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)} />
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
-            <LiveScheduleCard user={user} />
             {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
           </div>
         )}
-        {activeTab === "Orders" && <OrdersPanel />}
-        {activeTab === "Cash Flow" && <CashFlowPanel />}
         {activeTab === "Reconciliation" && <ReconciliationPanel />}
         {activeTab === "Commission" && <CommissionPanel canDecide={["super_admin", "ceo"].includes(user.role)} />}
         {activeTab === "Ads Fund" && <AdsFundPanel canManage={["super_admin", "admin", "ceo", "coo"].includes(user.role)} />}
         {activeTab === "Purchasing" && <PurchasingPanel />}
         {activeTab === "Accounting" && <AccountingPanel />}
         {activeTab === "Leave" && <Leave user={user} />}
-        {activeTab === "Tasks" && <Tasks user={user} />}
+        {activeTab === "Tasks" && (
+          <div className="space-y-4 md:space-y-6">
+            <Tasks user={user} />
+            {MANAGE_ROLES.includes(user.role) && <TaskProgressCard />}
+          </div>
+        )}
         {activeTab === "Announcements" && <Announcements user={user} />}
         {activeTab === "Sales" && SALES_ROLES.includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
@@ -5377,14 +5329,18 @@ export default function PortalPage() {
             <ClientsCard />
             <LiveEconomicsCard />
             <PackagesEditorCard role={user.role} />
-            <CustomerEnquiriesCard />
           </div>
         )}
         {/* v1.7.0 new modules */}
         {activeTab === "Pipeline" && (
-          <PipelinePanel
-            canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
-            onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
+          <div className="space-y-4 md:space-y-6">
+            {/* v1.19.0 C1: enquiries live WITH the leads — five capture
+                surfaces become two (here + /admin for the website roles). */}
+            <CustomerEnquiriesCard />
+            <PipelinePanel
+              canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
+              onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
+          </div>
         )}
         {activeTab === "Content" && (
           <ContentPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"].includes(user.role)} />
@@ -5399,8 +5355,20 @@ export default function PortalPage() {
           </div>
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
-        {activeTab === "Staff Details" && <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />}
-        {activeTab === "Inventory" && <InventoryPanel role={user.role} />}
+        {activeTab === "Staff Details" && (
+          <div className="space-y-4 md:space-y-6">
+            <StaffDirectory canAmend={["super_admin", "admin", "ceo"].includes(user.role)} readOnly={["coo", "cco"].includes(user.role)} />
+            {/* v1.19.0 C1: the Birthdays tab folded in here — one staff-record
+                surface. Same component, same single-field PATCH. */}
+            <BirthdaysPanel />
+          </div>
+        )}
+        {activeTab === "Inventory" && (
+          <div className="space-y-4 md:space-y-6">
+            <InventoryPanel role={user.role} />
+            {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
+          </div>
+        )}
         {activeTab === "Ecommerce" && (
           <div className="space-y-3 md:space-y-6">
             {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
@@ -5416,7 +5384,6 @@ export default function PortalPage() {
             {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
             {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
-            <LiveGmvCard />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
             {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
             {REVENUE_ROLES.includes(user.role) && <OpsMapCard />}
@@ -5425,8 +5392,6 @@ export default function PortalPage() {
         )}
         {/* v1.5.0: Social tab removed on the CEO's direction. */}
         {activeTab === "Assets" && <AssetsPanel />}
-        {activeTab === "Birthdays" && <BirthdaysPanel />}
-        {activeTab === "Overview" && <OverviewPanel />}
         {activeTab === "Users" && (
           <div className="space-y-4 md:space-y-6">
             {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}

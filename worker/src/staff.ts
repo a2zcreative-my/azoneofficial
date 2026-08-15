@@ -5,7 +5,7 @@
 
 import type { Env } from "./index";
 import { handleErp } from "./erp";
-import { logError as sharedLogError } from "./shared";
+import { logError as sharedLogError, postJournal } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
@@ -210,6 +210,30 @@ async function logError(env: Env, source: string, message: string): Promise<void
   return sharedLogError(env, source, message);
 }
 
+/* v1.19.0 (consolidation C2) — ONE ringgit, one bank row. When money
+   actually moves (expense marked paid, payroll bank run recorded, claim paid
+   out), the matching bank-movement row is created HERE, automatically and
+   idempotently — the `ref` is unique per event, so re-toggling "paid" can
+   never write a second row. Pre-0071 DBs (no cashflow_entries table) no-op
+   silently: the legacy flows must never break on an unmigrated database. */
+async function recordBankMovement(
+  env: Env, userId: number, ref: string, amountCents: number, category: string, description: string,
+): Promise<void> {
+  if (amountCents <= 0) return;
+  try {
+    const dup = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE ref = ?1 LIMIT 1`)
+      .bind(ref).first<{ id: number }>();
+    if (dup) return;
+    await env.DB.prepare(
+      `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
+       VALUES (date('now', '+8 hours'), 'out', ?1, ?2, ?3, ?4, ?5)`,
+    ).bind(category, amountCents, description.slice(0, 200), ref, userId).run();
+    // v1.20.0 C5: the movement drafts its journal entry — same ref, same
+    // idempotency, so the books can never double-post.
+    await postJournal(env, userId, ref, description, category, amountCents, "out");
+  } catch { /* pre-0071 — Finance bank section simply not in use yet */ }
+}
+
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
 const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
 
@@ -403,6 +427,16 @@ async function revenueLines(env: Env): Promise<Record<string, Record<string, num
       for (const r of results) add("invoices", r.m, r.cents);
     } catch { /* pre-0060 */ }
   }
+  try {
+    /* v1.19.0 (CEO decision, consolidation Q2): stokis purchases join the
+       revenue lines. Before this they were visible ONLY on the Stokis tab —
+       reseller money was invisible to /revenue, the P&L and commission base. */
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', created_at, '+8 hours') AS m, COALESCE(SUM(amount_cents), 0) AS cents
+       FROM stokis_orders GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add("stokis", r.m, r.cents);
+  } catch { /* pre-0069 */ }
   return lines;
 }
 
@@ -2298,6 +2332,8 @@ export async function handleStaff(
     if (cRow.status !== "approved") return err("invalid_input", "Only approved claims can be marked paid", 400);
     await env.DB.prepare(`UPDATE claims SET paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?1`)
       .bind(claimPaid[1]).run();
+    // v1.19.0 C2: the reimbursement becomes a bank movement, once.
+    await recordBankMovement(env, user.id, `CLM-${claimPaid[1]}`, cRow.amount_cents, "claims", "Staff claim reimbursement");
     await notify(env, cRow.user_id, "claim", `Your claim (RM ${(cRow.amount_cents / 100).toFixed(2)}) has been PAID`, `claim:${claimPaid[1]}`);
     await audit(env, user.id, "claim.paid", "claims", claimPaid[1]!);
     return json({ ok: true });
@@ -2729,6 +2765,15 @@ export async function handleStaff(
         ? `UPDATE expenses SET paid_at = NULL WHERE id = ?1`
         : `UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`,
     ).bind(exPaid[1]).run();
+    if (!unpay) {
+      // v1.19.0 C2: the paid expense becomes a bank movement, once.
+      const exRow = await env.DB.prepare(`SELECT amount_cents, category, vendor, description FROM expenses WHERE id = ?1`)
+        .bind(exPaid[1]).first<{ amount_cents: number; category: string; vendor: string | null; description: string | null }>();
+      if (exRow) {
+        await recordBankMovement(env, user.id, `EXP-${exPaid[1]}`, exRow.amount_cents,
+          exRow.category, [exRow.vendor, exRow.description].filter(Boolean).join(" — ") || "Expense payment");
+      }
+    }
     await audit(env, user.id, "expense.paid", "expenses", exPaid[1], { paid: !unpay });
     return json({ ok: true });
   }
@@ -2767,79 +2812,9 @@ export async function handleStaff(
 
   /* ---- sales revenue (v1.4.75): dashboard figures, TikTok included ---- */
 
-  if (path === "/pnl" && method === "GET") {
-    // v1.4.101: month-by-month P&L — revenue (TikTok + PAID invoices, cash
-    // basis) against expenses (recorded expenses + payroll nets), profit line.
-    if (!can(user.role, "exec_view")) return err("forbidden", "Executive access required", 403);
-    const months: string[] = [];
-    const nowM = new Date(Date.now() + 8 * 3600 * 1000);
-    for (let i = 5; i >= 0; i--) {
-      months.push(new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
-    }
-    const rows = [] as { month: string; tiktok_cents: number; invoiced_cents: number; expenses_cents: number; payroll_cents: number; claims_cents: number; profit_cents: number }[];
-    for (const m of months) {
-      const tt = await env.DB.prepare(
-        `SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records
-         WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
-      ).bind(m).first<{ c: number }>();
-      const inv = await env.DB.prepare(
-        `SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents
-         WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = ?1`,
-      ).bind(m).first<{ c: number }>();
-      const ex = await env.DB.prepare(
-        `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = ?1`,
-      ).bind(m).first<{ c: number }>();
-      let clm: { c: number } | null = null;
-      try {
-        clm = await env.DB.prepare(
-          `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM claims
-           WHERE status = 'approved' AND strftime('%Y-%m', claim_date) = ?1`,
-        ).bind(m).first<{ c: number }>();
-      } catch { /* pre-0037 DB — claims column set incomplete */ }
-      // payroll of month m-1 is PAID during m (the 5th cycle) — cash basis.
-      // v1.4.129 (CEO): the figure is the NET payroll — same source and staff
-      // scope as the Expenses card (stored net_cents; formula fallback only
-      // for rows saved before migration 0041), so P&L, Expenses and the
-      // Payroll tab all quote one number.
-      const prevPm = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
-      let prC = 0;
-      try {
-        const { results: prs } = await env.DB.prepare(
-          `SELECT p.basic_cents, p.commission_cents, p.allowance_cents,
-                  COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents, p.net_cents,
-                  p.user_id, p.worked_days, p.month_working_days, u.base_salary_cents
-           FROM payroll_entries p JOIN users u ON u.id = p.user_id
-           WHERE p.month = ?1 AND u.is_active = 1
-             AND u.role NOT IN ('customer', 'super_admin')
-             AND NOT (u.left_on IS NOT NULL AND u.left_on < ?2
-                      AND (u.rejoined_on IS NULL OR u.rejoined_on > ?3))`,
-        ).bind(prevPm, `${prevPm}-01`, `${prevPm}-31`).all<{ basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; user_id: number; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
-        const { results: ulsP } = await env.DB.prepare(
-          `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
-           WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
-        ).bind(prevPm).all<{ user_id: number; days: number }>();
-        const ulMapP = new Map(ulsP.map((r) => [r.user_id, r.days]));
-        for (const e of prs) {
-          if (e.net_cents !== null && e.net_cents !== undefined) { prC += e.net_cents; continue; }
-          const ul = ulMapP.get(e.user_id) ?? 0;
-          const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
-          let adj = 0;
-          if (e.worked_days !== null && e.worked_days !== undefined && e.month_working_days && e.month_working_days > 0) {
-            const adjustable = Math.max(0, Math.max(0, e.month_working_days - e.worked_days) - ul);
-            adj = Math.round((e.basic_cents * adjustable) / e.month_working_days);
-          }
-          prC += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
-        }
-      } catch (e) {
-        await logError(env, "pnl_payroll", e instanceof Error ? e.message : String(e));
-      }
-      const pr = { c: prC };
-      const revenue = (tt?.c ?? 0) + (inv?.c ?? 0);
-      const cost = (ex?.c ?? 0) + (pr?.c ?? 0) + (clm?.c ?? 0);
-      rows.push({ month: m, tiktok_cents: tt?.c ?? 0, invoiced_cents: inv?.c ?? 0, expenses_cents: ex?.c ?? 0, payroll_cents: pr?.c ?? 0, claims_cents: clm?.c ?? 0, profit_cents: revenue - cost });
-    }
-    return json({ months: rows });
-  }
+  /* v1.19.0 (consolidation C1): the duplicate GET /pnl endpoint is gone.
+     It served only the Overview tab's private PnlCard copy — /finance/pnl is
+     the single P&L and the only one any surviving UI calls. */
   if (path === "/revenue" && method === "GET") {
     if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
@@ -4408,8 +4383,46 @@ export async function handleStaff(
     await env.DB.prepare(
       `INSERT INTO payroll_payments (month, paid_by) VALUES (?1, ?2) ON CONFLICT(month) DO NOTHING`,
     ).bind(mP, user.id).run();
+    // v1.19.0 C2: the salary run becomes ONE bank movement for the month.
+    try {
+      const net = await env.DB.prepare(
+        `SELECT COALESCE(SUM(net_cents), 0) AS n FROM payroll_entries WHERE month = ?1`,
+      ).bind(mP).first<{ n: number }>();
+      await recordBankMovement(env, user.id, `PAYROLL-${mP}`, net?.n ?? 0, "salaries", `Payroll bank run ${mP}`);
+    } catch { /* pre-0041 net_cents */ }
     await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
     return json({ ok: true });
+  }
+  if (path === "/payroll/pull-commission" && method === "POST") {
+    /* v1.19.0 (consolidation C3) — closes the DOUBLE-PAYMENT path. Approved
+       commission entries for the month flow into payroll_entries.commission_cents
+       and are marked paid in the same pass; a second click finds nothing
+       approved and applies nothing. Entries without a payroll row are
+       reported back, not silently dropped. */
+    if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll access required", 403);
+    const mC = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    if (!mC) return err("invalid_input", "month (YYYY-MM) is required", 400);
+    const entries = await env.DB.prepare(
+      `SELECT e.id, e.host_id, e.amount_cents, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+         FROM commission_entries e JOIN users u ON u.id = e.host_id
+        WHERE e.period = ?1 AND e.status = 'approved'`,
+    ).bind(mC).all<{ id: number; host_id: number; amount_cents: number; name: string }>().catch(() => ({ results: [] as { id: number; host_id: number; amount_cents: number; name: string }[] }));
+    const applied: { name: string; amount_cents: number }[] = [];
+    const skipped: string[] = [];
+    for (const e of entries.results ?? []) {
+      const upd = await env.DB.prepare(
+        `UPDATE payroll_entries SET commission_cents = commission_cents + ?1 WHERE user_id = ?2 AND month = ?3`,
+      ).bind(e.amount_cents, e.host_id, mC).run();
+      if (upd.meta.changes) {
+        await env.DB.prepare(`UPDATE commission_entries SET status = 'paid' WHERE id = ?1`).bind(e.id).run();
+        applied.push({ name: e.name, amount_cents: e.amount_cents });
+      } else {
+        skipped.push(e.name); // no payroll row for that person+month yet
+      }
+    }
+    if (applied.length) await audit(env, user.id, "payroll.pull_commission", "payroll_entries", mC,
+      { applied: applied.length, total: applied.reduce((a, x) => a + x.amount_cents, 0) });
+    return json({ applied, skipped });
   }
   if (path === "/payroll/release" && method === "POST") {
     // Early manual release for a month (e.g. the 5th falls badly and the
@@ -5835,89 +5848,10 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
 
   /* ---- CCO: business development pipeline ---- */
 
-  if (path === "/bd" && method === "GET") {
-    if (!can(user.role, "exec_view")) {
-      return err("forbidden", "Commercial access required", 403);
-    }
-    const { results } = await env.DB.prepare(
-      `SELECT b.*, u.name AS owner_name FROM bd_pipeline b
-       LEFT JOIN users u ON u.id = b.owner_id
-       ORDER BY CASE b.status WHEN 'open' THEN 0 WHEN 'pending' THEN 1 WHEN 'kiv' THEN 2 ELSE 3 END,
-                b.updated_at DESC LIMIT 200`,
-    ).all();
-    return json({ pipeline: results });
-  }
-  if (path === "/bd" && method === "POST") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
-    if (!body || !str(body.client, 200)) return err("invalid_input", "client is required", 400);
-    await env.DB.prepare(
-      `INSERT INTO bd_pipeline (client, status, value_note, strategy, next_action, owner_id)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-    ).bind(
-      body.client,
-      BD_STATUSES.includes(body.status as string) ? (body.status as string) : "open",
-      str(body.value_note, 300) ? body.value_note : null,
-      str(body.strategy, 2000) ? body.strategy : null,
-      str(body.next_action, 300) ? body.next_action : null,
-      user.id,
-    ).run();
-    await audit(env, user.id, "bd.create");
-    return json({ ok: true }, 201);
-  }
-  const bdMatch = path.match(/^\/bd\/(\d+)$/);
-  if (bdMatch && method === "PATCH") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
-    if (!body) return err("invalid_input", "Body required", 400);
-    const sets: string[] = [];
-    const vals: (string | number)[] = [];
-    if (BD_STATUSES.includes(body.status as string)) { sets.push(`status = ?${sets.length + 1}`); vals.push(body.status as string); }
-    if (str(body.strategy, 2000)) { sets.push(`strategy = ?${sets.length + 1}`); vals.push(body.strategy as string); }
-    if (str(body.next_action, 300)) { sets.push(`next_action = ?${sets.length + 1}`); vals.push(body.next_action as string); }
-    if (str(body.value_note, 300)) { sets.push(`value_note = ?${sets.length + 1}`); vals.push(body.value_note as string); }
-    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-    sets.push(`updated_at = datetime('now')`);
-    await env.DB.prepare(`UPDATE bd_pipeline SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
-      .bind(...vals, bdMatch[1]!).run();
-    await audit(env, user.id, "bd.update", "bd_pipeline", bdMatch[1]);
-    return json({ ok: true });
-  }
-
-  /* ---- COO: daily operational + sales reports ---- */
-
-  if (path === "/ops-reports" && method === "GET") {
-    if (!can(user.role, "exec_view")) {
-      return err("forbidden", "Operations access required", 403);
-    }
-    const { results } = await env.DB.prepare(
-      `SELECT o.*, u.name AS author FROM ops_reports o
-       LEFT JOIN users u ON u.id = o.created_by
-       ORDER BY o.report_date DESC LIMIT 60`,
-    ).all();
-    return json({ reports: results });
-  }
-  if (path === "/ops-reports" && method === "POST") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "Admin tier required", 403);
-    if (!body || !str(body.report_date, 10) || !str(body.operational_summary, 8000)) {
-      return err("invalid_input", "report_date and operational_summary are required", 400);
-    }
-    await env.DB.prepare(
-      `INSERT INTO ops_reports (report_date, operational_summary, sales_summary, strategy_note, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT(report_date, created_by) DO UPDATE SET
-         operational_summary = ?2, sales_summary = ?3, strategy_note = ?4`,
-    ).bind(
-      body.report_date,
-      body.operational_summary,
-      str(body.sales_summary, 8000) ? body.sales_summary : null,
-      str(body.strategy_note, 4000) ? body.strategy_note : null,
-      user.id,
-    ).run();
-    await audit(env, user.id, "ops.report", "ops_reports");
-    return json({ ok: true }, 201);
-  }
-
-  /* ---- CEO: whole-company overview (read-only) ---- */
-
+  /* v1.19.0 (consolidation C1): /bd and /ops-reports routes deleted. Their
+     panels (CommercialPanel, OperationsPanel) were exported but rendered by
+     no tab — dead UI over live routes. bd_pipeline and ops_reports TABLES
+     remain untouched; only the API surface is gone. */
   if (path === "/overview" && method === "GET") {
     if (!can(user.role, "exec_view")) return err("forbidden", "Executive access required", 403);
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);

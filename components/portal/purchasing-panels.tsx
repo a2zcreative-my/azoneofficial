@@ -22,26 +22,29 @@ const dmy2 = (iso: string | null) => (iso && iso.length >= 10 ? `${iso.slice(8, 
 /* ============================ Purchasing ============================ */
 
 interface Supplier { id: number; name: string; contact: string; phone: string; email: string; active: number }
+interface StockItem { id: number; sku: string; name: string; stock: number }
 interface Po {
   id: number; po_no: string; supplier_id: number; supplier_name: string;
   status: "draft" | "sent" | "received" | "cancelled"; items: string; total_cents: number;
   expected_date: string | null;
 }
-interface PoItemDraft { title: string; qty: string; unit_price: string }
+interface PoItemDraft { title: string; qty: string; unit_price: string; inventory_item_id: string }
 
 export function PurchasingPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [pos, setPos] = useState<Po[]>([]);
   const [pending, setPending] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
   const [supplierDraft, setSupplierDraft] = useState({ name: "", contact: "", phone: "" });
   const [poDraft, setPoDraft] = useState<{ supplier_id: string; expected_date: string; items: PoItemDraft[] }>({
-    supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "" }],
+    supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "", inventory_item_id: "" }],
   });
 
   const load = useCallback(async () => {
     const s = await api<{ suppliers: Supplier[] }>(`/suppliers`); setSuppliers(s.data?.suppliers ?? []);
+    const st = await api<{ items: StockItem[] }>(`/stock-items`); setStockItems(st.data?.items ?? []);
     const p = await api<{ pos: Po[]; pending_migration?: boolean }>(`/purchase-orders`);
     setPos(p.data?.pos ?? []); setPending(p.data?.pending_migration === true);
   }, []);
@@ -59,7 +62,12 @@ export function PurchasingPanel() {
   const createPo = async () => {
     const items = poDraft.items
       .filter((it) => it.title.trim())
-      .map((it) => ({ title: it.title, qty: it.qty ? Number(it.qty) : undefined, unit_price: it.unit_price ? Number(it.unit_price) : undefined }));
+      .map((it) => ({
+        title: it.title, qty: it.qty ? Number(it.qty) : undefined,
+        unit_price: it.unit_price ? Number(it.unit_price) : undefined,
+        // v1.20.0 C4: the link that makes goods receipt move stock.
+        inventory_item_id: it.inventory_item_id ? Number(it.inventory_item_id) : undefined,
+      }));
     const r = await api<{ po_no?: string }>(`/purchase-orders`, {
       method: "POST",
       body: JSON.stringify({
@@ -69,7 +77,7 @@ export function PurchasingPanel() {
       }),
     });
     if (r.ok) {
-      setPoDraft({ supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "" }] });
+      setPoDraft({ supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "", inventory_item_id: "" }] });
       showToast("Saved", `${r.data?.po_no ?? "PO"} created as draft`);
       void load();
     } else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
@@ -136,6 +144,18 @@ export function PurchasingPanel() {
         </div>
         {poDraft.items.map((it, i) => (
           <div key={i} className={`${fieldRow} mt-2`}>
+            <label><span className={fieldLabel}>Stock item</span>
+              {/* v1.20.0 C4: pick a stock item and receiving this PO will
+                  add its qty to the shelves — leave on "— not stock —" for
+                  services/one-offs, which never touch inventory. */}
+              <select className={inputClassSm} value={it.inventory_item_id}
+                onChange={(e) => {
+                  const si = stockItems.find((x) => String(x.id) === e.target.value);
+                  setItem(i, { inventory_item_id: e.target.value, ...(si && !it.title ? { title: si.name } : {}) });
+                }}>
+                <option value="">— not stock —</option>
+                {stockItems.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.sku})</option>)}
+              </select></label>
             <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Item</span>
               <input className={inputClassSm} value={it.title} onChange={(e) => setItem(i, { title: e.target.value })} /></label>
             <label><span className={fieldLabel}>Qty</span>
@@ -145,7 +165,7 @@ export function PurchasingPanel() {
           </div>
         ))}
         <div className="mt-2 flex gap-2">
-          <button type="button" className={btnSm} onClick={() => setPoDraft((d) => ({ ...d, items: [...d.items, { title: "", qty: "", unit_price: "" }] }))}>+ Item</button>
+          <button type="button" className={btnSm} onClick={() => setPoDraft((d) => ({ ...d, items: [...d.items, { title: "", qty: "", unit_price: "", inventory_item_id: "" }] }))}>+ Item</button>
           <button type="button" className={btnClass} disabled={!poDraft.supplier_id || !poDraft.items.some((it) => it.title.trim())} onClick={() => void createPo()}>
             Create PO
           </button>
@@ -167,7 +187,8 @@ export function PurchasingPanel() {
               <span className="flex items-center gap-1.5">
                 <span className={p.status === "received" ? chipSuccess : p.status === "cancelled" ? chipDanger : p.status === "sent" ? chipNeutral : chipWarn}>{p.status}</span>
                 {p.status === "draft" && <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(p.id, "sent")}>send</button>}
-                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" onClick={() => void setStatus(p.id, "received")}>received</button>}
+                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" title="Adds linked items to stock"
+                  onClick={() => void setStatus(p.id, "received")}>received → stock</button>}
               </span>
             ),
           },
@@ -245,6 +266,10 @@ export function AccountingPanel() {
         </StatStrip>
       </div>
 
+      <p className="text-muted-foreground mb-3 text-[11.5px]">
+        Bank movements post here automatically (paid expenses, payroll runs, claim payouts,
+        Finance-tab entries) — this composer is for adjustments only.
+      </p>
       {/* Journal entry — the server refuses unbalanced entries; the button
           mirrors that rule so nobody types a whole entry to be told no. */}
       <div className="border-border mb-4 rounded-xl border p-3">

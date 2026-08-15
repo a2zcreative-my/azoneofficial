@@ -67,8 +67,8 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Advanced: Settings2,
   // ---- account + portal Orders (the unified recorder) ----
   Orders: ClipboardList,
-  // ---- ERP modules (v1.18.0, programme phases 4–7) ----
-  "Cash Flow": Banknote,
+  // ---- ERP modules (v1.18.0; consolidated v1.19.0) ----
+  Finance: Banknote,
   Reconciliation: Scale,
   Commission: Percent,
   "Ads Fund": Rocket,

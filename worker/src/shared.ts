@@ -89,3 +89,69 @@ export async function logError(env: Env, source: string, message: string, path?:
     console.error("error_log write failed:", source, message, e);
   }
 }
+
+/* ============ v1.20.0 (consolidation C5) — GL auto-posting ============
+ * Every bank movement drafts one balanced journal entry, keyed by the SAME
+ * unique ref as the movement — post twice, book once. Category names map to
+ * the 0071 seeded chart; anything unrecognised books to 6900 Other expenses
+ * rather than failing (the accountant re-classes in the journal; a missing
+ * mapping must never block an expense from being marked paid). Pre-0071
+ * databases no-op silently, same rule as the movements themselves. */
+
+const GL_BANK = "1100"; // Bank — operating
+
+/** Lower-cased category → expense/income account code. */
+const GL_CATEGORY: Record<string, string> = {
+  // expenses (money out)
+  rent: "6200", utilities: "6200",
+  marketing: "6000", "ads fund": "6000", ads: "6000",
+  salaries: "6100", payroll: "6100", commission: "6100",
+  claims: "6900",
+  software: "6900", equipment: "6900", supplies: "6900", logistics: "6900", other: "6900",
+  "platform fees": "6300", fees: "6300",
+  // income (money in)
+  "live sales": "4100", service: "4100", live: "4100",
+  sales: "4000", product: "4000",
+};
+
+export function glCodeFor(category: string, direction: "in" | "out"): string {
+  const key = category.trim().toLowerCase();
+  if (GL_CATEGORY[key]) return GL_CATEGORY[key]!;
+  for (const [k, v] of Object.entries(GL_CATEGORY)) {
+    if (key.includes(k)) return v;
+  }
+  return direction === "out" ? "6900" : "4000";
+}
+
+/** Draft one balanced two-line journal entry, idempotent by ref. */
+export async function postJournal(
+  env: Env, userId: number, ref: string, memo: string, category: string,
+  amountCents: number, direction: "in" | "out",
+): Promise<void> {
+  if (amountCents <= 0) return;
+  try {
+    const dup = await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1 LIMIT 1`)
+      .bind(ref).first<{ id: number }>();
+    if (dup) return;
+    const otherCode = glCodeFor(category, direction);
+    const acc = async (code: string) => (await env.DB.prepare(
+      `SELECT id FROM gl_accounts WHERE code = ?1 AND active = 1`,
+    ).bind(code).first<{ id: number }>())?.id ?? null;
+    const bankId = await acc(GL_BANK);
+    const otherId = await acc(otherCode);
+    if (!bankId || !otherId) return; // chart edited away — skip, never block
+    const entry = await env.DB.prepare(
+      `INSERT INTO journal_entries (entry_date, memo, ref, created_by)
+       VALUES (date('now', '+8 hours'), ?1, ?2, ?3) RETURNING id`,
+    ).bind(memo.slice(0, 200), ref, userId).first<{ id: number }>();
+    if (!entry?.id) return;
+    // out: debit expense, credit bank · in: debit bank, credit income
+    const [debitAcc, creditAcc] = direction === "out" ? [otherId, bankId] : [bankId, otherId];
+    await env.DB.prepare(
+      `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, ?3, 0)`,
+    ).bind(entry.id, debitAcc, amountCents).run();
+    await env.DB.prepare(
+      `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, 0, ?3)`,
+    ).bind(entry.id, creditAcc, amountCents).run();
+  } catch { /* pre-0071 — Accounting simply not in use yet */ }
+}

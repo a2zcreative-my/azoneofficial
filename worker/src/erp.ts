@@ -16,7 +16,7 @@
 
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { audit, cents, err, json, logError, num, str } from "./shared";
+import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
 import { can } from "./permissions";
 
 /* Doc numbering, same shape as sales_documents: PREFIX-YYYY-NNNN. The count
@@ -24,7 +24,7 @@ import { can } from "./permissions";
    docs a day, one office) a doc_no collision means two people pressed Save in
    the same millisecond — the UNIQUE constraint turns that into a clean 400
    rather than a duplicate. */
-async function nextNo(env: Env, table: "orders" | "purchase_orders", col: string, prefix: string): Promise<string> {
+async function nextNo(env: Env, table: "purchase_orders", col: string, prefix: string): Promise<string> {
   const year = new Date().getUTCFullYear();
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM ${table} WHERE ${col} LIKE ?1`,
@@ -48,113 +48,13 @@ export async function handleErp(
   user: StaffUser,
 ): Promise<Response | null> {
   try {
-    /* ================= Phase 4 — unified orders ================= */
-
-    if (path === "/orders" && method === "GET") {
-      if (!can(user.role, "orders_manage")) return err("forbidden", "No access to orders", 403);
-      const rows = await env.DB.prepare(
-        `SELECT o.*, (SELECT COUNT(*) FROM order_lines l WHERE l.order_id = o.id) AS line_count
-           FROM orders o ORDER BY o.id DESC LIMIT 500`,
-      ).all();
-      return json({ orders: rows.results ?? [] });
-    }
-
-    if (path === "/orders" && method === "POST") {
-      if (!can(user.role, "orders_manage")) return err("forbidden", "No access to orders", 403);
-      const customer = str(body?.customer, 200) ? (body!.customer as string).trim() : "";
-      const source = str(body?.source, 20) && ["tiktok", "shopee", "lazada", "direct", "stokis"].includes(body!.source as string)
-        ? (body!.source as string) : "direct";
-      const notes = str(body?.notes, 1000) ? (body!.notes as string) : "";
-      const rawLines = Array.isArray(body?.lines) ? (body!.lines as Record<string, unknown>[]) : [];
-      if (rawLines.length === 0) return err("validation", "An order needs at least one line", 400);
-      if (rawLines.length > 100) return err("validation", "Too many lines (max 100)", 400);
-
-      type Line = {
-        kind: "product" | "service"; title: string;
-        sku: string | null; qty: number | null; unit_price_cents: number | null; cost_cents: number | null;
-        host_id: number | null; starts_at: string | null; ends_at: string | null; hours: number | null; rate_cents: number | null;
-        line_total_cents: number;
-      };
-      const lines: Line[] = [];
-      for (const l of rawLines) {
-        const kind = l.kind === "service" ? "service" : "product";
-        const title = str(l.title, 300) ? (l.title as string).trim() : "";
-        if (!title) return err("validation", "Every line needs a title", 400);
-        if (kind === "product") {
-          const qty = num(l.qty);
-          const unit = cents(l.unit_price);
-          if (qty === null || qty <= 0 || qty > 100000 || unit === null) {
-            return err("validation", `"${title}": product lines need a quantity and a unit price`, 400);
-          }
-          const cost = cents(l.cost) ?? 0;
-          lines.push({
-            kind, title, sku: str(l.sku, 100) ? (l.sku as string).trim() : null,
-            qty, unit_price_cents: unit, cost_cents: cost,
-            host_id: null, starts_at: null, ends_at: null, hours: null, rate_cents: null,
-            line_total_cents: Math.round(qty * unit),
-          });
-        } else {
-          const hours = num(l.hours);
-          const rate = cents(l.rate);
-          const hostId = num(l.host_id);
-          if (hours === null || hours <= 0 || hours > 24 * 31 || rate === null) {
-            return err("validation", `"${title}": service lines need hours and an hourly rate`, 400);
-          }
-          lines.push({
-            kind, title, sku: null, qty: null, unit_price_cents: null, cost_cents: null,
-            host_id: hostId, starts_at: str(l.starts_at, 30) ? (l.starts_at as string) : null,
-            ends_at: str(l.ends_at, 30) ? (l.ends_at as string) : null,
-            hours, rate_cents: rate, line_total_cents: Math.round(hours * rate),
-          });
-        }
-      }
-      const kinds = new Set(lines.map((l) => l.kind));
-      const kind = kinds.size === 2 ? "mixed" : (lines[0]?.kind ?? "product");
-      const subtotal = lines.reduce((a, l) => a + l.line_total_cents, 0);
-      const taxPct = num(body?.tax_percent) ?? 0;
-      const tax = taxPct > 0 && taxPct <= 30 ? Math.round(subtotal * taxPct / 100) : 0;
-      const docNo = await nextNo(env, "orders", "doc_no", "ORD");
-
-      const res = await env.DB.prepare(
-        `INSERT INTO orders (doc_no, customer, kind, status, source, subtotal_cents, tax_cents, total_cents, notes, created_by)
-         VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
-      ).bind(docNo, customer, kind, source, subtotal, tax, subtotal + tax, notes, user.id).first<{ id: number }>();
-      const orderId = res?.id;
-      if (!orderId) return err("server", "Order insert failed", 500);
-      for (const l of lines) {
-        await env.DB.prepare(
-          `INSERT INTO order_lines (order_id, kind, title, sku, qty, unit_price_cents, cost_cents, host_id, starts_at, ends_at, hours, rate_cents, line_total_cents)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
-        ).bind(orderId, l.kind, l.title, l.sku, l.qty, l.unit_price_cents, l.cost_cents,
-          l.host_id, l.starts_at, l.ends_at, l.hours, l.rate_cents, l.line_total_cents).run();
-      }
-      await audit(env, user.id, "erp.order_create", "orders", String(orderId), { doc_no: docNo, kind, total: subtotal + tax });
-      return json({ id: orderId, doc_no: docNo, kind, total_cents: subtotal + tax }, 201);
-    }
-
-    {
-      const m = /^\/orders\/(\d+)$/.exec(path);
-      if (m && method === "GET") {
-        if (!can(user.role, "orders_manage")) return err("forbidden", "No access to orders", 403);
-        const order = await env.DB.prepare(`SELECT * FROM orders WHERE id = ?1`).bind(Number(m[1])).first();
-        if (!order) return err("not_found", "Order not found", 404);
-        const lines = await env.DB.prepare(`SELECT * FROM order_lines WHERE order_id = ?1 ORDER BY id`).bind(Number(m[1])).all();
-        return json({ order, lines: lines.results ?? [] });
-      }
-      if (m && method === "PATCH") {
-        if (!can(user.role, "orders_manage")) return err("forbidden", "No access to orders", 403);
-        const status = str(body?.status, 20) ? (body!.status as string) : "";
-        if (!["draft", "confirmed", "fulfilled", "cancelled"].includes(status)) {
-          return err("validation", "Status must be draft, confirmed, fulfilled or cancelled", 400);
-        }
-        const r = await env.DB.prepare(
-          `UPDATE orders SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
-        ).bind(status, Number(m[1])).run();
-        if (!r.meta.changes) return err("not_found", "Order not found", 404);
-        await audit(env, user.id, "erp.order_status", "orders", m[1], { status });
-        return json({ ok: true });
-      }
-    }
+    /* ================= orders (RETIRED, consolidation C1) =================
+       v1.19.0: the Orders tab is gone — sales_documents was already the
+       unified product+service recorder (customers, stock deduction, PDFs,
+       revenue reporting), and this parallel model connected to none of that.
+       The orders/order_lines TABLES remain (nothing is dropped); only the
+       API surface is removed so no new orphan records can be created.
+       /hosts survives below — the Commission tab uses it. */
 
     /* ================= Phase 5 — Cash Flow ================= */
 
@@ -203,6 +103,13 @@ export async function handleErp(
         str(body?.description, 500) ? (body!.description as string).trim() : "",
         str(body?.ref, 100) ? (body!.ref as string).trim() : "",
         user.id).first<{ id: number }>();
+      /* v1.20.0 C5: manual movements draft their journal entry too — keyed
+         CF-<id> so a deleted-and-retyped movement books once per row. */
+      if (res?.id) {
+        await postJournal(env, user.id, `CF-${res.id}`,
+          str(body?.description, 500) ? (body!.description as string).trim() : "Bank movement",
+          str(body?.category, 100) ? (body!.category as string).trim() : "", amount, type);
+      }
       await audit(env, user.id, "erp.cashflow_create", "cashflow_entries", String(res?.id), { type, amount });
       return json({ id: res?.id }, 201);
     }
@@ -246,6 +153,36 @@ export async function handleErp(
         est, actual, cost, fees, shipping, user.id).first<{ id: number }>();
       await audit(env, user.id, "erp.recon_create", "reconciliations", String(res?.id), { period, channel });
       return json({ id: res?.id }, 201);
+    }
+    if (path === "/reconciliation/pull" && method === "POST") {
+      /* v1.20.0 C4: prefill a period from the channel records the system
+         ALREADY holds (postage_records — the same base /revenue sums), so
+         "actual sales" stops being a hand-typed fifth revenue figure. Rows
+         are keyed by order_no; a second pull only adds what is new. */
+      if (!can(user.role, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
+      const period = str(body?.period, 7) && /^\d{4}-\d{2}$/.test(body!.period as string) ? (body!.period as string) : null;
+      if (!period) return err("validation", "Period must be YYYY-MM", 400);
+      const src = await env.DB.prepare(
+        `SELECT order_ref, COALESCE(order_amount_cents, 0) AS cents
+           FROM postage_records
+          WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1 AND status != 'returned'`,
+      ).bind(period).all<{ order_ref: string; cents: number }>();
+      const existing = await env.DB.prepare(
+        `SELECT order_no FROM reconciliations WHERE period = ?1`,
+      ).bind(period).all<{ order_no: string }>();
+      const seen = new Set((existing.results ?? []).map((r) => r.order_no));
+      let created = 0;
+      for (const r of src.results ?? []) {
+        if (!r.order_ref || seen.has(r.order_ref)) continue;
+        seen.add(r.order_ref);
+        await env.DB.prepare(
+          `INSERT INTO reconciliations (period, channel, order_no, actual_sales_cents, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5)`,
+        ).bind(period, r.order_ref.startsWith("TT-") ? "tiktok" : "direct", r.order_ref, r.cents, user.id).run();
+        created++;
+      }
+      if (created) await audit(env, user.id, "erp.recon_pull", "reconciliations", period, { created });
+      return json({ created, skipped: (src.results?.length ?? 0) - created });
     }
     {
       const m = /^\/reconciliation\/(\d+)$/.exec(path);
@@ -378,7 +315,13 @@ export async function handleErp(
     {
       const m = /^\/adsfund\/(\d+)\/claims$/.exec(path);
       if (m && method === "POST") {
-        if (!can(user.role, "adsfund_claim")) return err("forbidden", "No access to the ads fund", 403);
+        /* v1.20.0 C4: this is a SPEND RECORD now, not a claim. The company
+           already has one reimbursement workflow (Claims: receipts, chain,
+           conflict-of-interest guards) — running a second, weaker approval
+           here was the audit's finding B. Managers record spend directly
+           (status approved on insert, budget cap still enforced); staff who
+           paid from their own pocket claim through the Claims tab. */
+        if (!can(user.role, "adsfund_manage")) return err("forbidden", "Only management records ads spend — out-of-pocket ads go through the Claims tab", 403);
         const amount = cents(body?.amount);
         if (amount === null || amount <= 0 || !str(body?.description, 500)) {
           return err("validation", "A claim needs an amount and what it was spent on", 400);
@@ -395,28 +338,26 @@ export async function handleErp(
             `That claim would take this allocation to RM ${((alloc.used_cents + amount) / 100).toFixed(2)} of its RM ${(alloc.amount_cents / 100).toFixed(2)} budget`, 400);
         }
         const res = await env.DB.prepare(
-          `INSERT INTO ads_fund_claims (allocation_id, amount_cents, description, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+          `INSERT INTO ads_fund_claims (allocation_id, amount_cents, description, status, decided_by, decided_at, created_by)
+           VALUES (?1, ?2, ?3, 'approved', ?4, datetime('now'), ?4) RETURNING id`,
         ).bind(Number(m[1]), amount, (body!.description as string).trim(), user.id).first<{ id: number }>();
-        await audit(env, user.id, "erp.adsfund_claim", "ads_fund_claims", String(res?.id), { amount });
+        await audit(env, user.id, "erp.adsfund_spend", "ads_fund_claims", String(res?.id), { amount });
         return json({ id: res?.id }, 201);
       }
     }
-    {
-      const m = /^\/adsfund\/claims\/(\d+)$/.exec(path);
-      if (m && method === "PATCH") {
-        if (!can(user.role, "adsfund_manage")) return err("forbidden", "Only management decides ads fund claims", 403);
-        const status = body?.status === "approved" ? "approved" : body?.status === "rejected" ? "rejected" : null;
-        if (!status) return err("validation", "Status must be approved or rejected", 400);
-        const r = await env.DB.prepare(
-          `UPDATE ads_fund_claims SET status = ?1, decided_by = ?2, decided_at = datetime('now') WHERE id = ?3 AND status = 'pending'`,
-        ).bind(status, user.id, Number(m[1])).run();
-        if (!r.meta.changes) return err("not_found", "Claim not found or already decided", 404);
-        await audit(env, user.id, "erp.adsfund_decide", "ads_fund_claims", m[1], { status });
-        return json({ ok: true });
-      }
-    }
+    /* v1.20.0 C4: the approve/reject route is gone with the claim workflow —
+       spend records are born approved (see above). */
 
     /* ================= Phase 7 — Purchasing ================= */
+
+    if (path === "/stock-items" && method === "GET") {
+      // v1.20.0 C4: the PO builder's picker — names only, purchasing roles.
+      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      const rows = await env.DB.prepare(
+        `SELECT id, sku, name, stock FROM inventory_items WHERE status != 'discontinued' ORDER BY name`,
+      ).all();
+      return json({ items: rows.results ?? [] });
+    }
 
     if (path === "/suppliers" && method === "GET") {
       if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
@@ -451,7 +392,7 @@ export async function handleErp(
       if (supplierId === null) return err("validation", "Pick a supplier", 400);
       const rawItems = Array.isArray(body?.items) ? (body!.items as Record<string, unknown>[]) : [];
       if (rawItems.length === 0 || rawItems.length > 100) return err("validation", "A purchase order needs 1–100 items", 400);
-      const items: { title: string; qty: number; unit_cents: number }[] = [];
+      const items: { title: string; qty: number; unit_cents: number; inventory_item_id: number | null }[] = [];
       for (const it of rawItems) {
         const title = str(it.title, 300) ? (it.title as string).trim() : "";
         const qty = num(it.qty);
@@ -459,7 +400,9 @@ export async function handleErp(
         if (!title || qty === null || qty <= 0 || unit === null) {
           return err("validation", "Every item needs a title, a quantity and a unit price", 400);
         }
-        items.push({ title, qty, unit_cents: unit });
+        // v1.20.0 C4: optional link to a stock item — what makes goods
+        // receipt actually move stock.
+        items.push({ title, qty, unit_cents: unit, inventory_item_id: num(it.inventory_item_id) });
       }
       const total = items.reduce((a, it) => a + Math.round(it.qty * it.unit_cents), 0);
       const poNo = await nextNo(env, "purchase_orders", "po_no", "PO");
@@ -480,12 +423,47 @@ export async function handleErp(
         if (!["draft", "sent", "received", "cancelled"].includes(status)) {
           return err("validation", "Status must be draft, sent, received or cancelled", 400);
         }
+        /* v1.20.0 C4 — goods receipt MOVES STOCK, exactly once. The audit's
+           finding F: "received" used to flip a string while the shelves
+           changed by a separate manual adjust with no PO reference. The
+           transition guard (status != 'received' in the WHERE) is the
+           idempotency: a second PATCH to received matches zero rows. */
+        const prev = await env.DB.prepare(`SELECT status, items, po_no FROM purchase_orders WHERE id = ?1`)
+          .bind(Number(m[1])).first<{ status: string; items: string; po_no: string }>();
+        if (!prev) return err("not_found", "PO not found", 404);
         const r = await env.DB.prepare(
-          `UPDATE purchase_orders SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
+          `UPDATE purchase_orders SET status = ?1, updated_at = datetime('now') WHERE id = ?2 AND status != 'received'`,
         ).bind(status, Number(m[1])).run();
-        if (!r.meta.changes) return err("not_found", "PO not found", 404);
-        await audit(env, user.id, "erp.po_status", "purchase_orders", m[1], { status });
-        return json({ ok: true });
+        if (!r.meta.changes) {
+          return prev.status === "received"
+            ? err("already_received", "This PO was already received — its stock has been added", 400)
+            : err("not_found", "PO not found", 404);
+        }
+        let stocked = 0;
+        if (status === "received") {
+          try {
+            const items = JSON.parse(prev.items) as { title: string; qty: number; inventory_item_id?: number | null }[];
+            for (const it of items) {
+              if (!it.inventory_item_id || !(it.qty > 0)) continue;
+              const upd = await env.DB.prepare(
+                `UPDATE inventory_items SET stock = stock + ?1, updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+              ).bind(Math.round(it.qty), user.id, it.inventory_item_id).run();
+              if (upd.meta.changes) {
+                stocked++;
+                // The same traceability trail manual stock-ins use, with the
+                // PO number as the remark — receipt is findable from both ends.
+                await env.DB.prepare(
+                  `INSERT INTO manual_stockouts (item_id, item_name, qty, remark, created_by)
+                   VALUES (?1, ?2, ?3, ?4, ?5)`,
+                ).bind(it.inventory_item_id, it.title, Math.round(it.qty), `Goods receipt ${prev.po_no}`, user.id).run();
+              }
+            }
+          } catch { /* unparseable legacy items JSON — status still updated */ }
+          await audit(env, user.id, "erp.po_received", "purchase_orders", m[1], { stocked });
+        } else {
+          await audit(env, user.id, "erp.po_status", "purchase_orders", m[1], { status });
+        }
+        return json({ ok: true, stocked });
       }
     }
 

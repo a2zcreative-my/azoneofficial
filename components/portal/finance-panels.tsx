@@ -222,7 +222,27 @@ export function ReconciliationPanel() {
     <div className={card}>
       {toastNode}
       <MigrationNote show={pending} />
-      <p className="text-sm font-semibold">Order Reconciliation</p>
+      <div className={rowHead}>
+        <p className="text-sm font-semibold">Order Reconciliation</p>
+        {/* v1.20.0 C4: prefill from the channel records the system already
+            holds — actual sales stop being hand-typed. Idempotent by order
+            number; pull twice, add once. */}
+        <button type="button" className={btnSm}
+          onClick={async () => {
+            const r = await api<{ created: number; skipped: number }>(`/reconciliation/pull`, {
+              method: "POST", body: JSON.stringify({ period: draft.period }) });
+            if (r.ok) {
+              showToast(r.data?.created ? "Saved" : "No changes",
+                r.data?.created
+                  ? `Pulled ${r.data.created} order${r.data.created === 1 ? "" : "s"} from the channel records (${r.data.skipped} already present)`
+                  : "Every channel order for this period is already here",
+                r.data?.created ? undefined : "notice");
+              void load();
+            } else showToast("No changes", "Could not pull — check the period", "notice");
+          }}>
+          Pull {ym(draft.period)} from channels
+        </button>
+      </div>
       <div className="mt-3">
         <StatStrip>
           <StatTile tone="info" label="Rows" value={rows.length} icon="≡" />

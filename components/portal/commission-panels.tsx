@@ -210,7 +210,6 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
 
   const allocated = allocations.reduce((a, x) => a + x.amount_cents, 0);
   const approved = allocations.reduce((a, x) => a + x.approved_cents, 0);
-  const awaiting = claims.filter((c) => c.status === "pending").length;
 
   const addAllocation = async () => {
     const r = await api(`/adsfund`, {
@@ -221,19 +220,16 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
     else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
   };
 
-  const addClaim = async () => {
+  /* v1.20.0 C4: spend RECORD, not a claim — managers book spend directly
+     (born approved, budget cap enforced server-side). Staff who paid from
+     their own pocket use the Claims tab, the one reimbursement workflow. */
+  const addSpend = async () => {
     const r = await api(`/adsfund/${claimDraft.allocation_id}/claims`, {
       method: "POST",
       body: JSON.stringify({ amount: claimDraft.amount ? Number(claimDraft.amount) : undefined, description: claimDraft.description }),
     });
-    if (r.ok) { setClaimDraft({ allocation_id: "", amount: "", description: "" }); showToast("Saved", "Claim submitted for approval"); void load(); }
+    if (r.ok) { setClaimDraft({ allocation_id: "", amount: "", description: "" }); showToast("Saved", "Spend recorded against the allocation"); void load(); }
     else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
-  };
-
-  const decide = async (id: number, status: "approved" | "rejected") => {
-    const r = await api(`/adsfund/claims/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    showToast(r.ok ? "Saved" : "No changes", r.ok ? `Claim ${status}` : "Could not decide that claim", r.ok ? undefined : "notice");
-    void load();
   };
 
   return (
@@ -247,7 +243,7 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
           <StatTile tone="brand" label="Allocated" value={fmtRM(allocated)} icon="◎" />
           <StatTile tone="success" label="Approved spend" value={fmtRM(approved)} icon="✓" />
           <StatTile tone="gold" label="Remaining" value={fmtRM(allocated - approved)} icon="~" />
-          <StatTile tone={awaiting > 0 ? "danger" : "muted"} label="Awaiting decision" value={awaiting} icon="!" />
+          <StatTile tone="muted" label="Spend entries" value={claims.length} icon="≡" />
         </StatStrip>
       </div>
 
@@ -265,8 +261,9 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         </div>
       )}
 
+      {canManage && (
       <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>Claim against</span>
+        <label><span className={fieldLabel}>Spend against</span>
           <select className={inputClass} value={claimDraft.allocation_id} onChange={(e) => setClaimDraft((d) => ({ ...d, allocation_id: e.target.value }))}>
             <option value="">—</option>
             {allocations.map((a) => (
@@ -277,10 +274,14 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
           <input type="number" min="0.01" step="0.01" className={inputClass} value={claimDraft.amount} onChange={(e) => setClaimDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
         <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Spent on</span>
           <input className={inputClass} placeholder="TikTok ads top-up 12–14 Aug" value={claimDraft.description} onChange={(e) => setClaimDraft((d) => ({ ...d, description: e.target.value }))} /></label>
-        <button type="button" className={btnClass} disabled={!claimDraft.allocation_id || !claimDraft.amount || !claimDraft.description} onClick={() => void addClaim()}>
-          Submit claim
+        <button type="button" className={btnClass} disabled={!claimDraft.allocation_id || !claimDraft.amount || !claimDraft.description} onClick={() => void addSpend()}>
+          Record spend
         </button>
       </div>
+      )}
+      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">
+        Paid for ads out of pocket? Submit it on the <b>Claims</b> tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.
+      </p>
 
       <DataTable
         rows={claims}
@@ -292,20 +293,12 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
           { key: "amount_cents", label: "Amount", numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
           {
             key: "status", label: "Status", sortable: false,
-            render: (c) => (
-              <span className="flex items-center gap-1.5">
-                <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{c.status}</span>
-                {canManage && c.status === "pending" && (
-                  <>
-                    <button type="button" className="text-success text-[11px] font-semibold" onClick={() => void decide(c.id, "approved")}>approve</button>
-                    <button type="button" className="text-danger text-[11px] font-semibold" onClick={() => void decide(c.id, "rejected")}>reject</button>
-                  </>
-                )}
-              </span>
-            ),
+            // Legacy pending/rejected rows (pre-v1.20.0) still display; new
+            // entries are born approved.
+            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{c.status}</span>,
           },
         ]}
-        empty="No claims yet — allocate a budget, then claim spend against it."
+        empty="No spend recorded yet — allocate a budget, then record spend against it."
       />
     </div>
   );

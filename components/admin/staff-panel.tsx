@@ -22,8 +22,6 @@ import { useSaveToast } from "@/components/ui/save-toast";
 
 
 
-const btnSmall =
-  "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors disabled:opacity-50";
 
 interface LeaveRow {
   id: number;
@@ -64,11 +62,10 @@ function StatusBadge({ value }: { value: string }) {
 /** ISO date → DD-MM-YYYY. */
 
 export function StaffPanel() {
-  const { show: showToast, node: toastNode } = useSaveToast();
+  const { node: toastNode } = useSaveToast(); // v1.19.0: show() went with the approve buttons
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [comment, setComment] = useState<Record<number, string>>({});
-  const [busy, setBusy] = useState<number | null>(null);
-  const [error, setError] = useState("");
+  const [error] = useState(""); // v1.19.0: setter went with the approve buttons
 
   const load = useCallback(async () => {
     const res = await api<{ leave: LeaveRow[] }>(`/leave?all=1`);
@@ -78,24 +75,8 @@ export function StaffPanel() {
     void load();
   }, [load]);
 
-  const decide = async (id: number, action: "approve" | "reject") => {
-    setError("");
-    setBusy(id);
-    const res = await api<{ error?: { message?: string } }>(`/leave/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action, comment: comment[id] || undefined }),
-    });
-    setBusy(null);
-    if (!res.ok) {
-      const m = res.data?.error?.message ?? "Could not update the request — try again.";
-      setError(m);
-      showToast("No changes", m, "notice");
-      return;
-    }
-    setComment((c) => ({ ...c, [id]: "" }));
-    showToast("Saved", action === "approve" ? "Leave request approved" : "Leave request rejected");
-    void load();
-  };
+  // v1.19.0: decide() removed with the buttons — approvals live in the portal Leave tab.
+
 
   const inFlight = ["applied", "hr_reviewed", "pre_approved", "pending_final"];
   const pending = rows.filter((r) => inFlight.includes(r.stage ?? ""));
@@ -129,22 +110,13 @@ export function StaffPanel() {
             value={comment[r.id] ?? ""}
             onChange={(e) => setComment((c) => ({ ...c, [r.id]: e.target.value }))}
           />
-          <button
-            type="button"
-            className={`${btnSmall} bg-primary text-primary-foreground hover:bg-primary/85`}
-            disabled={busy === r.id}
-            onClick={() => void decide(r.id, "approve")}
-          >
-            {r.stage === "applied" ? "Mark reviewed" : r.stage === "hr_reviewed" ? "Pre-approve" : "Final approve"}
-          </button>
-          <button
-            type="button"
-            className={`${btnSmall} border-destructive/40 text-destructive hover:bg-destructive/5 border`}
-            disabled={busy === r.id}
-            onClick={() => void decide(r.id, "reject")}
-          >
-            Reject
-          </button>
+          {/* v1.19.0 (consolidation C1): approve/reject buttons REMOVED from this
+              surface — they PATCHed the same endpoint as the portal Leave tab but
+              WITHOUT the stage filtering, letting an admin skip the HR → COO/CCO →
+              CEO chain. Approvals happen in the portal Leave tab only. */}
+          <a className="text-gold-deep text-xs font-semibold underline-offset-2 hover:underline" href="/portal">
+            Decide in the portal Leave tab →
+          </a>
         </div>
       )}
     </li>

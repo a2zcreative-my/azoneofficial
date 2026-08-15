@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.20.0] — 2026-08-15 — C4 + C5: the modules finally talk to each other
+
+The last two consolidation phases. No migration — every change rides on existing tables.
+
+**Goods receipt moves stock (C4).** PO lines can now link to a stock item (a picker in the builder — leave it on "— not stock —" for services). Marking a PO **received** adds each linked line's quantity to inventory, **exactly once**: the status transition itself is the guard (a second "received" matches zero rows and answers "already received — its stock has been added"). Every receipt writes the same traceability trail manual stock-ins use, with the PO number as the remark, so a movement is findable from both ends. This closes the audit's finding F — "received" used to flip a string while the shelves changed by a separate manual adjust with no PO reference.
+
+**Reconciliation pulls from the channels (C4).** One button — "Pull *month* from channels" — prefills the period from `postage_records`, the same base `/revenue` sums: order number, channel (TT- prefix → TikTok), and actual sales per order. Keyed by order number, so pulling twice adds only what's new. Estimated sales, fees and shipping are typed on top of real rows instead of the whole table being hand-keyed. "Actual sales" stops being the fifth independent revenue figure.
+
+**Ads Fund is a budget book, not a second approval chain (C4).** The audit's finding B: the company had two "claim" workflows, and the weaker one had no receipts, no conflict-of-interest guards and no payout tracking. Now: managers **record spend** directly against an allocation (born approved, server-side budget cap unchanged, pending rows from before still display); staff who paid for ads out of pocket use the **Claims** tab — the one reimbursement workflow, with receipts and the full chain. The approve/reject route is deleted.
+
+**Enquiry → lead in one click (C4).** Each enquiry in the Pipeline tab's inbox gains "→ Convert to lead": creates the prospect (name, contact, message carried over, tagged with the enquiry number) and marks the enquiry qualified in the same stroke. The two funnels stop drifting; nobody re-types a won enquiry.
+
+**The books write themselves (C5).** Every bank movement now drafts a **balanced journal entry** — automatically, idempotently (same unique ref as the movement: post twice, book once): paid expenses, payroll runs and claim payouts (out: debit the mapped expense account, credit 1100 Bank), and manual Finance-tab entries in both directions (money in credits 4000/4100 income). Categories map to the seeded chart — rent/utilities → 6200, marketing/ads → 6000, salaries/commission → 6100, platform fees → 6300, live/service income → 4100 — and anything unrecognised books to 6900 Other expenses for the accountant to re-class, because a missing mapping must never block an expense from being marked paid. The journal composer stays for adjustments; the trial balance now reconciles with the Finance tab by construction. Posting math verified in sqlite before shipping.
+
+**Setup:** `pnpm install && pnpm build`, deploy site + Worker (steps 3–5). No migration.
+
+**Consolidation programme status:** C1–C5 complete. Remaining known deviation (flagged, deliberate): the v1.6.0 `commission_rules` leaderboard display engine still exists — retiring it changes what the Ecommerce leaderboard means and gets its own pass.
+
+## [1.19.0] — 2026-08-15 — Consolidation: 28 tabs → 24, one of each thing
+
+The CEO approved every recommendation in the consolidation plan (project doc CONSOLIDATION-PLAN-v1.19). This release executes phases C1–C3 plus the Stokis revenue decision. **No table is dropped anywhere** — only duplicate surfaces and duplicate write paths are removed.
+
+**Tabs removed (4).** **Orders** — `sales_documents` was already the unified product+service recorder; the parallel v1.18.0 model connected to no stock, no customers and no revenue report. Its API routes are retired so no new orphan records can be created; the tables stay. **Overview** — everything on it except two cards already lived on the Dashboard; the two survivors moved home (company-wide task table → Tasks tab for managers, stock-status breakdown → Inventory tab; `components/portal/company-monitor.tsx`). **Birthdays** — folded into Staff Details, same component, one staff-record surface. **Cash Flow** — merged into the renamed **Finance** tab (was Expenses): P&L, company expenses, then the bank ledger, one screen.
+
+**Money is typed once (C2).** Marking an expense paid, recording the payroll bank run, or paying out a claim now **auto-creates the matching bank movement** — idempotently: each event carries a unique ref (`EXP-n` / `PAYROLL-YYYY-MM` / `CLM-n`), so toggling "paid" twice can never write two rows, and pre-0071 databases no-op silently.
+
+**The commission double-payment path is closed (C3).** Payroll gains **"Pull approved commission"**: approved entries for the month flow into each person's COMMISSION box and are marked paid in the same pass — a second click finds nothing left. People without a payroll row yet are reported by name, not silently dropped. The v1.4.226 percent-helper (a second commission engine that multiplied month sales by a typed rate) is deleted. Rates and approvals live on the Commission tab only.
+
+**Stokis money is finally revenue (CEO decision Q2).** `stokis_orders` joins `revenueLines()` as its own line — `/revenue`, the P&L, the business-lines card and the commission base all inherit it automatically, because that function is the single source they all sum from.
+
+**Duplicates removed.** The Sales tab's enquiries card moved to Pipeline (lead capture: five surfaces → two — Pipeline for the sales roles, /admin for the website roles). LiveScheduleCard left the Attendance tab (RosterBoard is the one scheduler; the Dashboard modal viewer stays). LiveGmvCard left Ecommerce (it duplicated SalesRevenueCard's TikTok figure on the same screen from a second endpoint). The duplicate `GET /pnl` endpoint and the Overview tab's private PnlCard copy are gone — `/finance/pnl` is the one P&L. Dead `/bd` and `/ops-reports` routes and their never-rendered panels (CommercialPanel, OperationsPanel) are deleted (~450 lines).
+
+**A real authorisation hole, closed.** The admin Staff panel's approve/reject buttons PATCHed the same leave endpoint as the portal Leave tab but **without the stage filtering** — an admin could skip the HR → COO/CCO → CEO chain. The buttons are removed; the panel links to the portal Leave tab, where the chain is enforced.
+
+**Setup:** `pnpm install && pnpm build`, deploy site + Worker (steps 3–5 of DEPLOY.bat). **No migration in this release.** Staff who had Expenses/Overview/Birthdays pinned in tab-access overrides keep working — unknown tab names simply fall away; "Finance" inherits the Expenses roles.
+
 ## [1.18.2] — 2026-08-15 — The More sheet scrolls
 
 The seven ERP tabs grew the mobile More sheet past the screen, and a bottom-anchored sheet clips its overflow **off the top** — the CEO could see the later rows but never the first ones, with no way to scroll: the page behind is deliberately locked while the sheet is open, and the sheet itself had no scroll of its own. It was fine at 16 tabs and broke at 23 — a growth bug, invisible until the ERP release crossed the line.

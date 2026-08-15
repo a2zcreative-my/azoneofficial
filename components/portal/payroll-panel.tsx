@@ -17,7 +17,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { buildPayslipPdf, type PayslipData } from "@/lib/payslip-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { card } from "@/lib/ui-styles";
+import { btnSm, card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 
 const API = "/api/v1/staff";
@@ -340,9 +340,6 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [m2eCbid, setM2eCbid] = useState("");
   /* v1.4.226 (CEO: "add commission which is 1.5%"): month sales base +
      rate + target staff for the commission helper. */
-  const [commBase, setCommBase] = useState<number | null>(null);
-  const [commRate, setCommRate] = useState("1.5");
-  const [commWho, setCommWho] = useState("");
   const [m2eHasTpl, setM2eHasTpl] = useState<boolean | null>(null);
   const loadM2e = useCallback(async () => {
     const r = await api<{ corporate_id?: string; payer_account?: string; client_batch_id?: string; has_template?: boolean }>(`/payroll/m2e-settings`);
@@ -538,14 +535,6 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const entry = (id: number): Entry =>
     entries[id] ?? { user_id: id, basic_cents: base[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
 
-  useEffect(() => {
-    setCommBase(null);
-    void fetch(`/api/v1/staff/payroll/commission-base?month=${month}`, { credentials: "include" })
-      .then(async (r) => (r.ok ? await r.json() : null))
-      .then((d) => { if (d && typeof d === "object" && "total_cents" in d) setCommBase((d as { total_cents: number }).total_cents); })
-      .catch(() => { /* old worker: helper hides itself */ });
-  }, [month]);
-
   const setField = (id: number, key: keyof Entry, rmValue: string) => {
     const cents = Math.max(0, Math.round(Number(rmValue || 0) * 100));
     setEntries((m) => ({ ...m, [id]: { ...entry(id), [key]: cents } }));
@@ -733,44 +722,31 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         </details>
 
-        {/* v1.4.226: 💰 Commission helper — {month sales} × rate → a staff
-            member's COMMISSION box. Draft only: he reviews, then Save all.
-            Hidden entirely on an old worker (no base fetched). */}
-        {commBase !== null && (
-          <details className="text-xs">
-            <summary className="cursor-pointer select-none font-medium">
-              💰 Commission helper — {ym(month)} sales {rm(commBase)} × rate
-            </summary>
-            <div className="border-border mt-2 flex flex-wrap items-end gap-2 rounded-lg border p-3">
-              <label className="block">
-                <span className="text-muted-foreground">Rate %</span>
-                <input className="border-border mt-0.5 h-8 w-20 rounded-lg border px-2" inputMode="decimal"
-                  value={commRate} onChange={(e) => setCommRate(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">Pay to</span>
-                <select className="border-border mt-0.5 h-8 rounded-lg border px-2" value={commWho}
-                  onChange={(e) => setCommWho(e.target.value)}>
-                  <option value="">— choose staff —</option>
-                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </label>
-              <p className="pb-1.5 font-semibold">
-                = {rm(Math.round(commBase * (Number(commRate) || 0) / 100))}
-              </p>
-              <button type="button" className="bg-primary text-primary-foreground h-8 rounded-lg px-3 font-medium"
-                disabled={!commWho || !Number(commRate)}
-                onClick={() => {
-                  const cents = Math.round(commBase * (Number(commRate) || 0) / 100);
-                  const id = Number(commWho);
-                  setEntries((m) => ({ ...m, [id]: { ...entry(id), commission_cents: cents } }));
-                  showToast("Commission filled", `${rm(cents)} into the COMMISSION box — review, then Save all`);
-                }}>
-                Fill commission box
-              </button>
-            </div>
-          </details>
-        )}
+        {/* v1.19.0 (consolidation C3): the v1.4.226 percent-helper is gone —
+            it multiplied month sales by a TYPED rate, a second commission
+            engine beside the Commission tab's rate table. One engine now:
+            entries are computed and approved on the Commission tab, and this
+            button pulls the approved amounts into the COMMISSION boxes and
+            marks them paid — the double-payment path is closed because a
+            second click finds nothing left approved. */}
+        <div className="border-border flex flex-wrap items-center gap-2 rounded-lg border p-3 text-xs">
+          <button type="button" className={btnSm}
+            onClick={async () => {
+              const r = await api<{ applied: { name: string; amount_cents: number }[]; skipped: string[] }>(
+                `/payroll/pull-commission`, { method: "POST", body: JSON.stringify({ month }) });
+              if (!r.ok) { showToast("No changes", "Payroll access required", "notice"); return; }
+              const a = r.data?.applied ?? []; const sk = r.data?.skipped ?? [];
+              showToast(a.length ? "Saved" : "No changes",
+                a.length
+                  ? `Pulled ${a.length} approved commission ${a.length === 1 ? "entry" : "entries"} (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · no payroll row yet: ${sk.join(", ")}` : ""}`
+                  : sk.length ? `No payroll rows for: ${sk.join(", ")} — save the payroll grid first` : "Nothing approved on the Commission tab for this month",
+                a.length ? undefined : "notice");
+              if (a.length) void load();
+            }}>
+            Pull approved commission — {ym(month)}
+          </button>
+          <span className="text-muted-foreground">Rates &amp; approvals live on the Commission tab.</span>
+        </div>
       </>)}
 
       {release && (

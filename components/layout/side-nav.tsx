@@ -25,12 +25,12 @@ interface NavItem { name: string; label: string }
 
 /** Presentation grouping only — see the note above. Order defines display order. */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
-  { title: "Overview", tabs: ["Dashboard", "Overview", "Announcements"] },
+  { title: "Overview", tabs: ["Dashboard", "Announcements"] },
   { title: "Work", tabs: ["Tasks", "Content"] },
-  { title: "Sales", tabs: ["Sales", "Orders", "Pipeline", "Ecommerce", "Stokis"] },
+  { title: "Sales", tabs: ["Sales", "Pipeline", "Ecommerce", "Stokis"] },
   { title: "Inventory", tabs: ["Inventory", "Assets", "Purchasing"] },
-  { title: "Human Resources", tabs: ["HR", "Staff Details", "Attendance", "Leave", "Birthdays"] },
-  { title: "Finance", tabs: ["Claims", "Payroll", "Expenses", "Cash Flow", "Reconciliation", "Commission", "Ads Fund", "Accounting"] },
+  { title: "Human Resources", tabs: ["HR", "Staff Details", "Attendance", "Leave"] },
+  { title: "Finance", tabs: ["Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Accounting"] },
   { title: "System", tabs: ["Users"] },
   { title: "My HR", tabs: ["Profile"] },
 ];
