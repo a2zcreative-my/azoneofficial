@@ -14,25 +14,33 @@ import { card } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
 
 
+/* v1.21.4 (CEO: "tabs access control seem like not sync with the current
+   tabs!"): this list drifted for eight versions — it still offered Overview,
+   Pipeline, Expenses and Birthdays (all retired/folded) and knew nothing of
+   Finance or the five ERP tabs. It now mirrors ALL_TABS in page.tsx exactly
+   (minus Dashboard/Profile, which are always visible). Keep the two in sync
+   whenever a tab is added or retired. */
 const TABS: { name: string; label: string; hint: string }[] = [
-  { name: "Overview", label: "Overview", hint: "company monitor" },
-  { name: "Announcements", label: "News", hint: "feed + publish" },
+  { name: "Announcements", label: "Announcements", hint: "news feed + publish" },
   { name: "HR", label: "HR", hint: "docs, leave admin" },
-  { name: "Staff Details", label: "Staff", hint: "records + badges" },
-  { name: "Attendance", label: "Attendance", hint: "" },
+  { name: "Staff Details", label: "Staff Details", hint: "records + birthdays" },
+  { name: "Attendance", label: "Attendance", hint: "punches + roster" },
   { name: "Leave", label: "Leave", hint: "" },
   { name: "Tasks", label: "Tasks", hint: "" },
-  { name: "Pipeline", label: "Pipeline", hint: "leads → won" },
   { name: "Content", label: "Content", hint: "production pipeline" },
   { name: "Claims", label: "Claims", hint: "" },
   { name: "Payroll", label: "Payroll", hint: "salaries — keep tight" },
-  { name: "Expenses", label: "Expenses", hint: "" },
-  { name: "Sales", label: "Sales", hint: "CRM + documents" },
+  { name: "Finance", label: "Finance", hint: "cash flow + P&L + expenses" },
+  { name: "Sales", label: "Sales", hint: "enquiries + documents" },
+  { name: "Reconciliation", label: "Reconciliation", hint: "channel settlements" },
+  { name: "Commission", label: "Commission", hint: "" },
+  { name: "Ads Fund", label: "Ads Fund", hint: "" },
+  { name: "Purchasing", label: "Purchasing", hint: "suppliers + POs" },
+  { name: "Accounting", label: "Accounting", hint: "GL — keep tight" },
   { name: "Inventory", label: "Inventory", hint: "" },
   { name: "Stokis", label: "Stokis", hint: "reseller network" },
-  { name: "Ecommerce", label: "Ecommerce", hint: "TikTok cards" },
+  { name: "Ecommerce", label: "Ecommerce", hint: "TikTok + map" },
   { name: "Assets", label: "Assets", hint: "equipment register" },
-  { name: "Birthdays", label: "Birthdays", hint: "" },
   { name: "Users", label: "Users", hint: "accounts — keep tight" },
 ];
 
@@ -49,24 +57,28 @@ const ROLES: [string, string][] = [
 ];
 
 /** Built-in defaults, mirrored from TAB_ROLES/SALES_ROLES in page.tsx so the
-    card can show what "default" means. Keep in sync when defaults change. */
+    card can show what "default" means. super_admin/admin are implicit here
+    (always allowed) — the chips list the assignable staff roles only.
+    v1.21.4: resynced with the v1.21 tab set. */
 const DEFAULTS: Record<string, string[] | null> = {
-  Overview: ["ceo", "coo", "cco", "admin"],
   Announcements: null,
   HR: ["hr_admin", "coo", "cco", "ceo", "admin"],
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "admin"],
   Attendance: null, Leave: null, Tasks: null,
-  Pipeline: null, // every staff role can log a lead
   Content: ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
-  Stokis: ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
   Claims: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "editor", "marketing", "live_host", "admin"],
   Payroll: ["ceo", "coo", "admin"],
-  Expenses: ["ceo", "coo", "admin"],
+  Finance: ["ceo", "coo", "admin"],
   Sales: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "admin"],
+  Reconciliation: ["admin", "ceo", "coo", "sales_marketing"],
+  Commission: ["admin", "ceo", "coo", "cco", "hr_admin"],
+  "Ads Fund": ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
+  Purchasing: ["admin", "ceo", "coo"],
+  Accounting: ["admin", "ceo"],
   Inventory: ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
+  Stokis: ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
   Ecommerce: null,
   Assets: ["hr_admin", "coo", "cco", "ceo", "admin"],
-  Birthdays: ["ceo", "hr_admin", "coo", "cco", "admin"],
   Users: ["ceo", "coo"],
 };
 

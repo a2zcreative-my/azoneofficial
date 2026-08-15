@@ -59,8 +59,13 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
 
   const daySessions = sessions.filter((s) => s.session_date === selected);
   const dayEvents = events.filter((e) => e.event_date === selected);
+  /* v1.21.5 (CEO: "why got dotting instead of there is a task only have a
+     dot"): attendance days OUT of the dots — with daily punches, every past
+     day carried one and the dots said nothing. A dot now means something is
+     ON that day: a task due, a roster/live session, or a company event.
+     Attendance still reads in the day card's text line. */
   const marked = Array.from(new Set([
-    ...punches.map((p) => mytDay(p.created_at)),
+    ...tasks.filter((t) => t.due_date).map((t) => (t.due_date as string).slice(0, 10)),
     ...sessions.map((s) => s.session_date),
     ...events.map((e) => e.event_date),
   ]));

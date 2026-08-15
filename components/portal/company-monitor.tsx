@@ -67,21 +67,75 @@ export function TaskProgressCard() {
 }
 
 /** Stock status breakdown — Inventory tab, management roles.
-    v1.21.1 (CEO: "should not take so much width and try to minimalist"):
-    no longer a full-width card — one slim strip that hugs its content,
-    label and chips on a single line. */
+    v1.21.1 (CEO): one slim strip that hugs its content.
+    v1.21.5 (CEO: "for low should like animation to make staff alert and
+    data will appear when click without go to the tabs/table"): the low /
+    out-of-stock chips PULSE while their count is above zero, and clicking
+    one opens the affected items right under the strip — SKU, name and the
+    exact quantity left — no trip to the inventory table. */
 export function InventoryStatusCard() {
   const data = useOverview();
+  const [open, setOpen] = useState<string | null>(null);
+  const [items, setItems] = useState<{ sku: string; name: string; stock: number; status: string }[] | null>(null);
+  useEffect(() => {
+    if (!open || items) return;
+    void api<{ items: { sku: string; name: string; stock: number; status: string }[] }>(`/inventory`)
+      .then((r) => { if (r.ok && r.data) setItems(r.data.items ?? []); });
+  }, [open, items]);
   if (!data?.inventory_status?.length) return null;
+  const ALERT: Record<string, string> = {
+    low: "bg-warning-soft text-warning",
+    out_of_stock: "bg-danger-soft text-danger",
+  };
+  const openItems = open ? (items ?? []).filter((i) => i.status === open) : [];
   return (
-    <div className="border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 self-start rounded-xl border px-3 py-2">
-      <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Stock status</span>
-      {data.inventory_status.map((r) => (
-        <span key={r.status} className="bg-secondary rounded-full px-2.5 py-0.5 text-xs">
-          <b className="tabular-nums">{r.n}</b>{" "}
-          <span className="text-muted-foreground capitalize">{r.status.replace(/_/g, " ")}</span>
-        </span>
-      ))}
+    <div className="max-w-full self-start">
+      <div className="border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+        <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Stock status</span>
+        {data.inventory_status.map((r) => {
+          const alert = ALERT[r.status] && r.n > 0;
+          if (!alert) return (
+            <span key={r.status} className="bg-secondary rounded-full px-2.5 py-0.5 text-xs">
+              <b className="tabular-nums">{r.n}</b>{" "}
+              <span className="text-muted-foreground capitalize">{r.status.replace(/_/g, " ")}</span>
+            </span>
+          );
+          const isOpen = open === r.status;
+          return (
+            <button key={r.status} type="button" aria-expanded={isOpen}
+              onClick={() => setOpen(isOpen ? null : r.status)}
+              className={`${ALERT[r.status]} ${isOpen ? "" : "animate-pulse"} rounded-full px-2.5 py-0.5 text-xs font-semibold`}
+              title="Tap to see which items">
+              <b className="tabular-nums">{r.n}</b>{" "}
+              <span className="capitalize">{r.status.replace(/_/g, " ")}</span>
+              <span aria-hidden className="ml-1 text-[10px]">{isOpen ? "▲" : "▼"}</span>
+            </button>
+          );
+        })}
+      </div>
+      {open && (
+        <div className="border-border bg-card mt-1.5 rounded-xl border px-3 py-2">
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+            {open.replace(/_/g, " ")} items
+          </p>
+          {!items ? (
+            <p className="text-muted-foreground mt-1 text-xs">Loading…</p>
+          ) : openItems.length === 0 ? (
+            <p className="text-muted-foreground mt-1 text-xs">Nothing here anymore — the count refreshes on reload.</p>
+          ) : (
+            <div className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+              {openItems.map((i) => (
+                <p key={i.sku} className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="min-w-0 truncate"><span className="text-muted-foreground tabular-nums">{i.sku}</span> {i.name}</span>
+                  <span className={`shrink-0 font-semibold tabular-nums ${i.stock === 0 ? "text-danger" : "text-warning"}`}>
+                    {i.stock} left
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

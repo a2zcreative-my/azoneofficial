@@ -1176,20 +1176,14 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         }}>↩ Revert</button>
                     </>
                   )}
-                  <button type="button" className={rowBtnDanger} title="Wrong record: stock restored (unless already reverted), any sale removed, row deleted"
-                    onClick={async () => {
-                      if (!(await invConfirm({
-                        title: "Delete this stock-out record?",
-                        message: o.reverted
-                          ? "The stock was already restored by the revert — only the record itself is removed."
-                          : `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? `, the sale is removed from the totals` : ""}, and the record is deleted. For a normal undo, use ↩ Revert instead — it keeps the trail.`,
-                        confirmLabel: "Delete record", variant: "danger",
-                      }))) return;
-                      const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                      if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
-                      invToast("Deleted", "Record removed");
-                      void load();
-                    }}>Delete</button>
+                  {/* v1.21.4 (CEO: "when I delete the correction manual stock,
+                      it will delete from the database … make sure that it is
+                      not reverse back to inventory stock"): the Delete action
+                      is GONE. It hard-deleted the row AND silently pushed the
+                      quantity back into stock — both wrong for a system whose
+                      inventory must stay accurate. Movements are permanent
+                      history: Edit fixes a typo, ↩ Revert is the one audited
+                      way to put stock back (and the row stays, marked). */}
                 </span>
               </div>
               {openMove === o.id && (

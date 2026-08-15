@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.5] — 2026-08-17 — Calendar dots mean something; low stock pulses and opens in place
+
+**Mini-calendar dots (CEO: "why got dotting instead of there is a task only have a dot").** Attendance days no longer dot the dashboard mini-calendar — with daily punches, every past day carried one and the dots meant nothing. A dot now marks only a day with something ON it: a task due, a roster/live session, or a company event. Attendance still reads in the day card's text line.
+
+**Low stock alerts (CEO: "for low should like animation to make staff alert and data will appear when click without go to the tabs/table").** The Low and Out-of-stock chips on the Inventory status strip now PULSE (amber / red) whenever their count is above zero, and clicking one opens the affected items right under the strip — SKU, name and exact quantity left — no trip to the inventory table. In-stock stays a quiet neutral chip.
+
+## [1.21.4] — 2026-08-17 — Tab access resynced, stock history is permanent, location required on every punch
+
+**Tab access control matches the real tabs again.** The card (and the worker's allow-list behind it) had drifted eight versions — it still offered Overview, Pipeline, Expenses and Birthdays (all retired or folded) and refused Finance and the five ERP tabs, so overrides could not be set on the tabs the portal actually shows. Both sides now mirror the live tab set (21 controllable tabs; Dashboard and Profile stay always-on).
+
+**Manual stock movements can no longer be deleted.** The old Delete hard-erased the record AND silently pushed the quantity back into stock — history gone, shelves changed, no trail. That action is retired on both the button and the API (an old client pressing it gets a clear refusal, not a 404). Movements are permanent records: Edit corrects a typo, and Revert remains the ONE audited way to put stock back — the row stays, marked reverted. Your inventory numbers can no longer be changed by making history disappear.
+
+**Location is required on EVERY punch — with or without the fence.** Before, a deployment that had not yet applied migration 0072 quietly accepted location-less punches: the exact "no location" rows in your In-Today list. The requirement no longer depends on the fence config (the fence only decides outside-office flagging); the client blocks before sending with the precise reason ("location blocked in browser settings" vs "no GPS fix"), OT punches included. And when the deployed worker reports no fence configured, In Today shows a red deployment warning to management instead of staying silent.
+
+**About your current live data:** those three location-less punches were accepted by the older deployment. After running DEPLOY.bat in full (worker + migrations), every new punch requires location, and each staff member must tap "Allow" when the browser asks for location the first time.
+
 ## [1.21.3] — 2026-08-17 — Dashboard day card sees the roster; sync failure says why
 
 **The side-panel day card counts everything on the day, not just tasks.** Picking 17-08 with a roster session scheduled used to read "0 tasks — nothing due", as if the day were empty (CEO: "there is roaster schedule created but why … appear task 0??"). The card now reads tasks due + live/roster sessions + company events ("1 item · 1 session"), lists each below (time · platform, client, host), and the mini-calendar dots mark session/event days too.

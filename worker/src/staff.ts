@@ -134,8 +134,12 @@ async function gateGeofence(
   env: Env, body: Record<string, unknown> | null, verb: string,
 ): Promise<{ resp: Response; gps?: undefined } | { resp?: undefined; gps: string | null }> {
   const gpsRaw = str(body?.gps, 100) ? (body!.gps as string).trim() : null;
-  const fence = await getGeofence(env);
-  if (!fence) return { gps: gpsRaw };
+  /* v1.21.4 (CEO: "still appear that the location is not capture which is
+     it is incorrect flow data system requirement"): location is required on
+     EVERY punch, fence configured or not. Before, a database that hadn't
+     run migration 0072 yet silently accepted location-less punches — the
+     exact "no location" rows he saw. The fence now only decides FLAGGING;
+     the location requirement itself no longer depends on it. */
   const gm = gpsRaw ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?$/.exec(gpsRaw) : null;
   const plat = gm ? Number(gm[1]) : NaN;
   const plng = gm ? Number(gm[2]) : NaN;
@@ -3156,7 +3160,12 @@ export async function handleStaff(
      not configurable (clock-in and payslips must never disappear), and
      super_admin ignores overrides entirely — the escape hatch if an
      assignment locks everyone (even the CEO) out of a tab. */
-  const TAB_ACCESS_TABS = ["Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Users"];
+  /* v1.21.4 — resynced with ALL_TABS (page.tsx). The old list still allowed
+     Overview/Pipeline/Expenses/Birthdays (retired or folded) and REFUSED
+     Finance and the five ERP tabs, so the CEO could not override the tabs
+     the portal actually shows. Stale override keys in system_meta are
+     harmless — the client only reads keys for tabs it knows. */
+  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"];
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {
@@ -5121,23 +5130,16 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return json({ ok: true, stock: back });
     }
     if (action === "delete") {
-      // Delete = the record was WRONG. Stock goes back (unless already
-      // reverted) and any sale is removed — then the row disappears.
-      if (!isReverted) {
-        const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
-        if (item) {
-          const back = item.stock + row.qty;
-          await env.DB.prepare(
-            `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-          ).bind(back, stockStatus(back), user.id, row.item_id).run();
-        }
-        const sid = await findManualSaleId(row);
-        if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
-      }
-      await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(row.id).run();
-      await audit(env, user.id, "inventory.manual_out_delete", "manual_stockouts", String(row.id),
-        { qty: row.qty, unit_sale_cents: row.unit_sale_cents, remark: row.remark, was_reverted: isReverted });
-      return json({ ok: true });
+      /* v1.21.4 (CEO: "make sure that it is not reverse back to inventory
+         stock… all my data inventory is accurate"): hard delete is RETIRED.
+         It erased the row from the database AND pushed the quantity back
+         into stock in the same stroke — history gone, shelves changed, no
+         trail. Stock movements are permanent records now: Edit corrects a
+         typo, Revert is the one audited way to put stock back (the row
+         stays, marked reverted). The route answers instead of vanishing so
+         an old client build gets a clear message, not a 404. */
+      await audit(env, user.id, "inventory.manual_out_delete_refused", "manual_stockouts", String(row.id), {});
+      return err("gone", "Deleting stock movements is disabled — the movement history is permanent. Use Edit to correct the record, or Revert to put the stock back (audited).", 410);
     }
     // action === "edit"
     if (isReverted) return err("invalid_state", "Reverted records can't be edited — record a fresh stock out instead", 400);

@@ -289,14 +289,19 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     // A likely duplicate (button shows ✓) is sent WITHOUT blocking on
     // location — the server answers "already punched" before the fence check.
     const likelyDup = type === "clock_in" ? today.some((r) => r.type === "clock_in") : today.some((r) => r.type === "clock_out");
-    if (fence?.configured && !gps && !likelyDup) {
+    /* v1.21.4 (CEO): location is required on EVERY punch — no longer only
+       when the fence config is present. The server refuses without it too;
+       this check just gives the person the right words before a round-trip. */
+    if (!gps && !likelyDup) {
       setBusy("");
       setPunchToast({
         title: "Location needed",
-        sub: `Office check-in is on — allow location access in your browser, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
+        sub: gpsDenied
+          ? `Location is blocked for this site — enable it in your browser settings, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`
+          : `Couldn't get a GPS fix — move near a window and tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
         variant: "notice",
       });
-      window.setTimeout(() => setPunchToast(null), 4200);
+      window.setTimeout(() => setPunchToast(null), 4800);
       return;
     }
     const res = await api<{ flag?: string; error?: { message?: string } }>(`/staff/attendance`, {
@@ -369,6 +374,13 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     // v1.18.1: position captured on every OT punch too (recorded even with
     // the fence off — they are the paid hours).
     const otGps = await getGps();
+    // v1.21.4: OT punches carry the same location requirement as clock punches.
+    if (!otGps) {
+      setBusy("");
+      setPunchToast({ title: "Location needed", sub: "OT punches need your location — allow location access and try again.", variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 4200);
+      return;
+    }
     const res = await api<{ at?: string; error?: { message?: string } }>(`/staff/attendance/ot`, {
       method: "POST",
       body: JSON.stringify({ type, ...(otGps ? { gps: otGps } : {}) }),
@@ -909,13 +921,29 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
   type MonRow = { id: number; name: string; role?: string; in_at?: string | null; in_gps?: string | null };
   const [data, setData] = useState<MonRow[]>([]);
   const [fence, setFence] = useState<{ lat: number; lng: number; radius_m: number; label?: string } | null>(null);
+  /* v1.21.4: distinguish "worker says fence is NOT configured" (explicit
+     null → show the red deployment warning) from "old worker, field absent"
+     (undefined → say nothing rather than guess). */
+  const [fenceMissing, setFenceMissing] = useState(false);
   useEffect(() => {
     void api<{ staff: MonRow[]; geofence?: { lat: number; lng: number; radius_m: number; label?: string } | null }>('/staff/attendance/monitor')
       .then(r => {
-        if (r.ok && r.data) { setData(r.data.staff.filter(s => !!s.in_at)); setFence(r.data.geofence ?? null); }
+        if (r.ok && r.data) {
+          setData(r.data.staff.filter(s => !!s.in_at));
+          setFence(r.data.geofence ?? null);
+          setFenceMissing("geofence" in r.data && r.data.geofence === null);
+        }
       });
   }, []);
-  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">In Today</p>{node}</div>;
+  /* v1.21.4: when the deployed worker explicitly reports NO fence, tell the
+     manager plainly — this is the silent state behind "no location" punches
+     being accepted before, and the fix is one full DEPLOY.bat run. */
+  const fenceWarning = fenceMissing ? (
+    <p className={`bg-danger-soft text-danger rounded-lg px-3 py-2 text-xs font-medium ${inModal ? "mx-4 mt-3 sm:mx-5" : "mb-2"}`}>
+      Office geofence is NOT active on this deployment — run DEPLOY.bat in full (step 2 seeds it via migration 0072), then punches require location and outside-office flags turn on.
+    </p>
+  ) : null;
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{fenceWarning}{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">In Today</p>{fenceWarning}{node}</div>;
   if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No one checked in today.</p>);
   return wrap(
     <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
