@@ -44,14 +44,12 @@ export function SidebarNav({ items, active, onSelect, onSignOut }: {
   onSelect: (name: string) => void;
   onSignOut: () => void;
 }) {
-  /* v1.12.0: the rail no longer pins itself to the viewport. It is `sticky`
-     inside AppShell's navy gutter, so it rides the rounded canvas instead of
-     sitting on top of it. The gutter owns the navy background and the rounded
-     left corners; this element owns the icons. top-5 and 100vh-2.5rem match
-     the shell's p-5 band on the top and bottom edges. */
+  /* v1.21.1: the shell is viewport-fixed now (content scrolls INSIDE the
+     canvas), so the rail is a plain full-height flex child of the navy
+     gutter — the old sticky/100vh arithmetic is gone with the page scroll. */
   return (
     <aside
-      className="sticky top-5 z-40 hidden h-[calc(100vh-2.5rem)] w-14 flex-col items-center gap-1 py-3 md:flex"
+      className="z-40 hidden h-full w-14 flex-col items-center gap-1 py-3 md:flex"
       aria-label="Portal navigation"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}

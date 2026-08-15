@@ -1693,7 +1693,11 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
     onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
   };
   const monthLabel = first.toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" });
-  const cells: (number | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  /* v1.21.1 (CEO: "the cell looks like not full cell border line"): pad the
+     TAIL to complete weeks too — the last row used to stop at the final day,
+     leaving the grid's bottom-right corner as an open notch with no borders. */
+  const lived: (number | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  const cells: (number | null)[] = [...lived, ...Array<null>((7 - (lived.length % 7)) % 7).fill(null)];
   const dayEvents = selected ? byDay(selected) : [];
 
   return (
@@ -1706,9 +1710,12 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
       <div className="text-muted-foreground mt-2 grid grid-cols-7 text-center text-[11px] font-semibold tracking-wide uppercase">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <span key={d} className="py-1">{d}</span>)}
       </div>
-      <div className="border-border grid grid-cols-7 overflow-hidden rounded-lg border">
+      {/* v1.21.1: collapse the inner borders cleanly — every 7th cell drops
+          border-r (it met the frame and read as a doubled line) and the last
+          week drops border-b, so the frame is the single outer line. */}
+      <div className="border-border grid grid-cols-7 overflow-hidden rounded-lg border [&>*:nth-child(7n)]:border-r-0 [&>*:nth-last-child(-n+7)]:border-b-0">
         {cells.map((d, i) => {
-          if (d === null) return <div key={`x${i}`} className="border-border bg-secondary/20 min-h-12 border-r border-b last:border-r-0 md:min-h-20" />;
+          if (d === null) return <div key={`x${i}`} className="border-border bg-secondary/20 min-h-12 border-r border-b md:min-h-20" />;
           const dISO = iso(d);
           const evs = byDay(dISO);
           const hol = holidayOf(dISO);
@@ -1719,7 +1726,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
               key={dISO}
               type="button"
               onClick={() => onSelect(isSel ? null : dISO)}
-              className={`border-border relative min-h-12 border-r border-b p-1 text-left align-top transition-colors last:border-r-0 md:min-h-20 md:p-1.5 ${isSel ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
+              className={`border-border relative min-h-12 overflow-hidden border-r border-b p-1 text-left align-top transition-colors md:min-h-20 md:p-1.5 ${isSel ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
             >
               <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ? "bg-primary text-primary-foreground font-bold" : hol ? "font-bold text-red-600" : "font-medium"}`}>{d}</span>
               {hol && (
@@ -1746,7 +1753,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                   </span>
                   <span className="mt-0.5 hidden md:block">
                     {evs.slice(0, 2).map((e) => (
-                      <span key={e.id} className="mb-0.5 block truncate rounded bg-secondary px-1 py-0.5 text-[10px] leading-tight">
+                      <span key={e.id} title={e.title} className="mb-0.5 block truncate rounded bg-secondary px-1 py-0.5 text-[10px] leading-tight">
                         <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${EVENT_COLORS[e.category] ?? "bg-primary"}`} />
                         {e.title}
                       </span>
@@ -4529,22 +4536,27 @@ function TargetsCommissionCard() {
   return (
     <div className={card}>
       {toastNode}
-      <p className="text-sm font-semibold">🎯 Targets &amp; commission — {ym(month)}</p>
+      <p className="text-sm font-semibold">Targets &amp; commission — {ym(month)}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Set each person&apos;s and each team&apos;s monthly goal, and the commission rules that pay them. Feeds the leaderboard and the dashboard.
       </p>
 
       <div className="mt-3">
         <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Per-person targets (RM)</p>
-        <div className="mt-1.5 space-y-1">
+        {/* v1.21.1 (CEO: "should not so much row like this"): a labelled
+            grid — the whole floor fits in two or three short rows instead
+            of one full-width input per person. */}
+        <div className="mt-1.5 grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {staff.map((s) => (
-            <div key={s.id} className="flex items-center gap-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">{s.name} <span className="text-muted-foreground text-[11px] capitalize">{s.role.replace(/_/g, " ")}</span></span>
-              <input type="number" min={0} step="100" className={`${inputClass} h-8 w-28 text-xs`}
+            <label key={s.id} className="block min-w-0">
+              <span className="text-muted-foreground mb-0.5 block truncate text-[11px] font-medium" title={s.name}>
+                {properName(s.name)} <span className="capitalize">· {s.role.replace(/_/g, " ")}</span>
+              </span>
+              <input type="number" min={0} step="100" className={`${inputClass} h-8 text-xs`}
                 defaultValue={userTargets[s.id] != null ? (userTargets[s.id]! / 100).toString() : ""}
                 placeholder="e.g. 8000"
                 onBlur={(e) => { if (e.target.value) void saveTarget("user", s.id, e.target.value); }} />
-            </div>
+            </label>
           ))}
           {staff.length === 0 && <p className="text-muted-foreground text-xs">No staff to target yet.</p>}
         </div>
@@ -4885,6 +4897,14 @@ export default function PortalPage() {
     if (!tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab]);
+
+  /* v1.21.1: the shell scrolls INTERNALLY now (#shell-scroll in AppShell),
+     so a tab switch must rewind that container — without this, opening a
+     tab landed wherever the previous tab was scrolled to. (Lives BEFORE the
+     early returns below — hooks must run on every render.) */
+  useEffect(() => {
+    document.getElementById("shell-scroll")?.scrollTo({ top: 0 });
+  }, [tab]);
 
   if (!checked) return null;
   if (user?.role === "customer") {
@@ -5331,13 +5351,11 @@ export default function PortalPage() {
         {activeTab === "Claims" && <ClaimsPanel userId={user.id} role={user.role} />}
         {activeTab === "Finance" && (
           <div className="space-y-4 md:space-y-6">
+            {/* v1.21.1 (CEO): Cash Flow LEADS the tab — the live bank picture
+                first, the P&L and expense detail below it. */}
+            <CashFlowPanel />
             <PnlCard />
             <ExpensesPanel />
-            {/* v1.19.0 C2: the bank ledger lives INSIDE Finance now — money
-                out recorded as a paid expense / payroll run / claim payout
-                auto-appears here as a movement; manual rows stay for money
-                in and anything else. One tab, one ringgit, no re-typing. */}
-            <CashFlowPanel />
           </div>
         )}
         {activeTab === "Attendance" && (
@@ -5400,9 +5418,12 @@ export default function PortalPage() {
           </div>
         )}
         {activeTab === "Inventory" && (
-          <div className="space-y-4 md:space-y-6">
-            <InventoryPanel role={user.role} />
+          <div className="flex flex-col gap-4 md:gap-6">
+            {/* v1.21.1 (CEO): status strip FIRST, minimal — the health
+                read before the table. flex-col so the strip self-starts
+                instead of stretching full width. */}
             {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
+            <InventoryPanel role={user.role} />
           </div>
         )}
         {activeTab === "Ecommerce" && (
@@ -5414,6 +5435,9 @@ export default function PortalPage() {
                 → Connection status last (plumbing below the business).
                 v1.4.277: Sales revenue leads the tab (moved from Dashboard
                 per CEO — the month summary above the channel detail). */}
+            {/* v1.21.1 (CEO): the map LEADS the tab — where the country is
+                buying, at a glance, before the detail cards. */}
+            {REVENUE_ROLES.includes(user.role) && <OpsMapCard />}
             {REVENUE_ROLES.includes(user.role) && <LeaderboardCard user={user} />}
             {TARGET_ADMIN_ROLES.includes(user.role) && <TargetsCommissionCard />}
             {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
@@ -5422,7 +5446,6 @@ export default function PortalPage() {
             <TikTokOrdersCard role={user.role} onChanged={() => { /* stock views live on Inventory */ }} />
             {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
             {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
-            {REVENUE_ROLES.includes(user.role) && <OpsMapCard />}
             <ConnectionStatusCard />
           </div>
         )}

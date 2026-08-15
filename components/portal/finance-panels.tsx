@@ -83,15 +83,36 @@ export function CashFlowPanel() {
     else showToast("No changes", "The account needs a name", "notice");
   };
 
+  /* v1.21.1 (CEO: "I didnt see yet it populate the existing data!"): one
+     click books everything Finance already holds — paid expenses, claims,
+     payroll runs, paid invoices. Idempotent server-side (dup-check by ref),
+     so pressing it twice adds nothing. */
+  const [syncBusy, setSyncBusy] = useState(false);
+  const syncExisting = async () => {
+    setSyncBusy(true);
+    const r = await api<{ created?: number }>(`/cashflow/backfill`, { method: "POST", body: JSON.stringify({}) });
+    setSyncBusy(false);
+    if (r.ok) {
+      const n = r.data?.created ?? 0;
+      showToast(n > 0 ? "Synced" : "Up to date", n > 0 ? `${n} movement${n === 1 ? "" : "s"} booked from Finance` : "Everything paid is already booked");
+      void load();
+    } else showToast("No changes", "Sync failed — try again", "notice");
+  };
+
   return (
     <div className={card}>
       {toastNode}
       <MigrationNote show={pending} />
       <div className={rowHead}>
         <p className="text-sm font-semibold">Cash Flow</p>
-        <button type="button" className={btnSm} onClick={() => setShowBanks((v) => !v)}>
-          {showBanks ? "Hide banks" : `Manage banks (${banks.length})`}
-        </button>
+        <span className="flex flex-wrap gap-2">
+          <button type="button" className={btnSm} disabled={syncBusy} onClick={() => void syncExisting()}>
+            {syncBusy ? "Syncing…" : "Sync existing Finance data"}
+          </button>
+          <button type="button" className={btnSm} onClick={() => setShowBanks((v) => !v)}>
+            {showBanks ? "Hide banks" : `Manage banks (${banks.length})`}
+          </button>
+        </span>
       </div>
       {/* v1.21.0 (CEO: "should sync with the data of the Finance… semi
           automation instead of manually logged"): the sync already runs —

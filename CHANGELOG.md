@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.1] — 2026-08-15 — App-like scrolling, calendar grid, Cash Flow backfill, cards reordered
+
+**The shell scrolls inside itself now.** The rounded canvas is fixed to the viewport on desktop; the content column is the scroll container, so the backdrop never scrolls and the frame, rail and side columns stay put — like an app window, not a web page. Switching tabs rewinds the internal scroll to the top. Phones are untouched.
+
+**Events calendar — complete grid.** The month grid's last row used to stop at the final day, leaving an open unbordered notch in the corner. Trailing cells are now padded to full weeks, inner borders collapse cleanly against the frame (no doubled lines), long event names truncate with a hover tooltip, and a third-plus event shows as "+N more".
+
+**Cash Flow — populate what Finance already holds.** The v1.21.0 automation only books events that happen after it shipped. New "Sync existing Finance data" button (and worker backfill route) walks every ALREADY-paid expense, claim, payroll run and invoice and books each with the same ref the live path uses — idempotent, so pressing it twice adds nothing. Cash Flow also LEADS the Finance tab now, P&L and expenses below it.
+
+**Cards where the CEO wants them.** Operations map leads the Ecommerce tab. Targets & commission's per-person inputs are a compact labelled grid (the whole floor in two short rows, full names shown) instead of one full-width row per person; heading emoji dropped. Inventory's status card is now a slim content-hugging strip at the TOP of the Inventory tab.
+
+Deploy: usual 5-step DEPLOY.bat (no new migration; worker changes ride step 3).
+
 ## [1.21.0] — 2026-08-15 — GPS flagging, one staff-name source, leave visibility, Cash Flow sync, Pipeline retired
 
 **Office GPS — "allow but flag" (CEO's choice), and the fence turns on out of the box.** Migration 0072 seeds the office geofence with the HQ coordinates (radius 120 m), so location is now REQUIRED on every clock in/out and OT punch — a punch with location blocked is refused with instructions. Being outside the office no longer blocks anyone: the punch is recorded, and management views mark it in red — "In Today" shows **OUTSIDE OFFICE · 6.7 km** for staff beyond radius + accuracy grace, green "at office" inside, and the monthly attendance report carries the same flag per punch. CEO, COO and CCO are exempt from the flag — their distance still shows (neutral) because their location is still captured. The flag is computed at read time from the stored coordinates, so moving the office corrects history too. The Dashboard readiness strip now says exactly what will happen: "outside — your punch is recorded and FLAGGED for HR."

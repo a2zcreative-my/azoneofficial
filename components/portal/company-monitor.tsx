@@ -66,21 +66,22 @@ export function TaskProgressCard() {
   );
 }
 
-/** Stock status breakdown — Inventory tab, management roles. */
+/** Stock status breakdown — Inventory tab, management roles.
+    v1.21.1 (CEO: "should not take so much width and try to minimalist"):
+    no longer a full-width card — one slim strip that hugs its content,
+    label and chips on a single line. */
 export function InventoryStatusCard() {
   const data = useOverview();
   if (!data?.inventory_status?.length) return null;
   return (
-    <div className={card}>
-      <p className="text-sm font-semibold">Inventory status — monitoring</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {data.inventory_status.map((r) => (
-          <span key={r.status} className="border-border rounded-lg border px-3 py-1.5 text-sm">
-            <b className="tabular-nums">{r.n}</b>{" "}
-            <span className="text-muted-foreground capitalize">{r.status.replace(/_/g, " ")}</span>
-          </span>
-        ))}
-      </div>
+    <div className="border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 self-start rounded-xl border px-3 py-2">
+      <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Stock status</span>
+      {data.inventory_status.map((r) => (
+        <span key={r.status} className="bg-secondary rounded-full px-2.5 py-0.5 text-xs">
+          <b className="tabular-nums">{r.n}</b>{" "}
+          <span className="text-muted-foreground capitalize">{r.status.replace(/_/g, " ")}</span>
+        </span>
+      ))}
     </div>
   );
 }

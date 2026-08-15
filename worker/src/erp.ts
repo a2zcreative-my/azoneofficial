@@ -124,6 +124,68 @@ export async function handleErp(
       }
     }
 
+    if (path === "/cashflow/backfill" && method === "POST") {
+      /* v1.21.1 (CEO: "I didnt see yet it populate the existing data!"):
+         the live automation only books events that happen AFTER it shipped.
+         This walks what Finance ALREADY holds — paid expenses, paid claims,
+         payroll bank runs, paid invoices — and books each one with the same
+         ref the live path would have used (EXP-n / CLM-n / PAYROLL-YYYY-MM /
+         INV-n). Same dup-check by ref, so running it twice — or running it
+         after the live path already booked some — creates nothing extra.
+         Each source is fenced: a table this database doesn't have yet just
+         contributes zero. */
+      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      let created = 0;
+      const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out") => {
+        if (amountCents <= 0) return;
+        const dup = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE ref = ?1 LIMIT 1`)
+          .bind(ref).first<{ id: number }>();
+        if (dup) return;
+        await env.DB.prepare(
+          `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
+           VALUES (date('now', '+8 hours'), ?6, ?1, ?2, ?3, ?4, ?5)`,
+        ).bind(category, amountCents, description.slice(0, 200), ref, user.id, direction).run();
+        await postJournal(env, user.id, ref, description, category, amountCents, direction);
+        created++;
+      };
+      try {
+        const ex = await env.DB.prepare(
+          `SELECT id, amount_cents, category, vendor, description FROM expenses WHERE paid_at IS NOT NULL`,
+        ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null }>();
+        for (const r of ex.results ?? []) {
+          await book(`EXP-${r.id}`, r.amount_cents, r.category,
+            [r.vendor, r.description].filter(Boolean).join(" — ") || "Expense payment", "out");
+        }
+      } catch { /* expenses table variant — skip */ }
+      try {
+        const cl = await env.DB.prepare(
+          `SELECT id, amount_cents FROM claims WHERE paid_at IS NOT NULL`,
+        ).all<{ id: number; amount_cents: number }>();
+        for (const r of cl.results ?? []) {
+          await book(`CLM-${r.id}`, r.amount_cents, "claims", "Staff claim reimbursement", "out");
+        }
+      } catch { /* pre-claims schema — skip */ }
+      try {
+        const months = await env.DB.prepare(`SELECT month FROM payroll_payments`).all<{ month: string }>();
+        for (const r of months.results ?? []) {
+          const net = await env.DB.prepare(
+            `SELECT COALESCE(SUM(net_cents), 0) AS n FROM payroll_entries WHERE month = ?1`,
+          ).bind(r.month).first<{ n: number }>();
+          await book(`PAYROLL-${r.month}`, net?.n ?? 0, "salaries", `Payroll bank run ${r.month}`, "out");
+        }
+      } catch { /* pre-payroll schema — skip */ }
+      try {
+        const inv = await env.DB.prepare(
+          `SELECT id, doc_number, total_cents FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'`,
+        ).all<{ id: number; doc_number: string; total_cents: number }>();
+        for (const r of inv.results ?? []) {
+          await book(`INV-${r.id}`, r.total_cents, "sales", `Invoice ${r.doc_number} paid`, "in");
+        }
+      } catch { /* pre-docs schema — skip */ }
+      await audit(env, user.id, "erp.cashflow_backfill", "cashflow_entries", "backfill", { created });
+      return json({ created });
+    }
+
     /* ================= Phase 5 — Reconciliation ================= */
 
     if (path === "/reconciliation" && method === "GET") {

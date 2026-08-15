@@ -23,10 +23,14 @@
  * `hidden md:flex`, so this renders `children` in bare wrappers. The v1.11.1
  * bottom nav, More sheet and safe-area insets are untouched to the pixel.
  *
- * The gutter is a separate element from the rail on purpose: the rail is
- * sticky and one viewport tall, the gutter is as tall as the canvas. Without
- * it a long page shows white below the rail and the navy edge stops at the
- * fold. Nothing here may use `overflow-hidden` — it would kill the sticky.
+ * v1.21.1 (CEO: "make the overfloat scrollable inside the UI/UX instead of
+ * the outside UI/UX"): the shell is now FIXED to the viewport on desktop —
+ * backdrop h-dvh, canvas h-full, and the CONTENT COLUMN is the scroll
+ * container. The page itself never scrolls; the rounded canvas and both
+ * side columns stay put like an app window. This retires the old sticky
+ * dance entirely (rail/columns are simply full-height flex children), so
+ * `overflow-hidden` on the canvas is now safe — and needed, to clip the
+ * scrolling content to the rounded corners.
  */
 
 import type { ReactNode } from "react";
@@ -44,22 +48,26 @@ export function AppShell({
   maxWidth?: string;
 }) {
   return (
-    <div className="md:bg-shell-backdrop md:min-h-screen md:p-5">
-      <div className={`md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex ${maxWidth}`}>
+    <div className="md:bg-shell-backdrop md:h-dvh md:overflow-hidden md:p-5">
+      <div className={`md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:overflow-hidden ${maxWidth}`}>
         {rail ? (
           <div className="bg-brand rounded-l-shell hidden w-14 shrink-0 md:block">{rail}</div>
         ) : null}
 
         {contextPanel ? (
-          <aside className="border-border bg-secondary hidden w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r p-4 md:flex md:max-h-screen md:sticky md:top-5">
+          <aside className="border-border bg-secondary hidden w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r p-4 md:flex md:h-full">
             {contextPanel}
           </aside>
         ) : null}
 
-        <div className="min-w-0 md:flex-1">{children}</div>
+        {/* THE scroll container on desktop — everything the tabs render
+            scrolls inside here, under the sticky in-content header. The id
+            lets the portal reset scrollTop on tab change (a new tab must
+            open at its top, not wherever the last one was left). */}
+        <div id="shell-scroll" className="min-w-0 md:h-full md:flex-1 md:overflow-y-auto">{children}</div>
 
         {rightRail ? (
-          <aside className="border-border bg-secondary rounded-r-shell hidden w-[292px] shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 md:flex md:max-h-screen md:sticky md:top-5">
+          <aside className="border-border bg-secondary rounded-r-shell hidden w-[292px] shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 md:flex md:h-full">
             {rightRail}
           </aside>
         ) : null}
