@@ -267,6 +267,26 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     } catch { resolve({ gps: null, denied: false }); } // insecure-context throw etc. — never wedge the buttons
   });
   const getGps = async () => (await getGpsFull()).gps;
+  /* v1.21.6 (CEO: "On mobile, I cant see the details of the task assigned…
+     how to notify staff that he has a assigned schedule and roaster? The
+     dashboard mobile view doesnt show any"): the bell/push notification
+     already fires on assignment — what was missing is a PLACE on the phone
+     where the schedule lives. This card shows the person's own upcoming
+     roster/live sessions right on the Dashboard, both breakpoints. */
+  type MySess = { id: number; session_date: string; start_time: string; end_time?: string | null; platform: string; client_company?: string | null; client_name?: string | null; host_user_id: number; status: string; notes?: string | null };
+  const [mySessions, setMySessions] = useState<MySess[]>([]);
+  useEffect(() => {
+    void api<{ sessions?: MySess[] }>(`/staff/live-sessions`).then((r) => {
+      if (!r.ok || !r.data?.sessions) return;
+      const todayIso = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      setMySessions(
+        r.data.sessions
+          .filter((s) => s.host_user_id === user.id && s.status === "scheduled" && s.session_date >= todayIso)
+          .slice(0, 5),
+      );
+    });
+  }, [user.id]);
+
   const punch = async (type: string) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
     // clocking in gets an instant popup (and the server refuses it too).
@@ -627,6 +647,40 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                 .join(" · ")}`}
         </p>
       </div>
+
+      {/* v1.21.6 — My schedule: the person's own upcoming roster/live
+          sessions, on the Dashboard where the phone actually opens. */}
+      {mySessions.length > 0 && (
+        <div className={card}>
+          <p className="text-[15px] font-semibold md:text-sm">{lang === "ms" ? "Jadual saya" : "My schedule"}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {lang === "ms"
+              ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
+              : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
+          </p>
+          <div className="mt-1.5">
+            {mySessions.map((s) => {
+              const todayIso = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+              const isToday = s.session_date === todayIso;
+              return (
+                <div key={s.id} className="border-border border-b py-2 text-sm last:border-0 last:pb-0">
+                  <p className="flex flex-wrap items-baseline gap-x-1.5">
+                    <span className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}>
+                      {isToday ? (lang === "ms" ? "HARI INI" : "TODAY") : dmy(s.session_date)}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</span>
+                    <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{s.platform}</span>
+                  </p>
+                  <p className="mt-0.5 truncate text-[13px] font-medium">
+                    {s.client_company ?? s.client_name ?? "Live session"}
+                    {s.notes ? <span className="text-muted-foreground font-normal"> — {s.notes}</span> : null}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* v1.15.0 — mobile Today checklist: the reference's two-column card
           grid with a progress count. Same tasks the desktop list shows; the
