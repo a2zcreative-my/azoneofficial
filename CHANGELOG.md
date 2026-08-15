@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.2] — 2026-08-15 — Roster popover in the calendar, Lives-today dialog tidied
+
+**Schedule & Roster — the session detail opens INSIDE the calendar.** Clicking a session used to fill a navy panel underneath the board, off-screen on most laptops (the CEO had to scroll to find it). The detail is now a popover pinned beside the clicked block — sessions on Mon–Thu open it to the right of their column, Fri–Sun to the left, top follows the session's time slot and clamps so the card never leaves the grid. Same content and actions (status chip, host, date · time · platform, notes, Mark completed / Cancel session).
+
+**Lives today dialog — no more overflow.** The modal variant of the live-session scheduler rendered with no inner padding (fields and the "No sessions scheduled." line sat flush against the dialog edges) and squeezed its full-width flowing form into 576px. It now carries the dialog's standard padding and keeps a tidy two-column grid inside the modal.
+
+Deploy: usual DEPLOY.bat — site-only change, no migration, no worker change.
+
 ## [1.21.1] — 2026-08-15 — App-like scrolling, calendar grid, Cash Flow backfill, cards reordered
 
 **The shell scrolls inside itself now.** The rounded canvas is fixed to the viewport on desktop; the content column is the scroll container, so the backdrop never scrolls and the frame, rail and side columns stay put — like an app window, not a web page. Switching tabs rewinds the internal scroll to the top. Phones are untouched.

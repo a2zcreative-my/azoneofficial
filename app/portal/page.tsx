@@ -2912,7 +2912,10 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
     void load();
   };
   
-  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : (
+  /* v1.21.2 (CEO: "lives today seem overfloating"): the modal variant had
+     NO padding — fields and the empty-state line sat flush against the
+     dialog edges. It now carries the dialog's standard inner padding. */
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col px-4 pt-1 pb-4 sm:px-5 sm:pb-5">{node}</div> : (
     <div className={card}>
       <p className="text-sm font-semibold">📺 Live session schedule</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
@@ -2940,7 +2943,10 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
   return wrapCard(
     <>
       {manager && (
-        <div className="mt-3 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+        /* v1.21.2: inside the modal the form stays a tidy 2-up grid — the
+           free-flowing sm:flex row was built for the full-width card and
+           squeezed four fields into the dialog's 576px. */
+        <div className={`mt-3 grid grid-cols-2 items-end gap-2 ${inModal ? "" : "sm:flex sm:flex-wrap"}`}>
           <Sub t="Date"><input type="date" className={inputClass} value={draft.session_date} onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} /></Sub>
           <Sub t="Start"><input type="time" className={inputClass} value={draft.start_time} onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} /></Sub>
           <Sub t="End (optional)"><input type="time" className={inputClass} value={draft.end_time} onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} /></Sub>

@@ -124,6 +124,20 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
   const onLeaveCount = new Set(data.on_leave.map((l) => l.user_id)).size;
   const gridHeight = (DAY_END - DAY_START) * HOUR_PX;
   const sel = data.sessions.find((s) => s.id === openSession) ?? null;
+  /* v1.21.2 (CEO: "should appear the data when I click on the schedule …
+     it should appear inside the calendar"): the detail card is a POPOVER
+     anchored beside the clicked session inside the week grid — no more
+     scrolling to a panel underneath the board. Day columns 0–3 open the
+     card to the RIGHT of their column, 4–6 to the LEFT, so it never
+     leaves the grid. Top follows the session, clamped to stay visible. */
+  const selDi = sel ? data.days.indexOf(sel.session_date) : -1;
+  const selTop = sel
+    ? Math.max(4, Math.min(gridHeight - 220, ((mins(sel.start_time) - DAY_START * 60) / 60) * HOUR_PX))
+    : 0;
+  const COL = "((100% - 48px) / 7)";
+  const selPos: { left?: string; right?: string } = selDi >= 0 && selDi <= 3
+    ? { left: `calc(48px + ${selDi + 1} * ${COL} + 6px)` }
+    : { right: `calc(${7 - selDi} * ${COL} + 6px)` };
 
   const chip = (label: string, value: number, cls: string) => (
     <span className={`${cls} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium`}>
@@ -291,6 +305,41 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                     })}
                   </div>
                 ))}
+
+                {/* v1.21.2 — in-grid session popover (was a panel below the
+                    board; the CEO had to scroll to find it). */}
+                {sel && selDi >= 0 && (
+                  <div
+                    className="bg-brand absolute z-20 w-64 max-w-[70%] rounded-xl p-3.5 text-white shadow-xl"
+                    style={{ top: selTop, ...selPos }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold">{sel.client ?? "Live session"}
+                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{sel.status}</span>
+                      </p>
+                      <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-white/85">{sel.host_name}</p>
+                    <p className="mt-0.5 text-xs text-white/85 tabular-nums">{dmy(sel.session_date)} · {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
+                    {sel.notes && <p className="mt-1 text-xs text-white/70">{sel.notes}</p>}
+                    {canManage && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {sel.status === "scheduled" && (
+                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                            onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                            ✓ Mark completed
+                          </button>
+                        )}
+                        {sel.status !== "cancelled" && (
+                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                            onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                            ✕ Cancel session
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -321,34 +370,9 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
           )}
 
           {/* detail popover (tap a block) */}
-          {sel && (
-            <div className="bg-brand mt-2 rounded-xl p-3.5 text-white shadow-lg">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold">{sel.client ?? "Live session"}
-                  <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{sel.status}</span>
-                </p>
-                <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
-              </div>
-              <p className="mt-1.5 text-xs text-white/85">👤 {sel.host_name} · 📅 {dmy(sel.session_date)} · 🕐 {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
-              {sel.notes && <p className="mt-1 text-xs text-white/70">{sel.notes}</p>}
-              {canManage && (
-                <div className="mt-2 flex gap-2">
-                  {sel.status === "scheduled" && (
-                    <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                      onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
-                      ✓ Mark completed
-                    </button>
-                  )}
-                  {sel.status !== "cancelled" && (
-                    <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                      onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
-                      ✕ Cancel session
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {/* v1.21.2: the session detail moved INTO the grid as a popover
+              beside the clicked block (CEO: "it should appear inside the
+              calendar" — the panel down here forced a scroll to find it). */}
         </div>
 
         {/* right rail */}
