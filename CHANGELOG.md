@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.17.0] — 2026-08-15 — Live GPS detection on the clock-in card; the roster tab decluttered
+
+**"Check my location"** (CEO: "I still cant see the gps detection for the clock in"). The readiness strip on the phone — and the geofence line on desktop — now carry a tap-to-check action. It reads the phone's position once and asks the server where you stand; the verdict comes back as **"● Inside — 74 m from AZ ONE HQ"** in green, or "Outside — 1.2 km from AZ ONE HQ (limit 120 m)" in amber, before you commit to the punch.
+
+Three deliberate properties: it is **tap-initiated** (an automatic probe would fire the browser's location prompt on every page open); it runs **the exact rule the punch enforces** — a new Worker route reusing the same parser, the same haversine and the same 150 m accuracy grace as the punch gate, so the preview can never disagree with the verdict; and the **office coordinates never leave the server** — only the distance comes back. No audit row, no record: a mirror, not an event.
+
+Two prerequisites to see it live, both yours: this release **changes the Worker**, so deploy must run all five DEPLOY.bat steps (no migration, no secrets); and the strip only appears once the fence is ON — Users tab → Office check-in (pre-filled with HQ since v1.16.1) → Save.
+
+**Roster tab decluttered** (CEO: "Schedule & Roster seem take so much unrelated things there"). The context panel and right rail now render on the **Dashboard only**. On Attendance they were repeating pending leave, open tasks and announcements beside a tab already five cards deep — duplication that read as clutter and cost the roster board its width. Every working tab now gets the full canvas; the Dashboard keeps the rails, which is where that at-a-glance layer belongs.
+
+**Setup:** `pnpm install && pnpm build`, then deploy **both** workers (step 3 and step 5 of DEPLOY.bat). No migration, no secrets.
+
 ## [1.16.1] — 2026-08-15 — Office location baked in (AZ ONE HQ)
 
 The CEO supplied the office point: **1.544418427439, 103.71003343205108**. It now lives in ONE place — `SITE_CONFIG.office` in `constants/site.ts` (lat, lng, label "AZ ONE HQ", default radius 120 m) — and everything that needs HQ imports it from there.

@@ -654,6 +654,32 @@ export async function handleStaff(
       ...(isGeoAdmin ? { lat: fence.lat, lng: fence.lng } : {}),
     });
   }
+  /* v1.17.0 — "Check my location": the SAME rule the punch gate applies,
+     run on demand so staff can see where they stand BEFORE tapping Clock in
+     (CEO: "I still cant see the gps detection for the clock in"). Fence
+     coordinates stay server-side — only the distance goes back. Deliberately
+     no audit row and no punch record: this is a mirror, not an event. */
+  if (path === "/attendance/geofence/check" && method === "POST") {
+    const fence = await getGeofence(env);
+    if (!fence) return json({ configured: false });
+    const gpsRaw = str(body?.gps, 100) ? (body!.gps as string).trim() : null;
+    const gm = gpsRaw ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?$/.exec(gpsRaw) : null;
+    const plat = gm ? Number(gm[1]) : NaN;
+    const plng = gm ? Number(gm[2]) : NaN;
+    if (!gm || plat < -90 || plat > 90 || plng < -180 || plng > 180) {
+      return err("location_required", "Location is required — allow location access in your browser and try again.", 400);
+    }
+    const acc = gm[3] ? Math.min(Number(gm[3]), 150) : 0;
+    const dist = haversineM(plat, plng, fence.lat, fence.lng);
+    return json({
+      configured: true,
+      inside: dist <= fence.radius_m + acc,
+      distance_m: Math.round(dist),
+      accuracy_m: Math.round(acc),
+      radius_m: fence.radius_m,
+      label: fence.label,
+    });
+  }
   if (path === "/attendance/geofence" && method === "POST") {
     if (!GEOFENCE_ADMIN_ROLES.includes(user.role)) {
       return err("forbidden", "Only the CEO, COO or super admin can change the office geofence", 403);

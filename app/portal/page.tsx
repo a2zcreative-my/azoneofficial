@@ -33,7 +33,7 @@ import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
-import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
+import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, ShieldOk } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { RosterBoard } from "@/components/portal/roster-board";
@@ -221,6 +221,31 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
      (management, Users tab), the punch grabs the phone's position first and
      the server refuses punches outside the radius. No fence → old behaviour. */
   const [fence, setFence] = useState<{ configured: boolean; radius_m?: number; label?: string } | null>(null);
+  /* v1.17.0 — on-demand location check (CEO: "I still cant see the gps
+     detection"). Runs the SAME server rule the punch enforces and mirrors
+     the verdict back, without creating any record. Tap-initiated only: an
+     automatic probe would fire the browser's location prompt on page open. */
+  const [gpsCheck, setGpsCheck] = useState<
+    | { state: "idle" | "busy" }
+    | { state: "done"; inside: boolean; distance_m: number; radius_m: number; label: string }
+    | { state: "error"; message: string }
+  >({ state: "idle" });
+  const checkLocation = async () => {
+    setGpsCheck({ state: "busy" });
+    const gps = await getGps();
+    if (!gps) {
+      setGpsCheck({ state: "error", message: lang === "ms" ? "Lokasi tidak dibenarkan — semak tetapan pelayar." : "Location was blocked — check your browser settings." });
+      return;
+    }
+    const r = await api<{ configured: boolean; inside?: boolean; distance_m?: number; radius_m?: number; label?: string }>(
+      `/staff/attendance/geofence/check`, { method: "POST", body: JSON.stringify({ gps }) });
+    if (r.ok && r.data?.configured && typeof r.data.inside === "boolean") {
+      setGpsCheck({ state: "done", inside: r.data.inside, distance_m: r.data.distance_m ?? 0, radius_m: r.data.radius_m ?? 0, label: r.data.label ?? "the office" });
+    } else {
+      setGpsCheck({ state: "error", message: lang === "ms" ? "Semakan gagal — cuba lagi." : "Check failed — try again." });
+    }
+  };
+  const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
   useEffect(() => {
     void api<{ configured: boolean; radius_m?: number; label?: string }>(`/staff/attendance/geofence`)
       .then((r) => setFence(r.ok && r.data ? r.data : { configured: false }));
@@ -527,19 +552,43 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                 would fire the browser's location prompt on every Dashboard
                 open, before the person asked to punch. The real check stays
                 where it belongs — server-side, at the punch. */}
-            <div className="bg-secondary mt-2.5 flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 md:hidden">
-              <span className="flex items-center gap-2 text-[12px] font-medium">
-                <span aria-hidden>🛡</span>
-                {lang === "ms" ? "Semakan lokasi pejabat aktif" : "Office location check is on"}
-              </span>
-              <span className="bg-success-soft text-success rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
-                {fence.radius_m ?? 100} m
-              </span>
+            <div className="bg-secondary mt-2.5 rounded-xl px-3 py-2.5 md:hidden">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-[12px] font-medium">
+                  <ShieldOk aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                  {lang === "ms" ? "Semakan lokasi pejabat aktif" : "Office location check is on"}
+                </span>
+                <button type="button" onClick={() => void checkLocation()} disabled={gpsCheck.state === "busy"}
+                  className="text-gold-deep rounded-full px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap disabled:opacity-50">
+                  {gpsCheck.state === "busy" ? (lang === "ms" ? "Menyemak…" : "Checking…") : (lang === "ms" ? "Semak lokasi saya" : "Check my location")}
+                </button>
+              </div>
+              {gpsCheck.state === "done" && (
+                <p className={`mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}>
+                  <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${gpsCheck.inside ? "bg-success" : "bg-warning"}`} />
+                  {gpsCheck.inside
+                    ? (lang === "ms" ? `Dalam kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}` : `Inside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}`)
+                    : (lang === "ms" ? `Luar kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label} (had ${gpsCheck.radius_m} m)` : `Outside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label} (limit ${gpsCheck.radius_m} m)`)}
+                </p>
+              )}
+              {gpsCheck.state === "error" && (
+                <p className="text-warning mt-1.5 text-[12px] font-medium">{gpsCheck.message}</p>
+              )}
             </div>
             <p className="text-muted-foreground mt-2 hidden text-[11px] md:block">
               📍 {tr("Office check-in is on", lang)} — {lang === "ms"
                 ? `daftar masuk/keluar hanya dalam ${fence.radius_m ?? 100} m dari ${fence.label ?? "pejabat"}.`
-                : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}
+                : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}{" "}
+              <button type="button" className="text-gold-deep font-semibold underline-offset-2 hover:underline disabled:opacity-50"
+                onClick={() => void checkLocation()} disabled={gpsCheck.state === "busy"}>
+                {gpsCheck.state === "busy" ? "Checking…" : (lang === "ms" ? "Semak lokasi saya" : "Check my location")}
+              </button>
+              {gpsCheck.state === "done" && (
+                <span className={`ml-1.5 font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}>
+                  {gpsCheck.inside ? `✓ ${fmtDist(gpsCheck.distance_m)} — inside` : `${fmtDist(gpsCheck.distance_m)} — outside`}
+                </span>
+              )}
+              {gpsCheck.state === "error" && <span className="text-warning ml-1.5">{gpsCheck.message}</span>}
             </p>
           </>
         )}
@@ -4876,11 +4925,14 @@ export default function PortalPage() {
           onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
         />
       }
-      /* v1.14.0: the side columns carry a DATE context, so they render only on
-         the tabs where a date context means something. On Sales or Users they
-         would be decoration competing with the actual work area. */
-      contextPanel={["Dashboard", "Attendance", "Leave", "Tasks"].includes(activeTab) ? <ContextPanel lang={lang} /> : undefined}
-      rightRail={["Dashboard", "Attendance", "Leave", "Tasks"].includes(activeTab) ? <RightRail lang={lang} /> : undefined}
+      /* v1.14.0: the side columns carry a date context.
+         v1.17.0 (CEO: "Schedule & Roster seem take so much unrelated things
+         there"): DASHBOARD ONLY. On Attendance the rails repeated pending
+         leave / open tasks / announcements beside a tab that is already five
+         cards deep — duplication read as clutter, and the roster lost width
+         to it. Work tabs get the full working area. */
+      contextPanel={activeTab === "Dashboard" ? <ContextPanel lang={lang} /> : undefined}
+      rightRail={activeTab === "Dashboard" ? <RightRail lang={lang} /> : undefined}
     >
       <CommandPalette
         open={paletteOpen}
