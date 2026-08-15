@@ -21,6 +21,7 @@ const CAT_EMOJI: Record<string, string> = { training: "🎓", class: "📚", mee
 export function PortalContextPanel() {
   const today = mytToday();
   const [selected, setSelected] = useState<string>(today);
+  const [month, setMonth] = useState<string>(today.slice(0, 7));
   const [events, setEvents] = useState<EventRow[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
 
@@ -49,7 +50,18 @@ export function PortalContextPanel() {
   return (
     <>
       <div className="bg-card rounded-card p-3">
-        <MiniCalendar selected={selected} onSelect={setSelected} marked={Array.from(marked)} todayISO={today} />
+        <MiniCalendar 
+          month={month}
+          label={new Date(month + "-01").toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+          selected={selected} 
+          onSelect={setSelected} 
+          marked={Array.from(marked)} 
+          onMonth={(delta) => {
+            const [y, m] = month.split("-").map(Number);
+            const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+            setMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+          }} 
+        />
       </div>
 
       <div className="px-1">
