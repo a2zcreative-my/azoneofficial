@@ -31,10 +31,15 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, ShieldOk } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
+import { OrdersPanel } from "@/components/portal/orders-panel";
+import { CashFlowPanel, ReconciliationPanel } from "@/components/portal/finance-panels";
+import { CommissionPanel, AdsFundPanel } from "@/components/portal/commission-panels";
+import { PurchasingPanel, AccountingPanel } from "@/components/portal/purchasing-panels";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { RosterBoard } from "@/components/portal/roster-board";
 import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
@@ -250,16 +255,20 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     void api<{ configured: boolean; radius_m?: number; label?: string }>(`/staff/attendance/geofence`)
       .then((r) => setFence(r.ok && r.data ? r.data : { configured: false }));
   }, []);
-  const getGps = () => new Promise<string | null>((resolve) => {
+  /* v1.18.1: reports DENIED separately from "couldn't get a fix" — the CEO
+     wants staff told when their punch was recorded without location, and
+     "you blocked it" needs different words from "GPS timed out". */
+  const getGpsFull = () => new Promise<{ gps: string | null; denied: boolean }>((resolve) => {
     try {
-      if (typeof navigator === "undefined" || !("geolocation" in navigator)) { resolve(null); return; }
+      if (typeof navigator === "undefined" || !("geolocation" in navigator)) { resolve({ gps: null, denied: false }); return; }
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve(`${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`),
-        () => resolve(null),
+        (p) => resolve({ gps: `${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`, denied: false }),
+        (e) => resolve({ gps: null, denied: e.code === 1 }), // 1 = PERMISSION_DENIED
         { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
       );
-    } catch { resolve(null); } // insecure-context throw etc. — never wedge the buttons
+    } catch { resolve({ gps: null, denied: false }); } // insecure-context throw etc. — never wedge the buttons
   });
+  const getGps = async () => (await getGpsFull()).gps;
   const punch = async (type: string) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
     // clocking in gets an instant popup (and the server refuses it too).
@@ -274,11 +283,11 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     setBusy(type);
     setPunchError("");
-    // Location is only requested when the office fence is ON (no permission
-    // prompt for teams that never enable it). If the fence status hasn't
-    // loaded yet we still ask — the server is the enforcer either way.
-    const needsGps = fence === null || fence.configured;
-    const gps = needsGps ? await getGps() : null;
+    /* v1.18.1 (CEO): location is captured on EVERY punch, fence or no fence —
+       fence OFF means it is recorded for the register without being enforced;
+       fence ON keeps the server-side refusal. The prompt only ever fires on
+       the punch tap itself (user-initiated), never on page load. */
+    const { gps, denied: gpsDenied } = await getGpsFull();
     // A likely duplicate (button shows ✓) is sent WITHOUT blocking on
     // location — the server answers "already punched" before the fence check.
     const likelyDup = type === "clock_in" ? today.some((r) => r.type === "clock_in") : today.some((r) => r.type === "clock_out");
@@ -318,7 +327,10 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       const hhmm = now.toISOString().slice(11, 16);
       setPunchToast({
         title: type === "clock_in" ? "Clock-in recorded" : "Clock-out recorded",
-        sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT`,
+        sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT${gps ? "" : gpsDenied
+          ? " · no location — enable location access for this site"
+          : " · no location recorded"}`,
+        ...(gps ? {} : { variant: "notice" as const }),
       });
       window.setTimeout(() => setPunchToast(null), 2600);
     } else if ((res.data?.error as { code?: string } | undefined)?.code === "no_clock_in") {
@@ -355,9 +367,10 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     setBusy(type);
     setPunchError("");
-    // v1.9.1: OT punches are gated by the same office fence as clock punches
-    // (they're the paid hours) — carry the position when the fence is on.
-    const otGps = (fence === null || fence.configured) ? await getGps() : null;
+    // v1.9.1: OT punches are gated by the same office fence as clock punches.
+    // v1.18.1: position captured on every OT punch too (recorded even with
+    // the fence off — they are the paid hours).
+    const otGps = await getGps();
     const res = await api<{ at?: string; error?: { message?: string } }>(`/staff/attendance/ot`, {
       method: "POST",
       body: JSON.stringify({ type, ...(otGps ? { gps: otGps } : {}) }),
@@ -861,10 +874,28 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   );
 }
 
+/* v1.18.1 — where a punch happened, as a human phrase. The stored gps is
+   "lat,lng[,acc]"; distance is measured against SITE_CONFIG.office (HQ).
+   DISPLAY ONLY: the enforcement (when the fence is on) already happened
+   server-side at the punch — this is management's read of the same data. */
+function gpsLabel(gps?: string | null): { text: string; ok: boolean | null } {
+  if (!gps) return { text: "no location", ok: null };
+  const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/.exec(gps);
+  if (!m) return { text: "no location", ok: null };
+  const [lat, lng] = [Number(m[1]), Number(m[2])];
+  const rad = Math.PI / 180;
+  const dLat = (SITE_CONFIG.office.lat - lat) * rad;
+  const dLng = (SITE_CONFIG.office.lng - lng) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(SITE_CONFIG.office.lat * rad) * Math.sin(dLng / 2) ** 2;
+  const dist = Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  const near = dist <= SITE_CONFIG.office.radiusM + 150; // radius + max accuracy grace, same as the server
+  return { text: dist >= 1000 ? `${(dist / 1000).toFixed(1)} km from HQ` : `${dist} m from HQ`, ok: near };
+}
+
 function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
-  const [data, setData] = useState<{ id: number; name: string; in_at?: string | null }[]>([]);
+  const [data, setData] = useState<{ id: number; name: string; in_at?: string | null; in_gps?: string | null }[]>([]);
   useEffect(() => {
-    void api<{ staff: { id: number; name: string; in_at?: string | null }[] }>('/staff/attendance/monitor')
+    void api<{ staff: { id: number; name: string; in_at?: string | null; in_gps?: string | null }[] }>('/staff/attendance/monitor')
       .then(r => r.ok && r.data && setData(r.data.staff.filter(s => !!s.in_at)));
   }, []);
   const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">📍 In Today</p>{node}</div>;
@@ -876,7 +907,17 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
           <p className="font-medium text-sm">{u.name}</p>
           {/* v1.15.0 fix (audit finding): in_at is a UTC string — slicing it
               showed a 10:00 MYT clock-in as 02:00. mytTime converts. */}
-          <p className="text-muted-foreground text-xs">Checked in at {u.in_at ? mytTime(u.in_at) : "unknown"}</p>
+          <p className="text-muted-foreground text-xs">
+            Checked in at {u.in_at ? mytTime(u.in_at) : "unknown"}
+            {(() => {
+              const g = gpsLabel(u.in_gps);
+              return (
+                <span className={`ml-1.5 font-medium ${g.ok === true ? "text-success" : g.ok === false ? "text-warning" : "opacity-60"}`}>
+                  · {g.text}
+                </span>
+              );
+            })()}
+          </p>
         </div>
       ))}
     </div>
@@ -4580,7 +4621,7 @@ function TargetsCommissionCard() {
 // Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
 // Expenses > Sales > Inventory > Birthdays > Profile > Users
 // (v1.4.143: CEO's revised order — Overview right after Dashboard).
-const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis
+const ALL_TABS = ["Dashboard", "Overview", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Expenses", "Sales", "Orders", "Cash Flow", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Birthdays", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis; v1.18.0 ERP: Orders + Cash Flow + Reconciliation + Commission + Ads Fund + Purchasing + Accounting
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 // const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4611,6 +4652,15 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
   Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   Users: ["super_admin", "ceo", "coo"],
+  /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
+     worker matrix is the one actually enforced. */
+  Orders: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
+  "Cash Flow": ["super_admin", "admin", "ceo", "coo"],
+  Reconciliation: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
+  Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
+  "Ads Fund": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
+  Purchasing: ["super_admin", "admin", "ceo", "coo"],
+  Accounting: ["super_admin", "admin", "ceo"],
   // v1.7.0: Pipeline is open to every staff role (log a lead in seconds);
   // Content to the team that makes it; Stokis to the sales/management tier.
   Content: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
@@ -5309,6 +5359,13 @@ export default function PortalPage() {
             {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
           </div>
         )}
+        {activeTab === "Orders" && <OrdersPanel />}
+        {activeTab === "Cash Flow" && <CashFlowPanel />}
+        {activeTab === "Reconciliation" && <ReconciliationPanel />}
+        {activeTab === "Commission" && <CommissionPanel canDecide={["super_admin", "ceo"].includes(user.role)} />}
+        {activeTab === "Ads Fund" && <AdsFundPanel canManage={["super_admin", "admin", "ceo", "coo"].includes(user.role)} />}
+        {activeTab === "Purchasing" && <PurchasingPanel />}
+        {activeTab === "Accounting" && <AccountingPanel />}
         {activeTab === "Leave" && <Leave user={user} />}
         {activeTab === "Tasks" && <Tasks user={user} />}
         {activeTab === "Announcements" && <Announcements user={user} />}

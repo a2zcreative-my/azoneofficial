@@ -26,6 +26,18 @@ export const PERMS: Record<string, readonly Role[]> = {
   task_view: ["super_admin", "admin", "coo", "cco"],
   payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
+
+  // === erp.ts (v1.18.0 — programme phases 4–7). The client's TAB_ROLES
+  // mirrors these; this matrix is the one that is actually enforced. ===
+  orders_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
+  cashflow_manage: ["super_admin", "admin", "ceo", "coo"],
+  reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
+  commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
+  commission_decide: ["super_admin", "ceo"],
+  adsfund_manage: ["super_admin", "admin", "ceo", "coo"],
+  adsfund_claim: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
+  purchasing_manage: ["super_admin", "admin", "ceo", "coo"],
+  accounting_manage: ["super_admin", "admin", "ceo"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

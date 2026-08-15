@@ -4,6 +4,8 @@
  */
 
 import type { Env } from "./index";
+import { handleErp } from "./erp";
+import { logError as sharedLogError } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
@@ -198,15 +200,14 @@ async function audit(
   }
 }
 
-/** v1.4.114: non-fatal error-log writer for this module (index.ts has its own). */
+/** v1.4.114: non-fatal error-log writer for this module.
+    v1.18.0 (CODE-AUDIT item 1): this copy was a bare INSERT while index.ts
+    carried the v1.5.0 six-hour dedupe — and THIS is the copy the whole portal
+    API calls, so recurring conditions still bell-spammed management and
+    evicted real errors from the 500-row window. Now delegates to the shared
+    deduped writer; the 10 call sites are unchanged. */
 async function logError(env: Env, source: string, message: string): Promise<void> {
-  try {
-    await env.DB.prepare(
-      `INSERT INTO error_log (source, message) VALUES (?1, ?2)`,
-    ).bind(source, message.slice(0, 500)).run();
-  } catch (e) {
-    console.error("error_log write failed:", source, message, e);
-  }
+  return sharedLogError(env, source, message);
 }
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
@@ -505,6 +506,12 @@ export async function handleStaff(
     ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
+
+  /* ---- ERP modules (v1.18.0): orders, cash flow, reconciliation,
+     commission, ads fund, purchasing, accounting — see erp.ts ---- */
+  if (path.startsWith("/erp/")) {
+    return handleErp(env, path.slice("/erp".length), method, body, user);
+  }
 
   /* ---- me / profile ---- */
 
@@ -1624,7 +1631,13 @@ export async function handleStaff(
               (SELECT MIN(a.created_at) FROM attendance_records a
                 WHERE a.user_id = u.id AND a.type = 'clock_in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
               (SELECT MAX(a.created_at) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1) AS out_at
+                WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1) AS out_at,
+              /* v1.18.1 (CEO: "get user clock in accurately without cheating"):
+                 the position stored on the FIRST clock-in of the day, so
+                 management sees where each punch happened. */
+              (SELECT a.gps FROM attendance_records a
+                WHERE a.user_id = u.id AND a.type = 'clock_in' AND date(a.created_at, '+8 hours') = ?1
+                ORDER BY a.created_at LIMIT 1) AS in_gps
        FROM users u
        WHERE u.is_active = 1
          AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')

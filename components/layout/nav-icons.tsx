@@ -22,11 +22,12 @@
  */
 
 import {
-  Banknote, Cake, CalendarClock, Clapperboard, FileText, Globe, IdCard,
-  Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, LogOut, Magnet,
-  Megaphone, MessageSquareQuote, Package, Palmtree, Receipt, ScrollText,
-  Settings2, ShieldCheck, ShoppingCart, SquarePen, Square, Store, Timer,
-  TrendingDown, UserRound, UsersRound, Video, Wallet,
+  Banknote, Cake, CalendarClock, Clapperboard, ClipboardList, FileText,
+  Globe, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks,
+  LogOut, Magnet, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
+  Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
+  ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
+  UsersRound, Video, Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -64,8 +65,15 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Audit: ScrollText,
   Account: UserRound,
   Advanced: Settings2,
-  // ---- account ----
-  Orders: Package,
+  // ---- account + portal Orders (the unified recorder) ----
+  Orders: ClipboardList,
+  // ---- ERP modules (v1.18.0, programme phases 4–7) ----
+  "Cash Flow": Banknote,
+  Reconciliation: Scale,
+  Commission: Percent,
+  "Ads Fund": Rocket,
+  Purchasing: ShoppingBag,
+  Accounting: ScrollText,
   // ---- misc surfaces ----
   Events: CalendarClock,
   Banking: Banknote,

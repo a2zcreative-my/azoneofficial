@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.18.1] — 2026-08-15 — Location on EVERY clock-in, and management can see it
+
+**The CEO's requirement changed and the code now matches it:** location is captured on **every** punch — clock in, clock out, OT in, OT out — whether or not the office fence is on. Before this, the client deliberately skipped the GPS request when the fence was off (a privacy-first default from v1.9.1); the CEO wants the register to carry the position regardless. Fence OFF = recorded, not enforced. Fence ON = the server refusal stays exactly as it was.
+
+**Permission, handled where it belongs.** The browser's location prompt fires only on the punch tap itself — user-initiated, never on page open (so no staff member gets ambushed by a permission dialog just for reading the Dashboard). If someone has location **blocked**, the punch still records (when the fence is off) and the confirmation toast says so plainly: *"no location — enable location access for this site."* A denied permission and a failed GPS fix now produce different messages, because "you blocked it" needs different words from "GPS timed out".
+
+**Management sees where.** The "In today" monitor now shows each first clock-in's position as a phrase — **"74 m from HQ"** in green when inside the fence-plus-grace distance, **"3.2 km from HQ"** in amber when not, *"no location"* dimmed when nothing was recorded. Distance is measured against `SITE_CONFIG.office` with the same radius + 150 m accuracy grace the server applies, so the display can never disagree with the enforcement.
+
+**Honesty about "without cheating", restated from v1.9.1:** browser GPS comes from the client and a determined person with developer tools can spoof it. This system stops the casual "clock in from bed" and records position + IP + user-agent on every punch for cross-checking; it is not forensic proof of presence. Switching the fence ON (Users → Office check-in → Save — pre-filled with HQ) adds the hard server-side refusal.
+
+**Why the CEO's phone still showed nothing:** the live site was running v1.16.1 — v1.17.0's "Check my location" and everything since has not been deployed yet. Deploy this release with ALL FIVE DEPLOY.bat steps (migration 0071 + Worker), then enable the fence with one Save.
+
+**Setup:** `pnpm install && pnpm build`, all five DEPLOY.bat steps.
+
+## [1.18.0] — 2026-08-15 — The ERP arrives: Orders, Cash Flow, Reconciliation, Commission, Ads Fund, Purchasing, Accounting
+
+Programme phases 2–8, authorised by the CEO ("start 2 to 8"). **Seven new modules, one migration, one new Worker module, four new panel files, a reusable data table — and the audit's structural fixes.** Deploy needs ALL FIVE DEPLOY.bat steps: step 2 applies migration **0071**, step 3 ships the new Worker routes.
+
+**Phase 4 — one order for both business natures.** New `orders` + `order_lines` schema where each LINE is product (sku · qty · unit price · cost) or service (host · hours · rate); the order's kind — product / service / mixed — is derived from its lines by the server, never picked by hand. The Orders tab records both natures in one document (ORD-YYYY-NNNN), one revenue basis, one commission basis.
+
+**Phase 5 — Cash Flow + Reconciliation.** Money in / money out / balance ledger against named bank accounts, and the DZI reference's reconciliation table: estimated vs actual sales, cost, fees, shipping, a computed profit column that goes red when negative, and a pending → reconciled / disputed flow.
+
+**Phase 6 — Commission + Ads Fund.** Commission rates (percent + optional RM/hour) are set per host by the CEO tier only, and entry amounts are **computed server-side from the rate table — the form cannot send an amount**, so a typo can never overpay a host. Ads Fund: management allocates a monthly budget per channel; staff claim spend against it; the server refuses any claim that would exceed the allocation (pending claims count against budget too); management approves or rejects.
+
+**Phase 7 — Purchasing + Accounting.** Suppliers and POs (PO-YYYY-NNNN) with a draft → sent → received flow. A 15-account Malaysian-SME chart of accounts seeded by the migration, a journal that **refuses unbalanced entries server-side** (debits must equal credits — the invariant lives where it cannot be bypassed), and a trial balance computed from the journal with an OUT OF BALANCE tile that can only ever show if the data was touched outside the API.
+
+**Phase 2 — `DataTable`** (`components/ui/data-table.tsx`): entries-per-page, search, sortable headers with aria-sort, pagination, phone-safe horizontal scroll. The audit counted eleven hand-pasted sortable-header renderers; new modules use this one, existing panels migrate panel by panel.
+
+**Phase 3 — wiring.** Seven new tabs with lucide icons, role-gated client-side in `TAB_ROLES` and **enforced server-side** by nine new entries in `permissions.ts` (`orders_manage`, `cashflow_manage`, `reconcile_manage`, `commission_view/decide`, `adsfund_manage/claim`, `purchasing_manage`, `accounting_manage`). The CEO's per-user tab overrides apply to the new tabs like any other.
+
+**Phase 8 — the audit's structural fixes.**
+- **`worker/src/shared.ts`** — shared `json/err/str/num/cents/audit/logError`. And the real bug: staff.ts's `logError` was a bare INSERT while index.ts had the v1.5.0 six-hour dedupe — staff.ts is the copy the whole portal calls, so error-log spam and bell noise were still live. Its body now delegates to the deduped writer; ten call sites untouched.
+- **`@custom-variant dark`** — the 13 `dark:` utilities previously followed the *operating system's* colour scheme, not the app's 🌙 toggle. Now bound to the `.dark` class the toggle actually sets.
+- **`--warning` #b45309 → #946300** — the old value sat ΔE 9.9 from `--danger` under normal vision (floor 15): amber and red chips read as one colour. The new value measures 16.7 from danger, 4.66:1 on the soft chip, 5.19:1 on white. (Red/amber stay deutan-confusable at any hue — house chips always carry their word, which is the accepted relief.)
+- **Five orphan files deleted** (~680 lines): prospects-panel (which held the last private `api()` copy that sent no CSRF token), admin/staff-directory, product-gallery, home/elfia, migration-banner — each verified zero importers by exact path before deletion.
+
+**Worker safety net:** if 0071 has not been applied yet, every ERP GET returns an empty list with a `pending_migration` flag and the tabs show "run DEPLOY.bat" instead of a broken screen; writes return a clear 503. Money is integer cents end to end, converted once at the API edge with a NUMBERS-ONLY parser capped at RM 10 million per amount.
+
+**Not everything is done** — kept honest: the 21 existing modules still render their old layouts (they adopt StatStrip/DataTable panel by panel from here); commission entries are typed against a sales basis rather than auto-generated from fulfilled service lines (that automation needs order-fulfilment hooks); Reconciliation rows link to orders optionally but there is no CSV import yet; Accounting has no P&L/balance-sheet reports beyond the trial balance; the content-emoji sweep and the ui-styles adoption sweep remain open.
+
+**Setup:** `pnpm install && pnpm build`, then run ALL FIVE DEPLOY.bat steps — this release has a migration (0071) and a Worker change.
+
 ## [1.17.0] — 2026-08-15 — Live GPS detection on the clock-in card; the roster tab decluttered
 
 **"Check my location"** (CEO: "I still cant see the gps detection for the clock in"). The readiness strip on the phone — and the geofence line on desktop — now carry a tap-to-check action. It reads the phone's position once and asks the server where you stand; the verdict comes back as **"● Inside — 74 m from AZ ONE HQ"** in green, or "Outside — 1.2 km from AZ ONE HQ (limit 120 m)" in amber, before you commit to the punch.

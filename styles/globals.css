@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* v1.18.0 (CODE-AUDIT): bind the `dark:` variant to the app's own toggle.
+   Without this declaration Tailwind v4 keys `dark:` off the OPERATING
+   SYSTEM's colour scheme — so the 13 dark: utilities in the codebase agreed
+   with the 🌙 button only when the phone's system theme happened to match.
+   The app sets .dark on <html>; now dark: follows it, like everything else. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ---------------------------------- */
 /* AZ ONE OFFICIAL — Design tokens    */
 /* ---------------------------------- */
@@ -40,7 +47,12 @@
      spellings of the same chip). Use these instead of raw Tailwind colours. */
   --success: #15803d;
   --success-soft: #dcfce7;
-  --warning: #b45309;
+  /* v1.18.0 (CODE-AUDIT): was #b45309, which sat dE 9.9 from --danger under
+     NORMAL vision (floor 15) — amber and red chips side by side read as one
+     colour. #946300 measures 16.7 from danger, 4.66:1 on the soft chip and
+     5.19:1 on white. Red/amber remain deutan-confusable at ANY hue pair —
+     the mitigation is that house chips always carry their word. */
+  --warning: #946300;
   --warning-soft: #fef3c7;
   --danger: #dc2626;
   --danger-soft: #fee2e2;
