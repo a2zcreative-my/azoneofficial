@@ -135,6 +135,13 @@ export async function handleErp(
          Each source is fenced: a table this database doesn't have yet just
          contributes zero. */
       if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      // v1.21.3: fail LOUD when the ledger table itself is missing — before
+      // this, every source silently skipped and the button lied "up to date".
+      try {
+        await env.DB.prepare(`SELECT 1 FROM cashflow_entries LIMIT 1`).first();
+      } catch {
+        return err("migration_missing", "The cash-flow table is not migrated yet — run DEPLOY.bat so step 2 applies migration 0071, then retry.", 409);
+      }
       let created = 0;
       const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out") => {
         if (amountCents <= 0) return;

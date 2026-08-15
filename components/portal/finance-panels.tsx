@@ -90,13 +90,22 @@ export function CashFlowPanel() {
   const [syncBusy, setSyncBusy] = useState(false);
   const syncExisting = async () => {
     setSyncBusy(true);
-    const r = await api<{ created?: number }>(`/cashflow/backfill`, { method: "POST", body: JSON.stringify({}) });
+    const r = await api<{ created?: number; error?: { message?: string } }>(`/cashflow/backfill`, { method: "POST", body: JSON.stringify({}) });
     setSyncBusy(false);
     if (r.ok) {
       const n = r.data?.created ?? 0;
       showToast(n > 0 ? "Synced" : "Up to date", n > 0 ? `${n} movement${n === 1 ? "" : "s"} booked from Finance` : "Everything paid is already booked");
       void load();
-    } else showToast("No changes", "Sync failed — try again", "notice");
+      return;
+    }
+    /* v1.21.3 (live showed a bare "Sync failed"): say WHY. A 404 means the
+       API worker is still the previous build — the button shipped in the
+       site before the worker was redeployed. */
+    const why =
+      r.status === 404 ? "API worker is an older build — run DEPLOY.bat fully (step 3 deploys the worker), then retry."
+      : r.status === 403 ? "Your role has no cash-flow access."
+      : (r.data?.error?.message ?? `Sync failed (HTTP ${r.status || "network"}) — try again.`);
+    showToast("Sync failed", why, "notice");
   };
 
   return (

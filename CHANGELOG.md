@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.3] — 2026-08-17 — Dashboard day card sees the roster; sync failure says why
+
+**The side-panel day card counts everything on the day, not just tasks.** Picking 17-08 with a roster session scheduled used to read "0 tasks — nothing due", as if the day were empty (CEO: "there is roaster schedule created but why … appear task 0??"). The card now reads tasks due + live/roster sessions + company events ("1 item · 1 session"), lists each below (time · platform, client, host), and the mini-calendar dots mark session/event days too.
+
+**"Sync failed — try again" now says WHY.** The bare failure toast is replaced with the actual cause: a 404 means the API worker is still the previous build — run DEPLOY.bat fully (step 3 deploys the worker) and retry; a missing cash-flow table (pre-0071) returns a clear migration message instead of silently reporting "up to date"; permission and server errors surface their real text. The backfill SQL itself was re-verified idempotent against the real 0071 schema.
+
+**Important for the current live site:** the "Sync failed" you saw is the deployed API worker not yet carrying the backfill route (v1.21.2 shipped site-only). Run DEPLOY.bat in full once — the worker step picks it up — then press "Sync existing Finance data" again.
+
 ## [1.21.2] — 2026-08-15 — Roster popover in the calendar, Lives-today dialog tidied
 
 **Schedule & Roster — the session detail opens INSIDE the calendar.** Clicking a session used to fill a navy panel underneath the board, off-screen on most laptops (the CEO had to scroll to find it). The detail is now a popover pinned beside the clicked block — sessions on Mon–Thu open it to the right of their column, Fri–Sun to the left, top follows the session's time slot and clamps so the card never leaves the grid. Same content and actions (status chip, host, date · time · platform, notes, Mark completed / Cancel session).

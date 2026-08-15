@@ -21,6 +21,8 @@ interface Punch { type: string; created_at: string }
 interface Task { id: number; title: string; status: string; due_date?: string | null }
 interface Leave { id: number; type: string; start_date: string; end_date: string; status: string }
 interface Ann { id: number; title: string; created_at: string }
+interface Sess { id: number; session_date: string; start_time: string; end_time?: string | null; platform: string; client_company?: string | null; client_name?: string | null; host_name: string; status: string }
+interface Ev { id: number; title: string; category: string; event_date: string; start_time?: string | null }
 
 const MY_MS = 8 * 3600 * 1000;
 const mytNow = () => new Date(Date.now() + MY_MS);
@@ -32,6 +34,14 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
   const [month, setMonth] = useState(() => mytNow().toISOString().slice(0, 7));
   const [punches, setPunches] = useState<Punch[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  /* v1.21.3 (CEO: "there is roaster schedule created but why on the
+     calendar at side of dashboard appear task 0??"): the day card counted
+     TASKS only — a scheduled roster session or company event on that day
+     was invisible. Now the card reads everything on the day: tasks due,
+     live/roster sessions and company events, and the mini calendar dots
+     mark those days too. */
+  const [sessions, setSessions] = useState<Sess[]>([]);
+  const [events, setEvents] = useState<Ev[]>([]);
   const today = mytNow().toISOString().slice(0, 10);
   const [selected, setSelected] = useState(today);
 
@@ -40,11 +50,22 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
     setPunches(a.data?.records ?? []);
     const t = await api<{ tasks: Task[] }>(`/staff/tasks`);
     setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed"));
+    const s = await api<{ sessions: Sess[] }>(`/staff/live-sessions`);
+    setSessions((s.data?.sessions ?? []).filter((x) => x.status !== "cancelled"));
+    const e = await api<{ events: Ev[] }>(`/staff/events`);
+    setEvents(e.data?.events ?? []);
   }, []);
   useEffect(() => { void load(month); }, [load, month]);
 
-  const marked = Array.from(new Set(punches.map((p) => mytDay(p.created_at))));
+  const daySessions = sessions.filter((s) => s.session_date === selected);
+  const dayEvents = events.filter((e) => e.event_date === selected);
+  const marked = Array.from(new Set([
+    ...punches.map((p) => mytDay(p.created_at)),
+    ...sessions.map((s) => s.session_date),
+    ...events.map((e) => e.event_date),
+  ]));
   const dayTasks = tasks.filter((t) => t.due_date && t.due_date.slice(0, 10) === selected);
+  const dayCount = dayTasks.length + daySessions.length + dayEvents.length;
   // `noUncheckedIndexedAccess` is on, so a split()/map() element is
   // `number | undefined`. Coerce with a sane fallback rather than assert.
   const parts = month.split("-").map(Number);
@@ -70,15 +91,39 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
           {selected === today ? (lang === "ms" ? "Hari ini" : "Today") : selected}
         </p>
         <p className="mt-1 text-[19px] font-semibold">
-          {dayTasks.length} {lang === "ms" ? "tugasan" : dayTasks.length === 1 ? "task" : "tasks"}
+          {dayCount} {lang === "ms" ? "perkara" : dayCount === 1 ? "item" : "items"}
         </p>
         <p className="mt-0.5 text-[11.5px] text-white/60">
-          {marked.includes(selected)
+          {[
+            dayTasks.length ? `${dayTasks.length} ${lang === "ms" ? "tugasan" : dayTasks.length === 1 ? "task" : "tasks"}` : null,
+            daySessions.length ? `${daySessions.length} ${lang === "ms" ? "sesi" : daySessions.length === 1 ? "session" : "sessions"}` : null,
+            dayEvents.length ? `${dayEvents.length} ${lang === "ms" ? "acara" : dayEvents.length === 1 ? "event" : "events"}` : null,
+          ].filter(Boolean).join(" · ") || (lang === "ms" ? "Tiada apa-apa dijadualkan" : "Nothing scheduled")}
+        </p>
+        <p className="mt-0.5 text-[11.5px] text-white/60">
+          {punches.some((p) => mytDay(p.created_at) === selected)
             ? (lang === "ms" ? "Kehadiran direkod" : "Attendance recorded")
             : (lang === "ms" ? "Tiada rekod kehadiran" : "No attendance recorded")}
         </p>
       </div>
 
+      {/* v1.21.3: roster/live sessions on the selected day. */}
+      {daySessions.slice(0, 4).map((s) => (
+        <div key={`s${s.id}`} className="border-border bg-card rounded-card border p-3">
+          <p className="text-gold-deep text-[11px] font-semibold tabular-nums">
+            {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {s.platform}
+          </p>
+          <p className="mt-1 truncate text-[13px] font-semibold">{s.client_company ?? s.client_name ?? "Live session"}</p>
+          <p className="text-muted-foreground mt-0.5 truncate text-[11.5px]">{s.host_name}</p>
+        </div>
+      ))}
+      {dayEvents.slice(0, 3).map((e) => (
+        <div key={`e${e.id}`} className="border-border bg-card rounded-card border p-3">
+          <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{e.start_time || (lang === "ms" ? "Sepanjang hari" : "All day")}</p>
+          <p className="mt-1 truncate text-[13px] font-semibold">{e.title}</p>
+          <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{e.category}</p>
+        </div>
+      ))}
       {dayTasks.slice(0, 6).map((t) => (
         <div key={t.id} className="border-border bg-card rounded-card border p-3">
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{t.due_date?.slice(0, 10)}</p>
@@ -86,9 +131,9 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
           <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{t.status.replace(/_/g, " ")}</p>
         </div>
       ))}
-      {dayTasks.length === 0 && (
+      {dayCount === 0 && (
         <p className="text-muted-foreground px-1 text-[12px]">
-          {lang === "ms" ? "Tiada tugasan pada hari ini." : "Nothing due on this day."}
+          {lang === "ms" ? "Tiada apa-apa pada hari ini." : "Nothing on this day."}
         </p>
       )}
     </>
