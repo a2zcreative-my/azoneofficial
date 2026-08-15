@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.18.2] — 2026-08-15 — The More sheet scrolls
+
+The seven ERP tabs grew the mobile More sheet past the screen, and a bottom-anchored sheet clips its overflow **off the top** — the CEO could see the later rows but never the first ones, with no way to scroll: the page behind is deliberately locked while the sheet is open, and the sheet itself had no scroll of its own. It was fine at 16 tabs and broke at 23 — a growth bug, invisible until the ERP release crossed the line.
+
+Fix, portal and admin sheets both: `max-h-[80vh] overflow-y-auto overscroll-contain`. The sheet now opens showing the grab handle, close button and the FIRST rows, and scrolls within itself; `overscroll-contain` stops the scroll chaining into the locked page behind. Verified in-browser at 390×844: content 818px in a 674px sheet, internal scroll reaching the end.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site (front-end only).
+
 ## [1.18.1] — 2026-08-15 — Location on EVERY clock-in, and management can see it
 
 **The CEO's requirement changed and the code now matches it:** location is captured on **every** punch — clock in, clock out, OT in, OT out — whether or not the office fence is on. Before this, the client deliberately skipped the GPS request when the fence was off (a privacy-first default from v1.9.1); the CEO wants the register to carry the position regardless. Fence OFF = recorded, not enforced. Fence ON = the server refusal stays exactly as it was.

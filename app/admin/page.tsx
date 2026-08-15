@@ -1083,7 +1083,7 @@ export default function AdminPage() {
                 {/* v1.11.0: bottom padding clears the taller nav PLUS the
                     phone's home-indicator inset — pb-16 left the last row of
                     tabs half-covered and untappable on notched iPhones. */}
-                <div className="border-border bg-card absolute inset-x-0 bottom-0 rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+                <div className="border-border bg-card absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="w-9" />
                     <button
