@@ -16,8 +16,13 @@
 
 /** Every card in every app. One padding, everywhere.
     v1.10.0: phones get the reference design's rounder, calmer card
-    (rounded-2xl); the desktop keeps its v1.8.0 look exactly (md:rounded-lg). */
-export const card = "rounded-2xl md:rounded-lg border border-border bg-card p-4 md:p-5";
+    (rounded-2xl); the desktop kept its v1.8.0 8px look (md:rounded-lg).
+    v1.12.0: the desktop steps up to the shell's 16px card radius
+    (`rounded-card`), so phone and desktop finally agree and cards sit
+    correctly inside the 26px rounded canvas. Changing this ONE string
+    restyles every card in the portal, admin and account — which is the
+    whole reason it lives here. */
+export const card = "rounded-2xl md:rounded-card border border-border bg-card p-4 md:p-5";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
@@ -68,7 +73,21 @@ export const btnGhost =
     v1.10.0: phones get the reference design's soft rounded square (h-9,
     rounded-xl); desktop keeps its previous look. */
 export const btnHdr =
-  "inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:rounded-lg md:px-3";
+  "inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:rounded-lg md:px-2.5";
+
+/** Header control that exists ONLY from `md` up (sound, push, theme, EN/BM).
+ *
+ * v1.15.0 — this token exists because `${btnHdr} hidden md:inline-flex` DOES
+ * NOT WORK: btnHdr already carries a bare `inline-flex`, and when one element
+ * holds two unprefixed display utilities the stylesheet's order decides — in
+ * this Tailwind build `.inline-flex` is emitted AFTER `.hidden`, so the
+ * button stayed visible on every phone. That is why the v1.10.0 "calm mobile
+ * header" was never actually calm in production: all four set-once switches
+ * kept rendering at 390px and squeezed the screen title to zero width. The
+ * fix is the standard Tailwind pattern — `hidden` as the ONLY base display
+ * class, the visible display arriving with the `md:` variant. */
+export const btnHdrDesktop =
+  "hidden h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:inline-flex md:rounded-lg md:px-2.5";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =

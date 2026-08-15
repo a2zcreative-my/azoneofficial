@@ -54,6 +54,44 @@
   /* v1.5.0 — trading-desk accents (market green/red, used by the dashboard). */
   --bull: #16a34a;
   --bear: #dc2626;
+
+  /* ============ v1.12.0 — app-shell foundations (UI-REDESIGN-PLAN Phase 0) ==
+     The reference design puts the whole app on a dark band as a large rounded
+     canvas. These are ADDITIONS: no existing token is renamed or re-valued, so
+     every current screen keeps rendering exactly as it does today until it
+     opts in. Desktop only — phones never see the band. */
+  --shell-backdrop: #0b1220;      /* the dark band behind the canvas */
+  --brand-primary-soft: #243759;  /* navy +12% L — rail hover, on-navy fills */
+  --tint-navy: rgba(26, 41, 70, 0.05);    /* soft fills, calendar blocks */
+  --tint-gold: rgba(200, 169, 106, 0.16); /* "today" column, accent fills */
+
+  /* Chart steps — VALIDATED, do not hand-tune. Attendance ring and the
+     ordinal bar ramp were run through the dataviz validator against the real
+     card surface in both themes; every check passes. Light surface #ffffff.
+     NOTE: --warning and --danger are NOT separable from each other (ΔE 2.8
+     deuteranopia, 9.9 normal vision), which is why the ring's middle segment
+     is gold rather than amber. */
+  --ring-ontime: #15803d;
+  --ring-late: #c9a227;
+  --ring-absent: #dc2626;
+  --bar-low: #aab8cd;
+  --bar-mid: #5b6d8e;
+  --bar-high: #1a2946;
+
+  /* v1.13.0 — KPI TILE fills (the DZI reference's solid colour blocks).
+     These are DELIBERATELY separate from --success/--danger/--info. Those are
+     text-grade tokens: in dark mode they flip to LIGHT values (#4ade80,
+     #f87171, #38bdf8) because they are meant to be read as ink on a dark
+     surface. Used as a tile background with white text they measure ~1.7:1
+     and are unreadable. Every pair below is verified >= 4.5:1 in its own
+     mode, and each tile ships its own foreground so a caller cannot pick a
+     failing combination. */
+  --tile-brand: #1a2946;   --tile-brand-fg: #ffffff;   /* 14.49:1 */
+  --tile-success: #15803d; --tile-success-fg: #ffffff; /*  5.02:1 */
+  --tile-gold: #c9a227;    --tile-gold-fg: #1a2946;    /*  5.99:1 */
+  --tile-danger: #b91c1c;  --tile-danger-fg: #ffffff;  /*  6.47:1 */
+  --tile-info: #0369a1;    --tile-info-fg: #ffffff;    /*  5.93:1 */
+  --tile-muted: #4b5666;   --tile-muted-fg: #ffffff;   /*  7.44:1 */
 }
 
 @theme inline {
@@ -96,6 +134,37 @@
   --color-bull: var(--bull);
   --color-bear: var(--bear);
 
+  /* v1.12.0 — shell + validated chart steps as utilities
+     (bg-shell-backdrop, bg-brand-soft, bg-tint-gold, bg-ring-ontime, …) */
+  --color-shell-backdrop: var(--shell-backdrop);
+  --color-brand-soft: var(--brand-primary-soft);
+  --color-tint-navy: var(--tint-navy);
+  --color-tint-gold: var(--tint-gold);
+  --color-ring-ontime: var(--ring-ontime);
+  --color-ring-late: var(--ring-late);
+  --color-ring-absent: var(--ring-absent);
+  --color-bar-low: var(--bar-low);
+  --color-bar-mid: var(--bar-mid);
+  --color-bar-high: var(--bar-high);
+  --color-tile-brand: var(--tile-brand);
+  --color-tile-brand-fg: var(--tile-brand-fg);
+  --color-tile-success: var(--tile-success);
+  --color-tile-success-fg: var(--tile-success-fg);
+  --color-tile-gold: var(--tile-gold);
+  --color-tile-gold-fg: var(--tile-gold-fg);
+  --color-tile-danger: var(--tile-danger);
+  --color-tile-danger-fg: var(--tile-danger-fg);
+  --color-tile-info: var(--tile-info);
+  --color-tile-info-fg: var(--tile-info-fg);
+  --color-tile-muted: var(--tile-muted);
+  --color-tile-muted-fg: var(--tile-muted-fg);
+
+  /* rounded-shell / rounded-card, shadow-soft / shadow-shell */
+  --radius-shell: 26px;
+  --radius-card: 16px;
+  --shadow-soft: 0 1px 2px rgba(13, 21, 38, 0.05), 0 10px 30px rgba(13, 21, 38, 0.07);
+  --shadow-shell: 0 24px 60px rgba(8, 14, 26, 0.28);
+
   --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -132,6 +201,27 @@
   --info-soft: rgba(14, 165, 233, 0.16);
   --bull: #4ade80;
   --bear: #f87171;
+
+  /* v1.12.0 shell + chart steps, selected for the dark card surface #16213a
+     (not an automatic flip of the light values — re-validated as a set). */
+  --shell-backdrop: #05080f;
+  --brand-primary-soft: #28395c;
+  --tint-navy: rgba(255, 255, 255, 0.05);
+  --tint-gold: rgba(212, 181, 122, 0.14);
+  --ring-ontime: #23773d;
+  --ring-late: #af8c28;
+  --ring-absent: #d22023;
+  --bar-low: #3e5580;
+  --bar-mid: #7189b4;
+  --bar-high: #b6c6e0;
+
+  /* Tile fills stay DARK in dark mode so white text keeps working. */
+  --tile-brand: #233355;   /* 12.53:1 */
+  --tile-success: #17663a; /*  7.00:1 */
+  --tile-gold: #b8901f;    --tile-gold-fg: #0b1220; /* 6.28:1 */
+  --tile-danger: #a12222;  /*  7.59:1 */
+  --tile-info: #0b5f8f;    /*  6.89:1 */
+  --tile-muted: #3c4759;   /*  9.38:1 */
 }
 
 @layer base {

@@ -1,90 +1,86 @@
 "use client";
 
-/* v1.8.0 — MiniCalendar (UI-REDESIGN-PLAN.md Phase 0).
-   The reference's context-panel month grid: Monday-first (Malaysian working
-   convention and the reference itself), dot markers under days that have
-   items, selected day as a navy pill, today ringed. Controlled component —
-   the parent owns the selected date, this only renders and reports taps. */
+/* v1.14.0 — the context panel's month grid.
+ *
+ * Monday-first, because that is the Malaysian working week. Days carrying
+ * something (a punch, approved leave, an event) get a gold dot; the selected
+ * day gets the navy square. Pure divs — no calendar library, per the
+ * codebase's no-heavy-deps rule.
+ *
+ * Dates are handled as MYT `YYYY-MM-DD` STRINGS end to end. Building a
+ * `new Date(y, m, d)` here and reading `.getDate()` back would silently shift
+ * the whole grid by a day for anyone whose browser is not on UTC+8 — the same
+ * class of bug as the `slice(11,16)` timestamp already in the portal.
+ */
 
-import { useState } from "react";
-
-const DOW = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-/** Local YYYY-MM-DD (the portal's date convention everywhere). */
-function iso(y: number, m: number, d: number): string {
-  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-export function MiniCalendar({ selected, onSelect, marked, todayISO }: {
-  selected?: string;               // YYYY-MM-DD
-  onSelect?: (dateISO: string) => void;
-  /** Days that carry a dot (sessions/events/leave), as YYYY-MM-DD strings. */
-  marked?: Set<string> | string[];
-  /** Injected so SSR/static export can't disagree with the client clock. */
-  todayISO: string;
+export function MiniCalendar({
+  /** MYT month to render, "YYYY-MM". */
+  month,
+  /** MYT day currently selected, "YYYY-MM-DD". */
+  selected,
+  /** MYT days that should carry a dot, "YYYY-MM-DD". */
+  marked = [],
+  onSelect,
+  onMonth,
+  label,
+}: {
+  month: string;
+  selected?: string;
+  marked?: string[];
+  onSelect?: (day: string) => void;
+  onMonth?: (delta: -1 | 1) => void;
+  /** Heading, e.g. "August 2026". Caller formats it so language stays there. */
+  label: string;
 }) {
-  const base = selected ?? todayISO;
-  const [view, setView] = useState({ y: +base.slice(0, 4), m: +base.slice(5, 7) - 1 });
-  const markSet = marked instanceof Set ? marked : new Set(marked ?? []);
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m) return null;
 
-  const first = new Date(Date.UTC(view.y, view.m, 1));
-  const startCol = (first.getUTCDay() + 6) % 7; // Monday-first
-  const daysInMonth = new Date(Date.UTC(view.y, view.m + 1, 0)).getUTCDate();
-  const cells: (number | null)[] = [
-    ...Array.from({ length: startCol }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-  while (cells.length % 7 !== 0) cells.push(null);
+  const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  // 0=Sun..6=Sat from UTC (no local-timezone drift), shifted to Monday-first.
+  const firstDow = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+  const prevDays = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  const mark = new Set(marked);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const iso = (d: number) => `${y}-${pad(m)}-${pad(d)}`;
 
-  const nav = (dir: -1 | 1) =>
-    setView((v) => {
-      const m = v.m + dir;
-      return m < 0 ? { y: v.y - 1, m: 11 } : m > 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m };
-    });
+  const cells: { key: string; n: number; out: boolean; day?: string }[] = [];
+  for (let i = firstDow - 1; i >= 0; i--) cells.push({ key: `p${i}`, n: prevDays - i, out: true });
+  for (let d = 1; d <= daysIn; d++) cells.push({ key: iso(d), n: d, out: false, day: iso(d) });
+  for (let i = 1; cells.length % 7 !== 0; i++) cells.push({ key: `n${i}`, n: i, out: true });
 
   return (
-    <div>
+    <div className="border-border bg-card rounded-card border p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-sm font-semibold">{MONTHS[view.m]} <span className="text-muted-foreground font-normal">{view.y}</span></p>
-        <div className="flex gap-1">
-          <button type="button" onClick={() => nav(-1)} aria-label="Previous month"
-            className="border-border hover:bg-secondary flex h-7 w-7 items-center justify-center rounded-lg border text-sm">‹</button>
-          <button type="button" onClick={() => nav(1)} aria-label="Next month"
-            className="border-border hover:bg-secondary flex h-7 w-7 items-center justify-center rounded-lg border text-sm">›</button>
-        </div>
+        <b className="text-[12.5px] font-semibold">{label}</b>
+        {onMonth ? (
+          <div className="flex gap-1">
+            <button type="button" aria-label="Previous month" onClick={() => onMonth(-1)}
+              className="text-muted-foreground hover:bg-secondary hover:text-foreground grid h-6 w-6 place-items-center rounded-md text-xs">‹</button>
+            <button type="button" aria-label="Next month" onClick={() => onMonth(1)}
+              className="text-muted-foreground hover:bg-secondary hover:text-foreground grid h-6 w-6 place-items-center rounded-md text-xs">›</button>
+          </div>
+        ) : null}
       </div>
-      <div className="grid grid-cols-7 gap-y-0.5 text-center">
-        {DOW.map((d) => (
-          <span key={d} className="text-muted-foreground pb-1 text-[10px] font-medium">{d}</span>
+      <div className="grid grid-cols-7 gap-px text-center">
+        {["MO", "TU", "WE", "TH", "FR", "SA", "SU"].map((d) => (
+          <div key={d} className="text-muted-foreground pb-1 text-[9px] font-semibold">{d}</div>
         ))}
-        {cells.map((d, i) => {
-          if (d === null) return <span key={i} />;
-          const dISO = iso(view.y, view.m, d);
-          const isSel = dISO === selected;
-          const isToday = dISO === todayISO;
+        {cells.map((c) => {
+          if (c.out) return <div key={c.key} className="text-muted-foreground grid aspect-square place-items-center text-[11px] opacity-40">{c.n}</div>;
+          const on = c.day === selected;
+          const has = mark.has(c.day!);
           return (
             <button
-              key={i}
+              key={c.key}
               type="button"
-              onClick={() => onSelect?.(dISO)}
-              aria-label={dISO}
-              aria-pressed={isSel}
-              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs tabular-nums transition-colors ${
-                isSel
-                  ? "bg-primary text-primary-foreground font-semibold"
-                  : isToday
-                    ? "ring-gold-solid text-foreground font-semibold ring-1"
-                    : "hover:bg-secondary"
+              onClick={onSelect ? () => onSelect(c.day!) : undefined}
+              aria-current={on ? "date" : undefined}
+              className={`relative grid aspect-square place-items-center rounded-md text-[11px] tabular-nums transition-colors ${
+                on ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-secondary"
               }`}
             >
-              {d}
-              {markSet.has(dISO) && !isSel && (
-                <span aria-hidden className="bg-gold-solid absolute bottom-0.5 h-1 w-1 rounded-full" />
-              )}
+              {c.n}
+              {has && <span aria-hidden className={`absolute bottom-[3px] h-[3px] w-[3px] rounded-full ${on ? "bg-primary-foreground" : "bg-gold-solid"}`} />}
             </button>
           );
         })}

@@ -31,7 +31,10 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
-import { SidebarNav, ICONS } from "@/components/layout/sidebar-nav";
+import { AppShell } from "@/components/layout/app-shell";
+import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
+import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { RosterBoard } from "@/components/portal/roster-board";
 import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/components/portal/dashboard-cards";
@@ -55,7 +58,7 @@ import {
   ClaimsPanel,
   ExpensesPanel, TikTokOrdersCard } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { card, inputClass, btnClass, btnGhost, btnHdr, btnSm, btnSmPrimary, th, td, thR2, tdR2, fieldRow } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, btnGhost, btnHdr, btnSm, btnSmPrimary, th, td, thR2, tdR2, fieldRow, btnHdrDesktop } from "@/lib/ui-styles";
 import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 
@@ -80,6 +83,29 @@ function mytDateTime(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000);
   const i = d.toISOString();
   return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
+}
+
+/* v1.15.0 — the mobile Today screen's greeting line. Hand-rolled names, not
+   toLocaleDateString: the ms-MY locale data varies by browser/OS and this
+   line sits at the very top of every staff member's phone screen. */
+const DAY_NAMES = {
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  ms: ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"],
+} as const;
+const MONTH_NAMES = {
+  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+  ms: ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"],
+} as const;
+function mytGreeting(lang: Lang): string {
+  const h = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+  if (lang === "ms") return h < 12 ? "Selamat pagi" : h < 19 ? "Selamat petang" : "Selamat malam";
+  return h < 12 ? "Good morning" : h < 19 ? "Good afternoon" : "Good evening";
+}
+function mytTodayLine(lang: Lang): string {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  const names = lang === "ms" ? DAY_NAMES.ms : DAY_NAMES.en;
+  const months = lang === "ms" ? MONTH_NAMES.ms : MONTH_NAMES.en;
+  return `${names[d.getUTCDay()]}, ${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
 }
 
 const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"]; // v1.4.153: CEO posts news too
@@ -147,6 +173,12 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => void; lang?: Lang }) {
   const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
   const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
+  /* v1.15.0: the same attendance response, kept un-filtered — powers the
+     personal month chart and the KPI strip without a second request. */
+  const [monthRecs, setMonthRecs] = useState<{ type: string; created_at: string }[]>([]);
+  /* v1.15.0: the same tasks response, kept un-filtered — the mobile Today
+     checklist needs completed items too for its "2 of 4 done" count. */
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [otEligible, setOtEligible] = useState(false);
   const [leave, setLeave] = useState<LeaveReq[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -169,12 +201,14 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   const load = useCallback(async () => {
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const a = await api<{ records: { type: string; created_at: string }[]; ot?: { type: string; created_at: string }[]; ot_eligible?: boolean }>(`/staff/attendance?month=${month}`);
+    setMonthRecs(a.data?.records ?? []);
     setToday((a.data?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     setTodayOt((a.data?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     setOtEligible(a.data?.ot_eligible === true);
     const l = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setLeave((l.data?.leave ?? []).filter((x) => x.status === "pending"));
     const t = await api<{ tasks: Task[] }>(`/staff/tasks`);
+    setAllTasks(t.data?.tasks ?? []);
     setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed").slice(0, 5));
     const n = await api<{ announcements: Announcement[] }>(`/staff/announcements`);
     setAnns((n.data?.announcements ?? []).slice(0, 3));
@@ -343,6 +377,28 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   const isWeekendMYT = [0, 6].includes(new Date(Date.now() + 8 * 3600 * 1000).getUTCDay());
   const showOt = otEligible && (isWeekendMYT || nowMins >= 18 * 60 || todayOt.length > 0);
 
+  /* v1.15.0 — personal month stats from the punches already fetched.
+     Hours pair the FIRST clock-in with the LAST clock-out per MYT day, so a
+     duplicate punch can't double-count; a day still in progress contributes
+     presence but no hours (honest: we don't know the total yet). */
+  const dayPairs = (() => {
+    const m = new Map<string, { in?: number; out?: number }>();
+    for (const r of monthRecs) {
+      const d = mytDateOf(r.created_at);
+      const t = new Date(r.created_at.replace(" ", "T") + "Z").getTime();
+      const e = m.get(d) ?? {};
+      if (r.type === "clock_in") e.in = e.in === undefined ? t : Math.min(e.in, t);
+      if (r.type === "clock_out") e.out = e.out === undefined ? t : Math.max(e.out, t);
+      m.set(d, e);
+    }
+    return m;
+  })();
+  const daysPresent = dayPairs.size;
+  const monthHours = Array.from(dayPairs.values())
+    .reduce((a, e) => a + (e.in !== undefined && e.out !== undefined && e.out > e.in
+      ? Math.min((e.out - e.in) / 3_600_000, 16) : 0), 0);
+  const doneTasks = allTasks.filter((t) => t.status === "completed").length;
+
   /* v1.10.0 (reference design): the mockup's punchy action buttons — taller
      and rounder on phones, pixel-identical to btnClass/btnGhost from `sm` up.
      Self-contained strings (NOT btnClass + overrides): two conflicting
@@ -354,6 +410,58 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
 
   return (
     <div className="space-y-3 md:space-y-6">
+      {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
+          top of the reference's phone screen. Phones only; the desktop header
+          already greets. */}
+      <div className="md:hidden">
+        <p className="text-muted-foreground text-[12px]">{mytTodayLine(lang)}</p>
+        <h2 className="mt-0.5 text-[23px] font-semibold tracking-tight">
+          {mytGreeting(lang)}, {user.name.split(" ")[0]}
+        </h2>
+      </div>
+
+      {/* v1.15.0 — personal KPI strip (desktop): my day and my month at a
+          glance, from data this component already fetched. Company-wide
+          numbers stay in the Sales Floor band below, role-gated as before. */}
+      <div className="hidden gap-3 md:grid md:grid-cols-4">
+        <div className={card}>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("Today", lang)}</p>
+          <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">
+            {hasIn ? mytTime(today.filter((r) => r.type === "clock_in").slice(-1)[0]?.created_at ?? "") : "—"}
+          </p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">
+            {hasOut ? "Shift completed" : hasIn ? "On shift" : "Not clocked in yet"}
+          </p>
+          <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
+            <i className={`block h-full rounded-full ${hasOut ? "bg-ring-ontime w-full" : hasIn ? "bg-gold-solid w-1/2" : "w-0"}`} />
+          </div>
+        </div>
+        <div className={card}>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Days present · month</p>
+          <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{daysPresent}</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">attendance recorded</p>
+          <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
+            <i className="bg-bar-high block h-full rounded-full" style={{ width: `${Math.min(100, (daysPresent / 22) * 100)}%` }} />
+          </div>
+        </div>
+        <div className={card}>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Hours · month</p>
+          <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{monthHours.toFixed(1)}</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">first in → last out, per day</p>
+          <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
+            <i className="bg-gold-solid block h-full rounded-full" style={{ width: `${Math.min(100, (monthHours / 176) * 100)}%` }} />
+          </div>
+        </div>
+        <div className={card}>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Open tasks</p>
+          <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{tasks.length}</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">{leave.length > 0 ? `+ ${leave.length} leave pending` : "no leave pending"}</p>
+          <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
+            <i className={`block h-full rounded-full ${tasks.length > 0 ? "bg-bar-mid w-2/3" : "bg-ring-ontime w-full"}`} />
+          </div>
+        </div>
+      </div>
+
       {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
       <NextEventCard lang={lang} />
       <div className={card}>
@@ -367,9 +475,15 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             flip moved sm→md so the whole mobile shell (nav, hero, cards,
             buttons) switches at ONE breakpoint. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap">
-          <button type="button" className={qaPrimary} disabled={!!busy}
+          <button type="button"
+            /* v1.15.0: phones get the reference's green Clock in. tile tokens,
+               not --success — that one flips to a light text-green in dark
+               mode and white text on it would fail contrast. Desktop (md:)
+               keeps qaPrimary's navy exactly. */
+            className={`${qaPrimary} ${!hasIn ? "max-md:bg-tile-success max-md:text-tile-success-fg max-md:hover:bg-tile-success/90" : ""}`}
+            disabled={!!busy}
             onClick={() => void punch("clock_in")}>
-            {hasIn ? tr("Clocked in ✓", lang) : tr("Clock in", lang)}
+            {hasIn ? tr("Clocked in ✓", lang) : `📍 ${tr("Clock in", lang)}`}
           </button>
           <button type="button" className={qaGhost} disabled={!!busy} onClick={() => void punch("clock_out")}>
             {hasOut ? tr("Clocked out ✓", lang) : tr("Clock out", lang)}
@@ -407,11 +521,27 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           </p>
         )}
         {fence?.configured && (
-          <p className="text-muted-foreground mt-2 text-[11px]">
-            📍 {tr("Office check-in is on", lang)} — {lang === "ms"
-              ? `daftar masuk/keluar hanya dalam ${fence.radius_m ?? 100} m dari ${fence.label ?? "pejabat"}.`
-              : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}
-          </p>
+          <>
+            {/* v1.15.0 — phone: the reference's readiness strip. Config only,
+                deliberately NOT a live GPS probe: reading the position here
+                would fire the browser's location prompt on every Dashboard
+                open, before the person asked to punch. The real check stays
+                where it belongs — server-side, at the punch. */}
+            <div className="bg-secondary mt-2.5 flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 md:hidden">
+              <span className="flex items-center gap-2 text-[12px] font-medium">
+                <span aria-hidden>🛡</span>
+                {lang === "ms" ? "Semakan lokasi pejabat aktif" : "Office location check is on"}
+              </span>
+              <span className="bg-success-soft text-success rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
+                {fence.radius_m ?? 100} m
+              </span>
+            </div>
+            <p className="text-muted-foreground mt-2 hidden text-[11px] md:block">
+              📍 {tr("Office check-in is on", lang)} — {lang === "ms"
+                ? `daftar masuk/keluar hanya dalam ${fence.radius_m ?? 100} m dari ${fence.label ?? "pejabat"}.`
+                : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}
+            </p>
+          </>
         )}
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0 && todayOt.length === 0
@@ -421,6 +551,102 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                 .join(" · ")}`}
         </p>
       </div>
+
+      {/* v1.15.0 — mobile Today checklist: the reference's two-column card
+          grid with a progress count. Same tasks the desktop list shows; the
+          full response (incl. completed) so "2 of 4 done" is countable.
+          Tapping any card opens the Tasks tab — editing stays there. */}
+      {allTasks.length > 0 && (
+        <div className="md:hidden">
+          <div className="mb-2 flex items-baseline justify-between px-0.5">
+            <p className="text-[15px] font-semibold">{lang === "ms" ? "Senarai semak hari ini" : "Today's checklist"}</p>
+            <p className="text-muted-foreground text-[11.5px]">
+              {doneTasks} {lang === "ms" ? "daripada" : "of"} {allTasks.length} {lang === "ms" ? "selesai" : "done"}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {allTasks.slice(0, 6).map((t) => {
+              const done = t.status === "completed";
+              return (
+                <button key={t.id} type="button" onClick={() => go("Tasks")}
+                  className={`border-border bg-card flex min-h-[64px] flex-col gap-1.5 rounded-2xl border p-3 text-left ${done ? "opacity-70" : ""}`}>
+                  <span aria-hidden className={`grid h-5 w-5 place-items-center rounded-md text-[11px] ${
+                    done ? "bg-success-soft text-success" : "bg-tint-gold text-gold-deep"}`}>
+                    {done ? "✓" : "◷"}
+                  </span>
+                  <span className={`text-[12px] leading-snug font-medium ${done ? "line-through" : ""}`}>{t.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* v1.15.0 — phone month summary: the reference's compact stats card. */}
+      <div className={`${card} md:hidden`}>
+        <div className="flex items-center justify-between">
+          <p className="text-[15px] font-semibold">{lang === "ms" ? "Bulan ini" : "This month"}</p>
+          <span className="text-muted-foreground text-[11.5px] tabular-nums">{mytToday().slice(0, 7)}</span>
+        </div>
+        <div className="mt-2.5 flex gap-6">
+          <div>
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Hari" : "Days"}</p>
+            <p className="text-[19px] font-semibold tabular-nums">{daysPresent}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Jam" : "Hours"}</p>
+            <p className="text-[19px] font-semibold tabular-nums">{monthHours.toFixed(1)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Tugasan" : "Tasks"}</p>
+            <p className="text-[19px] font-semibold tabular-nums">{doneTasks}/{allTasks.length}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* v1.15.0 — desktop: my attendance, day by day. First-in → last-out
+          hours; today in navy; a gold half-bar marks a day still in progress
+          (in, no out yet) rather than pretending the hours are known. */}
+      {monthRecs.length > 0 && (
+        <div className={`${card} hidden md:block`}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold">My attendance — {MONTH_NAMES.en[Number(mytToday().slice(5, 7)) - 1]}</p>
+            <p className="text-muted-foreground text-[11.5px]">{daysPresent} days · {monthHours.toFixed(1)} h</p>
+          </div>
+          <div className="flex h-28 items-end gap-[3px]">
+            {(() => {
+              const todayS = mytToday();
+              const [yy, mm] = [Number(todayS.slice(0, 4)), Number(todayS.slice(5, 7))];
+              const daysIn = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+              return Array.from({ length: daysIn }, (_, i) => {
+                const d = `${todayS.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
+                const e = dayPairs.get(d);
+                const hrs = e && e.in !== undefined && e.out !== undefined && e.out > e.in
+                  ? Math.min((e.out - e.in) / 3_600_000, 16) : 0;
+                const open = !!e && e.in !== undefined && (e.out === undefined || e.out <= (e.in ?? 0));
+                const pct = Math.max(hrs > 0 ? 8 : 0, Math.round((hrs / 12) * 100));
+                return (
+                  <div key={d} className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1"
+                    role="img" aria-label={`${d}: ${open ? "on shift, in progress" : `${hrs.toFixed(1)} hours`}`}>
+                    <div
+                      className={`w-full rounded-t-[3px] ${d === todayS ? "bg-bar-high" : open ? "bg-gold-solid" : hrs > 0 ? "bg-bar-low group-hover:bg-bar-mid" : "bg-tint-navy"}`}
+                      style={{ height: open && hrs === 0 ? "40%" : `${pct}%`, minHeight: "2px" }}
+                    />
+                    <span className={`text-[9px] tabular-nums ${d === todayS ? "text-foreground font-semibold" : "text-muted-foreground"} ${(i + 1) % 5 === 0 || i === 0 || d === todayS ? "" : "invisible"}`}>
+                      {i + 1}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+          <div className="text-muted-foreground mt-2 flex gap-4 text-[11px]">
+            <span><i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />Worked</span>
+            <span><i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />In progress</span>
+            <span><i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />Today</span>
+          </div>
+        </div>
+      )}
 
       {/* v1.4.214 (CEO reorg): LiveGmvCard + ConnectionStatusCard moved to
           the new Ecommerce tab — the Dashboard is Quick actions → the
@@ -599,7 +825,9 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
       {data.map(u => (
         <div key={u.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "pb-2"}`}>
           <p className="font-medium text-sm">{u.name}</p>
-          <p className="text-muted-foreground text-xs">Checked in at {u.in_at?.slice(11, 16) || "unknown"}</p>
+          {/* v1.15.0 fix (audit finding): in_at is a UTC string — slicing it
+              showed a 10:00 MYT clock-in as 02:00. mytTime converts. */}
+          <p className="text-muted-foreground text-xs">Checked in at {u.in_at ? mytTime(u.in_at) : "unknown"}</p>
         </div>
       ))}
     </div>
@@ -4634,13 +4862,26 @@ export default function PortalPage() {
 
   const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
   return (
-    <div className="md:pl-14">{/* v1.8.0 shell: content clears the fixed sidebar on desktop */}
-      <SidebarNav
-        items={navItems}
-        active={activeTab}
-        onSelect={(t) => setTab(t as TabName)}
-        onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
-      />
+    /* v1.13.0: AppShell now renders the grouped ERP sidebar (CEO's DZI
+       reference). It receives the SAME `navItems` the role gating and
+       tab-access overrides already produced — the shell groups them for
+       display and decides nothing about visibility. Below `md` it renders
+       `children` unstyled, so the v1.11.1 phone is untouched. */
+    <AppShell
+      rail={
+        <SidebarNav
+          items={navItems}
+          active={activeTab}
+          onSelect={(t) => setTab(t as TabName)}
+          onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
+        />
+      }
+      /* v1.14.0: the side columns carry a DATE context, so they render only on
+         the tabs where a date context means something. On Sales or Users they
+         would be decoration competing with the actual work area. */
+      contextPanel={["Dashboard", "Attendance", "Leave", "Tasks"].includes(activeTab) ? <ContextPanel lang={lang} /> : undefined}
+      rightRail={["Dashboard", "Attendance", "Leave", "Tasks"].includes(activeTab) ? <RightRail lang={lang} /> : undefined}
+    >
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -4655,9 +4896,13 @@ export default function PortalPage() {
       />
     {/* v1.10.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset,
         pb-24 left the last card's edge underneath it on notched phones. */}
-    <div className="mx-auto w-full max-w-6xl px-4 py-3 pb-28 md:px-5 md:py-6 md:pb-6">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:static md:mx-0 md:gap-3 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
-        <div className="flex min-w-0 items-center gap-2 md:gap-3">
+    <div className="w-full px-4 py-3 pb-28 md:mx-0 md:max-w-none md:px-5 md:py-4 md:pb-6">
+      {/* v1.13.0: on desktop this row IS the shell's topbar. `md:-mx-5 md:-mt-4`
+          breaks it out of <main>'s padding so it spans the full working area,
+          and it stays sticky/bordered instead of dissolving into the page as
+          it did before. Every mobile class is unchanged. */}
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:py-3 md:backdrop-blur-none">
+        <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
           {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
               on mobile. Falls back to the initial when no photo is set. */}
@@ -4675,8 +4920,14 @@ export default function PortalPage() {
           )}
           <div className="min-w-0">
             <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">{tr("Staff Portal", lang)}</p>
-            <h1 className="hidden truncate text-xl font-semibold tracking-tight md:block">
-              {tr("Welcome", lang)}, {user.name.split(" ")[0]}
+            {/* v1.15.0: time-of-day greeting, as the reference.
+                v1.16.0: text-lg until 2xl — xl is 1280px, so at a 1440px
+                viewport (both side columns open, 773px header) xl:text-xl
+                re-applied the 20px size and the name clipped by 12px. 2xl
+                (1536px) is the first width with room for it. Measured, not
+                guessed: h1 183px available vs 195px scrollWidth at text-xl. */}
+            <h1 className="hidden truncate text-lg font-semibold tracking-tight md:block 2xl:text-xl">
+              {mytGreeting(lang)}, {user.name.split(" ")[0]}
             </h1>
             {/* On phones the header reads like an app screen title.
                 v1.10.0: the Dashboard says "Today" (the reference design's
@@ -4686,15 +4937,15 @@ export default function PortalPage() {
             </h1>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 md:min-w-0 md:shrink">
           {/* v1.8.0: global search — opens the palette (Ctrl/Cmd+K works anywhere) */}
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-56 items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
+            className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-40 min-w-24 shrink items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
             aria-label="Search the portal"
           >
-            <span>🔎 {tr("Search…", lang)}</span>
+            <span className="flex items-center gap-2"><Search aria-hidden className="h-4 w-4" strokeWidth={1.75} /> {tr("Search…", lang)}</span>
             <kbd className="bg-secondary rounded px-1.5 py-0.5 text-[10px] font-medium">Ctrl K</kbd>
           </button>
           <button
@@ -4703,14 +4954,14 @@ export default function PortalPage() {
             onClick={() => setPaletteOpen(true)}
             aria-label="Search the portal"
           >
-            🔎
+            <Search aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
           {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
               taps — on phones they live in the More sheet's Preferences row
               so the app bar keeps just search · bell · dark · sign out. */}
           <button
             type="button"
-            className={`${btnHdr} hidden md:inline-flex`}
+            className={btnHdrDesktop}
             title={sound ? "Notification sound ON — tap to mute" : "Notification sound OFF — tap to unmute"}
             aria-label={sound ? "Mute notification sound" : "Unmute notification sound"}
             onClick={() => {
@@ -4720,14 +4971,14 @@ export default function PortalPage() {
               if (next) void chime(); // audible confirmation (gesture context — always plays now)
             }}
           >
-            {sound ? "🔊" : "🔇"}
+            {sound ? <Volume2 aria-hidden className="h-4 w-4" strokeWidth={1.75} /> : <VolumeX aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
           </button>
           {/* v1.6.0: push alerts to this device (works even with the tab
               closed). Hidden where the browser can't do web push. */}
           {pushState !== "unsupported" && (
             <button
               type="button"
-              className={`${btnHdr} hidden md:inline-flex`}
+              className={btnHdrDesktop}
               title={pushState === "granted" ? "Push alerts ON for this device — tap to turn off" : "Get push alerts on this device"}
               aria-label="Toggle push alerts"
               onClick={async () => {
@@ -4742,7 +4993,7 @@ export default function PortalPage() {
                 }
               }}
             >
-              {pushState === "granted" ? "🔔✓" : "🔕"}
+              {pushState === "granted" ? <BellRing aria-hidden className="h-4 w-4" strokeWidth={1.75} /> : <BellOff aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
             </button>
           )}
           <button
@@ -4754,7 +5005,7 @@ export default function PortalPage() {
               if (unread) void api("/staff/notifications/read", { method: "POST", body: JSON.stringify({}) });
             }}
           >
-            🔔
+            <Bell aria-hidden className="h-4 w-4" strokeWidth={1.75} />
             {unread > 0 && (
               <span className="absolute -top-1.5 -right-1.5 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-bold text-white shadow">
                 {unread > 9 ? "9+" : unread}
@@ -4762,26 +5013,37 @@ export default function PortalPage() {
             )}
           </button>
           {/* v1.9.0: theme preset + chrome language */}
-          <button type="button" className={`${btnHdr} hidden md:inline-flex`} title={theme === "plum" ? "Theme: Plum & Rose — switch to Navy & Gold" : "Theme: Navy & Gold — switch to Plum & Rose"}
+          <button type="button" className={btnHdrDesktop} title={theme === "plum" ? "Theme: Plum & Rose — switch to Navy & Gold" : "Theme: Navy & Gold — switch to Plum & Rose"}
             aria-label="Switch colour theme" onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}>
-            🎨
+            <Palette aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
-          <button type="button" className={`${btnHdr} hidden text-xs font-semibold md:inline-flex`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
+          <button type="button" className={`${btnHdrDesktop} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
             aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
             {lang === "ms" ? "BM" : "EN"}
           </button>
           <button type="button" className={btnHdr} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
-            {dark ? "☀️" : "🌙"}
+            {dark ? <Sun aria-hidden className="h-4 w-4" strokeWidth={1.75} /> : <Moon aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
           </button>
+          {/* v1.16.0 (CEO): icon-only — the text label cost ~70px in a row
+              that was already squeezing the greeting. title + aria-label keep
+              it discoverable and announced. */}
           <button
             type="button"
-            className={`${btnHdr} whitespace-nowrap`}
+            className={btnHdr}
+            title={tr("Sign out", lang)}
+            aria-label={tr("Sign out", lang)}
             onClick={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
           >
-            {tr("Sign out", lang)}
+            <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
       </header>
+
+      {/* v1.13.0: the reference's page header — title left, breadcrumb right. */}
+      <div className="mb-3 hidden items-baseline justify-between gap-4 md:flex">
+        <h2 className="text-[22px] font-semibold tracking-tight">{tr(activeTab, lang)}</h2>
+        <p className="text-muted-foreground text-xs">{tr("Staff Portal", lang)} / {tr(activeTab, lang)}</p>
+      </div>
 
       {showNotifs && (
         <div className={`${card} mt-4`}>
@@ -4838,7 +5100,7 @@ export default function PortalPage() {
                   active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                 }`}
               >
-                {ICONS[t] ?? "▪"}
+                <TabIcon name={t} />
               </span>
               {/* truncate: BM labels ("Papan Pemuka") must not wrap and
                   unbalance the row on narrow phones */}
@@ -4863,7 +5125,7 @@ export default function PortalPage() {
                   active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                 }`}
               >
-                ⋯
+                <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </span>
               <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr("More", lang)}</span>
             </button>
@@ -4897,7 +5159,7 @@ export default function PortalPage() {
                 className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
                 onClick={() => setMoreOpen(false)}
               >
-                ✕
+                <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
               </button>
             </div>
             {tabs.length > 4 && (
@@ -4911,7 +5173,7 @@ export default function PortalPage() {
                       tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                     }`}
                   >
-                    <span aria-hidden className="text-base">{ICONS[t] ?? "▪"}</span>
+                    <span aria-hidden className="grid place-items-center"><TabIcon name={t} /></span>
                     {tr(t, lang)}
                   </button>
                 ))}
@@ -4932,7 +5194,7 @@ export default function PortalPage() {
                   if (next) void chime();
                 }}
               >
-                <span aria-hidden className="text-base">{sound ? "🔊" : "🔇"}</span>
+                <span aria-hidden className="grid place-items-center">{sound ? <Volume2 className="h-[18px] w-[18px]" strokeWidth={1.75} /> : <VolumeX className="h-[18px] w-[18px]" strokeWidth={1.75} />}</span>
                 {sound ? (lang === "ms" ? "Bunyi" : "Sound on") : (lang === "ms" ? "Senyap" : "Muted")}
               </button>
               {pushState !== "unsupported" && (
@@ -4951,7 +5213,7 @@ export default function PortalPage() {
                     }
                   }}
                 >
-                  <span aria-hidden className="text-base">{pushState === "granted" ? "🔔✓" : "🔕"}</span>
+                  <span aria-hidden className="grid place-items-center">{pushState === "granted" ? <BellRing className="h-[18px] w-[18px]" strokeWidth={1.75} /> : <BellOff className="h-[18px] w-[18px]" strokeWidth={1.75} />}</span>
                   {pushState === "granted" ? (lang === "ms" ? "Push aktif" : "Push on") : (lang === "ms" ? "Push tutup" : "Push off")}
                 </button>
               )}
@@ -4968,7 +5230,7 @@ export default function PortalPage() {
                 className="border-border flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium hover:bg-secondary"
                 onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
               >
-                <span aria-hidden className="text-base">🎨</span>
+                <span aria-hidden className="grid place-items-center"><Palette className="h-[18px] w-[18px]" strokeWidth={1.75} /></span>
                 {theme === "plum" ? (lang === "ms" ? "Ungu" : "Plum") : (lang === "ms" ? "Biru" : "Navy")}
               </button>
             </div>
@@ -5077,6 +5339,6 @@ export default function PortalPage() {
         )}
       </main>
     </div>
-    </div>
+    </AppShell>
   );
 }

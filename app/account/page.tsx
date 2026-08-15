@@ -2,6 +2,7 @@
 
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
+import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
@@ -94,16 +95,19 @@ export default function AccountPage() {
             {tab === "Enquiries" ? "My Enquiries" : tab === "Orders" ? "My Orders" : "My Account"}
           </h1>
         </div>
+        {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
         <button
           type="button"
-          className={btnGhost}
+          className={`${btnGhost} px-2.5`}
+          title="Sign out"
+          aria-label="Sign out"
           onClick={() =>
             void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
               () => window.location.replace("/"),
             )
           }
         >
-          Sign out
+          <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </header>
 
@@ -133,7 +137,8 @@ export default function AccountPage() {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Account sections (mobile)"
       >
-        {([["Account", "👤"], ["Orders", "📦"], ["Enquiries", "📨"]] as const).map(([t, icon]) => {
+        {/* v1.16.0: emoji tuples -> the shared SVG icon map. */}
+        {(["Account", "Orders", "Enquiries"] as const).map((t) => {
           const active = tab === t;
           return (
             <button
@@ -149,7 +154,7 @@ export default function AccountPage() {
                   active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                 }`}
               >
-                {icon}
+                <TabIcon name={t} />
               </span>
               <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
             </button>

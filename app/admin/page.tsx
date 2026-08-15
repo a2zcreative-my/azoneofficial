@@ -6,6 +6,7 @@
  * (same origin via the azoneofficial.com/api/* route).
  */
 
+import { TabIcon, LogOut, Ellipsis, CloseX } from "@/components/layout/nav-icons";
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { compressImage } from "@/lib/compress-image";
@@ -859,24 +860,10 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
-/* v1.11.0: the mobile bottom nav shows an icon per tab, exactly like /portal
-   and the desktop sidebar. Admin's tab names are its own (Website, Portfolio,
-   Advanced…), so this map is local rather than the sidebar's shared ICONS —
-   where the names overlap the glyphs deliberately agree. */
-const TAB_ICONS: Record<Tab, string> = {
-  Dashboard: "▦",
-  Website: "🌐",
-  Enquiries: "📨",
-  Portfolio: "🖼",
-  Testimonials: "💬",
-  Posts: "📝",
-  Media: "🖇",
-  Users: "🔐",
-  Staff: "🗂",
-  Audit: "🕵",
-  Account: "👤",
-  Advanced: "⚙",
-};
+/* v1.11.0: the mobile bottom nav shows an icon per tab, exactly like /portal.
+   v1.16.0: the local emoji map is gone — admin's tab names live in the shared
+   SVG map (components/layout/nav-icons.tsx) alongside the portal's, so the
+   surfaces speak one icon language and get tintable strokes. */
 
 const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
 
@@ -991,8 +978,9 @@ export default function AdminPage() {
           <span className="text-muted-foreground text-sm">
             {user.name} · {user.role}
           </span>
-          <button type="button" className={btnGhost} onClick={() => void logout()}>
-            Sign out
+          {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
+          <button type="button" className={`${btnGhost} px-2.5`} title="Sign out" aria-label="Sign out" onClick={() => void logout()}>
+            <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
       </header>
@@ -1052,7 +1040,7 @@ export default function AdminPage() {
                         active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                       }`}
                     >
-                      {TAB_ICONS[t] ?? "▪"}
+                      <TabIcon name={t} />
                     </span>
                     {/* truncate: longer names ("Testimonials") must not wrap
                         and unbalance the row on narrow phones */}
@@ -1077,7 +1065,7 @@ export default function AdminPage() {
                         active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                       }`}
                     >
-                      ⋯
+                      <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
                     </span>
                     <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>More</span>
                   </button>
@@ -1110,7 +1098,7 @@ export default function AdminPage() {
                       className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
                       onClick={() => setMoreOpen(false)}
                     >
-                      ✕
+                      <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-2.5">
@@ -1123,7 +1111,7 @@ export default function AdminPage() {
                           tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
                         }`}
                       >
-                        <span aria-hidden className="text-base">{TAB_ICONS[t] ?? "▪"}</span>
+                        <span aria-hidden className="grid place-items-center"><TabIcon name={t} /></span>
                         {t}
                       </button>
                     ))}

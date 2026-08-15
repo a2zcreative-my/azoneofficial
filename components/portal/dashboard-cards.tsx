@@ -24,10 +24,15 @@ export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
         <Donut
           centerLabel={String(staffTotal)}
           centerSub="staff"
+          /* v1.15.0: the ring uses the VALIDATED chart steps, not the status
+             text tokens. Two reasons: --warning/--danger are not separable
+             from each other (dE 2.8 deuteranopia, 9.9 normal vision), and in
+             dark mode --success flips to a light text-grade green that reads
+             wrong as a fill. --ring-* passes every check in both themes. */
           slices={[
-            { label: "On time", value: onTime, color: "var(--success)" },
-            { label: "Late", value: late, color: "var(--warning)" },
-            { label: "Not clocked in", value: notIn, color: "var(--danger)" },
+            { label: "On time", value: onTime, color: "var(--ring-ontime)" },
+            { label: "Late", value: late, color: "var(--ring-late)" },
+            { label: "Not clocked in", value: notIn, color: "var(--ring-absent)" },
           ]}
         />
       </div>

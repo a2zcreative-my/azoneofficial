@@ -5,10 +5,15 @@
    CEO's tab-access control, role gates and the no-flash clamp all keep
    working unchanged. Hidden below `md` — phones keep the bottom nav. */
 
+import { TabIcon, LogOut } from "@/components/layout/nav-icons";
+
 interface SidebarItem { name: string; label: string }
 
 /* v1.10.0: exported — the mobile bottom nav renders the SAME icon per tab,
-   so the two navigations speak one visual language. */
+   so the two navigations speak one visual language.
+   v1.16.0: DEPRECATED — chrome icons are lucide SVGs now (nav-icons.tsx).
+   This emoji map remains only for the PDF/doc templates and anything else
+   that needs a plain-text glyph; nothing in the UI should render from it. */
 export const ICONS: Record<string, string> = {
   Dashboard: "▦",
   Overview: "◫",
@@ -39,9 +44,14 @@ export function SidebarNav({ items, active, onSelect, onSignOut }: {
   onSelect: (name: string) => void;
   onSignOut: () => void;
 }) {
+  /* v1.12.0: the rail no longer pins itself to the viewport. It is `sticky`
+     inside AppShell's navy gutter, so it rides the rounded canvas instead of
+     sitting on top of it. The gutter owns the navy background and the rounded
+     left corners; this element owns the icons. top-5 and 100vh-2.5rem match
+     the shell's p-5 band on the top and bottom edges. */
   return (
     <aside
-      className="bg-brand fixed inset-y-0 left-0 z-40 hidden w-14 flex-col items-center gap-1 py-3 md:flex"
+      className="sticky top-5 z-40 hidden h-[calc(100vh-2.5rem)] w-14 flex-col items-center gap-1 py-3 md:flex"
       aria-label="Portal navigation"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -61,7 +71,7 @@ export function SidebarNav({ items, active, onSelect, onSignOut }: {
                 : "text-white/70 hover:bg-white/10 hover:text-white"
             }`}
           >
-            <span aria-hidden>{ICONS[it.name] ?? "▪"}</span>
+            <TabIcon name={it.name} />
           </button>
         ))}
       </nav>
@@ -70,9 +80,9 @@ export function SidebarNav({ items, active, onSelect, onSignOut }: {
         title="Sign out"
         aria-label="Sign out"
         onClick={onSignOut}
-        className="mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-base text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+        className="mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white/70 transition-colors hover:bg-white/10 hover:text-white"
       >
-        <span aria-hidden>⎋</span>
+        <LogOut aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
       </button>
     </aside>
   );

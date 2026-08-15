@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
+import { SITE_CONFIG } from "@/constants/site";
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 
 const api = makeApi("/staff");
@@ -23,10 +24,15 @@ interface FenceInfo {
 
 export function GeofenceCard() {
   const [info, setInfo] = useState<FenceInfo | null>(null);
-  const [lat, setLat] = useState("");
-  const [lng, setLng] = useState("");
-  const [radius, setRadius] = useState("120");
-  const [label, setLabel] = useState("AZ ONE HQ");
+  /* v1.16.1: the fields START at HQ (constants/site.ts), so switching the
+     fence on is: open the card, press Save. A saved fence still wins — load()
+     overwrites these with whatever is configured. Deliberately NOT seeded by
+     migration: a system_meta row IS the enforcement switch, and a deploy
+     must never silently start refusing punches for every member of staff. */
+  const [lat, setLat] = useState(String(SITE_CONFIG.office.lat));
+  const [lng, setLng] = useState(String(SITE_CONFIG.office.lng));
+  const [radius, setRadius] = useState(String(SITE_CONFIG.office.radiusM));
+  const [label, setLabel] = useState<string>(SITE_CONFIG.office.label); // <string>: SITE_CONFIG is as-const, the literal type would reject edits
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,6 +49,13 @@ export function GeofenceCard() {
     });
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const useHq = () => {
+    setLat(String(SITE_CONFIG.office.lat));
+    setLng(String(SITE_CONFIG.office.lng));
+    setLabel(SITE_CONFIG.office.label);
+    setMsg({ text: `Filled with ${SITE_CONFIG.office.label} — press Save to switch the fence on.`, ok: true });
+  };
 
   const useMyLocation = () => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
@@ -156,8 +169,11 @@ export function GeofenceCard() {
         </label>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className={btnGhost} disabled={busy} onClick={useHq}>
+          Use HQ location
+        </button>
         <button type="button" className={btnGhost} disabled={busy} onClick={useMyLocation}>
-          🧭 Use my current location
+          Use my current location
         </button>
         <button type="button" className={btnClass} disabled={busy || !lat || !lng} onClick={() => void save()}>
           Save

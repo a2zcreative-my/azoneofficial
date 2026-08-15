@@ -2,6 +2,104 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.16.1] — 2026-08-15 — Office location baked in (AZ ONE HQ)
+
+The CEO supplied the office point: **1.544418427439, 103.71003343205108**. It now lives in ONE place — `SITE_CONFIG.office` in `constants/site.ts` (lat, lng, label "AZ ONE HQ", default radius 120 m) — and everything that needs HQ imports it from there.
+
+**The geofence card pre-fills with HQ**, so switching the office check-in on is now: Users tab → 📍 Office check-in → **Save**. A "Use HQ location" button refills the fields any time; a fence that is already saved still wins (the card loads the configured values over the defaults).
+
+**Deliberately NOT seeded by migration.** The fence's `system_meta` row IS the enforcement switch — the moment it exists, every clock/OT punch from every member of staff is refused outside the radius. A deploy must never flip that silently; turning enforcement on stays a one-click human decision in the UI.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
+## [1.16.0] — 2026-08-15 — SVG icons across the chrome; icon-only sign out
+
+**Every icon in the app chrome is now a professional SVG stroke** (CEO: "I want svg which is looks professional"), drawn from lucide — which the public site already uses, so this adds **no dependency** and the icons tree-shake to only the ~30 named.
+
+**One shared map** (`components/layout/nav-icons.tsx`) covers the portal's 21 tabs, admin's 12 and account's 3. Emoji rendered differently on every platform — monochrome on some Androids, tofu on old WebViews — and could never be tinted; lucide strokes inherit `currentColor`, so one icon is white on the navy rail, navy-on-gold when active, muted grey in the bottom nav, without a second asset. Names shared across surfaces (Dashboard, Users, Enquiries, Account) deliberately share the icon, and an unmapped name falls back to a neutral square — a new tab can never crash a nav.
+
+Converted: the desktop rail (incl. its sign-out), the mobile bottom navs and More sheets on `/portal`, `/admin`, `/account`, the More-sheet Preferences (sound / push / theme), and the portal header's search, sound, push, bell, palette, dark-mode and close controls. Admin's local emoji `TAB_ICONS` map is deleted in favour of the shared one; the old emoji `ICONS` map in `sidebar-nav.tsx` stays exported but deprecated (PDF/doc templates can still want plain-text glyphs) with nothing in the UI rendering from it.
+
+**Sign out is icon-only everywhere** (CEO: "minimize the width") — a `LogOut` glyph with `title` + `aria-label`, in the portal header, admin header, account header and the rail. On the portal header that returns ~70px to the greeting, and with the search capped at `max-w-44` the desktop greeting now fits un-truncated at 1440px with both side columns open.
+
+**Left for a later sweep:** in-content emoji (🎂 birthday lines, "⏱ Overtime approvals"-style card headings, PDF templates) are content, not chrome, and were deliberately not touched here.
+
+**Header fit, measured not guessed.** With both side columns open at 1440px the working column is 773px and the greeting kept ellipsizing. Fixed by measurement: title block gets `flex-1` (it never grew into free space before), the search field drops its circular `w-full` basis for a fixed shrinkable `w-40`, header buttons go `md:px-2.5`, the controls row single `gap-1.5`, and the greeting steps `text-lg` → `2xl:text-xl` (xl is 1280px — re-applying 20px at 1440 was the first attempt's bug). Verified in-browser: h1 width 175px = its scrollWidth, zero truncation.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
+## [1.15.0] — 2026-08-15 — Dashboard body + mobile Today screen; a five-version-old mobile header bug found and fixed
+
+**Verified differently this time.** Instead of screenshotting a mock page, the real `/portal` static export was loaded with stubbed API responses, so every screenshot in this release is the actual Dashboard component rendering production code paths. That is also how the release's biggest find surfaced.
+
+**THE BUG: the v1.10.0 "calm mobile header" never worked.** The four set-once switches (sound, push, theme, EN/BM) were written as `${btnHdr} hidden md:inline-flex` — but `btnHdr` already carries a bare `inline-flex`, and when one element holds two unprefixed display utilities the *stylesheet's* order decides, not the class list's. In this Tailwind build `.inline-flex` is emitted after `.hidden`, so all four buttons rendered on every phone since v1.10.0, overflowing the header and squeezing the screen title to zero width. The code's own v1.10.0 comment warns about exactly this trap for `h-9`/`h-12`. Fix: new `btnHdrDesktop` token in `ui-styles.ts` — `hidden` as the only base display class, `md:inline-flex` supplying the visible display — adopted at all four sites. The phone header now actually shows avatar · title · search · bell · dark · sign out, five versions after it was designed to.
+
+**Dashboard (desktop).** A personal KPI strip — today's clock-in + status, days present, hours this month, open tasks — and a **My attendance** day-by-day chart: first-in→last-out hours per MYT day, duplicate punches can't double-count, today in navy, and a day still in progress shows a gold half-bar instead of pretending its hours are known. All from the attendance response the Dashboard already fetched (kept un-filtered rather than re-requested). Company-wide cards stay in the Sales Floor band, role-gated as before. The desktop h1 becomes time-of-day aware (Good morning/afternoon/evening · Selamat pagi/petang/malam).
+
+**Mobile Today screen.** Date line + greeting (hand-rolled EN/BM day and month names — ms-MY locale data varies by browser); the Clock in button goes the reference's green via the `--tile-success` pair (NOT `--success`, which flips to a light text-green in dark mode and would fail contrast under white text); a geofence readiness strip — deliberately a config read, not a live GPS probe, which would fire the browser's location prompt on every Dashboard open before the person asked to punch (the real check stays server-side at the punch, unchanged); **Today's checklist** as the reference's two-column card grid with a real "2 of 4 done" count (the full task response, completed items included); and a compact **This month** stats card. The v1.10.0 hero card and every punch guard, OT rule and geofence path are untouched.
+
+**Also fixed (audit finding):** the "In today" staff list showed `in_at.slice(11,16)` — a raw UTC slice, so a 10:00 MYT clock-in displayed as 02:00. Now `mytTime()`. And the management attendance donut moves off `--success`/`--warning`/`--danger` (the warning/danger pair is not separable — ΔE 2.8 deuteranopia / 9.9 normal vision, and dark-mode `--success` is a text-grade light green) onto the validated `--ring-*` steps.
+
+**Header squeeze.** With both side columns open at 1440px the desktop search yields (`max-w-44`, back to `max-w-56` from `lg`) instead of truncating the greeting.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
+## [1.14.0] — 2026-08-15 — Canvas shell restored, with context panel and right rail
+
+The CEO reviewed both shells built and chose the canvas: rounded surface on a dark band with the navy icon rail as its left edge, a date-context column on the left and a queue rail on the right. v1.13.0's grouped sidebar is superseded. `side-nav.tsx` is **kept, unused** rather than deleted — it is a working implementation and the module count is still climbing.
+
+**Shell** (`app-shell.tsx`, rewritten again). Four columns on desktop: navy gutter with the sticky icon rail, optional context panel (264px), content, optional right rail (292px). The two side columns are `hidden md:flex` and every other rule is `md:`-prefixed, so the phone still renders `children` in bare wrappers — the v1.11.1 bottom nav, More sheet and safe-area insets are untouched.
+
+**Side columns** (`components/portal/side-columns.tsx`) — and they carry **real data, not placeholders**. The context panel shows the month grid with a gold dot on every day that has an attendance record, a navy "today" card, and the tasks due on the selected day. The right rail shows pending leave, open tasks and recent announcements. Both fetch from the endpoints the Dashboard already calls, so adopting them stayed a pure outer-JSX change — no existing state, effect or handler moved.
+
+**They render only where a date context means something** — Dashboard, Attendance, Leave, Tasks. On Sales or Users they would be decoration competing with the work area.
+
+**New primitives.** `MiniCalendar` (Monday-first, the Malaysian working week; dot markers; pure divs, no calendar library). `Avatar` (photo with an initials fallback that also catches a *failed* load — a stale media key previously left a hole in the row instead of a face).
+
+**Date handling.** `MiniCalendar` works in MYT `YYYY-MM-DD` strings end to end. Constructing `new Date(y, m, d)` and reading `.getDate()` back would shift the entire grid by a day for anyone whose browser is not on UTC+8 — the same class of bug as the raw `slice(11,16)` timestamp already sitting in the portal's `InTodaySummary`.
+
+**Correction.** An earlier revision of this work overwrote `components/ui/donut.tsx`, which already existed and is imported by `dashboard-cards.tsx`. It has been restored to its original implementation and API; the new work uses it rather than replacing it.
+
+**Not in this release.** The Dashboard tab's own body is still the previous card stack — the hero stat tiles, bar chart, attendance ring and sessions table shown in the design preview are the next phase. The shell, the two side columns and the primitives they need are what shipped here.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
+## [1.13.0] — 2026-08-14 — ERP shell: grouped sidebar, KPI tiles, page headers
+
+The CEO supplied a second set of reference screenshots (DZI Holistik) specifying the **opposite** navigation paradigm to the first set: a grouped text sidebar and an edge-to-edge working area, rather than v1.12.0's icon rail on a floating rounded canvas. He confirmed the DZI direction, so the shell is rebuilt. **Desktop only** — every rule is `md:`-prefixed and the v1.11.1 phone is untouched.
+
+**Grouped sidebar** (`components/layout/side-nav.tsx`). Twenty-one modules in eight labelled sections — Overview, Work, Sales, Inventory, Human Resources, Finance, System, My HR — with gold section headers, a gold bar on the active row, a collapse toggle down to a 64px icon strip, and the signed-in name and role pinned at the foot. An icon rail is fine for six destinations; at twenty-one, and heading past thirty as Purchasing, Commission, Ads Fund, Cash Flow, Reconciliation and Accounting arrive, unlabelled icons stop being navigation and become a memory test.
+
+**It decides nothing about access.** The sidebar renders the same `navItems` array the role gating and the CEO's per-user tab-access overrides already produce; grouping is presentation. A section appears only if one of its tabs survived that filter, and any tab absent from the grouping map still renders under "Other" — so adding a module can never make it unreachable by forgetting to list it.
+
+**Shell** (`app-shell.tsx`, rewritten). Sidebar + working column: sticky topbar, page header with the title left and a breadcrumb right, content area on the muted page surface, and a footer bar. The portal's existing header becomes that topbar on desktop (`md:-mx-5 md:-mt-4` breaks it out of the content padding) instead of dissolving into the page.
+
+**`StatTile` / `StatStrip`** (`components/ui/stat-tile.tsx`) — the reference's solid-colour KPI blocks: oversized tabular number, label, watermark glyph.
+
+**A contrast trap, closed properly.** The obvious implementation reuses `--success` / `--danger` / `--info` as tile fills. That breaks in dark mode, where those are *text-grade* tokens and flip to light values (`#4ade80`, `#f87171`, `#38bdf8`) meant to be read as ink on a dark surface — white text on them measures about **1.7:1**. Tiles therefore use six dedicated `--tile-*` fills, each shipping its own `--tile-*-fg`, every pair verified **≥ 4.5:1 in both themes** (lowest is 5.02:1). The foreground is not a prop, so a caller cannot pick a failing pair. White on the brand gold `#c9a227` is ~2:1 and is likewise handled — that tone carries navy ink.
+
+**Also found, not fixed:** the codebase has no `@custom-variant dark` declaration, so in Tailwind v4 the thirteen existing `dark:` utilities key off the operating system's colour-scheme preference, **not** the app's own dark-mode toggle. Those thirteen spots will disagree with the rest of the UI whenever the two settings differ. Left alone in this release because fixing it changes behaviour across the app and deserves its own pass.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
+## [1.12.0] — 2026-08-14 — App shell: the portal moves onto a rounded canvas
+
+The first phase of the UI/UX uplift the CEO asked for from three reference mockups. **Desktop only** — every class added in this release is `md:`-prefixed, so the phone renders byte-for-byte as it did in v1.11.1.
+
+**The shell.** `/portal` on a laptop no longer sits on a plain white page with a navy strip pinned over the left edge. It now sits on a **dark band (`--shell-backdrop`) as one large rounded canvas**, with the navy icon rail forming the canvas's own left edge. New `components/layout/app-shell.tsx` composes it: backdrop → canvas (26px radius, soft shadow) → navy gutter + content. The rail is `sticky` inside a full-height gutter rather than `fixed` to the viewport, so it rides the canvas instead of floating over it — and on a page longer than the screen the navy edge runs the whole way down instead of stopping at the fold. Nothing uses `overflow-hidden`, which would silently kill the sticky rail; the rounded corners are carried by the gutter and the canvas.
+
+**The v1.8.0 `md:pl-14` spacer is gone.** Rail and content are a flex row now, so no element has to be pushed clear of a fixed one. Adopting the shell was a change to **outer JSX only** — no state, effect, API call, role gate, tab-access override or punch rule was touched. `pnpm typecheck` clean, `next build` clean.
+
+**Design tokens (Phase 0).** Added, never renamed: `--shell-backdrop`, `--brand-primary-soft`, `--tint-navy`, `--tint-gold`, `--radius-shell` (26px), `--radius-card` (16px), `--shadow-soft`, `--shadow-shell`, each with its own dark value in the same commit. Exposed through `@theme` as `bg-shell-backdrop`, `rounded-shell`, `rounded-card`, `shadow-shell` and friends.
+
+**Chart colours — validated, not eyeballed.** New ring and bar steps, run through a palette validator against the real card surface in both themes: attendance ring `#15803d`/`#c9a227`/`#dc2626` on light and `#23773d`/`#af8c28`/`#d22023` on dark (all checks pass, worst CVD ΔE 8.6 and 8.8); ordinal bar ramp `#aab8cd → #5b6d8e → #1a2946` light, `#3e5580 → #7189b4 → #b6c6e0` dark (both pass). **A real defect surfaced doing this:** the existing `--warning #b45309` and `--danger #dc2626` are not separable from each other — ΔE 2.8 under deuteranopia and **9.9 under normal vision**, against a floor of 15. Wherever an amber chip sits beside a red one, nobody can reliably tell them apart. The ring's middle segment therefore uses gold. The chip tokens themselves are unchanged in this release and want a follow-up.
+
+**Cards step to 16px on desktop** (`md:rounded-lg` → `md:rounded-card`), so phone and desktop finally agree and cards sit properly inside the rounded canvas. One string in `lib/ui-styles.ts` restyled every card in the portal, admin and account — which is exactly why that file exists.
+
+**Not in this release** (next phases): the dashboard grid reflow with hero stat tiles, the context panel with the mini calendar, the week-grid roster, the right-hand queue rails, and the operations map. `/admin` and `/account` keep their current desktop layout until the rail question for those surfaces is settled — they were deliberately not given a canvas without one.
+
+**Setup:** `pnpm install && pnpm build`, deploy the site. Front-end only — no Worker change, no migration, no secrets.
+
 ## [1.11.1] — 2026-08-14 — Admin + Account app shell, deploy script rebuilt
 
 **One shell across all three signed-in surfaces.** The mobile app shell introduced on `/portal` in v1.10.0 now renders identically on **`/admin`** and **`/account`**: every tab carries an icon, the active tab sits in a filled navy rounded square with its label in navy underneath, the bar is `min-h-16` with the phone's home-indicator inset respected, and labels truncate so a long name ("Testimonials") can't unbalance the row. The three navigations are class-for-class identical. Desktop is untouched — `/admin` keeps its tab-pill grid, `/account` its two-column nav, `/portal` its icon sidebar.
