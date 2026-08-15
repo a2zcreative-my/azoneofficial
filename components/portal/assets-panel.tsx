@@ -22,7 +22,7 @@ interface Asset {
   assigned_to: number | null; assigned_name: string | null;
   status: string; condition_note: string | null;
 }
-interface StaffLite { id: number; name: string; is_active: number; role: string }
+interface StaffLite { id: number; name: string; role?: string }
 
 const CATS = [["electronics", "Electronics"], ["furniture", "Furniture"], ["vehicle", "Vehicle"], ["studio", "Studio equipment"], ["other", "Other"]] as const;
 const STATUSES = [["in_use", "In use"], ["spare", "Spare"], ["repair", "In repair"], ["lost", "Lost"], ["disposed", "Disposed"]] as const;
@@ -59,9 +59,11 @@ export function AssetsPanel() {
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setAssets((d as { assets: Asset[] }).assets ?? []))
       .catch(() => setMsg("Assets unavailable — deploy the worker first."));
-    void fetch("/api/v1/staff/users", { credentials: "include" })
+    /* v1.21.0: assignment picker reads /staff-list — the one picker source
+       (active staff only, full names) instead of the raw account list. */
+    void fetch("/api/v1/staff/staff-list", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => setStaff(((d as { users: StaffLite[] }).users ?? []).filter((u) => u.is_active === 1 && u.role !== "customer")))
+      .then((d) => setStaff((d as { staff: StaffLite[] }).staff ?? []))
       .catch(() => setStaff([]));
   }, []);
   useEffect(() => { load(); }, [load]);

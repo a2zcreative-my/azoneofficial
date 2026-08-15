@@ -47,7 +47,6 @@ import { GeofenceCard } from "@/components/portal/geofence-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { getLang, setLang as persistLang, t as tr, type Lang } from "@/lib/i18n";
 import { CommandPalette } from "@/components/layout/command-palette";
-import { PipelinePanel } from "@/components/portal/pipeline-panel";
 import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
 import { DocumentsPanel } from "@/components/portal/documents-panel";
@@ -580,7 +579,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                   <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${gpsCheck.inside ? "bg-success" : "bg-warning"}`} />
                   {gpsCheck.inside
                     ? (lang === "ms" ? `Dalam kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}` : `Inside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}`)
-                    : (lang === "ms" ? `Luar kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label} (had ${gpsCheck.radius_m} m)` : `Outside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label} (limit ${gpsCheck.radius_m} m)`)}
+                    : GEOFENCE_EXEMPT_ROLES.includes(user.role)
+                      ? (lang === "ms" ? `${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label} — lokasi anda direkodkan` : `${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label} — your location is recorded`)
+                      : (lang === "ms" ? `Luar kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}. Daftar masuk direkodkan & DITANDAKAN untuk HR.` : `Outside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}. Your punch is recorded and FLAGGED for HR.`)}
                 </p>
               )}
               {gpsCheck.state === "error" && (
@@ -588,16 +589,18 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
               )}
             </div>
             <p className="text-muted-foreground mt-2 hidden text-[11px] md:block">
-              📍 {tr("Office check-in is on", lang)} — {lang === "ms"
-                ? `daftar masuk/keluar hanya dalam ${fence.radius_m ?? 100} m dari ${fence.label ?? "pejabat"}.`
-                : `clock in/out works within ${fence.radius_m ?? 100} m of ${fence.label ?? "the office"}.`}{" "}
+              {tr("Office check-in is on", lang)} — {GEOFENCE_EXEMPT_ROLES.includes(user.role)
+                ? (lang === "ms" ? "lokasi anda direkodkan pada setiap daftar masuk/keluar." : "your location is recorded with every punch.")
+                : (lang === "ms"
+                  ? `punch memerlukan lokasi; di luar ${fence.radius_m ?? 120} m dari ${fence.label ?? "pejabat"} ia direkodkan dan ditandakan untuk HR.`
+                  : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`)}{" "}
               <button type="button" className="text-gold-deep font-semibold underline-offset-2 hover:underline disabled:opacity-50"
                 onClick={() => void checkLocation()} disabled={gpsCheck.state === "busy"}>
                 {gpsCheck.state === "busy" ? "Checking…" : (lang === "ms" ? "Semak lokasi saya" : "Check my location")}
               </button>
               {gpsCheck.state === "done" && (
                 <span className={`ml-1.5 font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}>
-                  {gpsCheck.inside ? `✓ ${fmtDist(gpsCheck.distance_m)} — inside` : `${fmtDist(gpsCheck.distance_m)} — outside`}
+                  {gpsCheck.inside ? `✓ ${fmtDist(gpsCheck.distance_m)} — inside` : `${fmtDist(gpsCheck.distance_m)} — outside${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch will be flagged)"}`}
                 </span>
               )}
               {gpsCheck.state === "error" && <span className="text-warning ml-1.5">{gpsCheck.message}</span>}
@@ -873,31 +876,46 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   );
 }
 
+/* v1.21.0 (CEO chose "allow but flag") — punches outside the office are
+   RECORDED and management views mark them red; the C-suite is exempt from
+   the flag but their location still shows. Display only: the location
+   requirement is enforced server-side at the punch. */
+const GEOFENCE_EXEMPT_ROLES = ["ceo", "coo", "cco"];
+
 /* v1.18.1 — where a punch happened, as a human phrase. The stored gps is
-   "lat,lng[,acc]"; distance is measured against SITE_CONFIG.office (HQ).
-   DISPLAY ONLY: the enforcement (when the fence is on) already happened
-   server-side at the punch — this is management's read of the same data. */
-function gpsLabel(gps?: string | null): { text: string; ok: boolean | null } {
-  if (!gps) return { text: "no location", ok: null };
-  const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/.exec(gps);
-  if (!m) return { text: "no location", ok: null };
+   "lat,lng[,acc]"; distance is measured against the CONFIGURED fence when
+   the caller has one (monitor ships it), falling back to SITE_CONFIG.
+   Accuracy grace mirrors the server: radius + min(acc, 150). */
+function gpsLabel(
+  gps?: string | null,
+  fence?: { lat: number; lng: number; radius_m: number; label?: string } | null,
+): { text: string; ok: boolean | null; dist: number | null } {
+  if (!gps) return { text: "no location", ok: null, dist: null };
+  const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(gps);
+  if (!m) return { text: "no location", ok: null, dist: null };
+  const office = fence ?? { lat: SITE_CONFIG.office.lat, lng: SITE_CONFIG.office.lng, radius_m: SITE_CONFIG.office.radiusM };
   const [lat, lng] = [Number(m[1]), Number(m[2])];
+  const acc = m[3] ? Math.min(Number(m[3]), 150) : 0;
   const rad = Math.PI / 180;
-  const dLat = (SITE_CONFIG.office.lat - lat) * rad;
-  const dLng = (SITE_CONFIG.office.lng - lng) * rad;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(SITE_CONFIG.office.lat * rad) * Math.sin(dLng / 2) ** 2;
+  const dLat = (office.lat - lat) * rad;
+  const dLng = (office.lng - lng) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(office.lat * rad) * Math.sin(dLng / 2) ** 2;
   const dist = Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-  const near = dist <= SITE_CONFIG.office.radiusM + 150; // radius + max accuracy grace, same as the server
-  return { text: dist >= 1000 ? `${(dist / 1000).toFixed(1)} km from HQ` : `${dist} m from HQ`, ok: near };
+  const near = dist <= office.radius_m + acc; // same rule as the server gate
+  return { text: dist >= 1000 ? `${(dist / 1000).toFixed(1)} km from HQ` : `${dist} m from HQ`, ok: near, dist };
 }
 
 function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
-  const [data, setData] = useState<{ id: number; name: string; in_at?: string | null; in_gps?: string | null }[]>([]);
+  type MonRow = { id: number; name: string; role?: string; in_at?: string | null; in_gps?: string | null };
+  const [data, setData] = useState<MonRow[]>([]);
+  const [fence, setFence] = useState<{ lat: number; lng: number; radius_m: number; label?: string } | null>(null);
   useEffect(() => {
-    void api<{ staff: { id: number; name: string; in_at?: string | null; in_gps?: string | null }[] }>('/staff/attendance/monitor')
-      .then(r => r.ok && r.data && setData(r.data.staff.filter(s => !!s.in_at)));
+    void api<{ staff: MonRow[]; geofence?: { lat: number; lng: number; radius_m: number; label?: string } | null }>('/staff/attendance/monitor')
+      .then(r => {
+        if (r.ok && r.data) { setData(r.data.staff.filter(s => !!s.in_at)); setFence(r.data.geofence ?? null); }
+      });
   }, []);
-  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">📍 In Today</p>{node}</div>;
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">In Today</p>{node}</div>;
   if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No one checked in today.</p>);
   return wrap(
     <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
@@ -909,12 +927,19 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
           <p className="text-muted-foreground text-xs">
             Checked in at {u.in_at ? mytTime(u.in_at) : "unknown"}
             {(() => {
-              const g = gpsLabel(u.in_gps);
-              return (
-                <span className={`ml-1.5 font-medium ${g.ok === true ? "text-success" : g.ok === false ? "text-warning" : "opacity-60"}`}>
-                  · {g.text}
-                </span>
+              /* v1.21.0 allow-but-flag: staff outside the fence show RED
+                 ("outside office"); CEO/COO/CCO are exempt from the flag —
+                 their distance shows neutrally. Missing location on a staff
+                 punch is amber (older rows predate the requirement). */
+              const g = gpsLabel(u.in_gps, fence);
+              const exempt = GEOFENCE_EXEMPT_ROLES.includes(u.role ?? "");
+              if (g.ok === null) return (
+                <span className={`ml-1.5 font-medium ${exempt ? "opacity-60" : "text-warning"}`}>· {g.text}</span>
               );
+              if (exempt) return <span className="ml-1.5 font-medium opacity-60">· {g.text}</span>;
+              return g.ok
+                ? <span className="text-success ml-1.5 font-medium">· at office · {g.text}</span>
+                : <span className="text-danger ml-1.5 font-semibold">· OUTSIDE OFFICE · {g.text}</span>;
             })()}
           </p>
         </div>
@@ -2199,12 +2224,14 @@ function Leave({ user }: { user: User }) {
     const m = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setMine(m.data?.leave ?? []);
     if (canApprove) {
+      /* v1.21.0 (CEO: "I still cant see any list applied… who is the person
+         that apply leave and waiting for their Head approval"): keep the
+         WHOLE list. The board below shows every in-progress application
+         with whose approval it waits on; the action buttons appear only on
+         rows this viewer can act on (the old filter hid everything else,
+         so COO/CEO saw an empty board while requests sat at HR). */
       const a = await api<{ leave: LeaveReq[] }>(`/staff/leave?all=1`);
-      setAll(
-        (a.data?.leave ?? []).filter(
-          (x) => canActOnStage(user.role, (x as LeaveReq).stage ?? "", (x as LeaveReq).applicant_role ?? "") && (x as { user_id?: number }).user_id !== user.id,
-        ),
-      );
+      setAll(a.data?.leave ?? []);
     }
   }, [canApprove, user.role, user.id]);
   useEffect(() => { void load(); }, [load]);
@@ -2309,28 +2336,61 @@ function Leave({ user }: { user: User }) {
         </div>
       </div>
 
-      {canApprove && (
-        <div className={card}>
-          <p className="text-sm font-semibold">Leave awaiting my action</p>
-          {all.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing awaiting you.</p>}
-          <div className="max-h-72 overflow-y-auto">
-          {all.map((l) => (
-            <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-              <span>
-                <span className="font-medium">{l.user_name}</span> · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
-                <span className="text-muted-foreground"> · {STAGE_LABEL[(l as LeaveReq).stage ?? ""] ?? ""}</span>
-              </span>
-              <span className="flex gap-2">
-                <button type="button" className={btnGhost} onClick={() => void act(l.id, "approve")}>
-                  {((l as LeaveReq).stage === "applied") ? "Mark reviewed" : ((l as LeaveReq).stage === "hr_reviewed" ? "Pre-approve" : "Final approve")}
-                </button>
-                <button type="button" className="text-destructive text-sm underline" onClick={() => void act(l.id, "reject")}>Reject</button>
-              </span>
+      {canApprove && (() => {
+        /* v1.21.0 — the whole approval chain sees the whole board. */
+        const TERMINAL = ["approved", "rejected", "cancelled"];
+        const pending = all.filter((l) => !TERMINAL.includes(l.stage ?? l.status));
+        const decided = all.filter((l) => TERMINAL.includes(l.stage ?? l.status)).slice(0, 5);
+        const waitingOn = (l: LeaveReq) => {
+          const st = l.stage ?? "";
+          if (st === "applied") return "HR";
+          if (st === "hr_reviewed") return ["coo", "cco"].includes(l.applicant_role ?? "") ? "CEO" : "COO / CCO";
+          return "CEO";
+        };
+        const who = (l: LeaveReq) => properName(l.user_full || l.user_name || "");
+        return (
+          <div className={card}>
+            <p className="text-sm font-semibold">Leave applications — whole company</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              Every application in progress, and whose approval it is waiting on. Action buttons appear on the ones waiting on you.
+            </p>
+            {pending.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing in progress.</p>}
+            <div className="max-h-80 overflow-y-auto">
+            {pending.map((l) => {
+              const mine = canActOnStage(user.role, l.stage ?? "", l.applicant_role ?? "") && l.user_id !== user.id;
+              return (
+                <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
+                  <span className="min-w-0">
+                    <span className="font-medium">{who(l)}</span> · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
+                    <span className={`ml-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${mine ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}>
+                      waiting on {waitingOn(l)}
+                    </span>
+                  </span>
+                  {mine && (
+                    <span className="flex gap-2">
+                      <button type="button" className={btnGhost} onClick={() => void act(l.id, "approve")}>
+                        {(l.stage === "applied") ? "Mark reviewed" : (l.stage === "hr_reviewed" ? "Pre-approve" : "Final approve")}
+                      </button>
+                      <button type="button" className="text-destructive text-sm underline" onClick={() => void act(l.id, "reject")}>Reject</button>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
             </div>
-          ))}
+            {decided.length > 0 && (
+              <div className="mt-3">
+                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Recently decided</p>
+                {decided.map((l) => (
+                  <p key={l.id} className="text-muted-foreground mt-1 text-xs">
+                    {who(l)} · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} · {STAGE_LABEL[l.stage ?? l.status] ?? l.status}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -2347,8 +2407,13 @@ function Tasks({ user }: { user: User }) {
     const r = await api<{ tasks: Task[] }>(`/staff/tasks${canManage ? "?all=1" : ""}`);
     setTasks(r.data?.tasks ?? []);
     if (canManage) {
-      const u = await api<{ users: { id: number; name: string }[] }>(`/staff/users`);
-      setTeam(u.data?.users ?? []);
+      /* v1.21.0 (CEO: "populate list of users instead of staff list data…
+         staff name list should be populate full staff name"): the assignee
+         picker read /staff/users — EVERY account, dupes, Super Admin and
+         all. /staff-list is the one picker source: active staff only,
+         full_name preferred. Used by Content/Sales already; now here too. */
+      const u = await api<{ staff: { id: number; name: string }[] }>(`/staff/staff-list`);
+      setTeam(u.data?.staff ?? []);
     }
   }, [canManage]);
   useEffect(() => { void load(); }, [load]);
@@ -2809,8 +2874,11 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
   useEffect(() => {
     void load();
     if (manager) {
-      void api<{ users?: Opt[] }>(`/staff/users`).then((r) => {
-        if (r.ok) setHosts((r.data?.users ?? []).filter((u) => !["customer", "super_admin", "admin"].includes(u.role ?? "")));
+      /* v1.21.0: host picker moved to /staff-list — the one picker source
+         (active staff, full names). It already excludes customer/admin
+         accounts, so the old filter went with it. */
+      void api<{ staff?: Opt[] }>(`/staff/staff-list`).then((r) => {
+        if (r.ok) setHosts(r.data?.staff ?? []);
       });
       void api<{ customers?: Opt[] }>(`/staff/customers`).then((r) => {
         if (r.ok) setClients((r.data?.customers ?? []).filter((c) => (c.company ?? "") !== "Walk-in Customer"));
@@ -3306,28 +3374,9 @@ function CustomerEnquiriesCard() {
     });
     void load();
   };
-  /* v1.20.0 C4: one click carries an enquiry into the Pipeline as a lead —
-     before this, a won enquiry was re-typed by hand (or never made it).
-     The enquiry is marked "qualified" in the same stroke so the two funnels
-     stop drifting apart. */
-  const [converted, setConverted] = useState<Record<number, boolean>>({});
-  const toLead = async (e2: Enq) => {
-    const r = await api<{ id?: number }>(`/staff/pipeline`, {
-      method: "POST",
-      body: JSON.stringify({
-        brand_name: e2.company?.trim() || e2.name,
-        source: "other",
-        contact_name: e2.name,
-        contact_channel: e2.email ? "email" : e2.phone ? "phone" : "",
-        contact_value: e2.email || e2.phone || "",
-        notes: `From enquiry #${e2.id}${e2.category ? ` (${CAT[e2.category] ?? e2.category})` : ""}: ${e2.message}`.slice(0, 900),
-      }),
-    });
-    if (r.ok) {
-      setConverted((c) => ({ ...c, [e2.id]: true }));
-      await setStatus(e2.id, "qualified");
-    }
-  };
+  /* v1.21.0: the "convert to lead" hop went with the retired Pipeline tab —
+     an enquiry that becomes business is marked qualified here and raised as
+     a quotation in the Sales panel directly below this card. */
   // v1.4.191: in-app reply — the customer reads it on /account.
   const [replyDraft, setReplyDraft] = useState<Record<number, string>>({});
   const [replyOpen, setReplyOpen] = useState<number | null>(null);
@@ -3344,7 +3393,7 @@ function CustomerEnquiriesCard() {
   if (!loaded) return null;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">📨 Customer enquiries</p>
+      <p className="text-sm font-semibold">Customer enquiries</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         Questions from /account customers — you are bell-notified when one
         lands. Answer directly on WhatsApp or email, then set the status.
@@ -3376,7 +3425,7 @@ function CustomerEnquiriesCard() {
               <p className="text-muted-foreground mt-1 text-xs">{e.message}</p>
               {e.reply && (
                 <p className="mt-1 rounded border border-green-300 bg-green-100 px-2 py-1 text-xs text-green-900">
-                  ↩ Replied{e.replied_at ? ` ${mytDateTime(e.replied_at)} MYT` : ""}: {e.reply}
+                  Replied{e.replied_at ? ` ${mytDateTime(e.replied_at)} MYT` : ""}: {e.reply}
                 </p>
               )}
               {replyOpen === e.id ? (
@@ -3390,16 +3439,8 @@ function CustomerEnquiriesCard() {
                   <button type="button" className="text-xs underline" onClick={() => setReplyOpen(null)}>Cancel</button>
                 </span>
               ) : (
-                <span>
-                  <button type="button" className="mt-1 text-xs underline"
-                    onClick={() => setReplyOpen(e.id)}>{e.reply ? "✎ Update reply" : "↩ Reply in-app"}</button>
-                  {/* v1.20.0 C4: hand the enquiry to the Pipeline as a lead. */}
-                  <button type="button" className="text-gold-deep mt-1 ml-3 text-xs font-semibold underline-offset-2 hover:underline disabled:opacity-50"
-                    disabled={!!converted[e.id]}
-                    onClick={() => void toLead(e)}>
-                    {converted[e.id] ? "✓ Lead created below" : "→ Convert to lead"}
-                  </button>
-                </span>
+                <button type="button" className="mt-1 text-xs underline"
+                  onClick={() => setReplyOpen(e.id)}>{e.reply ? "Update reply" : "Reply in-app"}</button>
               )}
               <p className="text-muted-foreground mt-0.5 text-[10px]">{e.email} · {mytDateTime(e.created_at)} MYT</p>
             </div>
@@ -4571,7 +4612,7 @@ function TargetsCommissionCard() {
    (sales_documents is the one recorder); Overview folded into Dashboard/
    Tasks/Inventory; Birthdays folded into Staff Details; Cash Flow merged
    into the renamed Finance tab. Tables were NOT dropped. */
-const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Pipeline", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Pipeline/Content/Stokis; v1.18.0 ERP: Orders + Cash Flow + Reconciliation + Commission + Ads Fund + Purchasing + Accounting
+const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Content/Stokis; v1.18.0 ERP; v1.21.0 Pipeline retired (CEO) — enquiries live on Sales
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 // const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4606,8 +4647,8 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   "Ads Fund": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
   Purchasing: ["super_admin", "admin", "ceo", "coo"],
   Accounting: ["super_admin", "admin", "ceo"],
-  // v1.7.0: Pipeline is open to every staff role (log a lead in seconds);
-  // Content to the team that makes it; Stokis to the sales/management tier.
+  // v1.7.0: Content is open to the team that makes it; Stokis to the
+  // sales/management tier. (v1.21.0: Pipeline retired.)
   Content: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
   Stokis: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
 };
@@ -5323,6 +5364,9 @@ export default function PortalPage() {
         {activeTab === "Announcements" && <Announcements user={user} />}
         {activeTab === "Sales" && SALES_ROLES.includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
+            {/* v1.21.0: enquiries moved here from the retired Pipeline tab —
+                the inbound funnel sits with the documents it turns into. */}
+            <CustomerEnquiriesCard />
             <Sales user={user} />
             {/* v1.7.0: receipts, credit notes & outstanding report */}
             <DocumentsPanel />
@@ -5331,17 +5375,9 @@ export default function PortalPage() {
             <PackagesEditorCard role={user.role} />
           </div>
         )}
-        {/* v1.7.0 new modules */}
-        {activeTab === "Pipeline" && (
-          <div className="space-y-4 md:space-y-6">
-            {/* v1.19.0 C1: enquiries live WITH the leads — five capture
-                surfaces become two (here + /admin for the website roles). */}
-            <CustomerEnquiriesCard />
-            <PipelinePanel
-              canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"].includes(user.role)}
-              onQuote={SALES_ROLES.includes(user.role) ? () => setTab("Sales") : undefined} />
-          </div>
-        )}
+        {/* v1.21.0: the Pipeline tab is retired (CEO: "Sales pipeline is
+            really needed?? I dont think so"). Customer enquiries — the real
+            inbound funnel — moved onto the Sales tab above. */}
         {activeTab === "Content" && (
           <ContentPanel canManage={["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"].includes(user.role)} />
         )}

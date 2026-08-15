@@ -119,11 +119,17 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
 
 /* One gate used by BOTH the clock punch and the OT punch (review finding:
    gating only clock in/out left OT — the PAID punches — open to a sofa).
-   When a fence is configured, body.gps must be "lat,lng[,acc]" and inside
-   radius + min(acc, 150) m. Accuracy grace: GPS in a building is fuzzy;
-   the 150 m cap stops a spoofed accuracy=99999 from voiding the fence.
-   Returns { resp } to refuse, or { gps } (validated, or null when no fence
-   is configured) to proceed. */
+   When a fence is configured, body.gps must be present and valid — the
+   location itself is REQUIRED (that is the anti-cheating rule), but being
+   OUTSIDE the fence no longer refuses the punch.
+
+   v1.21.0 (CEO chose "allow but flag"): a punch outside radius +
+   min(acc, 150) m grace is RECORDED, and management views mark it red as
+   "outside office". Nobody is ever locked out by fuzzy GPS; HR reviews the
+   flags instead. CEO/COO/CCO are exempt from the flag (their location is
+   still captured and shown). The flag itself is computed at READ time from
+   the stored gps against the current fence — no schema change, and moving
+   the office retro-corrects every historical flag. */
 async function gateGeofence(
   env: Env, body: Record<string, unknown> | null, verb: string,
 ): Promise<{ resp: Response; gps?: undefined } | { resp?: undefined; gps: string | null }> {
@@ -135,12 +141,6 @@ async function gateGeofence(
   const plng = gm ? Number(gm[2]) : NaN;
   if (!gm || plat < -90 || plat > 90 || plng < -180 || plng > 180) {
     return { resp: err("location_required", `Location is required to ${verb} — allow location access in your browser and try again.`, 400) };
-  }
-  const acc = gm[3] ? Math.min(Number(gm[3]), 150) : 0;
-  const dist = haversineM(plat, plng, fence.lat, fence.lng);
-  if (dist > fence.radius_m + acc) {
-    const shown = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
-    return { resp: err("too_far", `You appear to be ~${shown} from ${fence.label} — you can only ${verb} within ${fence.radius_m} m of it.`, 403) };
   }
   return { gps: gpsRaw };
 }
@@ -218,6 +218,7 @@ async function logError(env: Env, source: string, message: string): Promise<void
    silently: the legacy flows must never break on an unmigrated database. */
 async function recordBankMovement(
   env: Env, userId: number, ref: string, amountCents: number, category: string, description: string,
+  direction: "in" | "out" = "out",
 ): Promise<void> {
   if (amountCents <= 0) return;
   try {
@@ -226,11 +227,13 @@ async function recordBankMovement(
     if (dup) return;
     await env.DB.prepare(
       `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
-       VALUES (date('now', '+8 hours'), 'out', ?1, ?2, ?3, ?4, ?5)`,
-    ).bind(category, amountCents, description.slice(0, 200), ref, userId).run();
+       VALUES (date('now', '+8 hours'), ?6, ?1, ?2, ?3, ?4, ?5)`,
+    ).bind(category, amountCents, description.slice(0, 200), ref, userId, direction).run();
     // v1.20.0 C5: the movement drafts its journal entry — same ref, same
     // idempotency, so the books can never double-post.
-    await postJournal(env, userId, ref, description, category, amountCents, "out");
+    // v1.21.0: money-in joined (paid invoices, channel settlements) — the
+    // CEO's "cash flow must sync with Finance, semi-automation not manual".
+    await postJournal(env, userId, ref, description, category, amountCents, direction);
   } catch { /* pre-0071 — Finance bank section simply not in use yet */ }
 }
 
@@ -1678,7 +1681,10 @@ export async function handleStaff(
          AND COALESCE(u.employment_status, 'permanent') NOT IN ('resigned','terminated')
        ORDER BY u.name`,
     ).bind(todayM).all();
-    return json({ date: todayM, staff: results });
+    // v1.21.0: ship the fence with the list so management screens flag
+    // "outside office" against the REAL configured fence (not a client
+    // constant that could drift from it).
+    return json({ date: todayM, staff: results, geofence: await getGeofence(env) });
   }
 
   if (path === "/attendance/report" && method === "GET") {
@@ -1689,7 +1695,7 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const { results } = await env.DB.prepare(
-      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by
+      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
@@ -1741,7 +1747,13 @@ export async function handleStaff(
 
   if (path === "/leave" && method === "GET") {
     const url = new URL(request.url);
-    const all = url.searchParams.get("all") === "1" && can(user.role, "hr_manage");
+    /* v1.21.0 (CEO: "I can see who is the person that apply leave and
+       waiting for their Head approval"): the whole approval chain reads the
+       full list — HR tier (hr_manage) AND the COO/CCO pre-approvers, who
+       previously fell through to "own requests only" and saw an empty
+       board even with applications pending. */
+    const all = url.searchParams.get("all") === "1" &&
+      (can(user.role, "hr_manage") || PREAPP_ROLES.includes(user.role) || FINAL_ROLES.includes(user.role));
     // v1.4.134: identities + per-day sequence for the printable Leave
     // Application Form (mirrors the claim form's data needs).
     const LSEL = `SELECT l.*,
@@ -3647,6 +3659,9 @@ export async function handleStaff(
         `UPDATE sales_documents SET payment_status = 'paid', payment_method = 'bank_transfer',
          payment_ref = ?1, paid_at = COALESCE(?2, datetime('now')) WHERE id = ?3`,
       ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, payDate, res.id).run();
+      // v1.21.0: a born-paid invoice books its money-in the same way the
+      // mark-paid route does — one ref (INV-<id>), one row, one journal entry.
+      await recordBankMovement(env, user.id, `INV-${res.id}`, total, "sales", `Invoice ${number} paid`, "in");
     }
     // v1.4.263: a product invoice moves stock the moment it exists.
     let stockMove: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
@@ -3713,8 +3728,8 @@ export async function handleStaff(
   const docMatch = path.match(/^\/docs\/(\d+)$/);
   if (docMatch && method === "PATCH") {
     const id = docMatch[1]!;
-    const doc = await env.DB.prepare(`SELECT doc_type FROM sales_documents WHERE id = ?1`)
-      .bind(id).first<{ doc_type: string }>();
+    const doc = await env.DB.prepare(`SELECT doc_type, doc_number, total_cents FROM sales_documents WHERE id = ?1`)
+      .bind(id).first<{ doc_type: string; doc_number: string; total_cents: number }>();
     if (!doc) return err("not_found", "Document not found", 404);
     if (doc.doc_type === "INV") {
       if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
@@ -3750,6 +3765,12 @@ export async function handleStaff(
              paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?3`,
           ).bind(methodP, refP, id).run();
         }
+        /* v1.21.0 (CEO: "cash flow should sync with Finance — semi
+           automation instead of manually logged"): a PAID invoice IS money
+           in the bank, so it writes its own money-in row + journal entry.
+           Ref INV-<id> — unmark/remark can never double-book. */
+        await recordBankMovement(env, user.id, `INV-${id}`, doc.total_cents ?? 0,
+          "sales", `Invoice ${doc.doc_number} paid`, "in");
       } else {
         await env.DB.prepare(
           `UPDATE sales_documents SET payment_status = ?1, payment_method = NULL, payment_ref = NULL, paid_at = NULL WHERE id = ?2`,
@@ -6183,123 +6204,13 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
   }
 
-  /* ===================== v1.7.0 — Sales Pipeline (LEAD -> WON) ============== */
-  // Rebuilt on the retained prospects table (0066/0067). Every staff role can
-  // READ and ADD a lead; the sales tier moves stages, assigns and deletes.
-  {
-    const PIPE_MANAGE = ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"];
-    if (path === "/pipeline" && method === "GET") {
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT p.*, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS assigned_name,
-                  COALESCE(NULLIF(TRIM(c.full_name), ''), c.name) AS created_name
-           FROM prospects p
-           LEFT JOIN users a ON a.id = p.assigned_to
-           LEFT JOIN users c ON c.id = p.created_by
-           ORDER BY CASE WHEN p.stage IN ('won','lost') THEN 1 ELSE 0 END,
-                    p.next_followup IS NULL, p.next_followup, p.id DESC`,
-        ).all();
-        return json({ prospects: results, today: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) });
-      } catch (e) {
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-        throw e;
-      }
-    }
-    if (path === "/pipeline" && method === "POST") {
-      const brand = String(body?.brand_name ?? "").trim();
-      if (!brand) return err("invalid_input", "Brand / lead name is required", 400);
-      const SOURCES = ["tiktok", "shopee", "instagram", "facebook", "expo", "referral", "other"];
-      const source = SOURCES.includes(String(body?.source)) ? String(body?.source) : "other";
-      const CHANNELS = ["whatsapp", "dm", "email", "phone", ""];
-      const channel = CHANNELS.includes(String(body?.contact_channel ?? "")) ? String(body?.contact_channel ?? "") : "";
-      const fup = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.next_followup ?? "")) ? String(body?.next_followup) : null;
-      const assigned = Number(body?.assigned_to) || null;
-      try {
-        const res = await env.DB.prepare(
-          `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, referred_by, stage)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'lead') RETURNING id`,
-        ).bind(brand, source, String(body?.niche ?? "").trim() || null, String(body?.contact_name ?? "").trim() || null,
-               channel || null, String(body?.contact_value ?? "").trim() || null, String(body?.notes ?? "").trim() || null,
-               assigned, fup, user.id, String(body?.referred_by ?? "").trim().slice(0, 120) || null).first<{ id: number }>()
-          .catch(async (e: unknown) => {
-            if (!String(e).includes("no such column")) throw e; // pre-0067 skew: retry without referred_by
-            return env.DB.prepare(
-              `INSERT INTO prospects (brand_name, source, niche, contact_name, contact_channel, contact_value, notes, assigned_to, next_followup, created_by, stage)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'lead') RETURNING id`,
-            ).bind(brand, source, String(body?.niche ?? "").trim() || null, String(body?.contact_name ?? "").trim() || null,
-                   channel || null, String(body?.contact_value ?? "").trim() || null, String(body?.notes ?? "").trim() || null,
-                   assigned, fup, user.id).first<{ id: number }>();
-          });
-        await audit(env, user.id, "pipeline.create", "prospects", String(res?.id), { brand });
-        if (assigned && assigned !== user.id) {
-          await notify(env, assigned, "prospect", `🎯 New lead assigned to you: ${brand} (${source})`, `prospect:${res?.id}`);
-        }
-        return json({ id: res?.id }, 201);
-      } catch (e) {
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 (prospects) first", 409);
-        throw e;
-      }
-    }
-    const mP = path.match(/^\/pipeline\/(\d+)$/);
-    if (mP && method === "PATCH") {
-      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required to update a lead", 403);
-      const sets: string[] = [];
-      const args: unknown[] = [];
-      const put = (col: string, v: unknown) => { sets.push(`${col} = ?${args.length + 1}`); args.push(v); };
-      const STAGES = ["lead", "contacted", "meeting", "proposal", "negotiation", "won", "lost"];
-      if (typeof body?.stage === "string" && STAGES.includes(body.stage)) {
-        put("stage", body.stage);
-        put("stage_changed_at", new Date().toISOString().slice(0, 19).replace("T", " "));
-      }
-      for (const col of ["brand_name", "niche", "contact_name", "contact_channel", "contact_value", "notes", "referred_by"] as const) {
-        if (typeof body?.[col] === "string") put(col, String(body[col]).trim() || null);
-      }
-      if (body && "assigned_to" in body) put("assigned_to", Number(body.assigned_to) || null);
-      if (typeof body?.next_followup === "string") {
-        put("next_followup", /^\d{4}-\d{2}-\d{2}$/.test(body.next_followup) ? body.next_followup : null);
-        put("followup_notified_on", null); // a new date re-arms the reminder
-      }
-      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-      try {
-        await env.DB.prepare(`UPDATE prospects SET ${sets.join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mP[1])).run();
-        await audit(env, user.id, "pipeline.update", "prospects", mP[1], body ?? {});
-        return json({ ok: true });
-      } catch (e) {
-        if (String(e).includes("no such column")) {
-          // pre-0067 skew: retry without referred_by (only if that was the column).
-          const i = sets.findIndex((s) => s.startsWith("referred_by"));
-          if (i >= 0) {
-            sets.splice(i, 1); args.splice(i, 1);
-            try {
-              await env.DB.prepare(`UPDATE prospects SET ${sets.map((s, k) => s.replace(/\?\d+/, `?${k + 1}`)).join(", ")} WHERE id = ?${args.length + 1}`).bind(...args, Number(mP[1])).run();
-              return json({ ok: true });
-            } catch { /* fall through to the generic handler below */ }
-          }
-        }
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
-        throw e;
-      }
-    }
-    if (mP && method === "DELETE") {
-      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales tier required", 403);
-      await env.DB.prepare(`DELETE FROM prospects WHERE id = ?1`).bind(Number(mP[1])).run();
-      await audit(env, user.id, "pipeline.delete", "prospects", mP[1]);
-      return json({ ok: true });
-    }
-    if (path === "/pipeline/insights" && method === "GET") {
-      if (!PIPE_MANAGE.includes(user.role)) return err("forbidden", "Sales access required", 403);
-      try {
-        const { results: stages } = await env.DB.prepare(`SELECT stage, COUNT(*) AS n FROM prospects GROUP BY stage`).all<{ stage: string; n: number }>();
-        const { results: sources } = await env.DB.prepare(
-          `SELECT source, COUNT(*) AS total, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won FROM prospects GROUP BY source ORDER BY won DESC, total DESC`,
-        ).all<{ source: string; total: number; won: number }>();
-        return json({ stages, sources });
-      } catch (e) {
-        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0066 first", 409);
-        throw e;
-      }
-    }
-  }
+  /* ===================== v1.7.0 — Sales Pipeline — RETIRED ================= */
+  /* v1.21.0 (CEO: "Sales pipeline is really needed?? I dont think so"):
+     the LEAD→WON tracker is retired. The `prospects` table and its
+     migrations (0066/0067) are KEPT — history is never dropped by a UI
+     decision — but the /pipeline routes are gone and the tab with them.
+     Customer enquiries (the real inbound funnel) now live on the Sales tab;
+     an enquiry that turns into business becomes a quotation directly. */
 
   /* ===================== v1.7.0 — Content management ======================= */
   {

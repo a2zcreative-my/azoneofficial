@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.0] — 2026-08-15 — GPS flagging, one staff-name source, leave visibility, Cash Flow sync, Pipeline retired
+
+**Office GPS — "allow but flag" (CEO's choice), and the fence turns on out of the box.** Migration 0072 seeds the office geofence with the HQ coordinates (radius 120 m), so location is now REQUIRED on every clock in/out and OT punch — a punch with location blocked is refused with instructions. Being outside the office no longer blocks anyone: the punch is recorded, and management views mark it in red — "In Today" shows **OUTSIDE OFFICE · 6.7 km** for staff beyond radius + accuracy grace, green "at office" inside, and the monthly attendance report carries the same flag per punch. CEO, COO and CCO are exempt from the flag — their distance still shows (neutral) because their location is still captured. The flag is computed at read time from the stored coordinates, so moving the office corrects history too. The Dashboard readiness strip now says exactly what will happen: "outside — your punch is recorded and FLAGGED for HR."
+
+**One staff-name source for every picker.** The Tasks assignee dropdown read the raw account list — duplicate names, test accounts, "Super Admin" — while other dropdowns read the proper staff list. Every assignment picker (Tasks, roster host, Assets) now reads `/staff-list`: active staff only, FULL staff names. The pickers that legitimately need the account list (attendance corrections, claims payee) now label with the full staff name too, and the commission host picker follows the same rule.
+
+**Leave — the whole company's applications, visible.** The Leave tab's approval card was "awaiting my action" only, so anything sitting at another stage was invisible — and COO/CCO could not fetch the list at all (worker gate fixed). The new "Leave applications — whole company" board shows every in-progress request — full name, type, dates, days — with a chip naming whose approval it waits on (HR → COO/CCO → CEO), action buttons on the rows waiting on you, and the last five decided requests below.
+
+**Roster — the on-leave pill opens.** Clicking "N on leave" on Schedule & Roster now lists who is on approved leave this week and their exact dates, so assignments are planned around real absences without leaving the board.
+
+**Cash Flow ⇄ Finance — the money-in side joins the automation.** Money out was already automatic (paid expenses, payroll runs, claims). Now: marking an invoice PAID (or creating it born-paid) books a money-in row + balanced journal entry (ref INV-n), and Reconciliation → "Pull from channels" books each pull's new orders as a per-channel settlement (ref RECON-period-channel-seq) — cashflow, the books and reconciliation cannot drift apart. Auto rows carry an "auto" chip in the table; the manual form remains for movements the system cannot see (capital in, transfers).
+
+**Pipeline retired (CEO: "Sales pipeline is really needed?? I dont think so").** The LEAD→WON tracker, its tab and its worker routes are gone (24 → 23 tabs; the `prospects` table is kept — history is never dropped by a UI decision). Customer enquiries — the real inbound funnel — moved to the top of the Sales tab, where an enquiry that becomes business is raised as a quotation directly; the convert-to-lead hop went with the tab. Card heading emoji cleaned in the same pass.
+
+Deploy: the usual 5-step DEPLOY.bat — step 2 applies migration 0072 (geofence seed), step 3 the worker, steps 4–5 the site.
+
 ## [1.20.1] — 2026-08-15 — Operations map: real Malaysia, clickable states
 
 **Real geography (Ecommerce tab).** The schematic two-blob silhouette is gone. The map now draws all 16 states and federal territories with real boundary geometry (Natural Earth data, projected as the standard two insets: Peninsular Malaysia | Sabah & Sarawak). The geometry ships as ~6 KB of inline SVG paths — no map library, no new dependency.

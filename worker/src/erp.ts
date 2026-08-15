@@ -172,16 +172,45 @@ export async function handleErp(
       ).bind(period).all<{ order_no: string }>();
       const seen = new Set((existing.results ?? []).map((r) => r.order_no));
       let created = 0;
+      /* v1.21.0: track what THIS pull inserts, per channel — the money-in
+         booking below must cover exactly these rows, nothing recounted. */
+      const pulled = new Map<string, { cents: number; n: number }>();
       for (const r of src.results ?? []) {
         if (!r.order_ref || seen.has(r.order_ref)) continue;
         seen.add(r.order_ref);
+        const channel = r.order_ref.startsWith("TT-") ? "tiktok" : "direct";
         await env.DB.prepare(
           `INSERT INTO reconciliations (period, channel, order_no, actual_sales_cents, created_by)
            VALUES (?1, ?2, ?3, ?4, ?5)`,
-        ).bind(period, r.order_ref.startsWith("TT-") ? "tiktok" : "direct", r.order_ref, r.cents, user.id).run();
+        ).bind(period, channel, r.order_ref, r.cents, user.id).run();
+        const cur = pulled.get(channel) ?? { cents: 0, n: 0 };
+        cur.cents += r.cents; cur.n += 1;
+        pulled.set(channel, cur);
         created++;
       }
       if (created) await audit(env, user.id, "erp.recon_pull", "reconciliations", period, { created });
+      /* v1.21.0 (CEO: "cash flow should sync with Finance — semi automation
+         instead of manually logged"): the NEW orders this pull just brought
+         in ARE money in, so they book themselves — one cashflow row + one
+         journal entry per channel per pull. The ref seq counts prior
+         settlement rows for that period+channel, so every booking is a
+         fresh unique ref; a re-pull that finds nothing new books nothing.
+         Cashflow, the books and reconciliation cannot drift apart. */
+      for (const [channel, sum] of pulled) {
+        if (sum.cents <= 0) continue;
+        try {
+          const prior = await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref LIKE ?1`,
+          ).bind(`RECON-${period}-${channel}-%`).first<{ n: number }>();
+          const ref = `RECON-${period}-${channel}-${(prior?.n ?? 0) + 1}`;
+          const desc = `Channel settlement ${period} · ${channel} (${sum.n} order${sum.n === 1 ? "" : "s"})`;
+          await env.DB.prepare(
+            `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
+             VALUES (date('now', '+8 hours'), 'in', 'live sales', ?1, ?2, ?3, ?4)`,
+          ).bind(sum.cents, desc, ref, user.id).run();
+          await postJournal(env, user.id, ref, desc, "live sales", sum.cents, "in");
+        } catch { /* cashflow table pre-0071 — reconciliation still succeeded */ }
+      }
       return json({ created, skipped: (src.results?.length ?? 0) - created });
     }
     {
@@ -205,8 +234,10 @@ export async function handleErp(
     if (path === "/hosts" && method === "GET") {
       // Host picker for rates/entries — names only, no personal fields.
       if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      // v1.21.0 (CEO: "staff name list should be populate full staff name"):
+      // full_name preferred, same COALESCE as /staff-list — one convention.
       const rows = await env.DB.prepare(
-        `SELECT id, name FROM users WHERE role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND (suspended IS NULL OR suspended = 0) ORDER BY name`,
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND (suspended IS NULL OR suspended = 0) ORDER BY 2`,
       ).all();
       return json({ hosts: rows.results ?? [] });
     }

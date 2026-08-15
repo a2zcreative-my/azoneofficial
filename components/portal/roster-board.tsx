@@ -60,6 +60,9 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
   const [staff, setStaff] = useState<{ id: number; name: string }[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "" });
   const [saving, setSaving] = useState(false);
+  /* v1.21.0 (CEO: "the data of leave applied date should be shown on the
+     pill on leave"): the chip opens who is away and exactly when. */
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const [notReady, setNotReady] = useState(false);
   /* v1.9.0 drag-and-drop: drag a block to another day/slot; a confirm bar
      appears before anything is saved. */
@@ -145,9 +148,33 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
       <div className="mt-3 flex flex-wrap gap-2">
         {chip("scheduled", active.length, "bg-secondary")}
         {data.manager && chip("available today", data.available_today.length, chipSuccess)}
-        {chip(data.manager ? "on leave" : "my leave days", onLeaveCount, chipNeutral)}
+        {/* v1.21.0: the on-leave pill is a button — it opens WHO is away and
+            the applied dates, so assignments are planned around real absences
+            without leaving this board. */}
+        <button type="button" disabled={onLeaveCount === 0} onClick={() => setLeaveOpen((o) => !o)}
+          aria-expanded={leaveOpen}
+          className={`${chipNeutral} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium ${onLeaveCount > 0 ? "cursor-pointer hover:opacity-80" : ""}`}>
+          <span className="text-sm font-bold tabular-nums">{onLeaveCount}</span>
+          {data.manager ? "on leave" : "my leave days"}
+          {onLeaveCount > 0 && <span aria-hidden className="text-[10px]">{leaveOpen ? "▲" : "▼"}</span>}
+        </button>
         {chip("conflicts", data.conflicts.length, data.conflicts.length ? chipWarn : "bg-secondary")}
       </div>
+      {leaveOpen && onLeaveCount > 0 && (
+        <div className="border-border mt-2 rounded-lg border p-3">
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">On approved leave this week</p>
+          <div className="mt-1.5 grid gap-1 sm:grid-cols-2">
+            {data.on_leave.map((l, i) => (
+              <p key={`${l.user_id}-${i}`} className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate font-medium">{l.name}</span>
+                <span className="text-muted-foreground tabular-nums whitespace-nowrap">
+                  {l.start_date === l.end_date ? dmy(l.start_date) : `${dmy(l.start_date)} → ${dmy(l.end_date)}`}
+                </span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 grid gap-4 xl:grid-cols-[240px_1fr_230px]">
         {/* left rail: mini calendar (xl+) */}

@@ -93,6 +93,14 @@ export function CashFlowPanel() {
           {showBanks ? "Hide banks" : `Manage banks (${banks.length})`}
         </button>
       </div>
+      {/* v1.21.0 (CEO: "should sync with the data of the Finance… semi
+          automation instead of manually logged"): the sync already runs —
+          say so, so nobody re-types what the system books itself. */}
+      <p className="text-muted-foreground mt-0.5 text-xs">
+        Synced with Finance automatically: paid expenses, payroll runs and claims book money out; paid invoices and
+        channel settlements (Reconciliation → Pull) book money in — marked <span className={`${chipNeutral} px-1.5 py-0 text-[10px]`}>auto</span> below.
+        The form is for movements the system cannot see (capital in, transfers, cash top-ups).
+      </p>
 
       <div className="mt-3">
         <StatStrip>
@@ -158,9 +166,17 @@ export function CashFlowPanel() {
           { key: "category", label: "Category" },
           { key: "bank_name", label: "Bank", render: (e) => e.bank_name ?? "—" },
           { key: "amount_cents", label: "Amount", numeric: true, sortValue: (e) => e.amount_cents, render: (e) => fmtRM(e.amount_cents) },
-          { key: "description", label: "Description" },
+          { key: "description", label: "Description", render: (e) => (
+            <span>
+              {e.description}
+              {/* v1.21.0: a ref means the system booked this row itself
+                  (EXP-/PAYROLL-/CLM-/INV-/RECON-) — mark it so manual and
+                  automatic movements read apart at a glance. */}
+              {e.ref ? <span className={`${chipNeutral} ml-1.5 px-1.5 py-0 text-[10px]`} title={e.ref}>auto</span> : null}
+            </span>
+          ) },
         ]}
-        empty="No cash flow entries yet — record the first one above."
+        empty="No cash flow entries yet — paid expenses, payroll, claims and invoices will appear here automatically."
       />
     </div>
   );

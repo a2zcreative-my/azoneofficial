@@ -27,7 +27,7 @@ interface NavItem { name: string; label: string }
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Overview", tabs: ["Dashboard", "Announcements"] },
   { title: "Work", tabs: ["Tasks", "Content"] },
-  { title: "Sales", tabs: ["Sales", "Pipeline", "Ecommerce", "Stokis"] },
+  { title: "Sales", tabs: ["Sales", "Ecommerce", "Stokis"] },
   { title: "Inventory", tabs: ["Inventory", "Assets", "Purchasing"] },
   { title: "Human Resources", tabs: ["HR", "Staff Details", "Attendance", "Leave"] },
   { title: "Finance", tabs: ["Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Accounting"] },

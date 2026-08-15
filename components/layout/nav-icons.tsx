@@ -24,7 +24,7 @@
 import {
   Banknote, Cake, CalendarClock, Clapperboard, ClipboardList, FileText,
   Globe, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks,
-  LogOut, Magnet, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
+  LogOut, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
   ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet,
@@ -41,7 +41,6 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Attendance: Timer,
   Leave: Palmtree,
   Tasks: ListChecks,
-  Pipeline: Magnet,
   Content: Clapperboard,
   Claims: Receipt,
   Payroll: Wallet,

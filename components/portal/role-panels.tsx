@@ -23,6 +23,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { properName, firstName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
+import { SITE_CONFIG } from "@/constants/site";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
@@ -1712,12 +1713,38 @@ interface AttRecord {
   id: number;
   name: string;
   user_id: number;
+  role?: string;
   type: string;
   created_at: string;
   myt_time?: string;
   flag?: string;
   manual_by?: number | null;
   amended_by?: number | null;
+  gps?: string | null;
+}
+
+/* v1.21.0 (allow-but-flag geofence): where the punch happened, against HQ.
+   Staff outside radius + min(acc,150) grace show RED; CEO/COO/CCO are
+   exempt from the flag (distance shows neutrally); manual/amended rows and
+   pre-GPS history show nothing. Same maths as the server gate. */
+function attLoc(r: AttRecord): { text: string; tone: "ok" | "flag" | "muted" } | null {
+  if (r.manual_by || r.amended_by) return null; // typed by HR, no device GPS
+  const m = r.gps ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(r.gps) : null;
+  const exempt = ["ceo", "coo", "cco"].includes(r.role ?? "");
+  // No stored location: history predates the GPS requirement (v1.18.1) —
+  // muted, not red, or July would read as a wall of violations.
+  if (!m) return r.gps === undefined ? null : { text: "no location", tone: "muted" };
+  const o = SITE_CONFIG.office;
+  const [lat, lng] = [Number(m[1]), Number(m[2])];
+  const acc = m[3] ? Math.min(Number(m[3]), 150) : 0;
+  const rad = Math.PI / 180;
+  const dLat = (o.lat - lat) * rad, dLng = (o.lng - lng) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(o.lat * rad) * Math.sin(dLng / 2) ** 2;
+  const dist = Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  const near = dist <= o.radiusM + acc;
+  const shown = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${dist} m`;
+  if (exempt) return { text: shown, tone: "muted" };
+  return near ? { text: `at office (${shown})`, tone: "ok" } : { text: `OUTSIDE (${shown})`, tone: "flag" };
 }
 
 /** UTC "YYYY-MM-DD HH:MM:SS" → MYT "YYYY-MM-DDTHH:MM" for datetime-local. */
@@ -1734,7 +1761,7 @@ function utcToMytLocal(utc: string): string {
 export function AttendanceAdminPanel() {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
-  const [staff, setStaff] = useState<{ id: number; name: string }[]>([]);
+  const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null }[]>([]);
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
@@ -1754,7 +1781,7 @@ export function AttendanceAdminPanel() {
   const load = useCallback(async () => {
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
-      api<{ users?: { id: number; name: string; role: string }[]; staff?: { id: number; name: string; role: string }[] }>(`/users`),
+      api<{ users?: { id: number; name: string; full_name?: string | null; role: string }[]; staff?: { id: number; name: string; full_name?: string | null; role: string }[] }>(`/users`),
     ]);
     if (r.data) setRows(r.data.records ?? []);
     const list = u.data?.users ?? u.data?.staff ?? [];
@@ -1795,7 +1822,7 @@ export function AttendanceAdminPanel() {
         <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={add.user_id}
           onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
           <option value={0}>Select staff…</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
+          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
         </select>
         <select className={`${inputClass} w-full sm:max-w-32`} value={add.type}
           onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
@@ -1819,7 +1846,7 @@ export function AttendanceAdminPanel() {
           title="Show one staff member's records only"
           onChange={(e) => setFilterId(Number(e.target.value))}>
           <option value={0}>Find staff: everyone</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.name)}</option>)}
+          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
         </select>
         <input type="month" className={`${inputClass} col-span-2 w-full min-w-0 sm:max-w-40`} value={month}
           onChange={(e) => setMonth(e.target.value)} />
@@ -1869,8 +1896,14 @@ export function AttendanceAdminPanel() {
                     onChange={(e) => setEdit((s) => ({ ...s, [r.id]: e.target.value }))}
                   />
                 </td>
-                <td className={`${td} text-muted-foreground text-xs`}>
-                  {r.manual_by ? "manual" : r.amended_by ? "amended" : "punch"}
+                <td className={`${td} text-xs`}>
+                  <span className="text-muted-foreground">{r.manual_by ? "manual" : r.amended_by ? "amended" : "punch"}</span>
+                  {(() => {
+                    const loc = attLoc(r);
+                    if (!loc) return null;
+                    const cls = loc.tone === "ok" ? "text-success" : loc.tone === "flag" ? "text-danger font-semibold" : "text-muted-foreground";
+                    return <span className={`ml-1.5 whitespace-nowrap ${cls}`}>· {loc.text}</span>;
+                  })()}
                 </td>
                 <td className={`${td} whitespace-nowrap`}>
                   <button type="button" className={rowBtn}
@@ -2151,7 +2184,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
      printed on the claim form and other roles never receive the field. */
   const canPayee = ["hr_admin", "ceo", "super_admin", "admin"].includes(role);
   const [payeeId, setPayeeId] = useState(0);
-  const [staffOptions, setStaffOptions] = useState<{ id: number; name: string; role: string }[]>([]);
+  const [staffOptions, setStaffOptions] = useState<{ id: number; name: string; full_name?: string | null; role: string }[]>([]);
   // v1.4.176: inline payee editor on an existing claim (set/change/clear).
   const [payeeEdit, setPayeeEdit] = useState<{ claimId: number; value: number } | null>(null);
 
@@ -2162,7 +2195,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!canPayee) return;
-    void api<{ users: { id: number; name: string; role: string; is_active?: number }[] }>(`/users`).then((r) => {
+    void api<{ users: { id: number; name: string; full_name?: string | null; role: string; is_active?: number }[] }>(`/users`).then((r) => {
       if (r.ok && r.data?.users) {
         setStaffOptions(r.data.users.filter((u) => u.role !== "customer" && !["super_admin", "admin"].includes(u.role) && u.is_active !== 0));
       }
@@ -2423,7 +2456,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <select className="border-input bg-background h-8 rounded-lg border px-2 text-xs" value={payeeEdit.value}
                 onChange={(e) => setPayeeEdit({ claimId: c.id, value: Number(e.target.value) })}>
                 <option value={0}>— pay the submitter ({properName(c.claimant_full || c.claimant || "")}) —</option>
-                {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.name)} · {u.role.replace(/_/g, " ")}</option>)}
+                {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
               </select>
               <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
                 onClick={async () => {
@@ -2585,7 +2618,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
               <option value={0}>— pay the submitter (normal claim) —</option>
-              {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.name)} · {u.role.replace(/_/g, " ")}</option>)}
+              {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
             </select>
           </label>
         )}
