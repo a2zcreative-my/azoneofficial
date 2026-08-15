@@ -2,6 +2,10 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.7] — 2026-08-17 — Stock movement deletion: CEO & COO only
+
+**Delete is back on Manual stock movements — for the CEO and COO only (CEO's direction).** Everyone else sees no button, and the API refuses them with 403 regardless of what the client shows. Two safeguards on what delete does, keeping the v1.21.4 accuracy rule intact: the record (and its linked manual sale, so the sales totals follow) is removed from the database permanently, but the shelf quantity is NEVER touched — nothing silently returns to stock; Revert remains the one audited way to move stock back. Every deletion writes an audit entry under the deleting user's name with a full snapshot of the removed record.
+
 ## [1.21.6] — 2026-08-17 — My schedule on the phone
 
 **Staff see their assigned roster on the Dashboard (CEO: "On mobile, I cant see the details of the task assigned… The dashboard mobile view doesnt show any").** The notification side already worked — a host is bell-notified (and web-push where enabled) the moment a session is assigned or moved — but the phone had no PLACE where the schedule lived; details sat only in the desktop roster grid. New "My schedule" card on the Dashboard (phone and desktop): the person's own upcoming sessions — date (TODAY highlighted in gold), start–end time, platform chip, client and notes — next five, scheduled only, nothing shown when empty. Each staff member sees only their own assignments.

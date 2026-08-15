@@ -5130,16 +5130,30 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return json({ ok: true, stock: back });
     }
     if (action === "delete") {
-      /* v1.21.4 (CEO: "make sure that it is not reverse back to inventory
-         stock… all my data inventory is accurate"): hard delete is RETIRED.
-         It erased the row from the database AND pushed the quantity back
-         into stock in the same stroke — history gone, shelves changed, no
-         trail. Stock movements are permanent records now: Edit corrects a
-         typo, Revert is the one audited way to put stock back (the row
-         stays, marked reverted). The route answers instead of vanishing so
-         an old client build gets a clear message, not a 404. */
-      await audit(env, user.id, "inventory.manual_out_delete_refused", "manual_stockouts", String(row.id), {});
-      return err("gone", "Deleting stock movements is disabled — the movement history is permanent. Use Edit to correct the record, or Revert to put the stock back (audited).", 410);
+      /* v1.21.7 (CEO: "I want to have access to delete it from my inventory
+         and database. only roles CEO & COO can do this while the rest no
+         access") — supersedes the v1.21.4 blanket retirement. Two rules,
+         both from his words:
+         1. WHO: ceo / coo (+ super_admin safety net) only. Everyone else
+            gets 403 and no button in the UI.
+         2. WHAT: the record (and its linked manual sale, so the sales
+            totals follow) is removed from the database — but the shelf
+            quantity is NEVER touched. The v1.21.4 finding stands: a delete
+            that silently pushed stock back made inventory inaccurate.
+            Revert remains the one way stock moves back.
+         The audit row keeps a full snapshot of what was removed. */
+      if (!["super_admin", "ceo", "coo"].includes(user.role)) {
+        return err("forbidden", "Only the CEO or COO can delete stock movement records", 403);
+      }
+      const sid = await findManualSaleId(row);
+      if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(row.id).run();
+      await audit(env, user.id, "inventory.manual_out_delete", "manual_stockouts", String(row.id), {
+        snapshot: { item_id: row.item_id, qty: row.qty, unit_sale_cents: row.unit_sale_cents, remark: row.remark, out_date: row.out_date ?? null, created_at: row.created_at, was_reverted: isReverted },
+        sale_removed: !!sid,
+        stock_untouched: true,
+      });
+      return json({ ok: true });
     }
     // action === "edit"
     if (isReverted) return err("invalid_state", "Reverted records can't be edited — record a fresh stock out instead", 400);

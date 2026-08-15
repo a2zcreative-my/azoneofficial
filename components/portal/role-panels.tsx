@@ -459,7 +459,9 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role: _role = "" }: { role?: string }) {
+export function InventoryPanel({ role = "" }: { role?: string }) {
+  /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
+  const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -1176,14 +1178,26 @@ export function InventoryPanel({ role: _role = "" }: { role?: string }) {
                         }}>↩ Revert</button>
                     </>
                   )}
-                  {/* v1.21.4 (CEO: "when I delete the correction manual stock,
-                      it will delete from the database … make sure that it is
-                      not reverse back to inventory stock"): the Delete action
-                      is GONE. It hard-deleted the row AND silently pushed the
-                      quantity back into stock — both wrong for a system whose
-                      inventory must stay accurate. Movements are permanent
-                      history: Edit fixes a typo, ↩ Revert is the one audited
-                      way to put stock back (and the row stays, marked). */}
+                  {/* v1.21.7 (CEO: "I want to have access to delete it from my
+                      inventory and database. only roles CEO & COO"): Delete is
+                      back, gated to CEO/COO (+super_admin). It removes the
+                      record and its linked sale from the database — the shelf
+                      quantity is NEVER touched (the v1.21.4 rule stands:
+                      ↩ Revert is the only way stock moves back). */}
+                  {canDeleteMovements && (
+                    <button type="button" className={rowBtnDanger} title="CEO/COO only: remove this record from the database — stock quantity is NOT changed"
+                      onClick={async () => {
+                        if (!(await invConfirm({
+                          title: "Delete this movement record?",
+                          message: `The record (${o.qty} × ${o.sku}${o.unit_sale_cents != null ? ` and its RM ${rmBare(o.unit_sale_cents * o.qty)} sale` : ""}) is removed from the database permanently. Stock stays exactly as it is — nothing goes back on the shelf. This is logged under your name.`,
+                          confirmLabel: "Delete record", variant: "danger",
+                        }))) return;
+                        const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                        if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
+                        invToast("Deleted", "Record removed — stock untouched");
+                        void load();
+                      }}>Delete</button>
+                  )}
                 </span>
               </div>
               {openMove === o.id && (
