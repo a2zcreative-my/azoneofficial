@@ -57,9 +57,12 @@ export function PortalContextPanel() {
           onSelect={setSelected} 
           marked={Array.from(marked)} 
           onMonth={(delta) => {
-            const [y, m] = month.split("-").map(Number);
-            const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-            setMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+            const y = Number(month.split("-")[0] || 0);
+            const m = Number(month.split("-")[1] || 0);
+            if (y && m) {
+              const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+              setMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+            }
           }} 
         />
       </div>
