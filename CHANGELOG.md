@@ -2,6 +2,10 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.8] — 2026-08-17 — Roster fits the phone
+
+**Schedule & Roster no longer overflows on mobile (CEO: "It overflow to the right for mobile apps view!").** The 7-column hour grid is a desktop layout — its 640px minimum width can only spill past a phone screen. Phones now get a purpose-built week view: the seven days as a vertical list (today highlighted gold), each session as a tappable card showing client, time, host and platform, colour-keyed exactly like the desktop blocks (conflict amber, completed green). Tapping a session expands its full detail inline — status, notes, Mark completed / Cancel — same actions as the desktop popover. Zero horizontal scrolling anywhere. The hour grid with drag-to-reschedule remains the desktop experience, untouched.
+
 ## [1.21.7] — 2026-08-17 — Stock movement deletion: CEO & COO only
 
 **Delete is back on Manual stock movements — for the CEO and COO only (CEO's direction).** Everyone else sees no button, and the API refuses them with 403 regardless of what the client shows. Two safeguards on what delete does, keeping the v1.21.4 accuracy rule intact: the record (and its linked manual sale, so the sales totals follow) is removed from the database permanently, but the shelf quantity is NEVER touched — nothing silently returns to stock; Revert remains the one audited way to move stock back. Every deletion writes an audit entry under the deleting user's name with a full snapshot of the removed record.

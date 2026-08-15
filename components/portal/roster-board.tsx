@@ -222,7 +222,11 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
             </div>
             <p className="text-sm font-medium tabular-nums">Week of {dmy(data.days[0]!)} – {dmy(data.days[6]!)}</p>
           </div>
-          <div className="mt-2 overflow-x-auto">
+          {/* v1.21.8 (CEO: "It overflow to the right for mobile apps view!"):
+              the 7-column hour grid is a DESKTOP layout — 640px min width
+              can only overflow a 390px phone. Phones now get the day list
+              below instead; the grid renders from md: up only. */}
+          <div className="mt-2 hidden overflow-x-auto md:block">
             <div className="min-w-[640px]">
               {/* day headers */}
               <div className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
@@ -342,6 +346,67 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* v1.21.8 — MOBILE week view: one vertical day list, zero
+              horizontal overflow. Tap a session → its detail expands
+              inline with the same actions the desktop popover carries. */}
+          <div className="mt-2 md:hidden">
+            {data.days.map((d, i) => {
+              const dayS = active
+                .filter((s) => s.session_date === d)
+                .sort((a, b) => a.start_time.localeCompare(b.start_time));
+              const isToday = d === todayS;
+              return (
+                <div key={d} className={`border-border border-b py-2 last:border-0 ${isToday ? "bg-gold-soft/20 -mx-2 rounded-lg px-2" : ""}`}>
+                  <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : "text-muted-foreground"}`}>
+                    {DAY_LABEL[i]} <span className="tabular-nums">{dmy(d)}</span>{isToday ? " · TODAY" : ""}
+                  </p>
+                  {dayS.length === 0 ? (
+                    <p className="text-muted-foreground mt-0.5 text-xs">No sessions.</p>
+                  ) : dayS.map((s) => {
+                    const isOpen = openSession === s.id;
+                    const conflict = conflictIds.has(s.id);
+                    return (
+                      <div key={s.id} className={`mt-1.5 rounded-lg border px-2.5 py-1.5 ${conflict ? "border-warning bg-warning-soft" : s.status === "completed" ? "border-success bg-success-soft" : "border-brand/30 bg-brand/10"}`}>
+                        <button type="button" className="block w-full text-left" aria-expanded={isOpen}
+                          onClick={() => setOpenSession(isOpen ? null : s.id)}>
+                          <span className="flex items-baseline justify-between gap-2 text-sm">
+                            <span className="min-w-0 truncate font-semibold">{s.client ?? "Live"}</span>
+                            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</span>
+                          </span>
+                          <span className="text-muted-foreground block truncate text-xs">{s.host_name} · {s.platform}</span>
+                        </button>
+                        {isOpen && (
+                          <div className="border-border mt-1.5 border-t pt-1.5">
+                            <p className="text-xs">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.status === "completed" ? "bg-success-soft text-success" : s.status === "cancelled" ? "bg-danger-soft text-danger" : "bg-secondary"}`}>{s.status}</span>
+                            </p>
+                            {s.notes && <p className="text-muted-foreground mt-1 text-xs">{s.notes}</p>}
+                            {canManage && (
+                              <div className="mt-1.5 flex flex-wrap gap-2">
+                                {s.status === "scheduled" && (
+                                  <button type="button" className={btnSm}
+                                    onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                                    ✓ Mark completed
+                                  </button>
+                                )}
+                                {s.status !== "cancelled" && (
+                                  <button type="button" className={btnSm}
+                                    onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                                    ✕ Cancel session
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
 
           {/* v1.9.0 drag-to-reschedule confirm bar */}
