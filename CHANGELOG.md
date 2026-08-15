@@ -2,6 +2,10 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.21.9] — 2026-08-17 — Mobile roster: proper agenda, overflow impossible
+
+**Fixes the remaining overflow the CEO caught in v1.21.8 and upgrades the look.** The v1.21.8 "today" highlight used a negative margin, making today's row 16px wider than the phone — the exact right-edge spill he screenshotted (my test week didn't include "today", so it slipped through; this pass verifies WITH the today band active: page width exactly equals the screen). The mobile roster is now a proper agenda: one rounded frame that clips its own content, day sections with a gold TODAY chip and per-day session counts, each session a row with a fixed time column, gold accent bar (amber = conflict, green = completed), truncating text everywhere, and tap-to-expand details with Mark completed / Cancel. No negative margins, no fixed widths wider than a phone — overflow is structurally impossible.
+
 ## [1.21.8] — 2026-08-17 — Roster fits the phone
 
 **Schedule & Roster no longer overflows on mobile (CEO: "It overflow to the right for mobile apps view!").** The 7-column hour grid is a desktop layout — its 640px minimum width can only spill past a phone screen. Phones now get a purpose-built week view: the seven days as a vertical list (today highlighted gold), each session as a tappable card showing client, time, host and platform, colour-keyed exactly like the desktop blocks (conflict amber, completed green). Tapping a session expands its full detail inline — status, notes, Mark completed / Cancel — same actions as the desktop popover. Zero horizontal scrolling anywhere. The hour grid with drag-to-reschedule remains the desktop experience, untouched.

@@ -348,43 +348,59 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
             </div>
           </div>
 
-          {/* v1.21.8 — MOBILE week view: one vertical day list, zero
-              horizontal overflow. Tap a session → its detail expands
-              inline with the same actions the desktop popover carries. */}
-          <div className="mt-2 md:hidden">
+          {/* v1.21.9 — MOBILE agenda (CEO: "find suitable table roaster
+              schedule for mobile apps view which is looks nice and never
+              overflows"). Structural no-overflow rules: the list clips
+              itself (overflow-hidden on the rounded frame), NO negative
+              margins anywhere (v1.21.8's today band used -mx-2 — 16px wider
+              than the phone, the exact overflow he screenshotted), every
+              text span truncates, the time column is fixed-width. */}
+          <div className="border-border mt-2 overflow-hidden rounded-xl border md:hidden">
             {data.days.map((d, i) => {
               const dayS = active
                 .filter((s) => s.session_date === d)
                 .sort((a, b) => a.start_time.localeCompare(b.start_time));
               const isToday = d === todayS;
               return (
-                <div key={d} className={`border-border border-b py-2 last:border-0 ${isToday ? "bg-gold-soft/20 -mx-2 rounded-lg px-2" : ""}`}>
-                  <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : "text-muted-foreground"}`}>
-                    {DAY_LABEL[i]} <span className="tabular-nums">{dmy(d)}</span>{isToday ? " · TODAY" : ""}
-                  </p>
+                <div key={d} className={`border-border border-b px-3 py-2 last:border-b-0 ${isToday ? "bg-gold-soft/25" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={`text-[11px] font-semibold tracking-wide ${isToday ? "text-gold-deep" : "text-muted-foreground"}`}>
+                      {DAY_LABEL[i]} <span className="tabular-nums">{dmy(d)}</span>
+                      {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">TODAY</span>}
+                    </p>
+                    {dayS.length > 0 && (
+                      <span className="text-muted-foreground text-[10px] tabular-nums">{dayS.length} session{dayS.length === 1 ? "" : "s"}</span>
+                    )}
+                  </div>
                   {dayS.length === 0 ? (
-                    <p className="text-muted-foreground mt-0.5 text-xs">No sessions.</p>
+                    <p className="text-muted-foreground/60 mt-0.5 text-[11px]">—</p>
                   ) : dayS.map((s) => {
                     const isOpen = openSession === s.id;
                     const conflict = conflictIds.has(s.id);
+                    const accent = conflict ? "border-l-warning" : s.status === "completed" ? "border-l-success" : s.status === "cancelled" ? "border-l-danger" : "border-l-gold-solid";
                     return (
-                      <div key={s.id} className={`mt-1.5 rounded-lg border px-2.5 py-1.5 ${conflict ? "border-warning bg-warning-soft" : s.status === "completed" ? "border-success bg-success-soft" : "border-brand/30 bg-brand/10"}`}>
-                        <button type="button" className="block w-full text-left" aria-expanded={isOpen}
+                      <div key={s.id} className={`bg-secondary/60 mt-1.5 overflow-hidden rounded-lg border-l-4 ${accent}`}>
+                        <button type="button" className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left" aria-expanded={isOpen}
                           onClick={() => setOpenSession(isOpen ? null : s.id)}>
-                          <span className="flex items-baseline justify-between gap-2 text-sm">
-                            <span className="min-w-0 truncate font-semibold">{s.client ?? "Live"}</span>
-                            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</span>
+                          <span className="w-[52px] shrink-0 text-center">
+                            <span className="block text-sm leading-tight font-bold tabular-nums">{s.start_time}</span>
+                            {s.end_time && <span className="text-muted-foreground block text-[10px] leading-tight tabular-nums">–{s.end_time}</span>}
                           </span>
-                          <span className="text-muted-foreground block truncate text-xs">{s.host_name} · {s.platform}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">{s.client ?? "Live"}</span>
+                            <span className="text-muted-foreground block truncate text-xs">{s.host_name.split(" ").slice(0, 2).join(" ")} · {s.platform}</span>
+                          </span>
+                          <span aria-hidden className="text-muted-foreground shrink-0 text-[10px]">{isOpen ? "▲" : "▼"}</span>
                         </button>
                         {isOpen && (
-                          <div className="border-border mt-1.5 border-t pt-1.5">
-                            <p className="text-xs">
+                          <div className="border-border/60 border-t px-2.5 py-2">
+                            <p className="flex flex-wrap items-center gap-1.5 text-xs">
                               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.status === "completed" ? "bg-success-soft text-success" : s.status === "cancelled" ? "bg-danger-soft text-danger" : "bg-secondary"}`}>{s.status}</span>
+                              <span className="text-muted-foreground truncate">{s.host_name}</span>
                             </p>
-                            {s.notes && <p className="text-muted-foreground mt-1 text-xs">{s.notes}</p>}
+                            {s.notes && <p className="text-muted-foreground mt-1 text-xs break-words">{s.notes}</p>}
                             {canManage && (
-                              <div className="mt-1.5 flex flex-wrap gap-2">
+                              <div className="mt-2 flex flex-wrap gap-2">
                                 {s.status === "scheduled" && (
                                   <button type="button" className={btnSm}
                                     onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
