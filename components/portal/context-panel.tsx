@@ -49,7 +49,7 @@ export function PortalContextPanel() {
   return (
     <>
       <div className="bg-card rounded-card p-3">
-        <MiniCalendar selected={selected} onSelect={setSelected} marked={marked} todayISO={today} />
+        <MiniCalendar selected={selected} onSelect={setSelected} marked={Array.from(marked)} todayISO={today} />
       </div>
 
       <div className="px-1">
