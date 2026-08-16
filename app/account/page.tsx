@@ -9,6 +9,7 @@ import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, btnClass, btnGhost, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
+import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmy, fmtRM } from "@/lib/format";
 
 
@@ -81,9 +82,26 @@ export default function AccountPage() {
   /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
      /portal"): the customer area now sits on the SAME shell as the portal —
      navy backdrop, rounded canvas, internal scroll on desktop. Phones are
-     untouched (all shell rules are md:-prefixed). */
+     untouched (all shell rules are md:-prefixed).
+     v1.23.0 (CEO: "Where is the sidebar?"): the navy icon rail too — the
+     same SidebarNav, fed the three customer sections. The desktop pill row
+     is retired; phones keep the bottom navigation. */
   return (
-    <AppShell maxWidth="md:max-w-4xl">
+    <AppShell
+      maxWidth="md:max-w-4xl"
+      rail={
+        <SidebarNav
+          items={(["Account", "Orders", "Enquiries"] as const).map((t) => ({ name: t, label: t === "Enquiries" ? "My Enquiries" : t }))}
+          active={tab}
+          onSelect={(t) => setTab(t as "Account" | "Orders" | "Enquiries")}
+          onSignOut={() =>
+            void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
+              () => window.location.replace("/"),
+            )
+          }
+        />
+      }
+    >
     <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {toastNode}
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
@@ -117,23 +135,8 @@ export default function AccountPage() {
         </button>
       </header>
 
-      {/* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */}
-      <nav className="mt-6 hidden grid-cols-2 gap-2 md:grid" aria-label="Account sections">
-        {(["Account", "Orders", "Enquiries"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={
-              tab === t
-                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
-            }
-          >
-            {t === "Enquiries" ? "My Enquiries" : t}
-          </button>
-        ))}
-      </nav>
+      {/* v1.23.0: the desktop pill row is retired — the icon rail (left,
+          same as /portal) is the desktop navigation now. */}
 
       {/* App-style bottom navigation (v1.4.55) — phones only.
           v1.11.0: same shell as /portal and /admin — icon per tab, the active

@@ -22,6 +22,7 @@ import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { inputClass, btnClass, btnGhost, card } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
+import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
@@ -969,19 +970,36 @@ export default function AdminPage() {
   /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
      /portal"): the admin console now sits on the SAME shell as the portal —
      navy backdrop, rounded canvas, internal scroll on desktop — and every
-     section renders inside a house card. Phones untouched (md:-prefixed). */
+     section renders inside a house card. Phones untouched (md:-prefixed).
+     v1.23.0 (CEO: "Where is the sidebar for /account and /admin as same as
+     /portal?"): the navy ICON RAIL too — same SidebarNav component, fed the
+     admin tabs. The desktop pill row is gone (the rail replaces it, exactly
+     like /portal); phones keep the bottom navigation. */
+  const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
   return (
-    <AppShell maxWidth="md:max-w-6xl">
+    <AppShell
+      maxWidth="md:max-w-6xl"
+      rail={
+        <SidebarNav
+          items={visibleTabs.map((t) => ({ name: t, label: t }))}
+          active={tab}
+          onSelect={(t) => { setTab(t as Tab); setMoreOpen(false); }}
+          onSignOut={() => void logout()}
+        />
+      }
+    >
     <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            Admin
+            AZ ONE OFFICIAL — Admin
           </p>
+          {/* v1.23.0: with the pill row retired for the rail, the desktop
+              heading names the ACTIVE SECTION (portal pattern). */}
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            AZ ONE OFFICIAL
+            {tab}
           </h1>
           {/* v1.11.0: on phones this reads as an app screen title, matching
               /portal's mobile h1 weight and size. */}
@@ -998,29 +1016,8 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {(() => {
-        /* v1.4.187: nav = full-width grid flush with the card edges (see /portal). */
-        const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
-        return (
-      <nav className="mt-6 hidden gap-2 md:grid" aria-label="Admin sections"
-        style={{ gridTemplateColumns: `repeat(${Math.min(visibleTabs.length, 8)}, minmax(0, 1fr))` }}>
-        {visibleTabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={
-              t === tab
-                ? "bg-primary text-primary-foreground inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium"
-                : "inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-sm hover:bg-secondary"
-            }
-          >
-            {t}
-          </button>
-        ))}
-      </nav>
-        );
-      })()}
+      {/* v1.23.0: the desktop pill row is retired — the icon rail (left,
+          same as /portal) is the desktop navigation now. */}
 
       {/* App-style bottom navigation (v1.4.55) — phones only. */}
       {(() => {

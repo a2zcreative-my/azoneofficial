@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.0] — 2026-08-17 — The portal sidebar on /admin and /account
+
+**The navy icon rail is now on /admin and /account too (CEO: "Where is the sidebar for /account and /admin as same as /portal?").** Both surfaces use the exact SidebarNav component the portal uses — logo at the top, one icon per section with the active one in a gold tile, sign out at the bottom — fed their own sections (admin: Dashboard→Advanced with Users/Staff/Audit gated to the admin tier; account: Account / Orders / My Enquiries). The old desktop pill rows are retired — the rail is the desktop navigation, exactly like the portal — and the admin desktop heading now names the active section. Phones are untouched: bottom navigation and the More sheet behave exactly as before.
+
+**Deploy notes:** site-only change; the zip is cumulative (carries the v1.22.9 password fix worker) — run `DEPLOY.bat` IN FULL.
+
 ## [1.22.9] — 2026-08-17 — Password set/change works again (Workers PBKDF2 cap)
 
 **Setting or changing any password works again (CEO: "why I cant change their password? I need to reset their password!!!").** Root cause found and confirmed: the v1.4.280 security-audit change raised password hashing to 310,000 PBKDF2 iterations — but the Cloudflare Workers runtime hard-caps PBKDF2 at 100,000 iterations (an anti-DoS platform limit, cloudflare/workerd#1346) and throws above it. Since 10-08, every password operation that CREATES a hash — admin Set password, staff change-password in Profile, new-user creation, 2FA backup codes — failed with "Something went wrong. The error has been logged." (v1.22.7's honest failure toast is exactly what surfaced it.) Sign-ins were never affected because stored hashes carry their own iteration count. Hashing now runs at 100,000 — the platform maximum — and the deviation is documented in SECURITY.md; the server-side pepper means a stolen database dump still cannot be cracked without the Worker secret.
