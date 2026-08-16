@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.22.6] — 2026-08-17 — Edit any session (CEO/COO/CCO) + honest repeat preview
+
+**Sessions are amendable (CEO: "I want to have an option for CEO, COO and CCO to amend or to update the roster / schedule if necessary or any typo to change").** Every session detail surface — the staff-grid card, the timeline popover and the mobile agenda — gains an "Edit details" button for the CEO, COO and CCO (plus the admin tier). It reopens the assignment dialog prefilled as "Edit session": fix the client name, date, start/end time, host, platform or notes, press "Save changes", done. Repeat/plan tooling is hidden in edit mode — an amendment touches exactly one session. Changing the slot or the host still notifies the affected host(s) exactly as drag-reschedule does. hr_admin keeps its scheduling powers (create, drag, complete, cancel) but does not get Edit — the worker enforces the same rule server-side, so detail amendments (client/platform/notes) are CEO/COO/CCO + admin tier only. Clearing the End field now clears the end time properly.
+
+**The repeat preview tells the truth (CEO: "why it create until 25th if I pick until Friday??!").** Nothing was ever created past the days you picked — but the preview line printed the SEARCH WINDOW ("19-08 to 25-08", the auto-filled until date) and read as if sessions ran to the 25th. It now prints the ACTUAL dates the rule lands on: "→ Creates 3 sessions: Wed 19-08, Thu 20-08, Fri 21-08 — nothing outside these dates" (first→last shown when a run is longer than 7). The "until" date remains just the window the rule searches; only the toggled weekdays inside it become sessions.
+
+**Deploy notes:** run `DEPLOY.bat` IN FULL — this release changes both the site and the API worker (step 3 must deploy the worker or "Edit details" will save nothing new). No new migration.
+
 ## [1.22.5] — 2026-08-17 — Scheduling flow straightened, grid cells pinned
 
 **Pick-days now schedules every day you picked (CEO: "it doesnt schedule all the day that I pick!!").** The bug: with the "until" date left empty, the repeat rule silently collapsed to a single date. Now the until date is prefilled (+6 days) the moment you choose Daily or Pick days, a live line states plainly what will happen — "→ Schedule will create 4 sessions, 18-08 to 24-08" (green when ready, amber telling you exactly what's missing) — and an incomplete rule refuses with instructions instead of guessing.

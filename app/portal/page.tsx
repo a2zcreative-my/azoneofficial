@@ -5461,7 +5461,12 @@ export default function PortalPage() {
         {activeTab === "Attendance" && (
           <div className="space-y-4 md:space-y-6">
             {/* v1.8.0: the Schedule & Roster board (reference design) leads. */}
-            <RosterBoard canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)} />
+            {/* v1.22.6: canEdit — amend/typo-fix on sessions is CEO/COO/CCO
+                (+ admin tier) only; hr_admin keeps scheduling powers. */}
+            <RosterBoard
+              canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)}
+              canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
+            />
             <Attendance user={user} />
             {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
             {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}

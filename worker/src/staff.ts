@@ -1260,12 +1260,27 @@ export async function handleStaff(
       if (typeof body?.session_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.session_date)) putLS("session_date", body.session_date);
       if (typeof body?.start_time === "string" && /^\d{2}:\d{2}$/.test(body.start_time)) putLS("start_time", body.start_time);
       if (typeof body?.end_time === "string" && /^\d{2}:\d{2}$/.test(body.end_time)) putLS("end_time", body.end_time);
+      else if (body?.end_time === "" || body?.end_time === null) putLS("end_time", null); // v1.22.6: an edit may clear the end time
       if (Number(body?.host_user_id)) {
         const nh = await env.DB.prepare(`SELECT id, is_active, role FROM users WHERE id = ?1`).bind(Number(body!.host_user_id)).first<{ id: number; is_active: number; role: string }>();
         if (!nh || !nh.is_active || ["customer", "super_admin", "admin"].includes(nh.role)) return err("invalid_input", "Host must be an active staff member", 400);
         putLS("host_user_id", nh.id);
       }
-      if (setsLS.length === 0) return err("invalid_input", "Nothing to update (status, session_date, start_time, end_time, host_user_id)", 400);
+      /* v1.22.6 (CEO: "I want to have an option for CEO, COO and CCO to
+         amend or to update the roster / schedule if necessary or any typo"):
+         the DETAILS — client, platform, notes — are amendable too, but only
+         by the roles he named (+ the admin tier safety net). hr_admin keeps
+         its scheduling powers (status/date/time/host) untouched. */
+      const wantsDetails = body?.client_name !== undefined || body?.platform !== undefined || body?.notes !== undefined;
+      if (wantsDetails) {
+        if (!["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
+          return err("forbidden", "Only the CEO, COO or CCO can amend session details", 403);
+        }
+        if (typeof body?.client_name === "string") putLS("client_name", body.client_name.trim() ? body.client_name.trim().slice(0, 120) : null);
+        if (["tiktok", "shopee", "other"].includes(String(body?.platform))) putLS("platform", String(body!.platform));
+        if (typeof body?.notes === "string") putLS("notes", body.notes.trim() ? body.notes.slice(0, 500) : null);
+      }
+      if (setsLS.length === 0) return err("invalid_input", "Nothing to update (status, session_date, start_time, end_time, host_user_id, client_name, platform, notes)", 400);
       const before = await env.DB.prepare(`SELECT session_date, start_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; host_user_id: number }>();
       await env.DB.prepare(`UPDATE live_sessions SET ${setsLS.join(", ")} WHERE id = ?${argsLS.length + 1}`).bind(...argsLS, mLS[1]).run();
       const after = await env.DB.prepare(`SELECT session_date, start_time, end_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; end_time: string | null; host_user_id: number }>();

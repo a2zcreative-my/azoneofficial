@@ -52,7 +52,13 @@ function toHHMM(minsTotal: number): string {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
-export function RosterBoard({ canManage }: { canManage: boolean }) {
+/* v1.22.6 (CEO: "I want to have an option for CEO, COO and CCO to amend or
+   to update the roster / schedule if necessary or any typo to change"):
+   canEdit gates the Edit action — the same assignment dialog reopens
+   prefilled, in EDIT mode (no repeat/plan tooling), and Save changes
+   PATCHes the one session. canManage alone (hr_admin) still schedules,
+   drags, completes and cancels exactly as before. */
+export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean; canEdit?: boolean }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   const [data, setData] = useState<RosterData | null>(null);
   const [week, setWeek] = useState<string>("");           // "" = server default (this week)
@@ -108,10 +114,48 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
   const [repeatDays, setRepeatDays] = useState<number[]>([]); // JS getUTCDay: 0=Sun
   const [plan, setPlan] = useState<PlanEntry[]>([]);
 
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   const openAssign = (prefill?: Partial<typeof draft>) => {
     setDraft({ session_date: todayS, start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "", ...prefill });
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
+    setEditingId(null);
     setAssignOpen(true);
+  };
+
+  /* v1.22.6 — amend/typo-fix: the dialog opens prefilled from the session. */
+  const openEdit = (s: RosterSession) => {
+    setDraft({
+      session_date: s.session_date, start_time: s.start_time, end_time: s.end_time ?? "",
+      platform: s.platform, client_name: s.client ?? "", host_user_id: String(s.host_user_id), notes: s.notes ?? "",
+    });
+    setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
+    setEditingId(s.id);
+    setOpenSession(null);
+    setAssignOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (editingId == null) return;
+    if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
+      showToast("No change", "Date, start time and host are required", "notice");
+      return;
+    }
+    setSaving(true);
+    const r = await api<{ error?: { message?: string } }>(`/live-sessions/${editingId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        session_date: draft.session_date, start_time: draft.start_time,
+        end_time: draft.end_time || null, platform: draft.platform,
+        client_name: draft.client_name, notes: draft.notes,
+        host_user_id: Number(draft.host_user_id),
+      }),
+    });
+    setSaving(false);
+    if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not update the session", "notice"); return; }
+    showToast("Session updated", `${draft.client_name || "Live session"} · ${dmy(draft.session_date)} ${draft.start_time}`);
+    setAssignOpen(false); setEditingId(null);
+    void load(week);
   };
 
   /* v1.22.5 (CEO: "when I click pick a day, it doesnt schedule all the day
@@ -440,6 +484,12 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                           {sel.notes && <p className="mt-1 text-xs text-white/70">{sel.notes}</p>}
                           {canManage && (
                             <div className="mt-2 flex flex-wrap gap-2">
+                              {canEdit && sel.status !== "cancelled" && (
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={() => openEdit(sel)}>
+                                  Edit details
+                                </button>
+                              )}
                               {sel.status === "scheduled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
@@ -578,6 +628,12 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                     {sel.notes && <p className="mt-1 text-xs text-white/70">{sel.notes}</p>}
                     {canManage && (
                       <div className="mt-2 flex flex-wrap gap-2">
+                        {canEdit && sel.status !== "cancelled" && (
+                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                            onClick={() => openEdit(sel)}>
+                            Edit details
+                          </button>
+                        )}
                         {sel.status === "scheduled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                             onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
@@ -651,6 +707,11 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                             {s.notes && <p className="text-muted-foreground mt-1 text-xs break-words">{s.notes}</p>}
                             {canManage && (
                               <div className="mt-2 flex flex-wrap gap-2">
+                                {canEdit && s.status !== "cancelled" && (
+                                  <button type="button" className={btnSm} onClick={() => openEdit(s)}>
+                                    Edit details
+                                  </button>
+                                )}
                                 {s.status === "scheduled" && (
                                   <button type="button" className={btnSm}
                                     onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
@@ -748,7 +809,10 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={() => setAssignOpen(false)}>
           <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-base font-semibold">New assignment</p>
+            <p className="text-base font-semibold">{editingId != null ? "Edit session" : "New assignment"}</p>
+            {editingId != null && (
+              <p className="text-muted-foreground mt-0.5 text-xs">Amend any detail — the host is notified if the slot or assignment changes.</p>
+            )}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
                 <span className={fieldLabel}>Client</span>
@@ -792,7 +856,9 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
               </label>
             </div>
 
-            {/* v1.22.1 — repeat rule: one entry can expand to a whole run. */}
+            {/* v1.22.1 — repeat rule: one entry can expand to a whole run.
+                Hidden in EDIT mode — an amendment touches exactly one session. */}
+            {editingId == null && (
             <div className="border-border mt-3 rounded-lg border p-2.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className={`${fieldLabel} mb-0 mr-1`}>Repeat</span>
@@ -825,19 +891,32 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                   })}
                 </div>
               )}
-              {repeat !== "once" && (
-                <p className={`mt-1.5 text-[11px] font-medium ${expandDates().length > 0 ? "text-success" : "text-warning"}`}>
-                  {expandDates().length > 0
-                    ? `→ Schedule will create ${expandDates().length} session${expandDates().length === 1 ? "" : "s"}, ${dmy(draft.session_date)} to ${dmy(repeatUntil)}`
-                    : repeat === "days" && repeatDays.length === 0
-                      ? "Toggle at least one weekday below/above."
-                      : "Set the until date — the run needs an end."}
-                </p>
-              )}
+              {/* v1.22.6 (CEO: "why it create until 25th if I pick until
+                  Friday??!"): the preview used to print the SEARCH WINDOW
+                  (start → until) — it read as if sessions ran to the until
+                  date. It now prints the ACTUAL dates the rule lands on. */}
+              {repeat !== "once" && (() => {
+                const dts = expandDates();
+                const wd = (iso: string) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${iso}T00:00:00Z`).getUTCDay()];
+                return (
+                  <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
+                    {dts.length > 0
+                      ? `→ Creates ${dts.length} session${dts.length === 1 ? "" : "s"}: ${
+                          dts.length <= 7
+                            ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
+                            : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`
+                        } — nothing outside these dates`
+                      : repeat === "days" && repeatDays.length === 0
+                        ? "Toggle at least one weekday below/above."
+                        : "Set the until date — the run needs an end."}
+                  </p>
+                );
+              })()}
               <p className="text-muted-foreground mt-1.5 text-[11px]">
                 Flow: set the form (and a repeat if you want a run) → press Schedule. To stack MORE in one go — another slot, host or week — press + Add to plan between changes, then Schedule all.
               </p>
             </div>
+            )}
 
             {/* the plan — everything queued so far */}
             {plan.length > 0 && (
@@ -857,14 +936,22 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
-                {saving ? "Scheduling…"
-                  : plan.length > 0 ? `Schedule all (${plan.length})`
-                  : repeat !== "once" && expandDates().length > 1 ? `Schedule ${expandDates().length} sessions`
-                  : "Schedule"}
-              </button>
-              <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>+ Add to plan</button>
-              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setAssignOpen(false)}>Cancel</button>
+              {editingId != null ? (
+                <button type="button" className={btnClass} disabled={saving} onClick={() => void saveEdit()}>
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              ) : (
+                <>
+                  <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
+                    {saving ? "Scheduling…"
+                      : plan.length > 0 ? `Schedule all (${plan.length})`
+                      : repeat !== "once" && expandDates().length > 1 ? `Schedule ${expandDates().length} sessions`
+                      : "Schedule"}
+                  </button>
+                  <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>+ Add to plan</button>
+                </>
+              )}
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setAssignOpen(false); setEditingId(null); }}>Cancel</button>
             </div>
           </div>
         </div>
