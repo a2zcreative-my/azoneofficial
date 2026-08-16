@@ -664,9 +664,13 @@ function UsersPanel({ me }: { me: User }) {
   const [resetPw, setResetPw] = useState("");
   const [resetDone, setResetDone] = useState<number | null>(null);
 
-  const resetPassword = async (id: number) => {
+  /* v1.22.7 (CEO: "when I click on set password there is no popup to tell me
+     that the password set successfully or what?"): the result now speaks
+     through the SAME save-toast every other action here uses — success and
+     failure both. The inline green line stays as a second confirmation. */
+  const resetPassword = async (id: number, email: string) => {
     if (resetPw.length < 10) return;
-    const res = await api(`/users/${id}`, {
+    const res = await api<{ error?: { message?: string } }>(`/users/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ password: resetPw }),
     });
@@ -675,6 +679,9 @@ function UsersPanel({ me }: { me: User }) {
       setResetId(null);
       setResetPw("");
       window.setTimeout(() => setResetDone(null), 5000);
+      showToast("Password set", `${email} — signed out everywhere. Tell them the new password directly.`);
+    } else {
+      showToast("Not saved", res.data?.error?.message ?? "Could not set that password — try again", "notice");
     }
   };
 
@@ -803,7 +810,7 @@ function UsersPanel({ me }: { me: User }) {
                     type="button"
                     className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
                     disabled={resetPw.length < 10}
-                    onClick={() => void resetPassword(u.id)}
+                    onClick={() => void resetPassword(u.id, u.email)}
                   >
                     Set password
                   </button>

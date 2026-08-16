@@ -570,13 +570,15 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     return true;
   };
   // v1.4.170: natural SKU compare — ELFIA001 < ELFIA002 < … < ELFIA012.
-  const bySku = (a: { sku: string }, b: { sku: string }) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
+  // v1.22.7: null-safe — ONE item saved without a SKU used to crash the whole
+  // portal here ("Application error" for anyone whose last tab was Inventory).
+  const bySku = (a: { sku: string | null }, b: { sku: string | null }) => (a.sku ?? "").localeCompare(b.sku ?? "", undefined, { numeric: true, sensitivity: "base" });
   const maxStock = Math.max(1, ...items.map((x) => x.stock)); // v1.4.270 row bars
   const sortedItems = [...items].sort((a, b) => {
     const dir = invSort.asc ? 1 : -1;
     switch (invSort.col) {
       case "sku":   return dir * bySku(a, b);
-      case "name":  return dir * a.name.localeCompare(b.name);
+      case "name":  return dir * (a.name ?? "").localeCompare(b.name ?? "");
       case "price": return dir * ((a.unit_price_cents ?? 0) - (b.unit_price_cents ?? 0));
       case "net":   return dir * (Math.max(0, (a.unit_price_cents ?? 0) - (a.live_rebate_cents ?? 0)) - Math.max(0, (b.unit_price_cents ?? 0) - (b.live_rebate_cents ?? 0)));
       case "stock": return dir * (a.stock - b.stock);
@@ -589,7 +591,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     const dir = ttSort.asc ? 1 : -1;
     switch (ttSort.col) {
       case "sku":   return dir * bySku(a, b);
-      case "name":  return dir * a.name.localeCompare(b.name);
+      case "name":  return dir * (a.name ?? "").localeCompare(b.name ?? "");
       case "hot":   return dir * -byToday(a, b);
       case "month": return dir * (a.month_qty - b.month_qty);
       case "total": return dir * (a.total_qty - b.total_qty);
@@ -610,12 +612,20 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
       api<{ items: TtOut[] }>(`/inventory/tiktok-out`), // v1.4.165
       api<{ outs: ManualOut[] }>(`/inventory/manual-outs`), // v1.4.170
     ]);
-    if (i.data) setItems(i.data.items);
-    if (p.data) setPostage(p.data.records);
-    if (m.data) setMaterials(m.data.materials);
-    if (r.data?.returns) { setReturns(r.data.returns); setRetTotals(r.data.totals); }
-    if (t.data?.items) setTtOut(t.data.items);
-    if (mo.data?.outs) setManualOuts(mo.data.outs);
+    /* v1.22.7 (a staff member's Inventory tab white-screened: "Application
+       error: a client-side exception"): D1 can hand back NULL in columns the
+       UI treats as text/number — one item saved without a SKU crashed the
+       SKU sort and unmounted the entire portal. Every list is sanitised
+       HERE, at the boundary, so a bad row can never take the page down. */
+    if (i.data?.items) setItems(i.data.items.map((x) => ({ ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, status: x.status ?? "" })));
+    if (p.data?.records) setPostage(p.data.records.map((x) => ({ ...x, order_ref: x.order_ref ?? "", status: x.status ?? "" })));
+    if (m.data?.materials) setMaterials(m.data.materials.map((x) => ({ ...x, title: x.title ?? "", status: x.status ?? "" })));
+    if (r.data?.returns) {
+      setReturns(r.data.returns.map((x) => ({ ...x, sku: x.sku ?? "", item_name: x.item_name ?? "", qty: Number(x.qty) || 0, supplier: x.supplier ?? "", status: x.status ?? "", return_date: x.return_date ?? "" })));
+      setRetTotals(r.data.totals ?? null);
+    }
+    if (t.data?.items) setTtOut(t.data.items.map((x) => ({ ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, today_qty: Number(x.today_qty) || 0, month_qty: Number(x.month_qty) || 0, total_qty: Number(x.total_qty) || 0 })));
+    if (mo.data?.outs) setManualOuts(mo.data.outs.map((x) => ({ ...x, sku: x.sku ?? "", item_name: x.item_name ?? "", qty: Number(x.qty) || 0, remark: x.remark ?? "", created_at: x.created_at ?? "" })));
   }, []);
   useEffect(() => {
     void load();
@@ -644,7 +654,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 <select className={inputClass} value={outModal.item_id} disabled={!!outModal.edit_id}
                   title={outModal.edit_id ? "The item can't change on an existing record — delete and re-record instead" : undefined}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, item_id: Number(e.target.value) }))}>
-                  {[...items].sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" })).map((it) => (
+                  {[...items].sort(bySku).map((it) => (
                     <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
                   ))}
                 </select>

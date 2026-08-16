@@ -1296,7 +1296,9 @@ export async function handleStaff(
         }
       }
       await audit(env, user.id, "live.update", "live_sessions", mLS[1]!, (body ?? {}) as Record<string, unknown>);
-      return json({ ok: true });
+      /* v1.22.7: echo WHICH columns were applied — the client uses this to
+         detect an older deployed worker that silently ignored detail fields. */
+      return json({ ok: true, applied: setsLS.map((s) => s.split(" =")[0]) });
     }
   }
 

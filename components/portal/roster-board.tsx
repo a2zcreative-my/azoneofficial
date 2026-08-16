@@ -142,7 +142,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       return;
     }
     setSaving(true);
-    const r = await api<{ error?: { message?: string } }>(`/live-sessions/${editingId}`, {
+    const r = await api<{ error?: { message?: string }; applied?: string[] }>(`/live-sessions/${editingId}`, {
       method: "PATCH",
       body: JSON.stringify({
         session_date: draft.session_date, start_time: draft.start_time,
@@ -153,7 +153,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     });
     setSaving(false);
     if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not update the session", "notice"); return; }
-    showToast("Session updated", `${draft.client_name || "Live session"} · ${dmy(draft.session_date)} ${draft.start_time}`);
+    /* v1.22.7 (CEO: "I have done edit, but it doesnt updated!!!"): his live
+       worker was an OLDER build — it applied date/time/host and silently
+       ignored client/platform/notes, then said ok. The new worker echoes the
+       applied columns; no echo = old worker, so say so instead of lying. */
+    if (!Array.isArray(r.data?.applied) || !r.data.applied.includes("client_name")) {
+      showToast("Only the schedule saved", "The API worker is an older build — client, platform and notes were ignored. Run DEPLOY.bat IN FULL (step 3 deploys the worker), then edit again.", "notice");
+    } else {
+      showToast("Session updated", `${draft.client_name || "Live session"} · ${dmy(draft.session_date)} ${draft.start_time}`);
+    }
     setAssignOpen(false); setEditingId(null);
     void load(week);
   };
