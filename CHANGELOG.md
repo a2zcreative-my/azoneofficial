@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.22.5] — 2026-08-17 — Scheduling flow straightened, grid cells pinned
+
+**Pick-days now schedules every day you picked (CEO: "it doesnt schedule all the day that I pick!!").** The bug: with the "until" date left empty, the repeat rule silently collapsed to a single date. Now the until date is prefilled (+6 days) the moment you choose Daily or Pick days, a live line states plainly what will happen — "→ Schedule will create 4 sessions, 18-08 to 24-08" (green when ready, amber telling you exactly what's missing) — and an incomplete rule refuses with instructions instead of guessing.
+
+**One flow, one button (CEO: "Add to plan become 2? what is the flow actually??!").** The primary button no longer morphs into a second "Add to plan". SCHEDULE always schedules exactly what's configured: the form (× repeat, expanded on the spot — the button itself says "Schedule N sessions") or, if you've stacked entries, "Schedule all (N)". "+ Add to plan" is the one optional stacking tool for combining slots/hosts/weeks before a single confirm.
+
+**Staff-grid cells no longer drift (CEO: "the grid cell out from it position!").** `1fr` grid tracks have an implicit min-width, so a wide session chip stretched its own row's columns out of line with the header. Tracks are now `minmax(0,1fr)` with min-width-0 cells — every row pins to identical columns and labels truly truncate. Verified: header and row edges align to the pixel under stress-length labels.
+
+## [1.22.4] — 2026-08-17 — The share-plan PDF is the staff grid
+
+**"PDF — share plan" now produces the same staff × day table the screen shows (CEO: "I want the share plan looks same as the table that I share to you").** Landscape A4: the AZ ONE letterhead, then the grid — navy STAFF corner cell with the week's totals, seven day columns with per-day counts and hours (today tinted), one row per staff member with their weekly totals, and every session as a colour chip (navy = TikTok, gold = Shopee, neutral = other, green = completed, amber = conflict) with red ON LEAVE bands on approved-leave days. Rows grow to fit multiple sessions a day; an over-full sheet summarises the tail instead of clipping; the legend and the SSM footer with the generation stamp close the page. The PDF writer itself learned landscape (optional page orientation) — every other document stays portrait, untouched.
+
 ## [1.22.3] — 2026-08-17 — Staff-grid roster: the CEO's reference layout
 
 **The desktop roster now defaults to a STAFF GRID (CEO showed a staff×day reference: "I want weekly roster schedule looks like this!").** One row per staff member, one column per day — exactly the reference structure, rendered in AZ ONE's own identity instead of the reference's rainbow: navy corner cell with the week's totals (sessions · hours), day headers with per-day counts and hours (today tinted gold), a left column with each person's weekly totals, and sessions as colour chips — navy tint = TikTok, gold tint = Shopee, neutral = other, green = completed, amber = conflict, red band = approved leave that day. Clicking a chip opens the session card (status, host, notes, Mark completed / Cancel) centred over the grid; hover shows the full detail as a tooltip. A "Staff grid | Timeline" toggle keeps the hour timeline one click away for drag-to-reschedule. Phones keep the agenda view. A legend closes the grid so the colours explain themselves.

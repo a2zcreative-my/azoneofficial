@@ -114,9 +114,29 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
     setAssignOpen(true);
   };
 
-  /** The dates the current form + repeat rule expand to (capped at 62). */
+  /* v1.22.5 (CEO: "when I click pick a day, it doesnt schedule all the day
+     that I pick!! … Add to plan become 2? what is the flow actually??!"):
+     two flow bugs fixed. (1) Pick-days/Daily with an EMPTY "until" silently
+     collapsed to a single date — the until date is now prefilled (+6 days)
+     the moment a repeat mode is chosen, and a missing one refuses loudly
+     instead of guessing. (2) The primary button no longer morphs into a
+     second "Add to plan": SCHEDULE always schedules exactly what is
+     configured — the plan if one exists, otherwise the form × repeat rule,
+     expanded on the spot. "+ Add to plan" stays the optional stacking tool. */
+  const addDays = (iso: string, n: number) =>
+    new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+  const pickRepeat = (v: "once" | "daily" | "days") => {
+    setRepeat(v);
+    if (v !== "once" && !repeatUntil && draft.session_date) setRepeatUntil(addDays(draft.session_date, 6));
+  };
+
+  /** The dates the current form + repeat rule expand to (capped at 62).
+      STRICT: a repeat mode without a usable until/weekday set returns []. */
   const expandDates = (): string[] => {
-    if (repeat === "once" || !repeatUntil || repeatUntil < draft.session_date) return [draft.session_date];
+    if (repeat === "once") return draft.session_date ? [draft.session_date] : [];
+    if (!repeatUntil || repeatUntil < draft.session_date) return [];
+    if (repeat === "days" && repeatDays.length === 0) return [];
     const out: string[] = [];
     const end = new Date(`${repeatUntil}T00:00:00Z`).getTime();
     for (let t = new Date(`${draft.session_date}T00:00:00Z`).getTime(); t <= end && out.length < 62; t += 86400000) {
@@ -126,32 +146,44 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
     return out;
   };
 
-  const addToPlan = () => {
+  /** Validate the form + repeat rule; toast and return null when unusable. */
+  const expandOrExplain = (): PlanEntry[] | null => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
       showToast("No change", "Date, start time and host are required", "notice");
-      return;
+      return null;
     }
-    const dates = expandDates();
-    if (dates.length === 0) { showToast("No change", repeat === "days" ? "Pick at least one weekday" : "Check the until date", "notice"); return; }
+    if (repeat !== "once" && (!repeatUntil || repeatUntil < draft.session_date)) {
+      showToast("Set the until date", "Repeat needs an end — pick the last date the run should reach.", "notice");
+      return null;
+    }
+    if (repeat === "days" && repeatDays.length === 0) {
+      showToast("Pick the days", "Toggle at least one weekday (Mon–Sun) for the run.", "notice");
+      return null;
+    }
+    return expandDates().map((dt) => ({ ...draft, session_date: dt }));
+  };
+
+  const addToPlan = () => {
+    const entries = expandOrExplain();
+    if (!entries) return;
     setPlan((p) => {
       const key = (e: PlanEntry) => `${e.session_date}|${e.start_time}|${e.host_user_id}`;
       const seen = new Set(p.map(key));
-      const fresh = dates.map((dt) => ({ ...draft, session_date: dt })).filter((e) => !seen.has(key(e)));
+      const fresh = entries.filter((e) => !seen.has(key(e)));
       return [...p, ...fresh].slice(0, 100).sort((a, b) => `${a.session_date}${a.start_time}`.localeCompare(`${b.session_date}${b.start_time}`));
     });
+    showToast("Added to plan", `${entries.length} session${entries.length === 1 ? "" : "s"} queued — adjust the form and add more, or Schedule all.`);
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]);
   };
 
   const saveAssign = async () => {
-    /* One-off fast path — identical to the old behaviour. */
-    const batch: PlanEntry[] = plan.length > 0 ? plan
-      : (repeat !== "once" ? [] : [draft]);
-    if (plan.length === 0 && repeat !== "once") { addToPlan(); return; }
-    if (batch.length === 1 && plan.length === 0) {
-      if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
-        showToast("No change", "Date, start time and host are required", "notice");
-        return;
-      }
+    /* SCHEDULE = the plan if one exists; otherwise the form (× repeat). */
+    let batch: PlanEntry[];
+    if (plan.length > 0) batch = plan;
+    else {
+      const entries = expandOrExplain();
+      if (!entries) return;
+      batch = entries;
     }
     setSaving(true);
     let ok = 0; const fails: string[] = [];
@@ -291,7 +323,11 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                   a branded PDF, straight into the phone's share sheet. */}
               <button type="button" className={btnSm}
                 onClick={async () => {
-                  const how = await shareRosterPdf(data.days, data.sessions, "AZ ONE staff portal");
+                  /* v1.22.4: the PDF is the staff×day grid now — same table
+                     the screen shows, landscape A4. */
+                  const how = await shareRosterPdf(
+                    data.days, data.sessions, staff, data.on_leave,
+                    data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal");
                   showToast(how === "shared" ? "Ready to share" : "Downloaded",
                     `Week roster PDF · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
                 }}>
@@ -327,12 +363,17 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                     : s.platform === "tiktok" ? "border-brand/30 bg-brand/10"
                     : s.platform === "shopee" ? "border-gold bg-gold-soft/60"
                     : "border-border bg-secondary";
-                  const gridCols = { gridTemplateColumns: "170px repeat(7, 1fr)" };
+                  /* v1.22.5 (CEO: "the grid cell out from it position!"):
+                     `1fr` tracks have min-width:auto — a wide chip stretched
+                     ITS row's columns and rows drifted out of line with the
+                     header. minmax(0,1fr) + min-w-0 cells pin every row to
+                     identical tracks; truncation actually truncates now. */
+                  const gridCols = { gridTemplateColumns: "170px repeat(7, minmax(0, 1fr))" };
                   return (
                     <>
                       {/* header: staff corner + day columns with totals */}
                       <div className="border-border grid border-b" style={gridCols}>
-                        <div className="bg-brand flex flex-col justify-center px-3 py-2">
+                        <div className="bg-brand flex min-w-0 flex-col justify-center px-3 py-2">
                           <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">Staff</p>
                           <p className="text-xs font-semibold text-white tabular-nums">{active.length} session{active.length === 1 ? "" : "s"} · {hrs(active.reduce((a, s) => a + durOf(s), 0))}</p>
                         </div>
@@ -340,7 +381,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                           const dayS = active.filter((s) => s.session_date === d);
                           const isToday = d === todayS;
                           return (
-                            <div key={d} className={`border-border border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
+                            <div key={d} className={`border-border min-w-0 border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
                               <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAY_LABEL[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
                                 {dayS.length === 0 ? "—" : `${dayS.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0))}`}
@@ -354,7 +395,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                         const mine = active.filter((s) => s.host_user_id === u.id);
                         return (
                           <div key={u.id} className="border-border grid border-b last:border-b-0" style={gridCols}>
-                            <div className="border-border flex flex-col justify-center border-r px-3 py-1.5">
+                            <div className="border-border flex min-w-0 flex-col justify-center border-r px-3 py-1.5">
                               <p className="truncate text-xs font-semibold" title={u.name}>{u.name.split(" ").slice(0, 2).join(" ")}</p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
                                 {mine.length === 0 ? "no sessions" : `${mine.length} session${mine.length === 1 ? "" : "s"} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`}
@@ -364,7 +405,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                               const cs = cellSessions(u.id, d);
                               const leave = onLeave(u.id, d);
                               return (
-                                <div key={d} className={`border-border min-h-12 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""}`}>
+                                <div key={d} className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""}`}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">On leave</div>
                                   )}
@@ -760,7 +801,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                     className={repeat === v
                       ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
                       : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
-                    onClick={() => setRepeat(v)}>{l}</button>
+                    onClick={() => pickRepeat(v)}>{l}</button>
                 ))}
                 {repeat !== "once" && (
                   <label className="ml-auto flex items-center gap-1.5 text-[11px]">
@@ -784,13 +825,17 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                   })}
                 </div>
               )}
-              {repeat !== "once" && repeatUntil && (
-                <p className="text-muted-foreground mt-1.5 text-[11px]">
-                  → {expandDates().length} session{expandDates().length === 1 ? "" : "s"} from {dmy(draft.session_date)} to {dmy(repeatUntil)}
+              {repeat !== "once" && (
+                <p className={`mt-1.5 text-[11px] font-medium ${expandDates().length > 0 ? "text-success" : "text-warning"}`}>
+                  {expandDates().length > 0
+                    ? `→ Schedule will create ${expandDates().length} session${expandDates().length === 1 ? "" : "s"}, ${dmy(draft.session_date)} to ${dmy(repeatUntil)}`
+                    : repeat === "days" && repeatDays.length === 0
+                      ? "Toggle at least one weekday below/above."
+                      : "Set the until date — the run needs an end."}
                 </p>
               )}
               <p className="text-muted-foreground mt-1.5 text-[11px]">
-                Add to plan, adjust the form (another time, another host, another day), add again — then schedule everything at once.
+                Flow: set the form (and a repeat if you want a run) → press Schedule. To stack MORE in one go — another slot, host or week — press + Add to plan between changes, then Schedule all.
               </p>
             </div>
 
@@ -815,7 +860,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
               <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
                 {saving ? "Scheduling…"
                   : plan.length > 0 ? `Schedule all (${plan.length})`
-                  : repeat !== "once" ? "Add to plan"
+                  : repeat !== "once" && expandDates().length > 1 ? `Schedule ${expandDates().length} sessions`
                   : "Schedule"}
               </button>
               <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>+ Add to plan</button>

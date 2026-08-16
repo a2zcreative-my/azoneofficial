@@ -75,7 +75,10 @@ export { widthOf };
 export class Canvas {
   ops: string[] = [];
   y = M;                                   // distance from the TOP of the page
-  private at(y: number) { return PAGE_H - y; }
+  /* v1.22.4: optional page height so a LANDSCAPE canvas (the roster grid)
+     can flip its own y-axis. Every existing caller stays portrait. */
+  constructor(private pageH: number = PAGE_H) {}
+  private at(y: number) { return this.pageH - y; }
 
   rect(x: number, y: number, w: number, h: number, fill: string) {
     this.ops.push(`${fill} rg ${x.toFixed(2)} ${this.at(y + h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
@@ -226,7 +229,7 @@ function bytes(s: string): Uint8Array {
   return out;
 }
 
-export function assemblePdf(content: string, images: Img[], title: string): Uint8Array {
+export function assemblePdf(content: string, images: Img[], title: string, landscape = false): Uint8Array {
   /* Object numbers are FIXED, never positional. An earlier draft appended the
      image before the fonts, so a document without a signature shifted /F1 and
      /F2 onto the wrong objects and printed bold and regular swapped. Layout:
@@ -246,7 +249,7 @@ export function assemblePdf(content: string, images: Img[], title: string): Uint
   const xres = images.map((im, i) => `/${im.id} ${slot(i)} 0 R`).join(" ");
   put(1, `<< /Type /Catalog /Pages 2 0 R >>`);
   put(2, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`);
-  put(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${images.length ? ` /XObject << ${xres} >>` : ""} >> /Contents 4 0 R >>`);
+  put(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${landscape ? PAGE_H : PAGE_W} ${landscape ? PAGE_W : PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${images.length ? ` /XObject << ${xres} >>` : ""} >> /Contents 4 0 R >>`);
   const cbytes = bytes(content);
   put(4, streamObj(`<< /Length ${cbytes.length} >>`, cbytes));
   put(5, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
