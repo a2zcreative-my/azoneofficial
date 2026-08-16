@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.22.9] — 2026-08-17 — Password set/change works again (Workers PBKDF2 cap)
+
+**Setting or changing any password works again (CEO: "why I cant change their password? I need to reset their password!!!").** Root cause found and confirmed: the v1.4.280 security-audit change raised password hashing to 310,000 PBKDF2 iterations — but the Cloudflare Workers runtime hard-caps PBKDF2 at 100,000 iterations (an anti-DoS platform limit, cloudflare/workerd#1346) and throws above it. Since 10-08, every password operation that CREATES a hash — admin Set password, staff change-password in Profile, new-user creation, 2FA backup codes — failed with "Something went wrong. The error has been logged." (v1.22.7's honest failure toast is exactly what surfaced it.) Sign-ins were never affected because stored hashes carry their own iteration count. Hashing now runs at 100,000 — the platform maximum — and the deviation is documented in SECURITY.md; the server-side pepper means a stolen database dump still cannot be cracked without the Worker secret.
+
+**Deploy notes:** WORKER change — run `DEPLOY.bat` IN FULL (step 3 must deploy `azoneofficial-api`). Then retry Set password: you'll get the green "Password set" popup. No migration.
+
 ## [1.22.8] — 2026-08-17 — Overnight sessions flow correctly + /admin and /account on the portal shell
 
 **Timeline: sessions past midnight now flow correctly (CEO: "timeline for the 8 to 10pm was not flow correctly!").** A session ending past midnight (20:30–00:00) has an end time smaller than its start, so the duration went NEGATIVE — the timeline drew a flat 22px sliver, and the staff grid and PDF called it "30 min". An overnight end now counts as next-day everywhere: the timeline block flows down to the visible edge (23:00), and the staff grid, weekly hour totals and the share-plan PDF all say the real duration (20:30–00:00 = 210 min / 3.5 hrs).

@@ -6,7 +6,7 @@
 - Dependencies pinned via pnpm-lock.yaml; update deliberately
 
 ## Phase 3 requirements (admin CMS)
-- **Authentication**: email + password — PBKDF2-SHA256 @ 310k iterations with per-user salt + server pepper (documented deviation from argon2id: no native argon2 on Workers; revisit with a vetted wasm lib). Session tokens in HTTP-only, Secure, SameSite=Lax cookies; session table in D1 with expiry. IMPLEMENTED in worker/src/index.ts
+- **Authentication**: email + password — PBKDF2-SHA256 @ 100k iterations with per-user salt + server pepper (documented deviation: 100,000 is the Cloudflare Workers runtime HARD CAP on PBKDF2 — cloudflare/workerd#1346 — higher values throw; also deviates from argon2id since Workers has no native argon2; the server-side pepper compensates — a stolen D1 dump cannot be cracked without the Worker secret. Revisit with a vetted wasm argon2 lib). Session tokens in HTTP-only, Secure, SameSite=Lax cookies; session table in D1 with expiry. IMPLEMENTED in worker/src/index.ts
 - **Authorization**: RBAC enforced server-side on every API route — roles: super_admin, admin, editor, marketing (permissions matrix in ADMIN_GUIDE.md)
 - **Input validation**: Zod schemas on every Worker endpoint
 - **XSS**: no dangerouslySetInnerHTML for user content; sanitize rich text on write and render

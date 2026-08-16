@@ -48,7 +48,14 @@ interface SessionUser {
  * argon2, so we use PBKDF2-SHA256 @ 310k iterations + per-user salt + server
  * pepper. Documented deviation — revisit if a vetted argon2 wasm lib is added. */
 
-const PBKDF2_ITERATIONS = 310_000; // v1.4.280: raised to match SECURITY.md; stored hashes carry their own count, so old passwords still verify
+/* v1.22.9 (CEO: "why I cant change their password?"): v1.4.280 raised this
+   to 310k to match SECURITY.md — but the Cloudflare Workers runtime HARD-CAPS
+   PBKDF2 at 100,000 iterations (anti-DoS, cloudflare/workerd#1346) and
+   crypto.subtle.deriveBits THROWS above it. Result: since 10-08 every
+   password set/change/create 500'd on live. 100k is the platform maximum;
+   stored hashes carry their own count, so every existing password still
+   verifies. The deviation is documented in SECURITY.md. */
+const PBKDF2_ITERATIONS = 100_000;
 
 function toHex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)]
