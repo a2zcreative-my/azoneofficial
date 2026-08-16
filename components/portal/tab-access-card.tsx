@@ -21,25 +21,25 @@ import { rowBtn } from "@/components/ui/row-button";
    (minus Dashboard/Profile, which are always visible). Keep the two in sync
    whenever a tab is added or retired. */
 const TABS: { name: string; label: string; hint: string }[] = [
-  { name: "Announcements", label: "Announcements", hint: "news feed + publish" },
-  { name: "HR", label: "HR", hint: "docs, leave admin" },
-  { name: "Staff Details", label: "Staff Details", hint: "records + birthdays" },
   { name: "Attendance", label: "Attendance", hint: "punches + roster" },
+  { name: "Ecommerce", label: "Ecommerce", hint: "TikTok + map" },
+  { name: "Inventory", label: "Inventory", hint: "" },
+  { name: "Sales", label: "Sales", hint: "enquiries + documents" },
+  { name: "Announcements", label: "News", hint: "feed + publish" },
+  { name: "HR", label: "HR", hint: "docs, leave admin" },
+  { name: "Staff Details", label: "Staff", hint: "records + birthdays" },
   { name: "Leave", label: "Leave", hint: "" },
-  { name: "Tasks", label: "Tasks", hint: "" },
-  { name: "Content", label: "Content", hint: "production pipeline" },
   { name: "Claims", label: "Claims", hint: "" },
   { name: "Payroll", label: "Payroll", hint: "salaries — keep tight" },
   { name: "Finance", label: "Finance", hint: "cash flow + P&L + expenses" },
-  { name: "Sales", label: "Sales", hint: "enquiries + documents" },
+  { name: "Tasks", label: "Tasks", hint: "" },
+  { name: "Content", label: "Content", hint: "production pipeline" },
   { name: "Reconciliation", label: "Reconciliation", hint: "channel settlements" },
   { name: "Commission", label: "Commission", hint: "" },
   { name: "Ads Fund", label: "Ads Fund", hint: "" },
   { name: "Purchasing", label: "Purchasing", hint: "suppliers + POs" },
   { name: "Accounting", label: "Accounting", hint: "GL — keep tight" },
-  { name: "Inventory", label: "Inventory", hint: "" },
   { name: "Stokis", label: "Stokis", hint: "reseller network" },
-  { name: "Ecommerce", label: "Ecommerce", hint: "TikTok + map" },
   { name: "Assets", label: "Assets", hint: "equipment register" },
   { name: "Users", label: "Users", hint: "accounts — keep tight" },
 ];
@@ -77,7 +77,7 @@ const DEFAULTS: Record<string, string[] | null> = {
   Accounting: ["admin", "ceo"],
   Inventory: ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   Stokis: ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
-  Ecommerce: null,
+  Ecommerce: ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"], // v1.22.0: no longer all-staff
   Assets: ["hr_admin", "coo", "cco", "ceo", "admin"],
   Users: ["ceo", "coo"],
 };

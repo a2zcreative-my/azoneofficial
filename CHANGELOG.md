@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.22.0] — 2026-08-17 — Tabs organised per role, in the CEO's order
+
+**Tab order is now the CEO's list, verbatim** (Dashboard · Attendance · Ecommerce · Inventory · Sales · News · HR · Staff · Leave · Claims · Payroll · Finance · Tasks · Content · Reconciliation · Commission · Ads Fund · Purchasing · Accounting · Stokis · Assets · Profile · Users). Order is functional, not cosmetic: the phone bottom bar is the first four tabs each role can SEE, so every role now opens onto their actual work — management gets Dashboard · Attendance · Ecommerce · Inventory; a live host or editor gets Dashboard · Attendance · News · Leave, with just Claims/Tasks/Content/Profile in More.
+
+**The last loose default is closed.** Ecommerce was visible to every staff role; it is now management + sales + marketing only (editors and live hosts out — its data routes were already server-gated to that tier). With that, every tab default matches its job:
+
+- All staff: Dashboard, Attendance, News, Leave, Claims, Tasks, Profile
+- Content team (+ mgmt): Content
+- Sales & marketing (+ mgmt): Ecommerce, Sales*, Inventory, Stokis, Ads Fund*
+- HR tier: HR, Staff, Assets (+ Commission view)
+- CEO/COO only: Payroll, Finance, Purchasing, Users*
+- CEO only: Accounting
+- (*Sales excludes marketing/editor/live-host; Ads Fund excludes editor/live-host; Users = CEO/COO/super_admin)
+
+Per-tab overrides in Users → Tab access control still trump all defaults, and the worker enforces every data route server-side regardless of what any client shows.
+
 ## [1.21.9] — 2026-08-17 — Mobile roster: proper agenda, overflow impossible
 
 **Fixes the remaining overflow the CEO caught in v1.21.8 and upgrades the look.** The v1.21.8 "today" highlight used a negative margin, making today's row 16px wider than the phone — the exact right-edge spill he screenshotted (my test week didn't include "today", so it slipped through; this pass verifies WITH the today band active: page width exactly equals the screen). The mobile roster is now a proper agenda: one rounded frame that clips its own content, day sections with a gold TODAY chip and per-day session counts, each session a row with a fixed time column, gold accent bar (amber = conflict, green = completed), truncating text everywhere, and tap-to-expand details with Mark completed / Cancel. No negative margins, no fixed widths wider than a phone — overflow is structurally impossible.

@@ -4712,7 +4712,13 @@ function TargetsCommissionCard() {
    (sales_documents is the one recorder); Overview folded into Dashboard/
    Tasks/Inventory; Birthdays folded into Staff Details; Cash Flow merged
    into the renamed Finance tab. Tables were NOT dropped. */
-const ALL_TABS = ["Dashboard", "Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Profile", "Users"] as const; // v1.4.213 Assets; v1.4.214 Ecommerce; v1.5.0 Social removed; v1.7.0 Content/Stokis; v1.18.0 ERP; v1.21.0 Pipeline retired (CEO) — enquiries live on Sales
+/* v1.22.0 (CEO: "I want organized for my staff able to access their tabs
+   easily and correctly"): tab order = HIS list, verbatim. Order matters
+   beyond cosmetics — the phone bottom bar is the first FOUR tabs each role
+   can see, so this sequencing decides every role's thumb row: management
+   leads with Attendance/Ecommerce/Inventory, while a live host's first
+   four resolve to Dashboard/Attendance/News/Leave — their actual day. */
+const ALL_TABS = ["Dashboard", "Attendance", "Ecommerce", "Inventory", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Profile", "Users"] as const;
 // v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
 // the raw "Announcements" key — spotted on the CEO's screenshot).
 // const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
@@ -4742,6 +4748,12 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
   Users: ["super_admin", "ceo", "coo"],
   /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
      worker matrix is the one actually enforced. */
+  /* v1.22.0 (CEO: "without anyone populate or access tabs that not
+     authorize for them"): Ecommerce was open to EVERY staff role — the
+     one loose default left. Editors and live hosts are out; the tab is
+     the revenue/orders view, and its data routes were already gated to
+     this tier server-side. */
+  Ecommerce: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
   Reconciliation: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   "Ads Fund": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
