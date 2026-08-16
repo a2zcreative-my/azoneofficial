@@ -7,6 +7,7 @@
    status. Assets are never deleted; status moves to lost/disposed. */
 
 import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
@@ -88,15 +89,16 @@ export function AssetsPanel() {
 
   const save = async () => {
     const body = JSON.stringify(form);
+    /* v1.23.1: through the shared api() helper — the raw fetch never sent
+       X-CSRF-Token, so every asset save 403'd ("CSRF token mismatch"). */
     const res = editId
-      ? await fetch(`/api/v1/staff/assets/${editId}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body })
-      : await fetch("/api/v1/staff/assets", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body });
+      ? await api<{ error?: { message?: string } }>(`/staff/assets/${editId}`, { method: "PATCH", body })
+      : await api<{ error?: { message?: string } }>(`/staff/assets`, { method: "POST", body });
     if (res.ok) {
       showToast(editId ? "Asset updated" : "Asset added", editId ? "Changes saved to the register" : "New asset in the register");
       setForm({ ...EMPTY }); setEditId(null); setOpenForm(false); load();
     } else {
-      const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      showToast("Save failed", j?.error?.message ?? "Please try again", "notice");
+      showToast("Save failed", res.data?.error?.message ?? "Please try again", "notice");
     }
   };
 

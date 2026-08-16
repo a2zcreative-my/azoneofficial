@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/api";
 import { PasswordInput } from "@/components/ui/password-input";
 import { inputClass } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -31,38 +32,37 @@ export function ChangePasswordForm() {
 
   const submit = async () => {
     setState({ kind: "busy" });
-    try {
-      const res = await fetch("/api/v1/auth/change-password", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ current_password: current, new_password: next }),
-      });
-      if (res.ok) {
-        setCurrent("");
-        setNext("");
-        setConfirm("");
-        setState({ kind: "done" });
-        showToast("Saved", "Password changed — use the new one next time you sign in");
-        return;
-      }
-      const data = (await res.json().catch(() => null)) as {
-        error?: { code?: string; message?: string };
-      } | null;
-      const code = data?.error?.code;
-      setState({
-        kind: "error",
-        message:
-          code === "google_account"
-            ? "This account signs in with Google — manage your password in your Google account instead."
-            : code === "invalid_credentials"
-              ? "Current password is incorrect — use the eye icon to check what you typed."
-              : (data?.error?.message ??
-                "Could not change the password. Check the fields and try again."),
-      });
-    } catch {
-      setState({ kind: "error", message: "Network error — try again." });
+    /* v1.23.1 (staff: "CSRF token mismatch"): this form was the LAST raw
+       fetch() on a mutating route — it never attached the X-CSRF-Token
+       header, so every self-service password change 403'd. The shared api()
+       helper (v1.5.0) attaches it on every mutating call; drift ended. */
+    const res = await api<{ error?: { code?: string; message?: string } }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: current, new_password: next }),
+    });
+    if (res.ok) {
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setState({ kind: "done" });
+      showToast("Saved", "Password changed — use the new one next time you sign in");
+      return;
     }
+    if (res.status === 0) {
+      setState({ kind: "error", message: "Network error — try again." });
+      return;
+    }
+    const code = res.data?.error?.code;
+    setState({
+      kind: "error",
+      message:
+        code === "google_account"
+          ? "This account signs in with Google — manage your password in your Google account instead."
+          : code === "invalid_credentials"
+            ? "Current password is incorrect — use the eye icon to check what you typed."
+            : (res.data?.error?.message ??
+              "Could not change the password. Check the fields and try again."),
+    });
   };
 
   return (

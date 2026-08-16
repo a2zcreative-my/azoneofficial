@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.1] — 2026-08-17 — Google sign-in 2FA enforced + CSRF fixed on change-password
+
+**Google sign-in no longer bypasses 2FA (CEO: "when my staff login using Google, there is no 2FA appear which is incorrect flow … this is something that you leak!").** Password sign-in has always refused to mint a session for an account with 2FA enabled until a valid authenticator code is entered — but Google sign-in minted the session immediately, walking straight past that control. Now the Google callback follows the exact same flow: 2FA on → no session; a 5-minute single-use challenge is handed to the sign-in page, the same code screen appears, and the session is created only by a valid code (same 5-attempt limit and rate limiting). Customer accounts still land on /account, staff on /portal, admin tier on /admin — nothing about the routing changed.
+
+**2FA is now mandatory for EVERY staff role (CEO decision).** Previously only management (CEO, COO, CCO, HR admin, admin tier) was forced to enrol; live hosts and marketing could skip it — which is why no 2FA appeared for a live host at all. Every staff role now hits the "Two-Factor Authentication Required" setup screen on first sign-in — Google or password — and cannot enter the portal until enrolled. Customers stay exempt.
+
+**"CSRF token mismatch or missing" on Change password — fixed (staff report).** The change-password form was the last surviving raw fetch() on a mutating route: it never attached the X-CSRF-Token header, so the server's CSRF shield rejected every self-service password change, for everyone. It now goes through the shared api() helper like everything else. The same latent leak was found and fixed in two more places: asset register saves and the payroll M2E template upload.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL. After deploying: staff without 2FA will be asked to set it up on their next sign-in (they need an authenticator app — Google Authenticator or similar); tell them to keep their backup codes. Requires v1.22.9's password fix to be live for password changes to actually save.
+
 ## [1.23.0] — 2026-08-17 — The portal sidebar on /admin and /account
 
 **The navy icon rail is now on /admin and /account too (CEO: "Where is the sidebar for /account and /admin as same as /portal?").** Both surfaces use the exact SidebarNav component the portal uses — logo at the top, one icon per section with the active one in a gold tile, sign out at the bottom — fed their own sections (admin: Dashboard→Advanced with Users/Staff/Audit gated to the admin tier; account: Account / Orders / My Enquiries). The old desktop pill rows are retired — the rail is the desktop navigation, exactly like the portal — and the admin desktop heading now names the active section. Phones are untouched: bottom navigation and the More sheet behave exactly as before.

@@ -60,11 +60,24 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    /* v1.23.1: Google sign-in with 2FA enabled no longer mints a session —
+       the callback drops a 5-minute challenge cookie and lands here with
+       ?2fa=1. Read it, clear it, and show the same code screen password
+       sign-in uses. The session is created only after a valid code. */
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("2fa") === "1") {
+      const m = document.cookie.match(/(?:^|; )twofa_challenge=([^;]*)/);
+      if (m?.[1]) {
+        setChallenge(m[1]);
+        document.cookie = "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0";
+        return; // no /auth/me probe — there is deliberately no session yet
+      }
+      setError("This sign-in attempt expired — please sign in again.");
+    }
     // Already signed in? Route straight to the right place.
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data?.user) window.location.replace(destinationFor(r.data.user.role));
     });
-    const q = new URLSearchParams(window.location.search);
     if (q.get("error") === "oauth") setError("Google sign-in didn't complete — please try again.");
   }, []);
 

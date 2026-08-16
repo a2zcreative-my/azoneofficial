@@ -2274,6 +2274,32 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
       .bind(account.id).first<{ role: Role }>();
+
+    /* v1.23.1 (CEO: "when my staff login using Google, there is no 2FA appear
+       which is incorrect flow … it is supposed to follow my existing staff
+       flow! this is something that you leak!"): Google used to mint a full
+       session even when the account has 2FA ENABLED — a bypass of the exact
+       control password sign-in enforces. Now: 2FA on → NO session; the same
+       short-lived challenge as password login, handed to /login via a 5-min
+       cookie, and the session is minted only by /auth/2fa/verify with a valid
+       code. (Mandatory-role accounts NOT yet enrolled are still caught after
+       sign-in by requires_2fa, which blocks the portal until setup — same as
+       before, any sign-in method.) */
+    const twofaG = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
+      .bind(account.id).first<{ totp_enabled: number }>();
+    if (twofaG?.totp_enabled) {
+      const challenge = crypto.randomUUID() + crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO twofa_challenges (id, user_id, expires_at)
+         VALUES (?1, ?2, datetime('now', '+5 minutes'))`,
+      ).bind(await sha256Hex(challenge), account.id).run();
+      await audit(env, account.id, "auth.2fa_challenge");
+      const h2 = new Headers({ Location: "/login?2fa=1" });
+      h2.append("Set-Cookie", `twofa_challenge=${challenge}; Secure; SameSite=Lax; Path=/; Max-Age=300`);
+      h2.append("Set-Cookie", clearState);
+      return new Response(null, { status: 302, headers: h2 });
+    }
+
     const dest =
       roleRow?.role === "customer" ? "/account"
       : ["super_admin", "admin"].includes(roleRow?.role ?? "")

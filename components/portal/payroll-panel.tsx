@@ -9,7 +9,7 @@
  * or hr_admin (hr_manage); COO/CCO see it read-only via exec view.
  */
 
-import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { makeApi, getCsrfToken } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState } from "react";
 import { displayName } from "@/lib/names";
@@ -370,7 +370,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     else showToast("No changes", r.data?.error?.message ?? "Save failed", "notice");
   };
   const uploadM2eTemplate = async (f: File) => {
-    const res = await fetch(`${API}/payroll/m2e-template`, { method: "POST", credentials: "include", body: f });
+    /* v1.23.1: raw fetch (needed — binary body, api() would JSON it) but WITH
+       the CSRF header the middleware requires on every mutating call. */
+    const res = await fetch(`${API}/payroll/m2e-template`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() }, body: f });
     const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     if (res.ok) { setM2eHasTpl(true); showToast("Saved", "Blank M2E template stored — 💳 now generates the filled workbook"); }
     else showToast("No changes", j?.error?.message ?? "Template upload failed", "notice");

@@ -45,8 +45,14 @@ export function can(role: Role | string | undefined | null, perm: keyof typeof P
   return PERMS[perm]!.includes(role as Role);
 }
 
-// Privileged roles that must have 2FA enabled.
+// Roles that must have 2FA enabled.
 // v1.5.0: cco added — it holds team_manage / payroll_export / exec_view /
 // finance (strictly more than hr_admin, which was already on the list);
 // leaving it off was a transposition oversight.
-export const MANDATORY_2FA_ROLES: Role[] = ["ceo", "super_admin", "admin", "coo", "cco", "hr_admin"];
+// v1.23.1 (CEO decision): EVERY staff role — the portal holds attendance,
+// payroll and inventory, so "staff flow" means 2FA for all of it, whether
+// they sign in with a password or with Google. Customers stay exempt.
+export const MANDATORY_2FA_ROLES: Role[] = [
+  "ceo", "super_admin", "admin", "coo", "cco", "hr_admin",
+  "editor", "marketing", "sales_marketing", "live_host",
+];
