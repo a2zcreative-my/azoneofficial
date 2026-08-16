@@ -11,6 +11,7 @@ import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
+import { shareRosterPdf } from "@/lib/roster-pdf";
 import { MiniCalendar } from "@/components/portal/mini-calendar";
 
 const api = makeApi("/staff");
@@ -85,24 +86,90 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
 
   const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
+  /* v1.22.1 (CEO: "I need to create multiple schedule in 1 day or in 1 week
+     or advance date. provide me a better workflow"): the dialog builds a
+     PLAN before it posts. Repeat rules (daily / picked weekdays until a
+     date) expand one entry into many; "Add to plan" stacks entries — same
+     day different slots, different hosts, weeks ahead — and "Schedule all"
+     creates them in one go. Every created session still bell-notifies its
+     host individually. One-off scheduling is unchanged: fill the form and
+     the button reads "Schedule" exactly as before. */
+  /* v1.22.3 (CEO showed a staff×day reference: "I want weekly roster
+     schedule looks like this!"): the desktop default is now a STAFF GRID —
+     one row per person, one column per day, sessions as colour chips, hour
+     totals on both axes. The hour timeline (with drag-to-reschedule) stays
+     one toggle away. Colours stay brand: navy tint = TikTok, gold tint =
+     Shopee, neutral = other; green = completed, amber = conflict. */
+  const [view, setView] = useState<"grid" | "timeline">("grid");
+
+  type PlanEntry = typeof draft;
+  const [repeat, setRepeat] = useState<"once" | "daily" | "days">("once");
+  const [repeatUntil, setRepeatUntil] = useState("");
+  const [repeatDays, setRepeatDays] = useState<number[]>([]); // JS getUTCDay: 0=Sun
+  const [plan, setPlan] = useState<PlanEntry[]>([]);
+
   const openAssign = (prefill?: Partial<typeof draft>) => {
     setDraft({ session_date: todayS, start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "", ...prefill });
+    setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
     setAssignOpen(true);
   };
 
-  const saveAssign = async () => {
+  /** The dates the current form + repeat rule expand to (capped at 62). */
+  const expandDates = (): string[] => {
+    if (repeat === "once" || !repeatUntil || repeatUntil < draft.session_date) return [draft.session_date];
+    const out: string[] = [];
+    const end = new Date(`${repeatUntil}T00:00:00Z`).getTime();
+    for (let t = new Date(`${draft.session_date}T00:00:00Z`).getTime(); t <= end && out.length < 62; t += 86400000) {
+      const d = new Date(t);
+      if (repeat === "daily" || repeatDays.includes(d.getUTCDay())) out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  };
+
+  const addToPlan = () => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
       showToast("No change", "Date, start time and host are required", "notice");
       return;
     }
-    setSaving(true);
-    const r = await api<{ error?: { message?: string } }>(`/live-sessions`, {
-      method: "POST",
-      body: JSON.stringify({ ...draft, host_user_id: Number(draft.host_user_id) }),
+    const dates = expandDates();
+    if (dates.length === 0) { showToast("No change", repeat === "days" ? "Pick at least one weekday" : "Check the until date", "notice"); return; }
+    setPlan((p) => {
+      const key = (e: PlanEntry) => `${e.session_date}|${e.start_time}|${e.host_user_id}`;
+      const seen = new Set(p.map(key));
+      const fresh = dates.map((dt) => ({ ...draft, session_date: dt })).filter((e) => !seen.has(key(e)));
+      return [...p, ...fresh].slice(0, 100).sort((a, b) => `${a.session_date}${a.start_time}`.localeCompare(`${b.session_date}${b.start_time}`));
     });
+    setRepeat("once"); setRepeatUntil(""); setRepeatDays([]);
+  };
+
+  const saveAssign = async () => {
+    /* One-off fast path — identical to the old behaviour. */
+    const batch: PlanEntry[] = plan.length > 0 ? plan
+      : (repeat !== "once" ? [] : [draft]);
+    if (plan.length === 0 && repeat !== "once") { addToPlan(); return; }
+    if (batch.length === 1 && plan.length === 0) {
+      if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
+        showToast("No change", "Date, start time and host are required", "notice");
+        return;
+      }
+    }
+    setSaving(true);
+    let ok = 0; const fails: string[] = [];
+    for (const e of batch) {
+      const r = await api<{ error?: { message?: string } }>(`/live-sessions`, {
+        method: "POST",
+        body: JSON.stringify({ ...e, host_user_id: Number(e.host_user_id) }),
+      });
+      if (r.ok) ok++;
+      else fails.push(`${dmy(e.session_date)} ${e.start_time}${r.data?.error?.message ? ` (${r.data.error.message})` : ""}`);
+    }
     setSaving(false);
-    if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not schedule", "notice"); return; }
-    showToast("Scheduled", `${draft.client_name || "Live session"} · ${dmy(draft.session_date)} ${draft.start_time}`);
+    if (ok === 0) { showToast("No change", fails[0] ?? "Could not schedule", "notice"); return; }
+    showToast(
+      ok === 1 && batch.length === 1 ? "Scheduled" : `Scheduled ${ok} session${ok === 1 ? "" : "s"}`,
+      fails.length > 0 ? `${fails.length} failed: ${fails[0]}` : (batch.length === 1 ? `${batch[0]!.client_name || "Live session"} · ${dmy(batch[0]!.session_date)} ${batch[0]!.start_time}` : "Each host has been notified"),
+      fails.length > 0 ? "notice" : undefined,
+    );
     setAssignOpen(false);
     void load(week);
   };
@@ -215,18 +282,160 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
         {/* the week grid */}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button type="button" className={btnSm} onClick={() => { if (week === "") void load(""); else setWeek(""); }}>Today</button>
               <button type="button" className={btnSm} aria-label="Previous week" onClick={() => setWeek(shiftWeek(data.week_start, -1))}>‹</button>
               <button type="button" className={btnSm} aria-label="Next week" onClick={() => setWeek(shiftWeek(data.week_start, 1))}>›</button>
+              {/* v1.22.2 (CEO: "generate 1 schedule table in PDF so that I
+                  can share to them for their awareness"): the loaded week as
+                  a branded PDF, straight into the phone's share sheet. */}
+              <button type="button" className={btnSm}
+                onClick={async () => {
+                  const how = await shareRosterPdf(data.days, data.sessions, "AZ ONE staff portal");
+                  showToast(how === "shared" ? "Ready to share" : "Downloaded",
+                    `Week roster PDF · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
+                }}>
+                PDF — share plan
+              </button>
+              {/* v1.22.3 — view toggle (desktop only; phones keep the agenda). */}
+              <span className="border-border ml-1 hidden overflow-hidden rounded-lg border text-xs md:inline-flex">
+                {([["grid", "Staff grid"], ["timeline", "Timeline"]] as const).map(([v, l]) => (
+                  <button key={v} type="button"
+                    className={`px-2.5 py-1 font-medium ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
+                    onClick={() => setView(v)}>{l}</button>
+                ))}
+              </span>
             </div>
             <p className="text-sm font-medium tabular-nums">Week of {dmy(data.days[0]!)} – {dmy(data.days[6]!)}</p>
           </div>
+          {/* v1.22.3 — STAFF GRID (desktop default): staff rows × day
+              columns, the CEO's reference layout in AZ ONE colours. */}
+          {view === "grid" && (
+            <div className="mt-2 hidden overflow-x-auto md:block">
+              <div className="border-border relative min-w-[760px] overflow-hidden rounded-lg border">
+                {(() => {
+                  const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, mins(s.end_time) - mins(s.start_time)) : 60);
+                  const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} hrs`;
+                  const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
+                  const rows = staff;
+                  const cellSessions = (uid: number, d: string) =>
+                    active.filter((s) => s.host_user_id === uid && s.session_date === d)
+                      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+                  const chipCls = (s: RosterSession) =>
+                    conflictIds.has(s.id) ? "border-warning bg-warning-soft"
+                    : s.status === "completed" ? "border-success bg-success-soft"
+                    : s.platform === "tiktok" ? "border-brand/30 bg-brand/10"
+                    : s.platform === "shopee" ? "border-gold bg-gold-soft/60"
+                    : "border-border bg-secondary";
+                  const gridCols = { gridTemplateColumns: "170px repeat(7, 1fr)" };
+                  return (
+                    <>
+                      {/* header: staff corner + day columns with totals */}
+                      <div className="border-border grid border-b" style={gridCols}>
+                        <div className="bg-brand flex flex-col justify-center px-3 py-2">
+                          <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">Staff</p>
+                          <p className="text-xs font-semibold text-white tabular-nums">{active.length} session{active.length === 1 ? "" : "s"} · {hrs(active.reduce((a, s) => a + durOf(s), 0))}</p>
+                        </div>
+                        {data.days.map((d, i) => {
+                          const dayS = active.filter((s) => s.session_date === d);
+                          const isToday = d === todayS;
+                          return (
+                            <div key={d} className={`border-border border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
+                              <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAY_LABEL[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
+                              <p className="text-muted-foreground text-[10px] tabular-nums">
+                                {dayS.length === 0 ? "—" : `${dayS.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0))}`}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* one row per staff member */}
+                      {rows.map((u) => {
+                        const mine = active.filter((s) => s.host_user_id === u.id);
+                        return (
+                          <div key={u.id} className="border-border grid border-b last:border-b-0" style={gridCols}>
+                            <div className="border-border flex flex-col justify-center border-r px-3 py-1.5">
+                              <p className="truncate text-xs font-semibold" title={u.name}>{u.name.split(" ").slice(0, 2).join(" ")}</p>
+                              <p className="text-muted-foreground text-[10px] tabular-nums">
+                                {mine.length === 0 ? "no sessions" : `${mine.length} session${mine.length === 1 ? "" : "s"} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`}
+                              </p>
+                            </div>
+                            {data.days.map((d) => {
+                              const cs = cellSessions(u.id, d);
+                              const leave = onLeave(u.id, d);
+                              return (
+                                <div key={d} className={`border-border min-h-12 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""}`}>
+                                  {leave && (
+                                    <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">On leave</div>
+                                  )}
+                                  {cs.map((s) => (
+                                    <button key={s.id} type="button"
+                                      title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${s.notes ? ` — ${s.notes}` : ""}`}
+                                      onClick={() => setOpenSession(openSession === s.id ? null : s.id)}
+                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${chipCls(s)}`}>
+                                      <span className="block truncate text-[10px] leading-tight font-semibold">{s.client ?? "Live"}</span>
+                                      <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
+                                        {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {durOf(s)} min
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                      {/* centred detail card for a clicked chip */}
+                      {sel && (
+                        <div className="bg-brand absolute left-1/2 top-14 z-20 w-72 -translate-x-1/2 rounded-xl p-3.5 text-white shadow-xl">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold">{sel.client ?? "Live session"}
+                              <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{sel.status}</span>
+                            </p>
+                            <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
+                          </div>
+                          <p className="mt-1.5 text-xs text-white/85">{sel.host_name}</p>
+                          <p className="mt-0.5 text-xs text-white/85 tabular-nums">{dmy(sel.session_date)} · {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
+                          {sel.notes && <p className="mt-1 text-xs text-white/70">{sel.notes}</p>}
+                          {canManage && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {sel.status === "scheduled" && (
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                                  ✓ Mark completed
+                                </button>
+                              )}
+                              {sel.status !== "cancelled" && (
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                                  ✕ Cancel session
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* legend */}
+                      <div className="border-border text-muted-foreground flex flex-wrap gap-3 border-t px-3 py-1.5 text-[10px]">
+                        <span className="inline-flex items-center gap-1"><span className="border-brand/30 bg-brand/10 h-2.5 w-2.5 rounded-sm border" />TikTok</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-gold bg-gold-soft/60 h-2.5 w-2.5 rounded-sm border" />Shopee</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-border bg-secondary h-2.5 w-2.5 rounded-sm border" />Other</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />Completed</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />Conflict</span>
+                        <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />On leave</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* v1.21.8 (CEO: "It overflow to the right for mobile apps view!"):
               the 7-column hour grid is a DESKTOP layout — 640px min width
               can only overflow a 390px phone. Phones now get the day list
               below instead; the grid renders from md: up only. */}
-          <div className="mt-2 hidden overflow-x-auto md:block">
+          <div className={`mt-2 overflow-x-auto ${view === "timeline" ? "hidden md:block" : "hidden"}`}>
             <div className="min-w-[640px]">
               {/* day headers */}
               <div className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
@@ -497,7 +706,7 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
       {/* assignment modal (click-to-assign) */}
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={() => setAssignOpen(false)}>
-          <div className="bg-card border-border w-full max-w-md rounded-2xl border p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-base font-semibold">New assignment</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
@@ -541,10 +750,75 @@ export function RosterBoard({ canManage }: { canManage: boolean }) {
                   onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
               </label>
             </div>
-            <div className="mt-4 flex items-center gap-3">
+
+            {/* v1.22.1 — repeat rule: one entry can expand to a whole run. */}
+            <div className="border-border mt-3 rounded-lg border p-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`${fieldLabel} mb-0 mr-1`}>Repeat</span>
+                {([["once", "One-off"], ["daily", "Daily"], ["days", "Pick days"]] as const).map(([v, l]) => (
+                  <button key={v} type="button"
+                    className={repeat === v
+                      ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                      : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
+                    onClick={() => setRepeat(v)}>{l}</button>
+                ))}
+                {repeat !== "once" && (
+                  <label className="ml-auto flex items-center gap-1.5 text-[11px]">
+                    <span className="text-muted-foreground">until</span>
+                    <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={repeatUntil} min={draft.session_date}
+                      onChange={(e) => setRepeatUntil(e.target.value)} />
+                  </label>
+                )}
+              </div>
+              {repeat === "days" && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {([["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]] as const).map(([l, n]) => {
+                    const on = repeatDays.includes(n);
+                    return (
+                      <button key={n} type="button"
+                        className={on
+                          ? "bg-gold-solid rounded-md px-2 py-0.5 text-[11px] font-semibold text-white"
+                          : "border-border text-muted-foreground rounded-md border px-2 py-0.5 text-[11px]"}
+                        onClick={() => setRepeatDays((ds) => (on ? ds.filter((x) => x !== n) : [...ds, n]))}>{l}</button>
+                    );
+                  })}
+                </div>
+              )}
+              {repeat !== "once" && repeatUntil && (
+                <p className="text-muted-foreground mt-1.5 text-[11px]">
+                  → {expandDates().length} session{expandDates().length === 1 ? "" : "s"} from {dmy(draft.session_date)} to {dmy(repeatUntil)}
+                </p>
+              )}
+              <p className="text-muted-foreground mt-1.5 text-[11px]">
+                Add to plan, adjust the form (another time, another host, another day), add again — then schedule everything at once.
+              </p>
+            </div>
+
+            {/* the plan — everything queued so far */}
+            {plan.length > 0 && (
+              <div className="border-gold bg-gold-soft/30 mt-2 max-h-40 overflow-y-auto rounded-lg border p-2.5">
+                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Plan · {plan.length} session{plan.length === 1 ? "" : "s"}</p>
+                {plan.map((e, i) => (
+                  <p key={`${e.session_date}${e.start_time}${e.host_user_id}${i}`} className="mt-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="min-w-0 truncate">
+                      <span className="font-semibold tabular-nums">{dmy(e.session_date)} {e.start_time}{e.end_time ? `–${e.end_time}` : ""}</span>
+                      <span className="text-muted-foreground"> · {(staff.find((u) => String(u.id) === String(e.host_user_id))?.name ?? "").split(" ").slice(0, 2).join(" ")}{e.client_name ? ` · ${e.client_name}` : ""}</span>
+                    </span>
+                    <button type="button" aria-label="Remove from plan" className="text-muted-foreground shrink-0 hover:text-danger"
+                      onClick={() => setPlan((p) => p.filter((_, j) => j !== i))}>✕</button>
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
-                {saving ? "Scheduling…" : "Schedule"}
+                {saving ? "Scheduling…"
+                  : plan.length > 0 ? `Schedule all (${plan.length})`
+                  : repeat !== "once" ? "Add to plan"
+                  : "Schedule"}
               </button>
+              <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>+ Add to plan</button>
               <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setAssignOpen(false)}>Cancel</button>
             </div>
           </div>
