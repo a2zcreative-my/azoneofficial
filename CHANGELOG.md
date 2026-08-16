@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.22.8] — 2026-08-17 — Overnight sessions flow correctly + /admin and /account on the portal shell
+
+**Timeline: sessions past midnight now flow correctly (CEO: "timeline for the 8 to 10pm was not flow correctly!").** A session ending past midnight (20:30–00:00) has an end time smaller than its start, so the duration went NEGATIVE — the timeline drew a flat 22px sliver, and the staff grid and PDF called it "30 min". An overnight end now counts as next-day everywhere: the timeline block flows down to the visible edge (23:00), and the staff grid, weekly hour totals and the share-plan PDF all say the real duration (20:30–00:00 = 210 min / 3.5 hrs).
+
+**/admin and /account now follow the portal UI (CEO: "for /admin and /account also I found doesnt follow UI/UX as /portal").** Both surfaces sit on the exact same shell as the staff portal — navy backdrop, rounded light canvas, internal scroll on desktop — and every admin section (Dashboard, Enquiries, Posts, Portfolio, Testimonials, Media, Website, Advanced, Users, Account) now renders inside the house card, like every portal module. Phones are untouched: the mobile headers, bottom navigation and More sheet behave exactly as before (the shell is desktop-only by design, same as /portal).
+
+**Deploy notes:** site-only changes this time, but run `DEPLOY.bat` IN FULL as always — if you haven't deployed v1.22.7 yet, this zip carries everything cumulative (worker included).
+
 ## [1.22.7] — 2026-08-17 — Inventory crash fixed + crash recovery screen + honest edit toast + set-password popup
 
 **The Inventory white-screen is fixed (staff report: "Application error: a client-side exception … causing the system cant be access by her").** Root cause: one inventory row with an empty SKU (old rows predate today's validation; audit rows can also carry NULLs) crashed the SKU sort and unmounted the entire portal — and because the portal reopens your last tab, every later visit crashed on load. Two-layer fix: (1) every inventory list (items, TikTok stock-out, manual movements, supplier returns, postage, materials) is sanitised at the moment it arrives, so a NULL field can never reach the screen; (2) a new portal-wide recovery screen — if any card ever crashes again, staff see a branded "Something went wrong on this screen" card with **Back to Dashboard** (clears the remembered tab and reloads clean) instead of a white page. Nobody can be locked out by one bad card again. Verified: the exact crash reproduced, then rendered clean; the recovery screen tested end-to-end.

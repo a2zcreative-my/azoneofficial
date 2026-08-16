@@ -56,7 +56,14 @@ export interface RosterPdfLeave { user_id: number; start_date: string; end_date:
 export interface RosterPdfStaff { id: number; name: string }
 
 const minsOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-const durOf = (s: RosterPdfSession) => (s.end_time ? Math.max(30, minsOf(s.end_time) - minsOf(s.start_time)) : 60);
+/* v1.22.8: an overnight end (20:30–00:00) counts as next-day — the duration
+   used to go negative and print as 30 min. */
+const durOf = (s: RosterPdfSession) => {
+  if (!s.end_time) return 60;
+  let d = minsOf(s.end_time) - minsOf(s.start_time);
+  if (d <= 0) d += 24 * 60;
+  return Math.max(30, d);
+};
 const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} hrs`;
 
 export function drawRosterGrid(

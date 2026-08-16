@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, btnClass, btnGhost, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { AppShell } from "@/components/layout/app-shell";
 import { dmy, fmtRM } from "@/lib/format";
 
 
@@ -77,8 +78,13 @@ export default function AccountPage() {
 
   if (!checked || !user) return null;
 
+  /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
+     /portal"): the customer area now sits on the SAME shell as the portal —
+     navy backdrop, rounded canvas, internal scroll on desktop. Phones are
+     untouched (all shell rules are md:-prefixed). */
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-5 md:py-6 md:pb-6">
+    <AppShell maxWidth="md:max-w-4xl">
+    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {toastNode}
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
@@ -403,5 +409,6 @@ export default function AccountPage() {
         <a className="underline" href="/privacy">Privacy Notice (PDPA)</a>
       </p>
     </div>
+    </AppShell>
   );
 }

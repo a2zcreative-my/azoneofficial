@@ -20,7 +20,8 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { inputClass, btnClass, btnGhost } from "@/lib/ui-styles";
+import { inputClass, btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { AppShell } from "@/components/layout/app-shell";
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
@@ -965,8 +966,13 @@ export default function AdminPage() {
   /* v1.11.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset (same
      as /portal), and pb-24 left the last card tucked under it on notched
      phones. */
+  /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
+     /portal"): the admin console now sits on the SAME shell as the portal —
+     navy backdrop, rounded canvas, internal scroll on desktop — and every
+     section renders inside a house card. Phones untouched (md:-prefixed). */
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-5 md:py-6 md:pb-6">
+    <AppShell maxWidth="md:max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
@@ -1132,9 +1138,13 @@ export default function AdminPage() {
 
       <main key={tab} className="screen-enter mt-4 md:mt-8">
         <p className="text-muted-foreground -mt-2 mb-4 text-xs">{TAB_HELP[tab]}</p>
-        {tab === "Dashboard" && <Dashboard />}
-        {tab === "Enquiries" && <Enquiries />}
+        {/* v1.22.8: bare sections now render inside the house card, exactly
+            like every /portal module. Staff/Audit/Account tabs already use
+            card components of their own. */}
+        {tab === "Dashboard" && <div className={card}><Dashboard /></div>}
+        {tab === "Enquiries" && <div className={card}><Enquiries /></div>}
         {tab === "Posts" && (
+          <div className={card}>
           <CrudPanel
             resource="posts"
             titleKey="title"
@@ -1147,8 +1157,10 @@ export default function AdminPage() {
               { key: "category", label: "Category" },
             ]}
           />
+          </div>
         )}
         {tab === "Portfolio" && (
+          <div className={card}>
           <CrudPanel
             resource="portfolio"
             titleKey="client"
@@ -1159,11 +1171,12 @@ export default function AdminPage() {
               { key: "is_published", label: "Published", type: "checkbox" },
             ]}
           />
+          </div>
         )}
-        {tab === "Media" && <MediaPanel />}
-        {tab === "Website" && <SiteEditor />}
-        {tab === "Advanced" && <ContentPanel />}
-        {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <UsersPanel me={user} />}
+        {tab === "Media" && <div className={card}><MediaPanel /></div>}
+        {tab === "Website" && <div className={card}><SiteEditor /></div>}
+        {tab === "Advanced" && <div className={card}><ContentPanel /></div>}
+        {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <div className={card}><UsersPanel me={user} /></div>}
         {/* v1.4.192: standard multi-card spacing wrapper (was ad-hoc mt-6 divs) */}
         {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
@@ -1180,11 +1193,12 @@ export default function AdminPage() {
         )}
         {tab === "Account" && (
           <div className="space-y-4 md:space-y-6">
-            <AccountPanel />
+            <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
           </div>
         )}
         {tab === "Testimonials" && (
+          <div className={card}>
           <CrudPanel
             resource="testimonials"
             titleKey="author"
@@ -1197,8 +1211,10 @@ export default function AdminPage() {
               { key: "is_published", label: "Published", type: "checkbox" },
             ]}
           />
+          </div>
         )}
       </main>
     </div>
+    </AppShell>
   );
 }

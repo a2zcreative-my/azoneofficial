@@ -38,6 +38,15 @@ function mins(hhmm: string): number {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
   return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
 }
+/* v1.22.8 (CEO: "timeline for the 8 to 10pm was not flow correctly!"): a
+   session that ends past midnight (20:30–00:00) has end < start, so its
+   duration went NEGATIVE — the timeline drew a flat 22px sliver and the
+   grid/PDF called it 30 min. An overnight end now counts as next-day. */
+function spanMins(start: string, end: string): number {
+  let d = mins(end) - mins(start);
+  if (d <= 0) d += 24 * 60;
+  return d;
+}
 function mondayOf(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
   const dow = (d.getUTCDay() + 6) % 7;
@@ -402,7 +411,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             <div className="mt-2 hidden overflow-x-auto md:block">
               <div className="border-border relative min-w-[760px] overflow-hidden rounded-lg border">
                 {(() => {
-                  const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, mins(s.end_time) - mins(s.start_time)) : 60);
+                  const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, spanMins(s.start_time, s.end_time)) : 60);
                   const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} hrs`;
                   const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
                   const rows = staff;
@@ -585,7 +594,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     }}>
                     {active.filter((s) => s.session_date === d).map((s) => {
                       const top = Math.min(gridHeight - 22, Math.max(0, ((mins(s.start_time) - DAY_START * 60) / 60) * HOUR_PX));
-                      const endM = s.end_time ? mins(s.end_time) : mins(s.start_time) + 60;
+                      // v1.22.8: overnight end (00:00 etc.) counts as next-day,
+                      // so the block flows to the bottom edge instead of a sliver.
+                      const endM = s.end_time ? mins(s.start_time) + spanMins(s.start_time, s.end_time) : mins(s.start_time) + 60;
                       // clamp inside the 08:00–23:00 window so early/late
                       // sessions pin to the edge instead of overflowing
                       const height = Math.min(gridHeight - top, Math.max(22, ((endM - mins(s.start_time)) / 60) * HOUR_PX - 2));
