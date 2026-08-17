@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.7] — 2026-08-17 — Clients summary D1 error fixed
+
+**The `/staff/clients/summary` server error is fixed (error log 17-08 15:16: "D1_ERROR: no such column: c.name").** The clients directory query asked the customers table for a `name` column that never existed — the table stores the person as `contact_person` — so the endpoint failed on every call: the clients card showed its error state and the command palette silently skipped client results. The query now aliases `contact_person AS name` (the shape the portal already expects), validated against the full migrated schema.
+
+**Deploy notes:** WORKER change — run `DEPLOY.bat` IN FULL (step 3). No migration. Nice side-effect of the new tooling: this bug was found from the error log alone, and /api/v1/health will confirm the worker is on 1.23.7 after the deploy.
+
 ## [1.23.6] — 2026-08-17 — Roster status from the Dashboard · refresh opens Dashboard · roster card clip
 
 **Update session status right on the Dashboard (CEO: "On the dashboard, I cant update their status roster").** On "Assignments today", managers (CEO/COO/CCO/HR admin + admin tier) tap a status chip (it now shows a ▾): a scheduled session opens "✓ Mark done / ✕ Cancel session", a finished one offers "Back to scheduled". Same PATCH the roster board uses, hosts are notified per the usual rules, the card refreshes instantly, and staff see the same list read-only. Works in both the phone rows and the desktop table.

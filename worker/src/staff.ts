@@ -3341,8 +3341,12 @@ export async function handleStaff(
      paid totals from sales docs and scheduled live sessions per client. */
   if (path === "/clients/summary" && method === "GET") {
     if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
+    /* v1.23.7 (error_log 17-08 15:16: "no such column: c.name"): customers
+       has contact_person, not name — this query 500'd on EVERY call since it
+       was written (the clients directory card showed its error state, and
+       the command palette silently skipped client results). Aliased. */
     const { results } = await env.DB.prepare(
-      `SELECT c.id, c.company, c.name, c.phone, c.email,
+      `SELECT c.id, c.company, c.contact_person AS name, c.phone, c.email,
               (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoices,
               (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoiced_cents,
               (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid') AS paid_cents,
