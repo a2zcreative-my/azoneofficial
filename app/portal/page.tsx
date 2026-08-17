@@ -1391,7 +1391,10 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
       {/* v1.8.0 — reference-design cards: attendance donut · today's
           assignments · month-by-month bars. */}
       {canStatus && (
-        <div className="grid gap-3 md:gap-4 lg:grid-cols-3">
+        /* v1.23.3: [&>*]:min-w-0 — grid tracks are minmax(auto,1fr); one
+           wide child (the assignments table was 386px min) stretches the
+           track past the phone and pans the WHOLE page. Never again. */
+        <div className="grid gap-3 md:gap-4 lg:grid-cols-3 [&>*]:min-w-0">
           {sum && (
             <AttendanceDonutCard
               onTime={sum.attendance_on_time ?? 0}

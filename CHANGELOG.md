@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.3] — 2026-08-17 — Mobile overflow killed at the source
+
+**The sideways overflow is fixed (CEO: "I saw on mobile view apps overflow").** Root cause measured, not guessed: the Dashboard's "Assignments today" card renders a four-column table (HOST · CLIENT · TIME · STATUS) whose minimum width is ~430px — wider than a phone. It stretched the whole page sideways, so every card's right edge was cut, and because iOS Safari keeps the zoomed-out view after that, other tabs (your roster screenshot) looked cropped too even though they fit. On phones the card now renders agenda-style rows — the roster's proven no-overflow pattern: fixed time column, truncating client + host, shrink-proof status chip. The table stays from tablet width up (in its own scroller, defensively). The dashboard card grid also gained the min-width guard (same class of bug as the v1.22.5 staff-grid drift: a grid track stretched by one wide child), so no future card can pan the page again. Verified at 390px: page width exactly matches the screen on Dashboard and Attendance, zero elements past the edge.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.1 worker). Run `DEPLOY.bat` IN FULL. If a phone still looks zoomed out after deploying, close and reopen the tab once — iOS keeps the old zoom until the page reloads.
+
 ## [1.23.2] — 2026-08-17 — BM covers what staff actually see
 
 **BM is consistent now (CEO: "Why some doesn't change to BM? I need to make sure everything change to BM when BM toggle on").** Two kinds of gap were fixed. (1) Tabs added after the translation system was built — Finance, Reconciliation, Commission, Ads Fund, Purchasing, Accounting — never got BM entries, so they stayed English in the bottom bar, More sheet and sidebar. (2) Whole staff-facing surfaces never called the translator at all: the Dashboard cards (Pending leave → Cuti menunggu, My open tasks → Tugasan terbuka saya, News → Berita, Today's sales · LIVE → Jualan hari ini · LANGSUNG, Revenue/target → Hasil/sasaran, All-time → Keseluruhan, Needs attention → Perlu perhatian with all its rows) and the entire Schedule & Roster board (Jadual & Roster: title, chips dijadualkan/tersedia hari ini/bercuti/pertindihan, Hari ini, PDF — kongsi pelan, Minggu …, day names ISN/SEL/RAB/KHA/JUM/SAB/AHD, sesi counts, HARI INI chip, on-leave and rails). Verified in BM on phone: Dashboard and the roster read Malay end to end.

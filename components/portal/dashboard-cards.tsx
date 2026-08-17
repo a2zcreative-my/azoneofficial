@@ -71,28 +71,54 @@ export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => vo
       ) : sessions.length === 0 ? (
         <p className="text-muted-foreground mt-2 text-sm">No live sessions scheduled today.</p>
       ) : (
-        <table className="mt-2 w-full border-collapse text-sm">
-          <thead><tr className="border-border border-b">
-            <th className={th}>HOST</th><th className={th}>CLIENT</th><th className={th}>TIME</th><th className={th}>STATUS</th>
-          </tr></thead>
-          <tbody>
+        <>
+          {/* v1.23.3 (CEO: "I saw on mobile view apps overflow"): a 4-column
+              table cannot fit a 390px phone — its min-content width stretched
+              the Dashboard to ~436px, the page panned sideways and EVERY card
+              looked cut (iOS keeps the zoomed-out state on other tabs too).
+              Phones get agenda-style rows — the roster's proven no-overflow
+              pattern: fixed time column, truncating middle, shrink-proof chip. */}
+          <div className="mt-2 sm:hidden">
             {sessions.slice(0, 8).map((s) => (
-              <tr key={s.id} className="border-border border-b last:border-0">
-                <td className={td}>
-                  <span className="bg-brand mr-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" aria-hidden>
-                    {s.host_name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
-                  </span>
-                  {s.host_name.split(" ")[0]}
-                </td>
-                <td className={td}><span className={chipNeutral}>{s.client ?? s.platform}</span></td>
-                <td className={`${td} tabular-nums whitespace-nowrap`}>{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</td>
-                <td className={td}>
-                  <span className={s.status === "completed" ? chipSuccess : chipWarn}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
-                </td>
-              </tr>
+              <div key={s.id} className="border-border flex items-center gap-2.5 border-b py-2 last:border-0">
+                <span className="w-[52px] shrink-0 text-center">
+                  <span className="block text-sm leading-tight font-bold tabular-nums">{s.start_time}</span>
+                  {s.end_time && <span className="text-muted-foreground block text-[10px] leading-tight tabular-nums">–{s.end_time}</span>}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{s.client ?? s.platform}</span>
+                  <span className="text-muted-foreground block truncate text-xs">{s.host_name.split(" ").slice(0, 2).join(" ")}</span>
+                </span>
+                <span className={`${s.status === "completed" ? chipSuccess : chipWarn} shrink-0 whitespace-nowrap`}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+          {/* sm and up: the reference table, defensively scrollable. */}
+          <div className="mt-2 hidden overflow-x-auto sm:block">
+            <table className="w-full border-collapse text-sm">
+              <thead><tr className="border-border border-b">
+                <th className={th}>HOST</th><th className={th}>CLIENT</th><th className={th}>TIME</th><th className={th}>STATUS</th>
+              </tr></thead>
+              <tbody>
+                {sessions.slice(0, 8).map((s) => (
+                  <tr key={s.id} className="border-border border-b last:border-0">
+                    <td className={td}>
+                      <span className="bg-brand mr-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" aria-hidden>
+                        {s.host_name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+                      </span>
+                      {s.host_name.split(" ")[0]}
+                    </td>
+                    <td className={td}><span className={chipNeutral}>{s.client ?? s.platform}</span></td>
+                    <td className={`${td} tabular-nums whitespace-nowrap`}>{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</td>
+                    <td className={td}>
+                      <span className={s.status === "completed" ? chipSuccess : chipWarn}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
