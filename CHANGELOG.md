@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.8] — 2026-08-17 — TikTok statuses fixed + the iOS overflow mystery solved at the root
+
+**TikTok orders no longer sit on "Preparing" forever (CEO: "TikTok order show preparing while it is already completed").** Three holes, all closed: (1) the sync fetched only the FIRST 50 orders of the 30-day window — once the shop passed 50 orders, older ones never got their status refreshed; the sync now follows TikTok's pagination (up to 300 orders per pass). (2) An order whose status field was missing from TikTok's response was actively knocked BACK to "preparing"; a missing status now leaves the record untouched. (3) "COMPLETED" now maps to delivered in both the sync and the webhook. ALSO — the card header says "signature FAILED — check app secret": the webhook secret no longer matches TikTok Partner Center, so live status pushes are being rejected. That is a SECRET, not code: run `npx wrangler secret put TIKTOK_APP_SECRET` (in the worker folder) with the current app secret from Partner Center, or statuses only update on the 30-minute sync.
+
+**The mobile overflow saga — root cause finally identified.** `body { overflow-x: hidden }` (globals.css) is honored by every desktop engine but IGNORED by iOS Safari — so wide elements panned the page on iPhones while every test engine (and the overflow detector's logic) reported the page clean. Fixed three ways: body now also carries `overflow-x: clip`, which iOS 16+ DOES honor; the portal gained a self-reporting overflow detector — on phones, 2 seconds after each tab renders, anything poking past the screen edge is logged to the error log (source: ui_overflow, admin → Audit → System health) with the exact element, build version and tab, once per tab per session; and the detector deliberately ignores body/html/shell clips so nothing can mask a culprit again. Verified end-to-end: a deliberately-wide element is reported by name.
+
+**Staff clock-in "Location was blocked":** not a system fault — Safari's per-site location permission is denied on that phone (the device-level Location toggle is a different switch). Fix on the phone: Settings → Privacy & Security → Location Services → Safari Websites → While Using + Precise ON, then in Safari on azoneofficial.com: AA → Website Settings → Location → Allow, reload, "Check my location".
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL, plus the `wrangler secret put TIKTOK_APP_SECRET` above for live webhook statuses. After deploying, press "Sync from TikTok" once — the stuck "Preparing" orders will take their real statuses on that pass.
+
 ## [1.23.7] — 2026-08-17 — Clients summary D1 error fixed
 
 **The `/staff/clients/summary` server error is fixed (error log 17-08 15:16: "D1_ERROR: no such column: c.name").** The clients directory query asked the customers table for a `name` column that never existed — the table stores the person as `contact_person` — so the endpoint failed on every call: the clients card showed its error state and the command palette silently skipped client results. The query now aliases `contact_person AS name` (the shape the portal already expects), validated against the full migrated schema.

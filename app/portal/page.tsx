@@ -5015,6 +5015,54 @@ export default function PortalPage() {
     document.getElementById("shell-scroll")?.scrollTo({ top: 0 });
   }, [tab]);
 
+  /* v1.23.8 — overflow self-report (CEO's phone shows a clipped roster no
+     sandbox engine reproduces): 2s after each tab renders on a PHONE, the
+     page measures itself; anything poking past the screen edge is reported
+     to the error_log (source: ui_overflow) with the exact element — once
+     per tab per session per build. The shell's own clip guard is skipped
+     when checking containment, so it can't hide the culprit. Diagnostics
+     must never break the page: everything is try-wrapped. */
+  useEffect(() => {
+    if (typeof window === "undefined" || window.innerWidth >= 768) return;
+    const t = window.setTimeout(() => {
+      try {
+        const vw = document.documentElement.clientWidth;
+        const dw = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
+        const bad: string[] = [];
+        document.querySelectorAll("body *").forEach((el) => {
+          if (bad.length >= 5) return;
+          const h = el as HTMLElement;
+          const r = h.getBoundingClientRect();
+          if (r.width <= 0 || r.right <= vw + 1) return;
+          const cs = getComputedStyle(h);
+          if (cs.display === "none" || cs.position === "fixed") return;
+          let a = h.parentElement;
+          let contained = false;
+          /* body/html/#shell-scroll do NOT count as containers: body's own
+             overflow-x rule is exactly what iOS Safari ignores (the reason
+             phones pan while every desktop engine looks clean), and the
+             shell clip is our guard, not the culprit's alibi. */
+          while (a && a !== document.body && a !== document.documentElement) {
+            if (a.id !== "shell-scroll" && /(auto|scroll|hidden|clip)/.test(getComputedStyle(a).overflowX)) { contained = true; break; }
+            a = a.parentElement;
+          }
+          if (!contained) bad.push(`${h.tagName}.${String(h.className).slice(0, 90)}|R${Math.round(r.right)}`);
+        });
+        if (bad.length > 0 || dw > vw + 1) {
+          const key = `azone-ovf:${APP_VERSION}:${tab}`;
+          if (!window.sessionStorage.getItem(key)) {
+            window.sessionStorage.setItem(key, "1");
+            void api(`/staff/debug/overflow`, {
+              method: "POST",
+              body: JSON.stringify({ tab, v: APP_VERSION, vw, dw, els: bad }),
+            });
+          }
+        }
+      } catch { /* never break the page for a diagnostic */ }
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, [tab]);
+
   if (!checked) return null;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");

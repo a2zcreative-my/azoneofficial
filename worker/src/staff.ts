@@ -1184,6 +1184,26 @@ export async function handleStaff(
     return json({ ok: true });
   }
 
+  /* v1.23.8 — UI overflow reporter (CEO: "clipped on the mobile apps view"):
+     the phone that SEES a too-wide element is the only place that knows
+     which element it is — every sandbox engine here renders clean. The
+     portal measures itself after each tab render and reports offenders to
+     the error_log (admin → Audit → System health), tagged ui_overflow.
+     Auth-gated, capped, once per tab per session per build. */
+  if (path === "/debug/overflow" && method === "POST") {
+    const tab = typeof body?.tab === "string" ? body.tab.slice(0, 40) : "?";
+    const v = typeof body?.v === "string" ? body.v.slice(0, 20) : "?";
+    const vw = Number(body?.vw) || 0;
+    const dw = Number(body?.dw) || 0;
+    const els = Array.isArray(body?.els) ? (body.els as unknown[]).slice(0, 5).map((x) => String(x).slice(0, 180)) : [];
+    try {
+      await env.DB.prepare(
+        `INSERT INTO error_log (source, message, path) VALUES ('ui_overflow', ?1, ?2)`,
+      ).bind(`v${v} ${user.email} tab=${tab} vw=${vw} dw=${dw} :: ${els.join(" | ") || "(document wider than viewport, no single element found)"}`, "/portal").run();
+    } catch { /* pre-error_log schema — diagnostics never fail the request */ }
+    return json({ ok: true });
+  }
+
   /* v1.4.191 LIVE SESSION ROSTER: which host, which client, which platform,
      what slot — the schedule a live commerce agency runs on. Managers =
      ceo/coo/cco/hr_admin + admin tier; hosts see their own. */

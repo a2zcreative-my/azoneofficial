@@ -881,36 +881,49 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     }
   }
   const listBody = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 30 * 86400 });
-  const data = (await tiktokSignedFetch(
-    env, "/order/202309/orders/search", { page_size: "50" }, listBody, "POST",
-  )) as {
-    code?: number; message?: string;
-    data?: { orders?: {
-      id?: string; status?: string; tracking_number?: string;
-      packages?: { tracking_number?: string }[];
-      line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number; tracking_number?: string }[];
-      recipient_address?: {
-        city?: string; state?: string; district?: string; town?: string;
-        district_info?: { address_level_name?: string; address_name?: string }[];
-      };
-      payment?: { total_amount?: string | number; currency?: string };
-    }[] };
-  } | null;
-  if (!data || (typeof data.code === "number" && data.code !== 0)) {
-    // v1.7.2: an EXPIRED / unauthorized token is a known "please reconnect"
-    // state, not a system fault — return not_authorized so the 30-minute cron
-    // stays quiet (no error-log entry, no bell/push spam) and the UI shows a
-    // clear "reconnect TikTok" message instead of a red API error every pass.
-    const msg = String(data?.message ?? "").toLowerCase();
-    const authExpired =
-      data?.code === 105000 || data?.code === 105002 ||
-      /expired|access[_\s-]?token|x-tts-access-token|unauthor|credential|invalid.*token|token.*invalid/.test(msg);
-    if (authExpired) {
-      return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches.", status: 401 };
+  type TtSearchOrder = {
+    id?: string; status?: string; tracking_number?: string;
+    packages?: { tracking_number?: string }[];
+    line_items?: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number; tracking_number?: string }[];
+    recipient_address?: {
+      city?: string; state?: string; district?: string; town?: string;
+      district_info?: { address_level_name?: string; address_name?: string }[];
+    };
+    payment?: { total_amount?: string | number; currency?: string };
+  };
+  type TtSearchResp = { code?: number; message?: string; data?: { orders?: TtSearchOrder[]; next_page_token?: string } } | null;
+  /* v1.23.8 (CEO: "TikTok order show preparing while it is already
+     completed"): the search used to fetch ONE page of 50 — once the shop
+     had more than 50 orders inside the 30-day window, older orders never
+     got their status refreshed and sat on "Preparing" forever. The sync now
+     follows next_page_token (up to 6 pages / 300 orders per pass). */
+  const orders: TtSearchOrder[] = [];
+  let pageToken = "";
+  for (let pg = 0; pg < 6; pg++) {
+    const data = (await tiktokSignedFetch(
+      env, "/order/202309/orders/search",
+      { page_size: "50", ...(pageToken ? { page_token: pageToken } : {}) },
+      listBody, "POST",
+    )) as TtSearchResp;
+    if (!data || (typeof data.code === "number" && data.code !== 0)) {
+      if (pg > 0) break; // later pages failing must not discard the pass
+      // v1.7.2: an EXPIRED / unauthorized token is a known "please reconnect"
+      // state, not a system fault — return not_authorized so the 30-minute cron
+      // stays quiet (no error-log entry, no bell/push spam) and the UI shows a
+      // clear "reconnect TikTok" message instead of a red API error every pass.
+      const msg = String(data?.message ?? "").toLowerCase();
+      const authExpired =
+        data?.code === 105000 || data?.code === 105002 ||
+        /expired|access[_\s-]?token|x-tts-access-token|unauthor|credential|invalid.*token|token.*invalid/.test(msg);
+      if (authExpired) {
+        return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches.", status: 401 };
+      }
+      return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
     }
-    return { ok: false, code: "tiktok_error", message: `TikTok API error: ${data?.message ?? "no response"} — check that the order scopes are active`, status: 502 };
+    orders.push(...(data.data?.orders ?? []));
+    pageToken = data.data?.next_page_token ?? "";
+    if (!pageToken || (data.data?.orders ?? []).length === 0) break;
   }
-  const orders = data.data?.orders ?? [];
   let imported = 0, skipped = 0, retried = 0; // retried: v1.4.168 backfilled deductions
   const problems: string[] = [];
   for (const o of orders) {
@@ -923,9 +936,12 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const stNow = String(o.status ?? "").toLowerCase();
     // v1.5.0: returned/cancelled states used to fall through to "preparing",
     // which also made the downstream `uiNow !== "returned"` guard dead code.
+    // v1.23.8: an order whose status field is MISSING from the response no
+    // longer regresses to "preparing" — null means "leave status untouched".
     const uiNow =
-      stNow.includes("return") || stNow.includes("cancel") || stNow.includes("refund") ? "returned"
-      : stNow.includes("deliver") ? "delivered"
+      !stNow ? null
+      : stNow.includes("return") || stNow.includes("cancel") || stNow.includes("refund") ? "returned"
+      : stNow.includes("deliver") || stNow.includes("complete") ? "delivered"
       : stNow.includes("ship") || stNow.includes("transit") ? "shipped"
       : "preparing";
     const trackNow =
@@ -965,8 +981,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const amountNow = Number.isFinite(paidRaw) && paidRaw >= 0 ? Math.round(paidRaw * 100) : null;
     if (exists) {
       // Already imported: keep its shipping status and tracking current.
+      // v1.23.8: COALESCE — a missing status in TikTok's response keeps the
+      // record's current status instead of knocking it back to "preparing".
       await env.DB.prepare(
-        `UPDATE postage_records SET status = ?1, tracking_no = COALESCE(tracking_no, ?2),
+        `UPDATE postage_records SET status = COALESCE(?1, status), tracking_no = COALESCE(tracking_no, ?2),
            buyer_city = COALESCE(buyer_city, ?3),
            order_amount_cents = COALESCE(order_amount_cents, ?4),
            updated_at = datetime('now') WHERE id = ?5 AND status != 'returned'`,
@@ -1057,7 +1075,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     const rec = await env.DB.prepare(
       `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
        VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, ?6, NULL) RETURNING id`,
-    ).bind(orderRef, trackNow, cityNow, amountNow, uiNow, notes.join(" · ")).first<{ id: number }>();
+    ).bind(orderRef, trackNow, cityNow, amountNow, uiNow ?? "preparing", notes.join(" · ")).first<{ id: number }>();
     if (canDeduct) {
       for (const l of resolved) {
         const upd = await env.DB.prepare(
@@ -1750,7 +1768,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (existing && rawStatus) {
       await env.DB.prepare(
         `UPDATE postage_records SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
-      ).bind(rawStatus.includes("delivered") ? "delivered" : rawStatus.includes("ship") ? "shipped" : "preparing", existing.id).run();
+      ).bind(rawStatus.includes("delivered") || rawStatus.includes("complete") ? "delivered" : rawStatus.includes("ship") ? "shipped" : "preparing", existing.id).run();
     }
     return json({ ok: true, status: rawStatus });
   }

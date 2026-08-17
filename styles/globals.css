@@ -257,7 +257,13 @@
   }
 
   body {
+    /* v1.23.8 — THE iOS mask, finally understood: iOS Safari does NOT honor
+       overflow-x: hidden on body (the page still pans sideways), while every
+       desktop engine does — which is why phone overflow reports could never
+       be reproduced in testing. `clip` IS honored by iOS 16+; older engines
+       ignore the second declaration and keep `hidden`. Keep BOTH lines. */
     overflow-x: hidden;
+    overflow-x: clip;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
