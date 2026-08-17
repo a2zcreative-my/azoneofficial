@@ -4793,16 +4793,28 @@ export default function PortalPage() {
      flash). Two fixes: the key is per USER (azone-tab:{id} — accounts never
      inherit each other's tab), and the render below clamps through
      activeTab so an out-of-scope tab can never mount, not even one frame. */
-  /* v1.23.6 (CEO: "make the page when refresh back to dashboard instead of
-     last tabs visit which is I feels uncomfortable"): the last-visited tab
-     is NO LONGER restored. Every load/reload opens on the Dashboard; tab
-     switches within a session behave exactly as before, and saves keep
-     reflecting immediately (every panel reloads its data after a save).
-     This also permanently removes the "crashed tab reopens on every visit"
-     lockout mode (v1.22.7). Old azone-tab:{id} keys are cleaned up. */
+  /* v1.24.0 (CEO refined v1.23.6: "if they refresh it will remain to the
+     last page that they visit… go back to dashboard if the staff close
+     their web/mobile browser"): tab memory lives in SESSION STORAGE now —
+     the browser feature with exactly those semantics. A refresh keeps the
+     tab; closing the tab/browser clears it, so the next open starts at the
+     Dashboard. Per-user key + the activeTab clamp keep the v1.4.232
+     shared-device guarantee (no restricted tab can mount for a lower role),
+     and a crashed tab can only haunt one browser session, never every
+     visit (v1.22.7). Old localStorage keys from the retired scheme are
+     cleaned up. */
   useEffect(() => {
-    try { if (user) window.localStorage.removeItem(`azone-tab:${user.id}`); } catch { /* private mode */ }
+    try {
+      if (!user) return;
+      window.localStorage.removeItem(`azone-tab:${user.id}`); // retired v1.4.231 scheme
+      const saved = window.sessionStorage.getItem(`azone-tab:${user.id}`);
+      if (saved && (ALL_TABS as readonly string[]).includes(saved)) setTab(saved as TabName);
+    } catch { /* private mode */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+  useEffect(() => {
+    try { if (user) window.sessionStorage.setItem(`azone-tab:${user.id}`, tab); } catch { /* private mode */ }
+  }, [tab, user?.id]);
   const [dark, setDark] = useState(false);
   // v1.9.0: Plum & Rose theme preset + EN/BM chrome language (per device)
   const [theme, setTheme] = useState<"navy" | "plum">("navy");

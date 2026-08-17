@@ -13,6 +13,12 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
         const k = window.localStorage.key(i);
         if (k && k.startsWith("azone-tab:")) window.localStorage.removeItem(k);
       }
+      // v1.24.0: tab memory moved to sessionStorage — clear it there too so
+      // "Back to Dashboard" can never reopen a crashing tab.
+      for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+        const k = window.sessionStorage.key(i);
+        if (k && k.startsWith("azone-tab:")) window.sessionStorage.removeItem(k);
+      }
     } catch { /* private mode */ }
     // full reload — a clean mount on the Dashboard, nothing half-broken kept
     window.location.reload();

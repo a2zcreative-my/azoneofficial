@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.24.0] — 2026-08-17 — Tab memory, refined: refresh keeps your place, closing starts fresh
+
+**Exactly the behaviour you described (CEO: "if they refresh it will remain to the last page that they visit… go back to dashboard if the staff close their web/mobile browser").** Tab memory now lives in the browser's session storage, which has precisely those semantics: a REFRESH keeps the tab you were on; CLOSING the tab or browser clears it, so the next open starts on the Dashboard. Per-user key and the role clamp keep the shared-device guarantee (a lower-role account can never restore a restricted tab), and a crashing tab can only affect one browser session — never every future visit. The crash-recovery screen's "Back to Dashboard" clears the new memory too.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.8 worker). Run `DEPLOY.bat` IN FULL. Verified: switch to Inventory → refresh → still Inventory; open in a fresh browser → Dashboard.
+
 ## [1.23.9] — 2026-08-17 — The overlap/clip culprit, caught and fixed everywhere
 
 **Your screenshot WAS the culprit (CEO: "Culprit!!! It is overlapped and clipped to the line there right!!!").** The giveaway is the "Available today" list: the long staff names render in FULL and push the roles off the right edge — on a correct layout those names truncate with "…". Cause: layout grids across the app declared their columns only from tablet/desktop breakpoints up; below that they relied on the browser's implicit grid column. Chrome and new Safari clamp that implicit column to the screen — the iPhone's Safari sizes it to the WIDEST CONTENT (a long staff name, a wide table), which blew the roster card ~40px past the screen: everything inside shifted, overlapped the edge and got clipped. That is why it could never be reproduced anywhere but on the phone. Fix: every layout grid in the app (46 of them, portal + admin + account + website) now declares an explicit phone-first column (`minmax(0, 1fr)`), which every Safari version respects — names truncate, roles stay on screen, nothing exceeds the phone. Combined with v1.23.8's body clip + overflow reporter, this class of bug is now fixed, guarded, and self-reporting.
