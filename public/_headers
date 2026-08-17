@@ -1,5 +1,13 @@
+# v1.23.5 — cache policy. THE chronic "live lags the zip" fix: pages must
+# REVALIDATE on every open (no-cache = cheap 304 when unchanged, fresh HTML
+# the moment a deploy lands), while hashed build files never need rechecking.
+# Without this, phones held old builds long after every DEPLOY.bat.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cache-Control: no-cache
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -33,6 +33,10 @@ export interface Env {
 }
 
 import { Role, can, MANDATORY_2FA_ROLES } from "./permissions";
+// v1.23.5: the ONE version number — read from the repo root package.json at
+// bundle time, so worker and site stamps always come from the same place.
+import pkg from "../../package.json";
+const WORKER_VERSION: string = (pkg as { version: string }).version;
 
 interface SessionUser {
   id: number;
@@ -2508,7 +2512,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/health" && method === "GET") {
     let db = false;
     try { await env.DB.prepare(`SELECT 1`).first(); db = true; } catch { /* db unreachable */ }
-    return new Response(JSON.stringify({ ok: db, db }), {
+    /* v1.23.5: version in the public probe — one glance (or one fetch)
+       answers "which build is the WORKER on?" the same way the site's
+       visible stamp answers it for the pages. */
+    return new Response(JSON.stringify({ ok: db, db, version: WORKER_VERSION }), {
       status: db ? 200 : 503,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });

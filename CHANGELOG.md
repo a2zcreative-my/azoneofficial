@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.5] — 2026-08-17 — Phones stop holding old builds (cache policy) + worker version in /health
+
+**The REAL chronic bug behind "still overflow" (CEO, third screenshot).** The v1.23.4 build cannot pan sideways — the clip guard was verified against a deliberately 600px-wide element, and the audits were re-run with the real Poppins font at 390px and 430px, manager and staff, landing straight on Attendance: page width never exceeds the screen. A panning screenshot therefore means the phone is STILL rendering an older build — and this release fixes why that keeps happening: the site shipped NO cache policy, so phones re-used cached pages long after every deploy. Now every page carries `Cache-Control: no-cache` (browsers revalidate on every open — a cheap 304 when nothing changed, the new build the instant a deploy lands) while the hashed build files under /_next/static are immutable (never re-downloaded until their name changes). After THIS deploy reaches the phone once, no build should ever lag again.
+
+**Worker version in the public health probe.** `/api/v1/health` now answers `{ ok, db, version }` — so "which build is the API worker on?" is checkable from anywhere, matching the site's visible stamp (More sheet + login page, added in v1.23.4).
+
+**Deploy notes:** run `DEPLOY.bat` IN FULL. Then on the phone: close the tab completely, open azoneofficial.com fresh, and check More → bottom line says **v1.23.5**. (This one deploy may still need the manual fresh-open — it's the deploy that INSTALLS the no-cache policy; every deploy after it is picked up automatically.) If the stamp says v1.23.5 and anything still overflows, screenshot it together with the stamp.
+
 ## [1.23.4] — 2026-08-17 — Phone pages can never pan sideways again + visible version stamp
 
 **A structural no-overflow guarantee (CEO: "Still overflow for Attendance").** The current build audits clean — landing straight on Attendance at 390px and 430px, manager and staff views, with long client names, conflicts, on-leave and requests, the page width never exceeds the screen. What the phone showed is the OLD build's Dashboard bug (v1.23.3's table) panning the page, plus iOS keeping that zoomed-out state on every tab until the page is reloaded. Two things make this class of problem impossible to see again: (1) the app shell now clips horizontal overflow on phones — verified by injecting a deliberately 600px-wide element: the page stays exactly screen-wide instead of panning; any future too-wide card clips at the edge and shows itself immediately in testing, without breaking the whole page for staff. (2) …
