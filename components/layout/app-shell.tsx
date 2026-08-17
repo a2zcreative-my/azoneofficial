@@ -64,7 +64,12 @@ export function AppShell({
             scrolls inside here, under the sticky in-content header. The id
             lets the portal reset scrollTop on tab change (a new tab must
             open at its top, not wherever the last one was left). */}
-        <div id="shell-scroll" className="min-w-0 md:h-full md:flex-1 md:overflow-y-auto">{children}</div>
+        {/* v1.23.4 (CEO: "Still overflow for Attendance"): max-md:overflow-x-clip
+            is the STRUCTURAL guarantee — even if a future card is wider than
+            the phone, it clips instead of panning the whole page sideways.
+            `clip` (not hidden) so it creates no scroll container and the
+            sticky mobile header keeps sticking. Desktop untouched. */}
+        <div id="shell-scroll" className="min-w-0 max-md:overflow-x-clip md:h-full md:flex-1 md:overflow-y-auto">{children}</div>
 
         {rightRail ? (
           <aside className="border-border bg-secondary rounded-r-shell hidden w-[292px] shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 md:flex md:h-full">

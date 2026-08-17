@@ -46,6 +46,7 @@ import { AttendanceDonutCard, TodayAssignmentsCard, MonthlyBarsCard } from "@/co
 import { GeofenceCard } from "@/components/portal/geofence-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { getLang, setLang as persistLang, t as tr, type Lang } from "@/lib/i18n";
+import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
@@ -5447,6 +5448,11 @@ export default function PortalPage() {
                 {theme === "plum" ? (lang === "ms" ? "Ungu" : "Plum") : (lang === "ms" ? "Biru" : "Navy")}
               </button>
             </div>
+            {/* v1.23.4: the visible build stamp — "is the live site on the
+                new version?" is now answerable from any phone. */}
+            <p className="text-muted-foreground/70 mt-3 text-center text-[10px] tabular-nums">
+              AZ ONE {lang === "ms" ? "portal kakitangan" : "staff portal"} · v{APP_VERSION}
+            </p>
           </div>
         </div>
       )}

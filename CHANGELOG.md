@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.4] — 2026-08-17 — Phone pages can never pan sideways again + visible version stamp
+
+**A structural no-overflow guarantee (CEO: "Still overflow for Attendance").** The current build audits clean — landing straight on Attendance at 390px and 430px, manager and staff views, with long client names, conflicts, on-leave and requests, the page width never exceeds the screen. What the phone showed is the OLD build's Dashboard bug (v1.23.3's table) panning the page, plus iOS keeping that zoomed-out state on every tab until the page is reloaded. Two things make this class of problem impossible to see again: (1) the app shell now clips horizontal overflow on phones — verified by injecting a deliberately 600px-wide element: the page stays exactly screen-wide instead of panning; any future too-wide card clips at the edge and shows itself immediately in testing, without breaking the whole page for staff. (2) …
+
+**A visible version number (new, permanent).** The portal's More sheet now ends with "AZ ONE staff portal · v1.23.4" and the sign-in page shows the same stamp — so "is the live site actually on the new build?" is answered by glancing at any phone instead of guessing. The number comes from package.json at build time; after every DEPLOY.bat, check it once.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.1 worker). Run `DEPLOY.bat` IN FULL, then on the phone: reload the tab once and confirm the More sheet says v1.23.4. If the overflow was still visible before this deploy, that confirms the phone was on the old build — the stamp ends that ambiguity for good.
+
 ## [1.23.3] — 2026-08-17 — Mobile overflow killed at the source
 
 **The sideways overflow is fixed (CEO: "I saw on mobile view apps overflow").** Root cause measured, not guessed: the Dashboard's "Assignments today" card renders a four-column table (HOST · CLIENT · TIME · STATUS) whose minimum width is ~430px — wider than a phone. It stretched the whole page sideways, so every card's right edge was cut, and because iOS Safari keeps the zoomed-out view after that, other tabs (your roster screenshot) looked cropped too even though they fit. On phones the card now renders agenda-style rows — the roster's proven no-overflow pattern: fixed time column, truncating client + host, shrink-proof status chip. The table stays from tablet width up (in its own scroller, defensively). The dashboard card grid also gained the min-width guard (same class of bug as the v1.22.5 staff-grid drift: a grid track stretched by one wide child), so no future card can pan the page again. Verified at 390px: page width exactly matches the screen on Dashboard and Attendance, zero elements past the edge.

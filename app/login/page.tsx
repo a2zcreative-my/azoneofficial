@@ -10,6 +10,7 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { inputClass, btnClassBlock as btnClass } from "@/lib/ui-styles";
+import { APP_VERSION } from "@/lib/version";
 
 const API = "/api/v1";
 
@@ -300,6 +301,9 @@ export default function LoginPage() {
       </div>
       </>
       )}
+      {/* v1.23.4: visible build stamp — one glance answers "is the live
+          site on the new version?" */}
+      <p className="text-muted-foreground/60 mt-8 text-center text-[10px] tabular-nums">v{APP_VERSION}</p>
     </div>
   );
 }
