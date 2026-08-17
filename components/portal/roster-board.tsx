@@ -316,7 +316,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   );
 
   return (
-    <div className={card}>
+    /* v1.23.6: belt-and-braces phone clip on the CARD itself (the shell has
+       one since v1.23.4) — no build state can ever show this card cut off
+       past the screen edge again. */
+    <div className={`${card} max-md:overflow-x-clip`}>
       {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>

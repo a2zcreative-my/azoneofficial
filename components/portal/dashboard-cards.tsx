@@ -4,9 +4,10 @@
    assignments table, and the compact month-by-month bars. All fed by data
    the dashboard already loads (summary + revenue) or the roster endpoint. */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { Donut } from "@/components/ui/donut";
+import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { fmtRM, ym } from "@/lib/format";
 
@@ -46,9 +47,16 @@ interface RosterSessionLite {
   platform: string; status: string; client: string | null; host_name: string;
 }
 
-export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => void }) {
+export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOpenRoster?: () => void; canManage?: boolean }) {
   const [sessions, setSessions] = useState<RosterSessionLite[] | null>(null);
-  useEffect(() => {
+  /* v1.23.6 (CEO: "On the dashboard, I cant update their status roster"):
+     managers tap a status chip to open ✓ Done / ✕ Cancel (or put a finished
+     one back to scheduled) right here — same PATCH the roster board uses,
+     hosts get the same instant view read-only. */
+  const [acting, setActing] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { show: showToast, node: toastNode } = useSaveToast();
+  const load = useCallback(() => {
     void api<{ sessions: RosterSessionLite[]; days: string[] }>(`/roster`).then((r) => {
       if (r.ok && r.data?.sessions) {
         const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -56,8 +64,42 @@ export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => vo
       } else setSessions([]);
     });
   }, []);
+  useEffect(() => { load(); }, [load]);
+  const setStatus = async (id: number, status: "scheduled" | "completed" | "cancelled") => {
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    setBusy(false);
+    if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not update the session", "notice"); return; }
+    showToast("Session updated", status === "completed" ? "Marked done" : status === "cancelled" ? "Session cancelled" : "Back to scheduled");
+    setActing(null);
+    load();
+  };
+  const chipFor = (s: RosterSessionLite) => (
+    <button type="button" disabled={!canManage}
+      className={`${s.status === "completed" ? chipSuccess : chipWarn} shrink-0 whitespace-nowrap ${canManage ? "cursor-pointer hover:opacity-80" : ""}`}
+      onClick={() => canManage && setActing(acting === s.id ? null : s.id)}
+      aria-expanded={canManage ? acting === s.id : undefined}>
+      {s.status === "completed" ? "✓ done" : "scheduled"}{canManage ? " ▾" : ""}
+    </button>
+  );
+  const actions = (s: RosterSessionLite) => acting === s.id && canManage && (
+    <div className="mt-1.5 flex flex-wrap gap-2">
+      {s.status === "scheduled" ? (
+        <>
+          <button type="button" disabled={busy} className="border-success text-success rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-success-soft"
+            onClick={() => void setStatus(s.id, "completed")}>✓ Mark done</button>
+          <button type="button" disabled={busy} className="border-danger text-danger rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-danger-soft"
+            onClick={() => void setStatus(s.id, "cancelled")}>✕ Cancel session</button>
+        </>
+      ) : (
+        <button type="button" disabled={busy} className="border-border rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+          onClick={() => void setStatus(s.id, "scheduled")}>Back to scheduled</button>
+      )}
+    </div>
+  );
   return (
     <div className={card}>
+      {toastNode}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">Assignments today</p>
         {onOpenRoster && (
@@ -80,16 +122,19 @@ export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => vo
               pattern: fixed time column, truncating middle, shrink-proof chip. */}
           <div className="mt-2 sm:hidden">
             {sessions.slice(0, 8).map((s) => (
-              <div key={s.id} className="border-border flex items-center gap-2.5 border-b py-2 last:border-0">
-                <span className="w-[52px] shrink-0 text-center">
-                  <span className="block text-sm leading-tight font-bold tabular-nums">{s.start_time}</span>
-                  {s.end_time && <span className="text-muted-foreground block text-[10px] leading-tight tabular-nums">–{s.end_time}</span>}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{s.client ?? s.platform}</span>
-                  <span className="text-muted-foreground block truncate text-xs">{s.host_name.split(" ").slice(0, 2).join(" ")}</span>
-                </span>
-                <span className={`${s.status === "completed" ? chipSuccess : chipWarn} shrink-0 whitespace-nowrap`}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
+              <div key={s.id} className="border-border border-b py-2 last:border-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[52px] shrink-0 text-center">
+                    <span className="block text-sm leading-tight font-bold tabular-nums">{s.start_time}</span>
+                    {s.end_time && <span className="text-muted-foreground block text-[10px] leading-tight tabular-nums">–{s.end_time}</span>}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{s.client ?? s.platform}</span>
+                    <span className="text-muted-foreground block truncate text-xs">{s.host_name.split(" ").slice(0, 2).join(" ")}</span>
+                  </span>
+                  {chipFor(s)}
+                </div>
+                <div className="pl-[62px]">{actions(s)}</div>
               </div>
             ))}
           </div>
@@ -111,7 +156,8 @@ export function TodayAssignmentsCard({ onOpenRoster }: { onOpenRoster?: () => vo
                     <td className={td}><span className={chipNeutral}>{s.client ?? s.platform}</span></td>
                     <td className={`${td} tabular-nums whitespace-nowrap`}>{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</td>
                     <td className={td}>
-                      <span className={s.status === "completed" ? chipSuccess : chipWarn}>{s.status === "completed" ? "✓ done" : "scheduled"}</span>
+                      {chipFor(s)}
+                      {actions(s)}
                     </td>
                   </tr>
                 ))}

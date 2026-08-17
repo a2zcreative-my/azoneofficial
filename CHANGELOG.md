@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.6] — 2026-08-17 — Roster status from the Dashboard · refresh opens Dashboard · roster card clip
+
+**Update session status right on the Dashboard (CEO: "On the dashboard, I cant update their status roster").** On "Assignments today", managers (CEO/COO/CCO/HR admin + admin tier) tap a status chip (it now shows a ▾): a scheduled session opens "✓ Mark done / ✕ Cancel session", a finished one offers "Back to scheduled". Same PATCH the roster board uses, hosts are notified per the usual rules, the card refreshes instantly, and staff see the same list read-only. Works in both the phone rows and the desktop table.
+
+**Refresh always opens the Dashboard (CEO: "make the page when refresh back to dashboard instead of last tabs visit").** The last-visited-tab memory is retired: while you work, tab switches behave exactly as before and every save reflects immediately (each panel reloads its data the moment a save succeeds — plus the v1.23.5 cache policy keeps hard refreshes fresh); but any reload or reopen starts on the Dashboard, predictably. This also permanently removes the "a crashed tab reopens on every visit" lockout mode. Old remembered-tab entries are cleaned from the browser automatically.
+
+**Attendance overflow — third guard + the check that settles it.** All engines available here (Chromium AND real WebKit, with the real Poppins font, manager and staff data) render the current build exactly screen-wide, and a static sweep confirmed every table sits in a scroll container. The roster card now carries its own phone-level clip on top of the v1.23.4 shell clip, so no build state can show the card cut past the screen edge. On the phone after deploying: More sheet must read v1.23.6 — if an older number shows, the phone is on a cached build (fixed permanently once v1.23.5+'s cache policy lands once); if v1.23.6 shows, send a screenshot together with the stamp.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.5 worker: health version + the v1.23.1 security fixes). Run `DEPLOY.bat` IN FULL, then fresh-open the site on the phone once.
+
 ## [1.23.5] — 2026-08-17 — Phones stop holding old builds (cache policy) + worker version in /health
 
 **The REAL chronic bug behind "still overflow" (CEO, third screenshot).** The v1.23.4 build cannot pan sideways — the clip guard was verified against a deliberately 600px-wide element, and the audits were re-run with the real Poppins font at 390px and 430px, manager and staff, landing straight on Attendance: page width never exceeds the screen. A panning screenshot therefore means the phone is STILL rendering an older build — and this release fixes why that keeps happening: the site shipped NO cache policy, so phones re-used cached pages long after every deploy. Now every page carries `Cache-Control: no-cache` (browsers revalidate on every open — a cheap 304 when nothing changed, the new build the instant a deploy lands) while the hashed build files under /_next/static are immutable (never re-downloaded until their name changes). After THIS deploy reaches the phone once, no build should ever lag again.
