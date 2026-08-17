@@ -782,7 +782,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       {/* v1.4.214 (CEO reorg): LiveGmvCard + ConnectionStatusCard moved to
           the new Ecommerce tab — the Dashboard is Quick actions → the
           three-column day view → Upcoming events. */}
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
         <div className={card}>
           <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Leave")} onKeyDown={(e) => e.key === "Enter" && go("Leave")}>
@@ -1395,7 +1395,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
         /* v1.23.3: [&>*]:min-w-0 — grid tracks are minmax(auto,1fr); one
            wide child (the assignments table was 386px min) stretches the
            track past the phone and pans the WHOLE page. Never again. */
-        <div className="grid gap-3 md:gap-4 lg:grid-cols-3 [&>*]:min-w-0">
+        <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-3 [&>*]:min-w-0">
           {sum && (
             <AttendanceDonutCard
               onTime={sum.attendance_on_time ?? 0}
@@ -1477,7 +1477,7 @@ function SalesRevenueCard() {
       </p>
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
           today leads the grid with the brand-gold accent. */}
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* v1.4.271 audit: the 🔥 Today box moved OUT of this card — the
             hero band above owns "today" now; two cards both saying today's
             number was the audit's first finding. This card is the MONTH view. */}
@@ -2367,7 +2367,7 @@ function Leave({ user }: { user: User }) {
         })}
       </div>
 
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Apply for leave</p>
           <div className="mt-3 space-y-3">
@@ -2530,7 +2530,7 @@ function Tasks({ user }: { user: User }) {
   };
 
   return (
-    <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
         <p className="text-sm font-semibold">{canManage ? "Create / assign a task" : "Create a task"}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -3777,7 +3777,7 @@ function Sales({ user }: { user: User }) {
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">
             {editingCust ? <>Editing {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); }}>cancel</button></> : "Add customer"}
@@ -4292,7 +4292,7 @@ function Profile() {
     }
   };
   return (
-    <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
         <p className="text-sm font-semibold">My profile</p>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -4643,7 +4643,7 @@ function TargetsCommissionCard() {
         {/* v1.21.1 (CEO: "should not so much row like this"): a labelled
             grid — the whole floor fits in two or three short rows instead
             of one full-width input per person. */}
-        <div className="mt-1.5 grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {staff.map((s) => (
             <label key={s.id} className="block min-w-0">
               <span className="text-muted-foreground mb-0.5 block truncate text-[11px] font-medium" title={s.name}>

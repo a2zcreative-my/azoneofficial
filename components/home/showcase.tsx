@@ -21,7 +21,7 @@ export function Showcase() {
       title={<Editable k="home.showcase.title" fallback="What a session with us looks like" />}
       intro={<Editable k="home.showcase.intro" fallback="No mystery, no vanity metrics. Every live session is planned, produced, and reported like a campaign." />}
     >
-      <div className="grid gap-10 lg:grid-cols-2 lg:gap-20">
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-20">
         <Reveal>
           <ul className="space-y-4">
             {DELIVERABLES.map((item) => (
@@ -63,7 +63,7 @@ export function Showcase() {
       <LiveTestimonials />
 
       {TESTIMONIALS.length > 0 && (
-        <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-16 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {TESTIMONIALS.slice(0, 3).map((t, i) => (
             <Reveal key={t.author} delay={i * 0.08}>
               <figure className="h-full rounded-xl border border-border p-6">

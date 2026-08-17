@@ -34,7 +34,7 @@ export function LivePortfolio({ fallback }: { fallback: React.ReactNode }) {
   if (!items || items.length === 0) return <>{fallback}</>;
 
   return (
-    <section className="grid gap-6 sm:grid-cols-2">
+    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
       {items.map((item) => (
         <article key={item.id} className="rounded-xl border border-border p-5">
           <h2 className="text-lg font-semibold text-foreground">{item.client}</h2>
@@ -78,7 +78,7 @@ export function LiveTestimonials() {
       <h3 className="text-xl font-semibold tracking-tight">
         What clients say
       </h3>
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((t) => (
           <figure key={t.id} className="h-full rounded-xl border border-border p-6">
             {typeof t.rating === "number" && t.rating > 0 && (

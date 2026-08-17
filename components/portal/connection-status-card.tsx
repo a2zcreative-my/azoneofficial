@@ -73,7 +73,7 @@ export function ConnectionStatusCard() {
       {!st ? (
         <p className="text-muted-foreground mt-1 text-sm">Checking…</p>
       ) : (
-        <div className="mt-2 grid gap-1.5 text-xs sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
           <p>{dot(st.configured && st.authorized)} <span className="font-medium">Shop authorization</span>{" "}
             <span className="text-muted-foreground">{st.configured && st.authorized ? "active" : st.configured ? "not authorized — re-authorize from Partner Center link" : "keys not configured"}</span></p>
           <p>{dot(!!st.last_order_at)} <span className="font-medium">Last synced order</span>{" "}

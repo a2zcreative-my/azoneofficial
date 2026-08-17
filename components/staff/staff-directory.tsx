@@ -447,7 +447,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         </p>
         {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
             so the field's purpose stays visible after typing. */}
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <Sub t="Company email">
             <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
               onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />

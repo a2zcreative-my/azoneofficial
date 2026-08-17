@@ -18,7 +18,7 @@ export default function ServicesPage() {
       title="Everything a brand needs to win live"
       intro="Pick a single service or hand us the whole channel — every engagement starts with a free consultation so we recommend only what your brand actually needs."
     >
-      <section className="grid gap-6 sm:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {SERVICES.map(({ title, description, icon: Icon }) => (
           <article
             key={title}

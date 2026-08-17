@@ -16,7 +16,7 @@ export function Problems() {
       title="The problems we solve, live"
       intro="Most brands don't fail at live commerce because the product is wrong — they fail at the parts nobody warned them about. These are the ones we get hired for."
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:gap-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6">
         {PROBLEMS.map((item, i) => (
           <Reveal key={item.problem} delay={i * 0.06} className="h-full">
             <article className="flex h-full flex-col rounded-xl border border-border p-6 lg:p-7">

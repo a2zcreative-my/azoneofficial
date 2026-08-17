@@ -123,7 +123,7 @@ export function InventoryStatusCard() {
           ) : openItems.length === 0 ? (
             <p className="text-muted-foreground mt-1 text-xs">Nothing here anymore — the count refreshes on reload.</p>
           ) : (
-            <div className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+            <div className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
               {openItems.map((i) => (
                 <p key={i.sku} className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="min-w-0 truncate"><span className="text-muted-foreground tabular-nums">{i.sku}</span> {i.name}</span>

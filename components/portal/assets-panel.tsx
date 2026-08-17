@@ -109,7 +109,7 @@ export function AssetsPanel() {
   const lbl = "text-muted-foreground mb-0.5 block text-[11px]";
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <div className={card}>
         <p className="text-sm font-semibold">Company assets</p>
         <p className="text-muted-foreground mt-1 text-xs">

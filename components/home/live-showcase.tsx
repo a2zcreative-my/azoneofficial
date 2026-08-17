@@ -196,7 +196,7 @@ export function LiveShowcase() {
       title={LIVE_SHOWCASE.title}
       intro={LIVE_SHOWCASE.intro}
     >
-      <div className="grid items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
         {/* TikTok — official creator embed */}
         <Reveal className="h-full">
           <div className="flex h-full flex-col">

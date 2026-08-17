@@ -17,7 +17,7 @@ export function Footer() {
   return (
     <footer id="site-footer" className="bg-brand px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="grid gap-10 md:grid-cols-4 md:gap-8">
+        <div className="grid grid-cols-1 gap-10 md:grid-cols-4 md:gap-8">
           <div className="max-w-sm md:col-span-2">
             {/*
               Lockup: an inline-block wrapper shrinks to the logo's width, so

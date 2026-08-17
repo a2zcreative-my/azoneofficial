@@ -172,7 +172,7 @@ export default function AccountPage() {
       </nav>
 
       {tab === "Account" && (
-      <div key="acct" className="screen-enter mt-6 grid gap-6 sm:grid-cols-2">
+      <div key="acct" className="screen-enter mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">My details</p>
           <p className="text-muted-foreground mt-2 text-sm">{user.name}</p>

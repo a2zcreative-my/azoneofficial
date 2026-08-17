@@ -43,7 +43,7 @@ export default function ContactPage() {
         </div>
       </section>
 
-      <div className="grid gap-12 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
         <section>
           <h2>Or send a message</h2>
           <p className="mt-3 mb-6">

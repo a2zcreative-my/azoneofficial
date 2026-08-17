@@ -17,7 +17,7 @@ export default function BlogPage() {
       title="Notes from the live room"
       intro="Practical notes on live commerce in Malaysia — what we learn running sessions, written for brand owners."
     >
-      <section className="grid gap-6 sm:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {BLOG_POSTS.map((post) => (
           <article key={post.slug} className="flex h-full flex-col rounded-xl border border-border p-6">
             <p className="text-muted-foreground text-xs">

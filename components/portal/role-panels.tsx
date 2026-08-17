@@ -184,7 +184,7 @@ export function HrPanel() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Task report</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1469,7 +1469,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         </DetailsToggle>
       </div>
 
-      <div className="grid items-start gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">Postage tracking — non-TikTok orders</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -3229,7 +3229,7 @@ export function ExpensesPanel() {
                   onSelect={(c) => setPieCat((cur) => (cur === c ? null : c))}
                   centerTop={pieCat ?? "Total"}
                   centerBottom={rmc(pieCat ? catTotal : totalPie)} />
-                <div className="grid w-full gap-1 text-xs sm:w-auto">
+                <div className="grid grid-cols-1 w-full gap-1 text-xs sm:w-auto">
                   {slices.map(([cat, v]) => (
                     <button key={cat} type="button"
                       onClick={() => setPieCat((cur) => (cur === cat ? null : cat))}
@@ -3248,7 +3248,7 @@ export function ExpensesPanel() {
               {pieCat && (
                 <div className="border-border mt-2 rounded-lg border p-2">
                   <p className="text-xs font-semibold capitalize">{pieCat} — {catRows.length} record{catRows.length === 1 ? "" : "s"} · {rmc(catTotal)}</p>
-                  <div className="mt-1 grid gap-1 text-xs">
+                  <div className="mt-1 grid grid-cols-1 gap-1 text-xs">
                     {catRows.map((r) => (
                       <div key={r.id} className="flex flex-wrap items-center gap-x-2">
                         <span className="font-semibold tabular-nums">{rmc(r.amount_cents)}</span>

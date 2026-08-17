@@ -49,7 +49,7 @@ export default function PortfolioPage() {
           </p>
         </section>
           ) : (
-            <section className="grid gap-6 sm:grid-cols-2">
+            <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {PORTFOLIO_ITEMS.map((item) => {
                 const card = (
                   <article className="h-full rounded-xl border border-border p-5 transition-colors group-hover:bg-secondary/40">

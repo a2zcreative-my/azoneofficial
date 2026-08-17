@@ -12,7 +12,7 @@ export function Services() {
       intro={<Editable k="home.services.intro" fallback="From your first trial session to a full monthly live schedule — pick a lane or hand us the whole channel." />}
       className="bg-brand-neutral"
     >
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {SERVICES.map((service, i) => {
           const Icon = service.icon;
           return (

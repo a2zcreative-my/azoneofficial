@@ -164,7 +164,7 @@ export function StaffPanel() {
           Your admin account has full rights in every staff module. These open
           in the staff portal:
         </p>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {[
             ["HR — attendance verification", "Shift-checked table for all staff"],
             ["Leave", "Same requests as above, portal view"],

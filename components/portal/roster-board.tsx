@@ -350,7 +350,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {leaveOpen && onLeaveCount > 0 && (
         <div className="border-border mt-2 rounded-lg border p-3">
           <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("On approved leave this week", "Cuti diluluskan minggu ini")}</p>
-          <div className="mt-1.5 grid gap-1 sm:grid-cols-2">
+          <div className="mt-1.5 grid grid-cols-1 gap-1 sm:grid-cols-2">
             {data.on_leave.map((l, i) => (
               <p key={`${l.user_id}-${i}`} className="flex items-baseline justify-between gap-2 text-xs">
                 <span className="min-w-0 truncate font-medium">{l.name}</span>
@@ -363,7 +363,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         </div>
       )}
 
-      <div className="mt-3 grid gap-4 xl:grid-cols-[240px_1fr_230px]">
+      <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[240px_1fr_230px]">
         {/* left rail: mini calendar (xl+) */}
         <div className="hidden xl:block">
           <MiniCalendar

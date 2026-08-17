@@ -11,7 +11,7 @@ export function Process() {
       intro="Four steps. The order matters — each one feeds the next."
       className="bg-brand-neutral"
     >
-      <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <ol className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {PROCESS.map((step, i) => (
           <Reveal key={step.step} delay={i * 0.1}>
             <li className="h-full rounded-xl border border-border bg-background p-6">

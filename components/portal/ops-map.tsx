@@ -133,7 +133,7 @@ export function OpsMapCard() {
       <p className="text-muted-foreground mt-0.5 text-xs">
         Where your TikTok orders ship (buyer city from the sync). Tap any state to see its orders and top buyer cities right here.
       </p>
-      <div className="mt-3 grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+      <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
         <svg viewBox="0 0 860 380" className="w-full" aria-label="Map of Malaysia — each state is a button showing its orders">
           <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">PENINSULAR MALAYSIA</text>
           <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">SABAH &amp; SARAWAK</text>

@@ -187,7 +187,7 @@ function CrudPanel({
   };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">
@@ -326,7 +326,7 @@ function Dashboard() {
   }, []);
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
           { label: "Total enquiries", value: summary?.enquiries?.total },
           { label: "New enquiries", value: summary?.enquiries?.new_count },
@@ -430,7 +430,7 @@ function MediaPanel() {
       </label>
       {busy && <p className="text-muted-foreground text-sm">Uploading…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((m) => (
           <div key={m.id} className="rounded-lg border border-border p-3">
             {m.kind === "image" ? (
@@ -519,7 +519,7 @@ function ContentPanel() {
   };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">Set content</h3>
@@ -688,7 +688,7 @@ function UsersPanel({ me }: { me: User }) {
   };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {userConfirmNode}
       {toastNode}
       <div className="space-y-3">

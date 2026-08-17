@@ -21,7 +21,7 @@ export default function AboutPage() {
         verify sit on the right. Previously this page was a single narrow
         column inside the 6xl frame, leaving the right half empty.
       */}
-      <section className="grid gap-10 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:gap-16">
+      <section className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:gap-16">
         <div className="space-y-5">
           {ABOUT.body.map((paragraph) => (
             <p key={paragraph}>{paragraph}</p>
@@ -51,7 +51,7 @@ export default function AboutPage() {
 
       <section>
         <h2>Why brands choose us</h2>
-        <ul className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {WHY_CHOOSE_US.map(({ title, description, icon: Icon }) => (
             <li
               key={title}

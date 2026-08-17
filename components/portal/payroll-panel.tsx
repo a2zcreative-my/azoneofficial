@@ -853,7 +853,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             When someone gets an increment, change it here and it applies from
             the next unsaved month onwards; months already saved stay as saved.
           </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {staff.map((u) => (
               <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0 truncate">{displayName(u)}</span>
