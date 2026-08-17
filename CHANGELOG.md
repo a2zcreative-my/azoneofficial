@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.23.2] — 2026-08-17 — BM covers what staff actually see
+
+**BM is consistent now (CEO: "Why some doesn't change to BM? I need to make sure everything change to BM when BM toggle on").** Two kinds of gap were fixed. (1) Tabs added after the translation system was built — Finance, Reconciliation, Commission, Ads Fund, Purchasing, Accounting — never got BM entries, so they stayed English in the bottom bar, More sheet and sidebar. (2) Whole staff-facing surfaces never called the translator at all: the Dashboard cards (Pending leave → Cuti menunggu, My open tasks → Tugasan terbuka saya, News → Berita, Today's sales · LIVE → Jualan hari ini · LANGSUNG, Revenue/target → Hasil/sasaran, All-time → Keseluruhan, Needs attention → Perlu perhatian with all its rows) and the entire Schedule & Roster board (Jadual & Roster: title, chips dijadualkan/tersedia hari ini/bercuti/pertindihan, Hari ini, PDF — kongsi pelan, Minggu …, day names ISN/SEL/RAB/KHA/JUM/SAB/AHD, sesi counts, HARI INI chip, on-leave and rails). Verified in BM on phone: Dashboard and the roster read Malay end to end.
+
+**Scope note (deliberate, same principle as v1.9.0):** management tooling — the assignment/edit dialog, finance tables, admin console — stays English for now; a half-translated data form is worse than a clean bilingual staff surface. If you want deep-panel BM tab by tab (Leave forms, Claims, Profile next), say which tabs and they'll be done in order.
+
+**Deploy notes:** site-only; the zip is cumulative (carries the v1.23.1 worker — 2FA + password fixes). Run `DEPLOY.bat` IN FULL.
+
 ## [1.23.1] — 2026-08-17 — Google sign-in 2FA enforced + CSRF fixed on change-password
 
 **Google sign-in no longer bypasses 2FA (CEO: "when my staff login using Google, there is no 2FA appear which is incorrect flow … this is something that you leak!").** Password sign-in has always refused to mint a session for an account with 2FA enabled until a valid authenticator code is entered — but Google sign-in minted the session immediately, walking straight past that control. Now the Google callback follows the exact same flow: 2FA on → no session; a 5-minute single-use challenge is handed to the sign-in page, the same code screen appears, and the session is created only by a valid code (same 5-attempt limit and rate limiting). Customer accounts still land on /account, staff on /portal, admin tier on /admin — nothing about the routing changed.

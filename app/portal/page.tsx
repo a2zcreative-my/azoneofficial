@@ -785,7 +785,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         <div className={card}>
           <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Leave")} onKeyDown={(e) => e.key === "Enter" && go("Leave")}>
-            Pending leave
+            {tr("Pending leave", lang)}
             {leave.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
                 {leave.length}
@@ -793,7 +793,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             )}
           </p>
           {leave.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">None pending.</p>
+            <p className="text-muted-foreground mt-2 text-sm">{tr("None pending.", lang)}</p>
           ) : (
             leave.map((l) => (
               <p key={l.id} className="mt-2 text-sm">
@@ -805,7 +805,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         <div className={card}>
           <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Tasks")} onKeyDown={(e) => e.key === "Enter" && go("Tasks")}>
-            My open tasks
+            {tr("My open tasks", lang)}
             {tasks.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
                 {tasks.length}
@@ -813,7 +813,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             )}
           </p>
           {tasks.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">Nothing assigned.</p>
+            <p className="text-muted-foreground mt-2 text-sm">{tr("Nothing assigned.", lang)}</p>
           ) : (
             tasks.map((t) => (
               <p key={t.id} className="mt-2 text-sm">
@@ -825,13 +825,13 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         <div className={card}>
           <p className="cursor-pointer text-[15px] font-semibold md:text-sm" role="button" tabIndex={0}
             onClick={() => go("Announcements")} onKeyDown={(e) => e.key === "Enter" && go("Announcements")}>
-            News
+            {tr("News", lang)}
             {anns.length > 0 && (
               <span className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
             )}
           </p>
           {anns.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">No announcements.</p>
+            <p className="text-muted-foreground mt-2 text-sm">{tr("No announcements.", lang)}</p>
           ) : (
             anns.map((a) => (
               <p key={a.id} className="mt-2 text-sm">
@@ -1115,36 +1115,36 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
     const up = todayTotal >= y;
     ticker.push(
       <div key="today" className="rounded-xl bg-brand p-4 text-white shadow-sm">
-        <p className="text-[10px] font-semibold tracking-wider uppercase text-white/70">🔥 Today&apos;s sales · LIVE</p>
+        <p className="text-[10px] font-semibold tracking-wider uppercase text-white/70">🔥 {tr("Today's sales · LIVE", lang)}</p>
         <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">{fmtRM(todayTotal)}</p>
         {(todayTotal > 0 || y > 0) && (
           <p className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${up ? "bg-bull/25 text-green-200" : "bg-bear/25 text-red-200"}`}>
-            {up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))} vs yesterday
+            {up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))} {tr("vs yesterday", lang)}
           </p>
         )}
         <p className="mt-1 text-xs text-white/80">
-          {t.tiktok_orders} TikTok order{t.tiktok_orders === 1 ? "" : "s"}
-          {t.invoiced_cents > 0 ? ` · invoiced ${fmtRM(t.invoiced_cents)}` : ""}
+          {lang === "ms" ? `${t.tiktok_orders} ${tr("TikTok orders", lang)}` : `${t.tiktok_orders} TikTok order${t.tiktok_orders === 1 ? "" : "s"}`}
+          {t.invoiced_cents > 0 ? ` · ${lang === "ms" ? "invois" : "invoiced"} ${fmtRM(t.invoiced_cents)}` : ""}
         </p>
       </div>,
     );
   }
   if (canRevenue && rev) {
     ticker.push(
-      <StatCard key="month" label={`Revenue — ${ym(rev.month)}`}
+      <StatCard key="month" label={`${tr("Revenue", lang)} — ${ym(rev.month)}`}
         value={fmtRM(monthTotal)}
-        bar={target ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% of ${fmtRM(target)}${targetIsAuto ? " auto-target" : " target"}`, tone: monthTotal >= target ? "green" : "gold" } : undefined}
-        sub={target ? undefined : "first month of data — the auto-target starts next month"} />,
+        bar={target ? { pct: (monthTotal / target) * 100, label: `${Math.round((monthTotal / target) * 100)}% ${lang === "ms" ? "daripada" : "of"} ${fmtRM(target)} ${tr(targetIsAuto ? "auto-target" : "target", lang)}`, tone: monthTotal >= target ? "green" : "gold" } : undefined}
+        sub={target ? undefined : (lang === "ms" ? "bulan pertama data — sasaran auto bermula bulan depan" : "first month of data — the auto-target starts next month")} />,
     );
     if (rev.overall && rev.overall.total_cents > 0) {
       const ov = rev.overall;
       const best = ov.best;
       const thisMonthCents = ov.months.find((m) => m.month === rev.month)?.cents ?? 0;
       ticker.push(
-        <StatCard key="overall" label="📈 All-time — every channel"
+        <StatCard key="overall" label={`📈 ${tr("All-time — every channel", lang)}`}
           value={fmtRM(ov.total_cents)}
-          bar={best && best.cents > 0 ? { pct: (thisMonthCents / best.cents) * 100, label: best.month === rev.month ? "this month is your best yet 🏆" : `vs best month (${ym(best.month)} · ${fmtRM(best.cents)})`, tone: thisMonthCents >= best.cents ? "green" : "navy" } : undefined}
-          sub={`${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`} />,
+          bar={best && best.cents > 0 ? { pct: (thisMonthCents / best.cents) * 100, label: best.month === rev.month ? tr("this month is your best yet 🏆", lang) : `${tr("vs best month", lang)} (${ym(best.month)} · ${fmtRM(best.cents)})`, tone: thisMonthCents >= best.cents ? "green" : "navy" } : undefined}
+          sub={lang === "ms" ? `${ov.months.length} ${tr("months of business", lang)}` : `${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`} />,
       );
     }
   }
@@ -1161,14 +1161,16 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
     const shown = rows.filter(([, v]) => v !== null && v > 0);
     ticker.push(
       <div key="attention" className="border-border bg-card rounded-xl border border-t-2 border-t-brand p-4 shadow-sm">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Needs attention</p>
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{tr("Needs attention", lang)}</p>
         {shown.length === 0
-          ? <p className="mt-2 text-sm">✅ Nothing waiting on you</p>
+          ? <p className="mt-2 text-sm">✅ {tr("Nothing waiting on you", lang)}</p>
           : (
             <div className="mt-1.5 space-y-1">
+              {/* v1.23.2: translate ONLY the display — setDetailModal keeps
+                  the EN key, which the modal switch below compares against. */}
               {shown.map(([label, v, _tabName]) => (
                 <button type="button" key={label} onClick={() => setDetailModal(label)} className="flex w-full items-baseline justify-between text-sm hover:text-primary hover:underline">
-                  <span>{label}</span>
+                  <span>{tr(label, lang)}</span>
                   <span className="font-bold tabular-nums">{v}</span>
                 </button>
               ))}

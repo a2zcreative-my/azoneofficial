@@ -11,6 +11,7 @@ import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
 import { MiniCalendar } from "@/components/portal/mini-calendar";
 
@@ -56,6 +57,7 @@ function shiftWeek(weekStart: string, weeks: number): string {
   return new Date(Date.parse(weekStart + "T00:00:00Z") + weeks * 7 * 86400_000).toISOString().slice(0, 10);
 }
 const DAY_LABEL = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const DAY_LABEL_MS = ["ISN", "SEL", "RAB", "KHA", "JUM", "SAB", "AHD"];
 function toHHMM(minsTotal: number): string {
   const m = Math.max(0, Math.min(23 * 60 + 45, minsTotal));
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -69,6 +71,14 @@ function toHHMM(minsTotal: number): string {
    drags, completes and cancels exactly as before. */
 export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean; canEdit?: boolean }) {
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.23.2 (CEO: "Why some doesn't change to BM?"): the board's READ
+     surfaces — title, chips, week bar, agenda — follow the language toggle.
+     getLang() re-reads on every render; the toggle re-renders the portal
+     tree, so the switch is instant. Manager tooling (the assignment modal,
+     detail-card actions) stays EN by design — see lib/i18n.ts. */
+  const lang = getLang();
+  const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
+  const DAYS = lang === "ms" ? DAY_LABEL_MS : DAY_LABEL;
   const [data, setData] = useState<RosterData | null>(null);
   const [week, setWeek] = useState<string>("");           // "" = server default (this week)
   const [openSession, setOpenSession] = useState<number | null>(null);
@@ -268,14 +278,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   };
 
   if (notReady) {
-    return <div className={card}><p className="text-sm font-semibold">📆 Schedule &amp; Roster</p>
+    return <div className={card}><p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
       <p className="text-muted-foreground mt-1 text-xs">The roster needs the latest Worker deploy (and migration 0056).</p></div>;
   }
   if (!data) {
-    return <div className={card}><p className="text-sm font-semibold">📆 Schedule &amp; Roster</p>
+    return <div className={card}><p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
       {failed
-        ? <p className="text-muted-foreground mt-2 text-sm">Could not load the week — <button type="button" className="underline" onClick={() => void load(week)}>try again</button>.</p>
-        : <p className="text-muted-foreground mt-2 text-sm">Loading the week…</p>}
+        ? <p className="text-muted-foreground mt-2 text-sm">{L("Could not load the week —", "Minggu tidak dapat dimuatkan —")} <button type="button" className="underline" onClick={() => void load(week)}>{L("try again", "cuba lagi")}</button>.</p>
+        : <p className="text-muted-foreground mt-2 text-sm">{L("Loading the week…", "Memuatkan minggu…")}</p>}
     </div>;
   }
 
@@ -310,18 +320,18 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">📆 Schedule &amp; Roster</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">Plan live-host assignments, availability and replacements.</p>
+          <p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{L("Plan live-host assignments, availability and replacements.", "Rancang tugasan hos live, ketersediaan dan pengganti.")}</p>
         </div>
         {canManage && (
-          <button type="button" className={btnClass} onClick={() => openAssign()}>＋ New assignment</button>
+          <button type="button" className={btnClass} onClick={() => openAssign()}>＋ {L("New assignment", "Tugasan baharu")}</button>
         )}
       </div>
 
       {/* stat chips (reference: Scheduled / Available / On leave / Conflicts) */}
       <div className="mt-3 flex flex-wrap gap-2">
-        {chip("scheduled", active.length, "bg-secondary")}
-        {data.manager && chip("available today", data.available_today.length, chipSuccess)}
+        {chip(L("scheduled", "dijadualkan"), active.length, "bg-secondary")}
+        {data.manager && chip(L("available today", "tersedia hari ini"), data.available_today.length, chipSuccess)}
         {/* v1.21.0: the on-leave pill is a button — it opens WHO is away and
             the applied dates, so assignments are planned around real absences
             without leaving this board. */}
@@ -329,14 +339,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
           aria-expanded={leaveOpen}
           className={`${chipNeutral} inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium ${onLeaveCount > 0 ? "cursor-pointer hover:opacity-80" : ""}`}>
           <span className="text-sm font-bold tabular-nums">{onLeaveCount}</span>
-          {data.manager ? "on leave" : "my leave days"}
+          {data.manager ? L("on leave", "bercuti") : L("my leave days", "hari cuti saya")}
           {onLeaveCount > 0 && <span aria-hidden className="text-[10px]">{leaveOpen ? "▲" : "▼"}</span>}
         </button>
-        {chip("conflicts", data.conflicts.length, data.conflicts.length ? chipWarn : "bg-secondary")}
+        {chip(L("conflicts", "pertindihan"), data.conflicts.length, data.conflicts.length ? chipWarn : "bg-secondary")}
       </div>
       {leaveOpen && onLeaveCount > 0 && (
         <div className="border-border mt-2 rounded-lg border p-3">
-          <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">On approved leave this week</p>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("On approved leave this week", "Cuti diluluskan minggu ini")}</p>
           <div className="mt-1.5 grid gap-1 sm:grid-cols-2">
             {data.on_leave.map((l, i) => (
               <p key={`${l.user_id}-${i}`} className="flex items-baseline justify-between gap-2 text-xs">
@@ -359,9 +369,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             onPick={(d) => setWeek(mondayOf(d))}
           />
           <div className="border-border mt-3 rounded-lg border p-3">
-            <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">Today</p>
+            <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">{L("Today", "Hari ini")}</p>
             {active.filter((s) => s.session_date === todayS).length === 0
-              ? <p className="text-muted-foreground mt-1.5 text-xs">No sessions today.</p>
+              ? <p className="text-muted-foreground mt-1.5 text-xs">{L("No sessions today.", "Tiada sesi hari ini.")}</p>
               : active.filter((s) => s.session_date === todayS).map((s) => (
                 <button key={s.id} type="button" onClick={() => setOpenSession(s.id)}
                   className="border-border mt-1.5 block w-full rounded-lg border px-2.5 py-1.5 text-left text-xs hover:bg-secondary">
@@ -376,7 +386,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         <div className="min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <button type="button" className={btnSm} onClick={() => { if (week === "") void load(""); else setWeek(""); }}>Today</button>
+              <button type="button" className={btnSm} onClick={() => { if (week === "") void load(""); else setWeek(""); }}>{L("Today", "Hari ini")}</button>
               <button type="button" className={btnSm} aria-label="Previous week" onClick={() => setWeek(shiftWeek(data.week_start, -1))}>‹</button>
               <button type="button" className={btnSm} aria-label="Next week" onClick={() => setWeek(shiftWeek(data.week_start, 1))}>›</button>
               {/* v1.22.2 (CEO: "generate 1 schedule table in PDF so that I
@@ -392,7 +402,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   showToast(how === "shared" ? "Ready to share" : "Downloaded",
                     `Week roster PDF · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
                 }}>
-                PDF — share plan
+                {L("PDF — share plan", "PDF — kongsi pelan")}
               </button>
               {/* v1.22.3 — view toggle (desktop only; phones keep the agenda). */}
               <span className="border-border ml-1 hidden overflow-hidden rounded-lg border text-xs md:inline-flex">
@@ -403,7 +413,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 ))}
               </span>
             </div>
-            <p className="text-sm font-medium tabular-nums">Week of {dmy(data.days[0]!)} – {dmy(data.days[6]!)}</p>
+            <p className="text-sm font-medium tabular-nums">{L("Week of", "Minggu")} {dmy(data.days[0]!)} – {dmy(data.days[6]!)}</p>
           </div>
           {/* v1.22.3 — STAFF GRID (desktop default): staff rows × day
               columns, the CEO's reference layout in AZ ONE colours. */}
@@ -412,7 +422,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               <div className="border-border relative min-w-[760px] overflow-hidden rounded-lg border">
                 {(() => {
                   const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, spanMins(s.start_time, s.end_time)) : 60);
-                  const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} hrs`;
+                  const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} ${L("hrs", "jam")}`;
+                  const nSess = (n: number) => (lang === "ms" ? `${n} sesi` : `${n} session${n === 1 ? "" : "s"}`);
                   const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
                   const rows = staff;
                   const cellSessions = (uid: number, d: string) =>
@@ -435,15 +446,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       {/* header: staff corner + day columns with totals */}
                       <div className="border-border grid border-b" style={gridCols}>
                         <div className="bg-brand flex min-w-0 flex-col justify-center px-3 py-2">
-                          <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">Staff</p>
-                          <p className="text-xs font-semibold text-white tabular-nums">{active.length} session{active.length === 1 ? "" : "s"} · {hrs(active.reduce((a, s) => a + durOf(s), 0))}</p>
+                          <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">{L("Staff", "Staf")}</p>
+                          <p className="text-xs font-semibold text-white tabular-nums">{nSess(active.length)} · {hrs(active.reduce((a, s) => a + durOf(s), 0))}</p>
                         </div>
                         {data.days.map((d, i) => {
                           const dayS = active.filter((s) => s.session_date === d);
                           const isToday = d === todayS;
                           return (
                             <div key={d} className={`border-border min-w-0 border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
-                              <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAY_LABEL[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
+                              <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
                                 {dayS.length === 0 ? "—" : `${dayS.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0))}`}
                               </p>
@@ -459,7 +470,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                             <div className="border-border flex min-w-0 flex-col justify-center border-r px-3 py-1.5">
                               <p className="truncate text-xs font-semibold" title={u.name}>{u.name.split(" ").slice(0, 2).join(" ")}</p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
-                                {mine.length === 0 ? "no sessions" : `${mine.length} session${mine.length === 1 ? "" : "s"} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`}
+                                {mine.length === 0 ? L("no sessions", "tiada sesi") : `${nSess(mine.length)} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`}
                               </p>
                             </div>
                             {data.days.map((d) => {
@@ -550,7 +561,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 <span />
                 {data.days.map((d, i) => (
                   <span key={d} className={`px-1 pb-1 text-center text-[11px] font-semibold ${d === todayS ? "text-gold-deep" : "text-muted-foreground"}`}>
-                    {DAY_LABEL[i]} <span className="tabular-nums">{d.slice(8)}</span>
+                    {DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span>
                   </span>
                 ))}
               </div>
@@ -690,11 +701,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 <div key={d} className={`border-border border-b px-3 py-2 last:border-b-0 ${isToday ? "bg-gold-soft/25" : ""}`}>
                   <div className="flex items-center justify-between gap-2">
                     <p className={`text-[11px] font-semibold tracking-wide ${isToday ? "text-gold-deep" : "text-muted-foreground"}`}>
-                      {DAY_LABEL[i]} <span className="tabular-nums">{dmy(d)}</span>
-                      {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">TODAY</span>}
+                      {DAYS[i]} <span className="tabular-nums">{dmy(d)}</span>
+                      {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">{L("TODAY", "HARI INI")}</span>}
                     </p>
                     {dayS.length > 0 && (
-                      <span className="text-muted-foreground text-[10px] tabular-nums">{dayS.length} session{dayS.length === 1 ? "" : "s"}</span>
+                      <span className="text-muted-foreground text-[10px] tabular-nums">{lang === "ms" ? `${dayS.length} sesi` : `${dayS.length} session${dayS.length === 1 ? "" : "s"}`}</span>
                     )}
                   </div>
                   {dayS.length === 0 ? (
@@ -791,10 +802,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
           <div className="space-y-3">
             <div className="border-border rounded-lg border p-3">
               <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
-                Unassigned requests {data.requests.length > 0 && <span className="bg-bear ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{data.requests.length}</span>}
+                {L("Unassigned requests", "Permintaan belum ditugaskan")} {data.requests.length > 0 && <span className="bg-bear ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{data.requests.length}</span>}
               </p>
               {data.requests.length === 0
-                ? <p className="text-muted-foreground mt-1.5 text-xs">No new requests.</p>
+                ? <p className="text-muted-foreground mt-1.5 text-xs">{L("No new requests.", "Tiada permintaan baharu.")}</p>
                 : data.requests.map((q) => (
                   <div key={q.id} className="border-border mt-1.5 rounded-lg border px-2.5 py-1.5 text-xs">
                     <p className="font-medium">{q.company ?? q.name}</p>
@@ -809,9 +820,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 ))}
             </div>
             <div className="border-border rounded-lg border p-3">
-              <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">Available today</p>
+              <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">{L("Available today", "Tersedia hari ini")}</p>
               {data.available_today.length === 0
-                ? <p className="text-muted-foreground mt-1.5 text-xs">Nobody free today.</p>
+                ? <p className="text-muted-foreground mt-1.5 text-xs">{L("Nobody free today.", "Tiada siapa lapang hari ini.")}</p>
                 : data.available_today.map((a) => (
                   <p key={a.id} className="mt-1.5 flex items-center gap-2 text-xs">
                     <span className="bg-bull inline-block h-2 w-2 rounded-full" aria-hidden />
