@@ -94,8 +94,14 @@ export function OpsMapCard() {
   const [cities, setCities] = useState<CityRow[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   useEffect(() => {
-    void api<{ cities: CityRow[] }>(`/orders/geo`)
-      .then((r) => setCities(r.ok && r.data?.cities ? r.data.cities : []));
+    const load = () =>
+      void api<{ cities: CityRow[] }>(`/orders/geo`)
+        .then((r) => setCities(r.ok && r.data?.cities ? r.data.cities : []));
+    load();
+    /* v1.24.1 (CEO): re-pull the state distribution the moment a "Sync from
+       TikTok" pass finishes — no reload needed. */
+    window.addEventListener("azone:tiktok-synced", load);
+    return () => window.removeEventListener("azone:tiktok-synced", load);
   }, []);
 
   const agg = useMemo(() => {

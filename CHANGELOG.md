@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.24.1] — 2026-08-17 — Operations map refreshes on TikTok sync
+
+**The state map updates the moment a sync lands (CEO: "Operations map — orders by state should be updated accordingly when I click on button sync from TikTok").** A successful "Sync from TikTok" now announces itself to every listening card, and the Operations map re-pulls the buyer-state distribution immediately — new orders appear on the map and in the side panel without reloading the page. (The same signal is available for future cards that show order-derived data.)
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.8 worker). Run `DEPLOY.bat` IN FULL.
+
 ## [1.24.0] — 2026-08-17 — Tab memory, refined: refresh keeps your place, closing starts fresh
 
 **Exactly the behaviour you described (CEO: "if they refresh it will remain to the last page that they visit… go back to dashboard if the staff close their web/mobile browser").** Tab memory now lives in the browser's session storage, which has precisely those semantics: a REFRESH keeps the tab you were on; CLOSING the tab or browser clears it, so the next open starts on the Dashboard. Per-user key and the role clamp keep the shared-device guarantee (a lower-role account can never restore a restricted tab), and a crashing tab can only affect one browser session — never every future visit. The crash-recovery screen's "Back to Dashboard" clears the new memory too.

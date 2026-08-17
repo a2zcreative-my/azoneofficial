@@ -372,6 +372,10 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
       setTtMsg(`Imported ${res.data.imported} (${res.data.skipped} already in)${probs}`);
       void loadTikTok();
       onChanged();
+      /* v1.24.1 (CEO: "Operations map — orders by state should be updated
+         accordingly when I click on button sync from TikTok"): tell every
+         listening card fresh order data just landed. */
+      try { window.dispatchEvent(new CustomEvent("azone:tiktok-synced")); } catch { /* SSR-safe */ }
     } else {
       setTtMsg(res.data?.error?.message ?? "Sync failed — check the TikTok setup");
     }
