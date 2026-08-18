@@ -1345,8 +1345,24 @@ export default {
     let res: Response;
     try {
       res = await route(request, env, path);
-    } catch (err) {
-      console.error(err);
+    } catch (err0) {
+      /* v1.25.2 (error_log 18-08 09:36: "/staff/announcements — D1_ERROR:
+         Network connection lost."): that is Cloudflare's database link
+         dropping mid-query, not a fault in our code — the same request
+         succeeds immediately afterwards. A READ is safe to repeat, so retry
+         it once rather than showing staff a red error for a blip. Writes are
+         never retried: repeating a POST could double-punch or double-post. */
+      const transient = /network connection lost|storage operation failed|internal error.*d1|connection reset/i
+        .test(err0 instanceof Error ? err0.message : String(err0));
+      let retried: Response | null = null;
+      if (transient && (request.method === "GET" || request.method === "HEAD")) {
+        try {
+          await new Promise((r) => setTimeout(r, 120));
+          retried = await route(request, env, path);
+        } catch { /* second failure falls through to the normal handler */ }
+      }
+      const err = err0;
+      if (!retried) console.error(err);
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
       const error_id = "ERR-" + crypto.randomUUID().split('-')[0].toUpperCase();
       // v1.7.2: the message stored in the log must NOT contain the random
@@ -1355,8 +1371,13 @@ export default {
       // "api ×4 / ×5 new system errors" notification flood. The id still goes
       // to the caller for support correlation; the log de-dupes on the stable
       // (source + message + path) key.
-      await logError(env, "api", detail, path);
-      res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
+      if (retried) {
+        // the blip healed on the second attempt — serve it, log nothing
+        res = retried;
+      } else {
+        await logError(env, "api", detail, path);
+        res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
+      }
     }
     // attach CORS + baseline security headers to every response (v1.5.0)
     const headers = new Headers(res.headers);

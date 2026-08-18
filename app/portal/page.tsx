@@ -283,9 +283,21 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   >({ state: "idle" });
   const checkLocation = async () => {
     setGpsCheck({ state: "busy" });
-    const gps = await getGps();
+    const { gps, reason } = await getGpsFull();
     if (!gps) {
-      setGpsCheck({ state: "error", message: lang === "ms" ? "Lokasi tidak dibenarkan — semak tetapan pelayar." : "Location was blocked — check your browser settings." });
+      /* v1.25.2: this used to say "blocked — check your browser settings" for
+         EVERY failure, so staff who had already granted permission were sent
+         to fix a setting that was correct. Each cause now gets its own words. */
+      const msg = reason === "denied"
+        ? (lang === "ms"
+            ? "Lokasi disekat untuk laman ini — benarkan lokasi dalam tetapan tapak pelayar anda."
+            : "Location is blocked for this site — allow it in your browser's site settings (the padlock/⋮ menu), not just in phone Settings.")
+        : reason === "unsupported"
+          ? (lang === "ms" ? "Pelayar ini tidak menyokong lokasi." : "This browser cannot provide location.")
+          : (lang === "ms"
+              ? "Tidak dapat isyarat lokasi — hidupkan Lokasi telefon, dekati tingkap dan cuba lagi."
+              : "No location signal yet — switch phone Location ON, step near a window, then tap again.");
+      setGpsCheck({ state: "error", message: msg });
       return;
     }
     const r = await api<{ configured: boolean; inside?: boolean; distance_m?: number; radius_m?: number; label?: string }>(
@@ -304,15 +316,44 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   /* v1.18.1: reports DENIED separately from "couldn't get a fix" — the CEO
      wants staff told when their punch was recorded without location, and
      "you blocked it" needs different words from "GPS timed out". */
-  const getGpsFull = () => new Promise<{ gps: string | null; denied: boolean }>((resolve) => {
-    try {
-      if (typeof navigator === "undefined" || !("geolocation" in navigator)) { resolve({ gps: null, denied: false }); return; }
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ gps: `${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`, denied: false }),
-        (e) => resolve({ gps: null, denied: e.code === 1 }), // 1 = PERMISSION_DENIED
-        { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
-      );
-    } catch { resolve({ gps: null, denied: false }); } // insecure-context throw etc. — never wedge the buttons
+  /* v1.25.2 (staff: "the location was not capture which is they already
+     toggle on the location permission!" — screenshots showed Android
+     permission correctly set to "Allow only while using the app" + precise
+     location ON).
+     THE BUG WAS OURS: a single high-accuracy request with a 10-second
+     timeout. enableHighAccuracy asks the phone for a SATELLITE fix — which
+     is exactly what does not work INSIDE a building, and inside the office
+     is precisely where staff clock in. The request timed out, we reported
+     "no location", and the person was told to check permissions they had
+     already granted.
+     Now it is staged: a short high-accuracy attempt (instant outdoors),
+     then a fallback to NETWORK positioning (wifi/cell), which answers in
+     about a second indoors and is accurate to tens of metres — far inside
+     the 120 m office fence. A real denial short-circuits immediately; there
+     is no point retrying a permission the person refused. */
+  type GpsFail = "denied" | "timeout" | "unavailable" | "unsupported";
+  const getGpsFull = () => new Promise<{ gps: string | null; denied: boolean; reason: GpsFail | null }>((resolve) => {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      resolve({ gps: null, denied: false, reason: "unsupported" }); return;
+    }
+    const ok = (p: GeolocationPosition) => resolve({
+      gps: `${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`,
+      denied: false, reason: null,
+    });
+    const ask = (opts: PositionOptions, onFail: (e: { code: number }) => void) => {
+      // an insecure context throws synchronously — treat as unavailable
+      try { navigator.geolocation.getCurrentPosition(ok, onFail, opts); } catch { onFail({ code: 2 }); }
+    };
+    ask({ enableHighAccuracy: true, timeout: 6_000, maximumAge: 60_000 }, (e1) => {
+      if (e1.code === 1) { resolve({ gps: null, denied: true, reason: "denied" }); return; }
+      ask({ enableHighAccuracy: false, timeout: 15_000, maximumAge: 120_000 }, (e2) => {
+        resolve({
+          gps: null,
+          denied: e2.code === 1,
+          reason: e2.code === 1 ? "denied" : e2.code === 3 ? "timeout" : "unavailable",
+        });
+      });
+    });
   });
   const getGps = async () => (await getGpsFull()).gps;
   /* v1.21.6 (CEO: "On mobile, I cant see the details of the task assigned…
@@ -365,8 +406,8 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       setPunchToast({
         title: "Location needed",
         sub: gpsDenied
-          ? `Location is blocked for this site — enable it in your browser settings, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`
-          : `Couldn't get a GPS fix — move near a window and tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
+          ? `Location is blocked for THIS SITE — open the padlock/⋮ menu in your browser, allow Location, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again. (Phone Settings alone is not enough.)`
+          : `No location signal yet — check phone Location is ON, step near a window, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 4800);

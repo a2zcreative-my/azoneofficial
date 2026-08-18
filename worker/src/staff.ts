@@ -3450,7 +3450,13 @@ export async function handleStaff(
                        - (CAST(substr(s.start_time,1,2) AS INTEGER)*60 + CAST(substr(s.start_time,4,2) AS INTEGER))
                     ELSE 0 END), 0) AS minutes,
                 (SELECT COALESCE(SUM(p.order_amount_cents), 0) FROM postage_records p
-                 WHERE p.tracking_ref LIKE 'TT-%' AND COALESCE(p.status, '') != 'returned'
+                 /* v1.25.2 (caught by tests/sql-schema-check.mjs before it
+                    ever reached live): the column is order_ref — postage_records
+                    has no tracking_ref. TikTok orders are identified by the
+                    'TT-' order_ref prefix everywhere else in the worker, so
+                    this per-host GMV figure was silently failing its whole
+                    try-block and reporting zero for every host. */
+                 WHERE p.order_ref LIKE 'TT-%' AND COALESCE(p.status, '') != 'returned'
                    AND EXISTS (SELECT 1 FROM live_sessions s2
                         WHERE s2.host_user_id = u.id AND s2.status != 'cancelled' AND s2.end_time IS NOT NULL
                           AND substr(s2.session_date, 1, 7) = ?1

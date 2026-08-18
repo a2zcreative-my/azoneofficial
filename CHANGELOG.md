@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.25.2] — 2026-08-18 — Staff can clock in indoors · two dead queries · every query now schema-checked
+
+**Staff could not capture location — and it was our fault, not their phone (staff: "the location was not capture which is they already toggle on the location permission!").** Their screenshots showed Android permission correctly set to "Allow only while using the app" with precise location ON. The bug: we asked for a **high-accuracy (satellite) fix with a 10-second limit**. A satellite fix is exactly what does *not* work inside a building — and inside the office is precisely where staff clock in. The request timed out, we reported "no location", and told them to fix a permission that was already correct. Location is now requested in two stages: a short satellite attempt (instant outdoors), then a fallback to **network positioning** (wifi/cell), which answers in about a second indoors and is accurate to tens of metres — comfortably inside the 120 m office fence. A genuine refusal short-circuits at once. Verified against three simulated phones: indoors-with-timeout now **captures location and clocks in**; genuine denial and no-signal each get their own honest message. And the wording is fixed — "blocked" is only said when it is actually blocked, and it now points at the browser's **site** setting (the padlock/⋮ menu), which is the one people miss.
+
+**Two queries that had never worked.** `/hosts` asked for a `suspended` column the users table has never had (the house convention is `is_active`), so the commission host picker was always empty. And a per-host GMV figure asked `postage_records` for `tracking_ref` instead of `order_ref`, silently reporting zero for every host.
+
+**Every query is now schema-checked before it can ship.** Three production 500s in two days were all the same shape — a query naming a column that does not exist, which SQLite only complains about when it runs. `tests/sql-schema-check.mjs` rebuilds the real database from your migrations, extracts all **615** SQL statements from the worker and asks SQLite to prepare each one. It found the `tracking_ref` bug above before you ever saw it. (It also caught itself: an early version passed vacuously because a tool was missing — it now refuses to report success if the schema fails to build.)
+
+**Transient database blips no longer show staff an error** (error log 18-08 09:36, "/staff/announcements — D1_ERROR: Network connection lost"). That is Cloudflare's database link dropping mid-query, not a fault in our code. A read is now retried once after a brief pause; writes are never retried, so a punch or a post can never be duplicated.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL. After deploying, have the staff member who reported it tap **Check my location** on the Dashboard: it should now show her distance from the office.
+
 ## [1.25.1] — 2026-08-17 — The portal no longer states a wrong answer while loading
 
 **What the screen recording actually showed (CEO: "there is a loading like that, which is should appear as a Dead Skeleton").** Pulling the video apart frame by frame: for the first half-second the Quick actions card displayed a green **"📍 Clock in"** button and **"No attendance recorded today."** — then corrected itself to **"Clocked in ✓ / Clocked out ✓ · Today: clock in 09:13 · clock out 18:50"**. That is not slow loading; the portal was telling a staff member they had not clocked in, and inviting them to clock in again, when they already had. A double-punch waiting to happen. (The grey ring floating over the recording is the phone's AssistiveTouch button, not part of the app.)

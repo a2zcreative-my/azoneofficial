@@ -305,8 +305,13 @@ export async function handleErp(
       if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
       // v1.21.0 (CEO: "staff name list should be populate full staff name"):
       // full_name preferred, same COALESCE as /staff-list — one convention.
+      /* v1.25.2 (error_log 18-08 09:43 "no such column: suspended"): the
+         users table has never had a `suspended` column — the house
+         convention is is_active = 1 (as /staff-list and every other query
+         uses). This endpoint therefore 500'd on every call since it was
+         written, so the commission host picker was always empty. */
       const rows = await env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND (suspended IS NULL OR suspended = 0) ORDER BY 2`,
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND is_active = 1 ORDER BY 2`,
       ).all();
       return json({ hosts: rows.results ?? [] });
     }
