@@ -34,6 +34,7 @@ import { AssetsPanel } from "@/components/portal/assets-panel";
 import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
+import { LocationHelp } from "@/components/portal/location-help";
 import { setCacheScope, clearApiCache, useCachedApi, cacheRead, cacheWrite } from "@/lib/cached-api";
 
 /* v1.25.1 — remembered-data keys for the Dashboard's own four requests. */
@@ -279,7 +280,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   const [gpsCheck, setGpsCheck] = useState<
     | { state: "idle" | "busy" }
     | { state: "done"; inside: boolean; distance_m: number; radius_m: number; label: string }
-    | { state: "error"; message: string }
+    | { state: "error"; message: string; denied?: boolean }
   >({ state: "idle" });
   const checkLocation = async () => {
     setGpsCheck({ state: "busy" });
@@ -297,7 +298,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           : (lang === "ms"
               ? "Tidak dapat isyarat lokasi — hidupkan Lokasi telefon, dekati tingkap dan cuba lagi."
               : "No location signal yet — switch phone Location ON, step near a window, then tap again.");
-      setGpsCheck({ state: "error", message: msg });
+      setGpsCheck({ state: "error", message: msg, denied: reason === "denied" });
       return;
     }
     const r = await api<{ configured: boolean; inside?: boolean; distance_m?: number; radius_m?: number; label?: string }>(
@@ -394,15 +395,36 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
        fence OFF means it is recorded for the register without being enforced;
        fence ON keeps the server-side refusal. The prompt only ever fires on
        the punch tap itself (user-initiated), never on page load. */
-    const { gps, denied: gpsDenied } = await getGpsFull();
+    const { gps, denied: gpsDenied, reason: gpsReason } = await getGpsFull();
     // A likely duplicate (button shows ✓) is sent WITHOUT blocking on
     // location — the server answers "already punched" before the fence check.
     const likelyDup = type === "clock_in" ? today.some((r) => r.type === "clock_in") : today.some((r) => r.type === "clock_out");
     /* v1.21.4 (CEO): location is required on EVERY punch — no longer only
        when the fence config is present. The server refuses without it too;
        this check just gives the person the right words before a round-trip. */
-    if (!gps && !likelyDup) {
+    /* v1.25.3 (CEO: "record it, flag it loudly"): a phone whose permission is
+       stuck must not cost someone their attendance record. The punch goes
+       through carrying the REASON; the server stores it as NO LOCATION,
+       shows it in red in the register and tells HR. We still say so plainly
+       here so the person knows it was not a clean punch. */
+    if (!gps && !likelyDup && gpsReason) {
+      const res0 = await api<{ error?: { message?: string } }>(`/staff/attendance`, {
+        method: "POST",
+        body: JSON.stringify({ type, no_location_reason: gpsReason }),
+      });
       setBusy("");
+      if (res0.ok) {
+        setPunchToast({
+          title: type === "clock_in" ? "Clocked in — without location" : "Clocked out — without location",
+          sub: gpsDenied
+            ? "Recorded and flagged for HR. Your phone is blocking location for this site — fix it with the steps on the Dashboard so tomorrow's punch is clean."
+            : "Recorded and flagged for HR — no GPS signal here. Try near a window next time.",
+          variant: "notice",
+        });
+        window.setTimeout(() => setPunchToast(null), 6000);
+        void load();
+        return;
+      }
       setPunchToast({
         title: "Location needed",
         sub: gpsDenied
@@ -741,7 +763,15 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                   {gpsCheck.inside ? `✓ ${fmtDist(gpsCheck.distance_m)} — inside` : `${fmtDist(gpsCheck.distance_m)} — outside${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch will be flagged)"}`}
                 </span>
               )}
-              {gpsCheck.state === "error" && <span className="text-warning ml-1.5">{gpsCheck.message}</span>}
+              {gpsCheck.state === "error" && (
+                <>
+                  <span className="text-warning ml-1.5">{gpsCheck.message}</span>
+                  {/* v1.25.3: "tap the padlock" is impossible when the portal
+                      was opened from a home-screen icon — the steps below are
+                      chosen from what this phone actually is. */}
+                  {gpsCheck.denied && <LocationHelp lang={lang} />}
+                </>
+              )}
             </p>
           </>
         )}
@@ -1075,6 +1105,11 @@ function gpsLabel(
   fence?: { lat: number; lng: number; radius_m: number; label?: string } | null,
 ): { text: string; ok: boolean | null; dist: number | null } {
   if (!gps) return { text: "no location", ok: null, dist: null };
+  // v1.25.3: deliberately-unlocated punch — surface it as a failure, not a blank.
+  if (gps.startsWith("no_location:")) {
+    const why = gps.slice("no_location:".length);
+    return { text: why === "denied" ? "NO LOCATION (blocked)" : `NO LOCATION (${why})`, ok: false, dist: null };
+  }
   const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(gps);
   if (!m) return { text: "no location", ok: null, dist: null };
   const office = fence ?? { lat: SITE_CONFIG.office.lat, lng: SITE_CONFIG.office.lng, radius_m: SITE_CONFIG.office.radiusM };

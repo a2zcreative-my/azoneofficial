@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.25.3] — 2026-08-18 — Nobody loses attendance to a stuck phone permission
+
+**NURFARAH's phone is genuinely blocking the site (and v1.25.2's advice was unfollowable).** Her Android screenshots show the OS permission granted, and the new message correctly reported "blocked for this site" — so Samsung Browser itself is refusing. But her portal has **no address bar**: she opens it from the home-screen icon, where the "tap the padlock/⋮ menu" instruction does not exist. Telling someone to tap something that is not there reads as a broken system.
+
+**The Dashboard now shows her the right steps.** A "Show me how to fix it" link appears under a blocked-location message with instructions chosen from what her phone actually is — installed home-screen app (Android Settings → Apps → Permissions → Location), Samsung Internet, Chrome, Firefox or iPhone Safari — in English or BM. All detection is local to the device.
+
+**And a blocked permission no longer costs anyone their attendance (your decision: "record it, flag it loudly").** The punch is now accepted and stored as **NO LOCATION** with the reason, instead of being refused:
+- The staff member is told plainly: *"Clocked in — without location. Recorded and flagged for HR."*
+- The attendance register and Today's monitor show it in **red** — "NO LOCATION — phone blocked it" — clearly different from the muted blank of older records that predate the GPS rule.
+- **HR, the COO and the CEO get a notification** naming the person and the reason.
+- It cannot become a silent bypass: the app must state *why* there is no fix; a punch with no location and no reason is still refused, exactly as before.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL. NURFARAH can clock in and out normally the moment this is live; her punches will be flagged until she fixes the permission with the on-screen steps.
+
 ## [1.25.2] — 2026-08-18 — Staff can clock in indoors · two dead queries · every query now schema-checked
 
 **Staff could not capture location — and it was our fault, not their phone (staff: "the location was not capture which is they already toggle on the location permission!").** Their screenshots showed Android permission correctly set to "Allow only while using the app" with precise location ON. The bug: we asked for a **high-accuracy (satellite) fix with a 10-second limit**. A satellite fix is exactly what does *not* work inside a building — and inside the office is precisely where staff clock in. The request timed out, we reported "no location", and told them to fix a permission that was already correct. Location is now requested in two stages: a short satellite attempt (instant outdoors), then a fallback to **network positioning** (wifi/cell), which answers in about a second indoors and is accurate to tens of metres — comfortably inside the 120 m office fence. A genuine refusal short-circuits at once. Verified against three simulated phones: indoors-with-timeout now **captures location and clocks in**; genuine denial and no-signal each get their own honest message. And the wording is fixed — "blocked" is only said when it is actually blocked, and it now points at the browser's **site** setting (the padlock/⋮ menu), which is the one people miss.

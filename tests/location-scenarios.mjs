@@ -25,9 +25,9 @@ async function scenario(name, geoScript) {
   await p.locator('button:has-text("Clock in") >> visible=true').first().click();
   await p.waitForTimeout(3000);
   const txt = await p.evaluate(()=>document.body.innerText);
-  console.log(`${name}\n   punch sent with gps: ${punchBody ? JSON.stringify(punchBody.gps ?? null) : 'NO PUNCH'}`);
-  const toast = txt.match(/Location needed[\s\S]{0,150}/);
-  if (toast) console.log('   message:', toast[0].split('\n').slice(1,3).join(' ').trim().slice(0,120));
+  console.log(`${name}\n   punch: ${punchBody ? 'SENT gps=' + JSON.stringify(punchBody.gps ?? null) + ' reason=' + JSON.stringify(punchBody.no_location_reason ?? null) : 'NO PUNCH'}`);
+  const toast = txt.match(/(Location needed|Clocked in — without location|Clocked out — without location)[\s\S]{0,170}/);
+  if (toast) console.log('   toast:', toast[0].split('\n').slice(0,3).join(' | ').trim().slice(0,150));
   await p.close();
 }
 // A: indoors — high accuracy TIMES OUT (the real staff situation), network works

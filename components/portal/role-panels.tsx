@@ -1751,6 +1751,13 @@ interface AttRecord {
    pre-GPS history show nothing. Same maths as the server gate. */
 function attLoc(r: AttRecord): { text: string; tone: "ok" | "flag" | "muted" } | null {
   if (r.manual_by || r.amended_by) return null; // typed by HR, no device GPS
+  /* v1.25.3: a punch taken while the phone blocked location is stored as
+     "no_location:<reason>" — that is an EXCEPTION and reads red, unlike the
+     muted blank of records that predate the GPS requirement. */
+  if (r.gps?.startsWith("no_location:")) {
+    const why = r.gps.slice("no_location:".length);
+    return { text: why === "denied" ? "NO LOCATION — phone blocked it" : `NO LOCATION — ${why}`, tone: "flag" };
+  }
   const m = r.gps ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(r.gps) : null;
   const exempt = ["ceo", "coo", "cco"].includes(r.role ?? "");
   // No stored location: history predates the GPS requirement (v1.18.1) —

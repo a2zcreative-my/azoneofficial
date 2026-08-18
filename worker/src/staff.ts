@@ -132,7 +132,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
    the office retro-corrects every historical flag. */
 async function gateGeofence(
   env: Env, body: Record<string, unknown> | null, verb: string,
-): Promise<{ resp: Response; gps?: undefined } | { resp?: undefined; gps: string | null }> {
+): Promise<{ resp: Response; gps?: undefined; noLocation?: undefined } | { resp?: undefined; gps: string | null; noLocation?: string }> {
   const gpsRaw = str(body?.gps, 100) ? (body!.gps as string).trim() : null;
   /* v1.21.4 (CEO: "still appear that the location is not capture which is
      it is incorrect flow data system requirement"): location is required on
@@ -144,7 +144,18 @@ async function gateGeofence(
   const plat = gm ? Number(gm[1]) : NaN;
   const plng = gm ? Number(gm[2]) : NaN;
   if (!gm || plat < -90 || plat > 90 || plng < -180 || plng > 180) {
-    return { resp: err("location_required", `Location is required to ${verb} — allow location access in your browser and try again.`, 400) };
+    /* v1.25.3 (CEO's decision after a staff member's Samsung Browser stuck
+       its site permission on "blocked" and she could not clock in at all):
+       an attendance record is worth more than a perfect one. The punch is
+       ACCEPTED but marked NO LOCATION so it stands out in the register and
+       HR is told — attendance is never lost, and the exception is loud.
+       The client must say WHY it has no fix; a punch with no explanation at
+       all is still refused, so this cannot become a silent bypass. */
+    const why = str(body?.no_location_reason, 40) ? String(body!.no_location_reason) : null;
+    if (!why || !["denied", "timeout", "unavailable", "unsupported"].includes(why)) {
+      return { resp: err("location_required", `Location is required to ${verb} — allow location access in your browser and try again.`, 400) };
+    }
+    return { gps: null, noLocation: why };
   }
   return { gps: gpsRaw };
 }
@@ -1045,7 +1056,10 @@ export async function handleStaff(
        No fence configured → punches behave exactly as before. */
     const gate = await gateGeofence(env, body, body.type === "clock_in" ? "clock in" : "clock out");
     if (gate.resp) return gate.resp;
-    const gpsVal = gate.gps;
+    /* v1.25.3: a punch with no fix is stored with the REASON in the gps
+       column ("no_location:denied"), so the register, the monitor and any
+       later report can all see it without a schema change. */
+    const gpsVal = gate.gps ?? `no_location:${gate.noLocation}`;
     await env.DB.prepare(
       `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
        VALUES (?1, ?2, ?3, ?4, ?5)`,
@@ -1055,7 +1069,26 @@ export async function handleStaff(
       (request.headers.get("User-Agent") ?? "").slice(0, 300),
       gpsVal,
     ).run();
-    return json({ ok: true, flag }, 201);
+    if (gate.noLocation) {
+      // Tell the people who own attendance, once per punch, with the person's
+      // name and the reason — this is the "flag it loudly" half of the rule.
+      const who = await env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`)
+        .bind(user.id).first<{ n: string }>();
+      const verb = body.type === "clock_in" ? "clocked in" : "clocked out";
+      const reasonWord = gate.noLocation === "denied" ? "location blocked on their phone" : `no GPS signal (${gate.noLocation})`;
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('hr_admin','coo','ceo')`,
+        ).all<{ id: number }>();
+        for (const m of results) {
+          await notify(env, m.id, "attendance",
+            `⚠ ${who?.n ?? "A staff member"} ${verb} WITHOUT location — ${reasonWord}. Check the attendance register.`,
+            `att:no_location:${user.id}`);
+        }
+      } catch { /* notification must never fail the punch */ }
+      await audit(env, user.id, "attendance.no_location", "users", String(user.id), { type: body.type, reason: gate.noLocation });
+    }
+    return json({ ok: true, flag, no_location: gate.noLocation ?? null }, 201);
   }
 
   /* ---- overtime punches (v1.4.155) ----
