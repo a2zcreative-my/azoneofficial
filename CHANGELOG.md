@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.25.6] — 2026-08-18 — Sales marketing's clocked-in hours capture their TikTok sales
+
+**The leaderboard now credits sales marketing for the shop they actually run (CEO: "sales marketing when clock in then it is supposed to capture their sales").** NUR NASUHA showed RM 0.00 in v1.25.5 because none of the three attribution sources could ever reach her: she is not the salesperson on invoices, she does not host lives, and TikTok orders had no route to her at all. Now they do:
+
+- **Every TikTok order that lands while a sales_marketing person is clocked in is credited to them.** Her attendance clock-in/clock-out IS her shift window — no extra setup, no new screens. The moment she clocks in tomorrow, the day's TikTok orders start counting on her line.
+- **All orders during the shift count — including during a live** (your call). The live host keeps their live-session credit too, so an order in a live window appears on both lines.
+- **Two sales marketing on shift at once → the order is split equally** (your call), remainder sen to the first, so the team's lines always add up to real money.
+- **A forgotten clock-out cannot hoover up the night.** A shift with no real clock-out is cut off at 23:59:59 that day; a genuine overnight shift (real clock-out after midnight) is honoured as punched.
+- **Marketing is off the board (CEO: "Marketing doesnt make any sales on TikTok!").** NURFARAH and ZUL HISYAM no longer appear at RM 0.00 — the board lists only people who sell: sales marketing, live hosts, CCO. They would reappear only with an actual sale, a paid invoice they closed, or a target.
+
+**Backdating note:** attribution is computed from attendance records, so this month's PAST orders also credit her retroactively for any day she was clocked in — the board updates the moment the worker deploys, not just from tomorrow.
+
+**Guard tests:** `tests/shift-sales-split.mjs` runs 9 scenarios against the real shipped code (`worker/src/shift-sales.ts`, imported directly — not a copy): full credit on shift, nothing off shift, equal split with no lost sen, open shifts counting up to now, forgotten clock-outs capped, real overnight shifts honoured. `tests/leaderboard-sales-floor.mjs` now also asserts marketing stays off the always-listed roles and the clock-in attribution stays wired and scoped to sales_marketing only.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL.
+
+## [1.25.5] — 2026-08-18 — The whole sales floor is on the leaderboard
+
+**Sales Marketing was missing from the board (CEO: "my Sales Marketing should include into this Sales leaderboard — this month").** The leaderboard only listed people who already had attributed sales or a set target, so NUR NASUHA (sales_marketing) — with neither this month — was dropped from the list entirely. The board read as if she is not part of the sales floor.
+
+**Now the sales floor is always listed.** Sales marketing, live hosts, CCO and marketing appear every month, at RM 0.00 if that is the truth. Everyone else (editor, HR, and so on) still appears only once they have sales or a target, so the board does not fill with people who do not sell.
+
+- **Ranks are for earners.** A person with sales gets 1, 2, 3, …; a person at zero shows a dash instead of a rank number, so the podium still means something and a blank month is visible at a glance rather than hidden.
+- **Walk-in / manual sales now count.** A manual "Out −" with a sold price — the offline sale at a venue — is credited to the staff member who recorded it, alongside paid invoices they closed and TikTok GMV during their live sessions. That was the missing third source: a sales person who sells offline had no way onto the board.
+- **No emoji on the card.** The trophy and medals are gone, replaced by a gold rank badge for the top three, in line with the house rule (SVG only).
+- **The card no longer flashes empty.** It paints a skeleton while the board loads instead of nothing.
+
+**Why NUR NASUHA still shows RM 0.00:** nothing has been attributed to her this month. She earns a rank the moment she is set as the **salesperson** on an invoice that gets paid, records a **walk-in sale** with a price, or hosts a **live session**. Setting her a monthly target under "Targets & commission" also gives her a progress %.
+
+**Guard test:** `tests/leaderboard-sales-floor.mjs` — asserts the sales-floor rule in the worker source and that a zero-sales sales_marketing person actually renders on the board, unranked and emoji-free.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL.
+
+## [1.25.4] — 2026-08-18 — Bottom-nav labels stop getting sliced on iPhone
+
+**The labels were being clipped along their bottom edge (CEO: "Why bottom nav like this?!!!").** Two causes, both measured:
+
+1. **The text box was half a pixel too short for the font.** Each label sat in a 17 px box with a 16.5 px line, and the label is clipped (`truncate`) so long BM names never wrap. Chromium squeaked through; iPhone Safari renders Poppins a shade taller and sliced the bottom off every word. The labels now get a proper line box — 18 px of room for a 17.6 px line — so the glyphs can never touch the edge.
+2. **The breathing room under them vanished.** The nav's bottom padding comes from the phone's safe-area inset, and iOS Safari reports that as **zero** while its floating toolbar is on screen — so the labels ended up flush against the bottom. There is now a guaranteed minimum, whatever the phone reports. Clearance under the labels went from 8 px to 14 px.
+
+Fixed on all three phone navigations — staff portal, admin console and the customer area — so they stay identical.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.25.3 worker: no-location punches + indoor GPS). Run `DEPLOY.bat` IN FULL.
+
 ## [1.25.3] — 2026-08-18 — Nobody loses attendance to a stuck phone permission
 
 **NURFARAH's phone is genuinely blocking the site (and v1.25.2's advice was unfollowable).** Her Android screenshots show the OS permission granted, and the new message correctly reported "blocked for this site" — so Samsung Browser itself is refusing. But her portal has **no address bar**: she opens it from the home-screen icon, where the "tap the padlock/⋮ menu" instruction does not exist. Telling someone to tap something that is not there reads as a broken system.

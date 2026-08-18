@@ -9,6 +9,7 @@ import { logError as sharedLogError, postJournal } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
+import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 
 import { Role, can } from "./permissions";
 
@@ -478,7 +479,9 @@ interface CommissionRule {
 
 /** Attributed sales (sen) per user for a month (YYYY-MM, MYT): paid invoices
     where they are the salesperson + TikTok GMV landing inside their completed
-    live-session windows (the same attribution the LIVE GMV card already uses).
+    live-session windows (the same attribution the LIVE GMV card already uses)
+    + manual/walk-in sales they recorded (v1.25.5 — an offline sale closed by
+    a sales_marketing person is their sale and belongs on their line).
     Returns Map<user_id, cents>. Armoured against pre-migration schemas. */
 async function attributedSalesByUser(env: Env, month: string): Promise<Map<number, number>> {
   const out = new Map<number, number>();
@@ -512,8 +515,57 @@ async function attributedSalesByUser(env: Env, month: string): Promise<Map<numbe
     ).bind(month).all<{ uid: number; cents: number }>();
     for (const r of results) add(r.uid, r.cents);
   } catch { /* pre-live_sessions */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT created_by AS uid, COALESCE(SUM(total_cents), 0) AS cents
+         FROM manual_sales
+        WHERE created_by IS NOT NULL
+          AND strftime('%Y-%m', created_at, '+8 hours') = ?1
+        GROUP BY created_by`,
+    ).bind(month).all<{ uid: number; cents: number }>();
+    for (const r of results) add(r.uid, r.cents);
+  } catch { /* pre-0048 */ }
+  /* v1.25.6 (CEO): "sales marketing when clock in then it is supposed to
+     capture their sales." Every TikTok order landing while a sales_marketing
+     person is clocked in is theirs — ALL orders during the shift (his call:
+     the live host keeps their live-session credit too), split equally when
+     several sales_marketing staff are on shift at once. Only sales_marketing:
+     "Marketing doesnt make any sales on TikTok!" */
+  try {
+    const { results: sm } = await env.DB.prepare(
+      `SELECT id FROM users WHERE is_active = 1 AND role = 'sales_marketing'`,
+    ).all<{ id: number }>();
+    if (sm.length > 0) {
+      const ids = sm.map((u) => u.id);
+      const ph = ids.map((_, i) => `?${i + 2}`).join(", ");
+      // Punches from one day before the month to one day after: an overnight
+      // shift straddling the month edge still attributes correctly.
+      const { results: punches } = await env.DB.prepare(
+        `SELECT user_id, type, created_at FROM attendance_records
+          WHERE type IN ('clock_in', 'clock_out') AND user_id IN (${ph})
+            AND date(created_at, '+8 hours') >= date(?1 || '-01', '-1 day')
+            AND date(created_at, '+8 hours') <= date(?1 || '-01', '+1 month')
+          ORDER BY user_id, created_at`,
+      ).bind(month, ...ids).all<ShiftPunch>();
+      const { results: orders } = await env.DB.prepare(
+        `SELECT created_at, order_amount_cents AS cents FROM postage_records
+          WHERE order_ref LIKE 'TT-%' AND status != 'returned'
+            AND order_amount_cents IS NOT NULL
+            AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+      ).bind(month).all<ShiftOrder>();
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      for (const [uid, cents] of shiftSalesSplit(punches, orders, nowUtc)) add(uid, cents);
+    }
+  } catch { /* pre-attendance / pre-postage schemas */ }
   return out;
 }
+
+/** The sales floor: roles that are always listed on the leaderboard, even at
+    RM 0.00, because selling is their job and a blank line is information too.
+    Everyone else appears only once they have attributed sales or a target.
+    v1.25.6: 'marketing' removed — CEO: "Marketing doesnt make any sales on
+    TikTok!" — the board lists only people who sell. */
+const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
 
 /** Commission (sen) for a person's attributed `sales` against their `target`,
     under whichever active rule that applies to `role` yields the most (staff-
@@ -6164,6 +6216,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
        WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
     ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
 
+    let earners = 0;
     const rows = staff
       .map((s) => {
         const sold = sales.get(s.id) ?? 0;
@@ -6176,9 +6229,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           commission_cents: commissionFor(sold, target, s.role, rules),
         };
       })
-      .filter((r) => r.sales_cents > 0 || r.target_cents)
-      .sort((a, b) => b.sales_cents - a.sales_cents)
-      .map((r, i) => ({ ...r, rank: i + 1 }));
+      // v1.25.5: the sales floor is always on the board. A sales_marketing or
+      // live_host person with nothing attributed yet still belongs on it at
+      // RM 0.00 — dropping them made the board look like they do not sell.
+      .filter((r) => r.sales_cents > 0 || r.target_cents || LEADERBOARD_ALWAYS_ROLES.includes(r.role))
+      .sort((a, b) => b.sales_cents - a.sales_cents || a.name.localeCompare(b.name))
+      // Ranks go to earners only; a zero line carries rank null so the podium
+      // still means something.
+      .map((r) => ({ ...r, rank: r.sales_cents > 0 ? ++earners : null }));
 
     // The requesting user always sees their own line even at zero.
     const meIncluded = rows.some((r) => r.user_id === user.id);

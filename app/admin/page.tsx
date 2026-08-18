@@ -1028,7 +1028,11 @@ export default function AdminPage() {
           <>
             <nav
               className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-              style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+              /* v1.25.4 (CEO: "Why bottom nav like this?!!!" — labels sliced along
+           their bottom edge on iPhone): iOS Safari reports this inset as 0 while
+           its floating toolbar is shown, which removed ALL breathing room under
+           the labels. max() guarantees a floor either way. */
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
               aria-label="Admin sections (mobile)"
             >
               {/* v1.11.0 (reference design, ported from /portal): each tab
@@ -1054,7 +1058,7 @@ export default function AdminPage() {
                     </span>
                     {/* truncate: longer names ("Testimonials") must not wrap
                         and unbalance the row on narrow phones */}
-                    <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
+                    <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
                   </button>
                 );
               })}
@@ -1077,7 +1081,7 @@ export default function AdminPage() {
                     >
                       <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
                     </span>
-                    <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>More</span>
+                    <span className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>More</span>
                   </button>
                 );
               })()}

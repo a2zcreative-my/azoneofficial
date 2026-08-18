@@ -4697,7 +4697,7 @@ const TARGET_ADMIN_ROLES = ["super_admin", "admin", "ceo", "coo", "cco"];
 interface LeaderRow {
   user_id: number; name: string; role: string; photo_key: string | null;
   sales_cents: number; target_cents: number | null; pct: number | null;
-  commission_cents: number; rank: number;
+  commission_cents: number; rank: number | null;
 }
 
 /** The sales leaderboard — attributed sales per person this month, progress to
@@ -4713,34 +4713,69 @@ function LeaderboardCard({ user }: { user: User }) {
       else setRows([]);
     });
   }, []);
-  if (!rows) return null;
-  const medal = (rank: number) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`);
+  /* v1.25.5: unknown until proven empty — a skeleton while the board loads,
+     never a blank hole where the card should be. */
+  if (!rows) {
+    return (
+      <div className={card}>
+        <Skel className="h-4 w-56" />
+        <Skel className="mt-1.5 h-3 w-full max-w-md" />
+        <div className="mt-3 space-y-1.5">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+              <Skel className="h-6 w-6 rounded-full" />
+              <Skel className="h-3.5 flex-1" />
+              <Skel className="hidden h-2 w-28 sm:block" />
+              <Skel className="h-3.5 w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  /* v1.25.5: no emoji in the UI — ranks are a gold badge for the podium and a
+     plain #n below it. An unranked line (no attributed sales yet) shows a
+     dash: the person is on the board, they just have not sold this month. */
+  const rankBadge = (rank: number | null) => {
+    if (rank === null) return <span className="text-muted-foreground w-7 shrink-0 text-center text-xs">—</span>;
+    if (rank <= 3) {
+      const tone = rank === 1 ? "bg-gold-solid text-white" : rank === 2 ? "bg-gold-soft text-gold-deep" : "bg-secondary text-gold-deep";
+      return (
+        <span className="flex w-7 shrink-0 justify-center">
+          <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold tabular-nums ${tone}`}>{rank}</span>
+        </span>
+      );
+    }
+    return <span className="text-muted-foreground w-7 shrink-0 text-center text-xs tabular-nums">#{rank}</span>;
+  };
   const top = rows[0]?.sales_cents ?? 0;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">🏆 Sales leaderboard — this month</p>
+      <p className="text-sm font-semibold">Sales leaderboard — this month</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Attributed sales per person: paid invoices they closed + TikTok GMV during their live sessions. The whole floor, ranked.
+        Attributed sales per person: paid invoices they closed, TikTok GMV during their live sessions, walk-in sales they recorded — and for
+        sales marketing, TikTok orders that land while they are clocked in (split when several are on shift). Sales, live and CCO are always
+        listed, even at RM 0.00.
       </p>
       {rows.length === 0 ? (
-        <p className="text-muted-foreground mt-3 text-sm">No attributed sales yet this month — the board fills as invoices are paid and lives run.</p>
+        <p className="text-muted-foreground mt-3 text-sm">No sales staff on the board yet — assign a sales or live-host role and the board fills as orders land and lives run.</p>
       ) : (
         <div className="mt-3 space-y-1.5">
           {rows.map((r) => {
             const isMe = r.user_id === user.id;
             return (
               <div key={r.user_id}
-                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${isMe ? "bg-gold-soft/50 ring-1 ring-gold" : r.rank <= 3 ? "bg-secondary/60" : ""}`}>
-                <span className="w-7 shrink-0 text-center text-base">{medal(r.rank)}</span>
+                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${isMe ? "bg-gold-soft/50 ring-1 ring-gold" : r.rank !== null && r.rank <= 3 ? "bg-secondary/60" : ""}`}>
+                {rankBadge(r.rank)}
                 <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium">{r.name}</span>
+                  <span className={`font-medium ${r.rank === null ? "text-muted-foreground" : ""}`}>{r.name}</span>
                   {isMe && <span className="text-gold-deep ml-1 text-[11px] font-semibold">you</span>}
                   <span className="text-muted-foreground ml-1.5 text-[11px] capitalize">{r.role.replace(/_/g, " ")}</span>
                 </span>
                 <span className="hidden w-28 shrink-0 sm:block">
                   <MiniBar pct={top > 0 ? (r.sales_cents / top) * 100 : 0} tone={r.rank === 1 ? "green" : "gold"} />
                 </span>
-                <span className="w-24 shrink-0 text-right tabular-nums font-semibold">{fmtRM(r.sales_cents)}</span>
+                <span className={`w-24 shrink-0 text-right tabular-nums font-semibold ${r.rank === null ? "text-muted-foreground font-normal" : ""}`}>{fmtRM(r.sales_cents)}</span>
                 {r.pct !== null && (
                   <span className={`hidden w-12 shrink-0 text-right text-xs tabular-nums sm:block ${r.pct >= 100 ? "text-bull font-semibold" : "text-muted-foreground"}`}>{r.pct}%</span>
                 )}
@@ -5527,7 +5562,11 @@ export default function PortalPage() {
           of this person's tabs are one thumb-tap away; the rest are in More. */}
       <nav
         className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        /* v1.25.4 (CEO: "Why bottom nav like this?!!!" — labels sliced along
+           their bottom edge on iPhone): iOS Safari reports this inset as 0 while
+           its floating toolbar is shown, which removed ALL breathing room under
+           the labels. max() guarantees a floor either way. */
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
         aria-label="Portal sections (mobile)"
       >
         {/* v1.10.0 (reference design): each tab shows its sidebar icon; the
@@ -5553,7 +5592,7 @@ export default function PortalPage() {
               </span>
               {/* truncate: BM labels ("Papan Pemuka") must not wrap and
                   unbalance the row on narrow phones */}
-              <span className={`w-full truncate px-0.5 text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr(t, lang)}</span>
+              <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr(t, lang)}</span>
             </button>
           );
         })}
@@ -5576,7 +5615,7 @@ export default function PortalPage() {
               >
                 <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </span>
-              <span className={`w-full truncate text-center ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr("More", lang)}</span>
+              <span className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tr("More", lang)}</span>
             </button>
           );
         })()}
