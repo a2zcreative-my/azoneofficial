@@ -9,6 +9,7 @@
    prefix explicit per the v1.4.195 lesson. */
 
 import { useEffect, useState } from "react";
+import { SkelText } from "@/components/ui/skeleton";
 import { card } from "@/lib/ui-styles";
 
 
@@ -75,7 +76,7 @@ export function FulfilmentCard() {
     <div className={card}>
       <p className="text-sm font-semibold">📮 Fulfilment — {d ? dmy(d.month) : "…"}</p>
       {!d ? (
-        <p className="text-muted-foreground mt-1 text-sm">Loading…</p>
+        <SkelText lines={2} className="mt-2" />
       ) : totalMonth === 0 ? (
         <p className="text-muted-foreground mt-2 text-sm">No shipments recorded this month yet.</p>
       ) : (
@@ -96,7 +97,7 @@ export function FulfilmentCard() {
           </div>
           {drill && (
             <div className="mt-2">
-              {drillBusy && <p className="text-muted-foreground text-xs">Loading…</p>}
+              {drillBusy && <SkelText lines={2} className="mt-1" />}
               {orders && orders.length === 0 && (
                 <p className="text-muted-foreground text-xs">No orders in this status this month.</p>
               )}

@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { SkelText } from "@/components/ui/skeleton";
 
 import { makeApi } from "@/lib/api";
 import { card, td, th } from "@/lib/ui-styles";
@@ -119,7 +120,7 @@ export function InventoryStatusCard() {
             {open.replace(/_/g, " ")} items
           </p>
           {!items ? (
-            <p className="text-muted-foreground mt-1 text-xs">Loading…</p>
+            <SkelText lines={2} className="mt-2" />
           ) : openItems.length === 0 ? (
             <p className="text-muted-foreground mt-1 text-xs">Nothing here anymore — the count refreshes on reload.</p>
           ) : (

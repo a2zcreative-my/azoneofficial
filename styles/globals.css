@@ -286,6 +286,37 @@
   }
 }
 
+/* ===== v1.25.0 — skeleton shimmer (CEO: "a dead skeleton waiting for my
+   website like a Threads so that my staff wont see any loading").
+   Pure CSS so the first-paint skeleton needs ZERO JavaScript. The global
+   prefers-reduced-motion block above already freezes this animation. ===== */
+.skel {
+  position: relative;
+  overflow: hidden;
+  background-color: color-mix(in oklab, var(--color-secondary) 88%, var(--color-foreground) 12%);
+  /* NO border-radius here: this rule lives outside @layer, so it would beat
+     every Tailwind rounded-* utility and flatten circles (the donut) and
+     pills. The Skel component supplies a default radius instead. */
+}
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-card) 70%, transparent),
+    transparent
+  );
+  animation: azone-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes azone-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* ===== Mobile app-view polish (v1.4.50) ===== */
 @media (max-width: 767px) {
   html {

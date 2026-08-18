@@ -4,8 +4,10 @@
    assignments table, and the compact month-by-month bars. All fed by data
    the dashboard already loads (summary + revenue) or the roster endpoint. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { SkelRows } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
+import { useCachedApi } from "@/lib/cached-api";
 import { Donut } from "@/components/ui/donut";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
@@ -56,15 +58,16 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
   const [acting, setActing] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
-  const load = useCallback(() => {
-    void api<{ sessions: RosterSessionLite[]; days: string[] }>(`/roster`).then((r) => {
-      if (r.ok && r.data?.sessions) {
-        const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-        setSessions(r.data.sessions.filter((s) => s.session_date === todayS && s.status !== "cancelled"));
-      } else setSessions([]);
-    });
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  /* v1.25.0: remembered-first — today's assignments paint instantly on any
+     repeat open (roster data is not money, so no staleness flag needed). */
+  const roster = useCachedApi<{ sessions: RosterSessionLite[]; days: string[] }>("/staff/roster");
+  const load = roster.refresh;
+  useEffect(() => {
+    if (roster.loading) return;
+    const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const all = roster.data?.sessions ?? [];
+    setSessions(all.filter((s) => s.session_date === todayS && s.status !== "cancelled"));
+  }, [roster.data, roster.loading]);
   const setStatus = async (id: number, status: "scheduled" | "completed" | "cancelled") => {
     setBusy(true);
     const r = await api<{ error?: { message?: string } }>(`/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
@@ -109,7 +112,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
         )}
       </div>
       {!sessions ? (
-        <p className="text-muted-foreground mt-2 text-sm">Loading…</p>
+        <SkelRows rows={3} className="mt-2" />
       ) : sessions.length === 0 ? (
         <p className="text-muted-foreground mt-2 text-sm">No live sessions scheduled today.</p>
       ) : (

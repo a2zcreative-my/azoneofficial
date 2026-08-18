@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.25.1] — 2026-08-17 — The portal no longer states a wrong answer while loading
+
+**What the screen recording actually showed (CEO: "there is a loading like that, which is should appear as a Dead Skeleton").** Pulling the video apart frame by frame: for the first half-second the Quick actions card displayed a green **"📍 Clock in"** button and **"No attendance recorded today."** — then corrected itself to **"Clocked in ✓ / Clocked out ✓ · Today: clock in 09:13 · clock out 18:50"**. That is not slow loading; the portal was telling a staff member they had not clocked in, and inviting them to clock in again, when they already had. A double-punch waiting to happen. (The grey ring floating over the recording is the phone's AssistiveTouch button, not part of the app.)
+
+**Root cause — and it was everywhere.** Every card started its data as *empty* (`[]`, `0`), which is indistinguishable from *"loaded, and genuinely nothing there"*. So during the fetch each card confidently rendered the empty answer. v1.25.0's skeleton fixed the blank page and the cards that literally said "Loading…", but cards that quietly default to empty still flashed a wrong answer — 88 such initialisations, 11 of them printing a definite "nothing here" message.
+
+**The rule now: unknown until proven empty.** Data is either *not known yet* (→ skeleton) or *known* (→ real content, including a genuine "None pending"). Applied to the Quick actions buttons and the "Today: …" line, the desktop KPI strip, the phone "This month" figures (which flashed 0 · 0.0 · 0/0), and Pending leave / My open tasks / News.
+
+**Attendance now also remembers.** Your own punches are personal and non-financial, so they are shown instantly from the device's memory on repeat opens — not skeleton-then-truth, but the truth immediately. **And the Dashboard's four requests, which ran one after another (four round-trips stacked end to end on a phone), now run together.**
+
+**A permanent guard.** `tests/no-false-attendance.mjs` replays your exact situation — clocked in 09:13, out 18:50, deliberately slow server — and polls every 100 ms through the whole load, failing if the portal ever renders "No attendance recorded today", a green "Clock in", or "Not clocked in yet" while the punches are unknown. First visit and repeat visit both pass with zero violations.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.8 worker). Run `DEPLOY.bat` IN FULL.
+
+## [1.25.0] — 2026-08-17 — Instant skeleton, Threads-style: staff never watch a blank screen
+
+**The white screen is gone (CEO: "I want to have a dead skeleton waiting for my website like a Threads so that my staff wont see any loading").** Measured on the previous build: `portal.html` painted **nothing**, so staff stared at white while 1,174 KB of JavaScript downloaded, then while the sign-in check answered, then while ~20 cards each fetched their own data. Three separate blank phases — all three fixed:
+
+1. **Instant silhouette, zero JavaScript.** The site is a static export, which means whatever the portal renders on its first pass is baked into the HTML file — and that was `null`. It is now a full app skeleton: navy rail, header, greeting, next-event band, quick-action pad, stat tiles, attendance ring, bottom nav. Verified with **JavaScript completely disabled**: 56 shimmering blocks and 1,109 px of app silhouette paint from the HTML alone, before a single byte of script runs.
+2. **Remembered data on every repeat open.** Each card's last successful data is kept on the device (per account, 24-hour ceiling) and painted immediately on the next visit — no skeleton at all for anything already seen. Verified against a deliberately slowed API: nine money figures on screen at 900 ms while the server was still 2.5 seconds away.
+3. **Shape-matched skeletons instead of "Loading…".** Every remaining "Loading…" line across the portal and customer area is now a skeleton shaped like the content it replaces, so nothing jumps when data lands.
+
+**Money is marked while it refreshes (your choice).** Financial cards show their remembered figures instantly with a subtle gold "updating…" dot beside the date, which disappears the moment fresh numbers land — nobody reads a stale amount as final. Cache is wiped on sign-out and whenever a different account signs in on the same device.
+
+**Speed, not just polish:** no minimum skeleton time (real content wins the instant it exists), skeletons sized to the real content so the page never jumps, and the shimmer freezes automatically for staff who have reduced-motion switched on.
+
+**Deploy notes:** site-only; zip cumulative (carries the v1.23.8 worker). Run `DEPLOY.bat` IN FULL. Expect the very first open after deploying to still fetch everything once — that visit is what fills the memory; every open after it is instant.
+
 ## [1.24.1] — 2026-08-17 — Operations map refreshes on TikTok sync
 
 **The state map updates the moment a sync lands (CEO: "Operations map — orders by state should be updated accordingly when I click on button sync from TikTok").** A successful "Sync from TikTok" now announces itself to every listening card, and the Operations map re-pulls the buyer-state distribution immediately — new orders appear on the map and in the side panel without reloading the page. (The same signal is available for future cards that show order-derived data.)

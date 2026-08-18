@@ -3,6 +3,7 @@
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
+import { SkelText } from "@/components/ui/skeleton";
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
@@ -248,7 +249,7 @@ export default function AccountPage() {
                 Your quotations, invoices and delivery orders. Tap an invoice to open its PDF.
               </p>
               {!orders ? (
-                <p className="text-muted-foreground mt-3 text-sm">Loading…</p>
+                <SkelText lines={3} className="mt-3" />
               ) : orders.docs.length === 0 ? (
                 <p className="text-muted-foreground mt-3 text-sm">No documents yet. When we prepare a quotation or invoice for you, it appears here.</p>
               ) : (

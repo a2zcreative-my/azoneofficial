@@ -10,6 +10,7 @@
    lesson): staff routes are called with the /staff/ prefix EXPLICIT. */
 
 import { useEffect, useState } from "react";
+import { Skel } from "@/components/ui/skeleton";
 import { card } from "@/lib/ui-styles";
 
 
@@ -42,7 +43,7 @@ export function SalesByHourCard() {
         All channels by the hour the order came in (MYT) — schedule the LIVE sessions where the bars are.
       </p>
       {!data ? (
-        <p className="text-muted-foreground mt-1 text-sm">Loading…</p>
+        <Skel className="mt-3 h-24 w-full" />
       ) : total === 0 ? (
         <p className="text-muted-foreground mt-2 text-sm">No sales in the last {data.days} days yet.</p>
       ) : (

@@ -6,6 +6,7 @@
    print either with the company letterhead. */
 
 import { useCallback, useEffect, useState } from "react";
+import { SkelText } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -74,7 +75,7 @@ export function DocumentsPanel() {
 
       {tab === "outstanding" && (
         <div className="mt-3">
-          {!outstanding ? <p className="text-muted-foreground text-sm">Loading…</p> : outstanding.invoices.length === 0 ? (
+          {!outstanding ? <SkelText lines={3} className="mt-2" /> : outstanding.invoices.length === 0 ? (
             <p className="text-muted-foreground text-sm">✅ No outstanding invoices — everything is paid.</p>
           ) : (
             <>

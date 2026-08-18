@@ -33,6 +33,16 @@ import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
 import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
+import { PortalSkeleton } from "@/components/portal/portal-skeleton";
+import { setCacheScope, clearApiCache, useCachedApi, cacheRead, cacheWrite } from "@/lib/cached-api";
+
+/* v1.25.1 — remembered-data keys for the Dashboard's own four requests. */
+type DashCache = { records: { type: string; created_at: string }[]; ot?: { type: string; created_at: string }[]; ot_eligible?: boolean };
+const DASH_ATT = "dash:attendance";
+const DASH_LEAVE = "dash:leave";
+const DASH_TASKS = "dash:tasks";
+const DASH_ANNS = "dash:announcements";
+import { StaleHint, Skel, SkelText, SkelStat } from "@/components/ui/skeleton";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, ShieldOk } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
@@ -175,18 +185,39 @@ function PunchToast({ title, sub, variant = "success" }: { title: string; sub: s
 }
 
 function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => void; lang?: Lang }) {
-  const [today, setToday] = useState<{ type: string; created_at: string }[]>([]);
-  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>([]);
+  /* v1.25.1: seeded from remembered data IN THE INITIALISER — seeding only
+     the "known" flag left a single frame where the answer was declared known
+     while the list was still empty, which printed the false message again. */
+  const [today, setToday] = useState<{ type: string; created_at: string }[]>(
+    () => (cacheRead<DashCache>(DASH_ATT)?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>(
+    () => (cacheRead<DashCache>(DASH_ATT)?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
   /* v1.15.0: the same attendance response, kept un-filtered — powers the
      personal month chart and the KPI strip without a second request. */
-  const [monthRecs, setMonthRecs] = useState<{ type: string; created_at: string }[]>([]);
+  const [monthRecs, setMonthRecs] = useState<{ type: string; created_at: string }[]>(
+    () => cacheRead<DashCache>(DASH_ATT)?.records ?? []);
   /* v1.15.0: the same tasks response, kept un-filtered — the mobile Today
      checklist needs completed items too for its "2 of 4 done" count. */
-  const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [otEligible, setOtEligible] = useState(false);
-  const [leave, setLeave] = useState<LeaveReq[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [anns, setAnns] = useState<Announcement[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>(() => cacheRead<Task[]>(DASH_TASKS) ?? []);
+  const [otEligible, setOtEligible] = useState(() => cacheRead<DashCache>(DASH_ATT)?.ot_eligible === true);
+  const [leave, setLeave] = useState<LeaveReq[]>(() => cacheRead<LeaveReq[]>(DASH_LEAVE) ?? []);
+  const [tasks, setTasks] = useState<Task[]>(
+    () => (cacheRead<Task[]>(DASH_TASKS) ?? []).filter((x) => x.status !== "completed").slice(0, 5));
+  const [anns, setAnns] = useState<Announcement[]>(() => cacheRead<Announcement[]>(DASH_ANNS) ?? []);
+  /* v1.25.1 (CEO's screen recording: the card showed a green "Clock in" and
+     "No attendance recorded today." for half a second — while he had ALREADY
+     clocked in at 09:13). Root cause: `today` starts as [], which is
+     indistinguishable from "loaded, and genuinely nothing". The card then
+     states a confident WRONG answer and invites a second punch.
+     Fix — UNKNOWN UNTIL PROVEN EMPTY: these flags say whether the answer is
+     actually known yet. Unknown → skeleton. Known + empty → the real "None"
+     message. They are SEEDED from remembered data, so a repeat open is not
+     skeleton-then-truth but truth immediately (own punches are personal and
+     non-financial, so instant display is safe). */
+  const [attKnown, setAttKnown] = useState(() => cacheRead<DashCache>(DASH_ATT) !== null);
+  const [leaveKnown, setLeaveKnown] = useState(() => cacheRead<LeaveReq[]>(DASH_LEAVE) !== null);
+  const [tasksKnown, setTasksKnown] = useState(() => cacheRead<Task[]>(DASH_TASKS) !== null);
+  const [annsKnown, setAnnsKnown] = useState(() => cacheRead<Announcement[]>(DASH_ANNS) !== null);
   const [busy, setBusy] = useState("");
   // v1.4.155: minute tick so the OT buttons appear at 18:00 MYT without a
   // manual refresh — the card is often left open on a phone all day.
@@ -202,19 +233,35 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     return () => window.clearInterval(t);
   }, []);
 
+  /* v1.25.1: paint remembered data first (instant + correct), then refresh.
+     The four requests below used to run one after another — four round-trips
+     stacked end to end on a phone; they now go together. */
+  const applyAtt = useCallback((d: DashCache) => {
+    setMonthRecs(d.records ?? []);
+    setToday((d.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+    setTodayOt((d.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+    setOtEligible(d.ot_eligible === true);
+    setAttKnown(true);
+  }, []);
+  const applyTasks = useCallback((all: Task[]) => {
+    setAllTasks(all);
+    setTasks(all.filter((x) => x.status !== "completed").slice(0, 5));
+    setTasksKnown(true);
+  }, []);
   const load = useCallback(async () => {
     const month = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-    const a = await api<{ records: { type: string; created_at: string }[]; ot?: { type: string; created_at: string }[]; ot_eligible?: boolean }>(`/staff/attendance?month=${month}`);
-    setMonthRecs(a.data?.records ?? []);
-    setToday((a.data?.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
-    setTodayOt((a.data?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
-    setOtEligible(a.data?.ot_eligible === true);
-    const l = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
-    setLeave((l.data?.leave ?? []).filter((x) => x.status === "pending"));
-    const t = await api<{ tasks: Task[] }>(`/staff/tasks`);
-    setAllTasks(t.data?.tasks ?? []);
-    setTasks((t.data?.tasks ?? []).filter((x) => x.status !== "completed").slice(0, 5));
+    const [a, l, t] = await Promise.all([
+      api<DashCache>(`/staff/attendance?month=${month}`),
+      api<{ leave: LeaveReq[] }>(`/staff/leave`),
+      api<{ tasks: Task[] }>(`/staff/tasks`),
+    ]);
+    if (a.data) { applyAtt(a.data); cacheWrite(DASH_ATT, a.data); } else setAttKnown(true);
+    const pending = (l.data?.leave ?? []).filter((x) => x.status === "pending");
+    setLeave(pending); setLeaveKnown(true); if (l.data) cacheWrite(DASH_LEAVE, pending);
+    applyTasks(t.data?.tasks ?? []); if (t.data) cacheWrite(DASH_TASKS, t.data.tasks ?? []);
     const n = await api<{ announcements: Announcement[] }>(`/staff/announcements`);
+    setAnnsKnown(true);
+    if (n.data?.announcements) cacheWrite(DASH_ANNS, n.data.announcements.slice(0, 3));
     setAnns((n.data?.announcements ?? []).slice(0, 3));
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -492,6 +539,14 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       {/* v1.15.0 — personal KPI strip (desktop): my day and my month at a
           glance, from data this component already fetched. Company-wide
           numbers stay in the Sales Floor band below, role-gated as before. */}
+      {/* v1.25.1: the KPI tiles derive from the SAME punches — while those are
+          unknown they would read "—", "Not clocked in yet" and 0 days, which
+          is the same false answer as the button bug. Skeletons until known. */}
+      {!attKnown ? (
+        <div className="hidden gap-3 md:grid md:grid-cols-4" aria-busy="true">
+          {[0, 1, 2, 3].map((i) => <SkelStat key={i} />)}
+        </div>
+      ) : (
       <div className="hidden gap-3 md:grid md:grid-cols-4">
         <div className={card}>
           <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("Today", lang)}</p>
@@ -530,6 +585,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           </div>
         </div>
       </div>
+      )}
 
       {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
       <NextEventCard lang={lang} />
@@ -543,6 +599,13 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             ragged wrapping; the desktop keeps its inline row. v1.10.0: the
             flip moved sm→md so the whole mobile shell (nav, hero, cards,
             buttons) switches at ONE breakpoint. */}
+        {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
+            a green "Clock in" for someone who already clocked in. */}
+        {!attKnown ? (
+          <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap" aria-busy="true">
+            {[0, 1, 2, 3].map((i) => <Skel key={i} className="h-10 rounded-lg md:w-36" />)}
+          </div>
+        ) : (
         <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap">
           <button type="button"
             /* v1.15.0: phones get the reference's green Clock in. tile tokens,
@@ -575,6 +638,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             </>
           )}
         </div>
+        )}
         {showOt && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
             Working overtime today? OT in / OT out only with your Section HOD&apos;s approval — tap OT in when it starts and OT out when you finish.{isWeekendMYT ? " Weekend: the whole day counts as overtime — no normal clock-in needed." : ""}
@@ -640,6 +704,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             </p>
           </>
         )}
+        {!attKnown ? (
+          <Skel className="mt-3 h-3 w-48" />
+        ) : (
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0 && todayOt.length === 0
             ? "No attendance recorded today."
@@ -647,6 +714,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                 .map((r) => `${r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")} ${mytTime(r.created_at)}`)
                 .join(" · ")}`}
         </p>
+        )}
       </div>
 
       {/* v1.21.6 — My schedule: the person's own upcoming roster/live
@@ -722,15 +790,17 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         <div className="mt-2.5 flex gap-6">
           <div>
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Hari" : "Days"}</p>
-            <p className="text-[19px] font-semibold tabular-nums">{daysPresent}</p>
+            {/* v1.25.1: zeros are a claim too — skeleton until the punches
+                are actually known, same rule as the buttons above. */}
+            {!attKnown ? <Skel className="mt-1 h-5 w-10" /> : <p className="text-[19px] font-semibold tabular-nums">{daysPresent}</p>}
           </div>
           <div>
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Jam" : "Hours"}</p>
-            <p className="text-[19px] font-semibold tabular-nums">{monthHours.toFixed(1)}</p>
+            {!attKnown ? <Skel className="mt-1 h-5 w-12" /> : <p className="text-[19px] font-semibold tabular-nums">{monthHours.toFixed(1)}</p>}
           </div>
           <div>
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{lang === "ms" ? "Tugasan" : "Tasks"}</p>
-            <p className="text-[19px] font-semibold tabular-nums">{doneTasks}/{allTasks.length}</p>
+            {!tasksKnown ? <Skel className="mt-1 h-5 w-12" /> : <p className="text-[19px] font-semibold tabular-nums">{doneTasks}/{allTasks.length}</p>}
           </div>
         </div>
       </div>
@@ -793,7 +863,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
               </span>
             )}
           </p>
-          {leave.length === 0 ? (
+          {!leaveKnown ? (
+            <SkelText lines={2} className="mt-2.5" />
+          ) : leave.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">{tr("None pending.", lang)}</p>
           ) : (
             leave.map((l) => (
@@ -813,7 +885,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
               </span>
             )}
           </p>
-          {tasks.length === 0 ? (
+          {!tasksKnown ? (
+            <SkelText lines={2} className="mt-2.5" />
+          ) : tasks.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">{tr("Nothing assigned.", lang)}</p>
           ) : (
             tasks.map((t) => (
@@ -831,7 +905,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
               <span className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
             )}
           </p>
-          {anns.length === 0 ? (
+          {!annsKnown ? (
+            <SkelText lines={2} className="mt-2.5" />
+          ) : anns.length === 0 ? (
             <p className="text-muted-foreground mt-2 text-sm">{tr("No announcements.", lang)}</p>
           ) : (
             anns.map((a) => (
@@ -1073,17 +1149,22 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
   const [editingKpi, setEditingKpi] = useState(false);
   const [kpiDraft, setKpiDraft] = useState("");
   const { show: showKpiToast, node: kpiToastNode } = useSaveToast();
-  const loadRev = useCallback(() => {
-    void api<RevenueData>(`/staff/revenue`).then((r) => { if (r.ok && r.data) setRev(r.data); });
-  }, []);
+  /* v1.25.0 — remembered-first (CEO chose "instant everywhere, mark money"):
+     the ticker paints its last known figures the moment the tab opens and
+     shows an "updating…" dot until the fresh numbers land, so nobody reads a
+     stale amount as final. Cache is per-account and expires after 24h. */
+  const revCache = useCachedApi<RevenueData>(canRevenue ? "/staff/revenue" : null, canRevenue);
+  const sumCache = useCachedApi<DashSummary>("/staff/dashboard/summary");
+  const moneyStale = revCache.stale || sumCache.stale;
+  useEffect(() => { if (revCache.data) setRev(revCache.data); }, [revCache.data]);
+  useEffect(() => { if (sumCache.data) setSum(sumCache.data); }, [sumCache.data]);
+  const loadRev = revCache.refresh;
   useEffect(() => {
     if (canRevenue) {
-      loadRev();
       void api<{ lines: RevLineLite[] }>(`/staff/revenue/lines`).then((r) => { if (r.ok && r.data) setMkLines(r.data.lines); });
       void api<{ buckets: HourBucket[] }>(`/staff/sales/by-hour`).then((r) => { if (r.ok && r.data) setHours(r.data.buckets); });
     }
-    void api<DashSummary>(`/staff/dashboard/summary`).then((r) => { if (r.ok && r.data) setSum(r.data); });
-  }, [canRevenue, loadRev]);
+  }, [canRevenue]);
 
   const saveKpi = async () => {
     const v = Number(kpiDraft);
@@ -1253,7 +1334,12 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
       {/* v1.8.0 greeting (reference: "Hello, Sarah!") */}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-bold tracking-tight md:text-2xl">{tr("Hello", lang)}, {firstName(user.name)}! 👋</h2>
-        <p className="text-muted-foreground text-xs md:text-sm">{WEEKDAYS[nowMY.getUTCDay()]}, {dmy(nowMY.toISOString().slice(0, 10))}</p>
+        <p className="text-muted-foreground flex items-center gap-2 text-xs md:text-sm">
+          {/* v1.25.0: sits directly above the money ticker, so "updating…"
+              clearly belongs to the figures underneath it. */}
+          <StaleHint show={moneyStale} />
+          {WEEKDAYS[nowMY.getUTCDay()]}, {dmy(nowMY.toISOString().slice(0, 10))}
+        </p>
       </div>
       {/* Zone 1 — the ticker (Today · Revenue · All-time · Needs attention) */}
       {ticker.length > 0 && (
@@ -4862,7 +4948,11 @@ export default function PortalPage() {
   useEffect(() => {
     setDark(localStorage.getItem("azone-theme") === "dark");
     void api<{ user: User }>("/auth/me").then((r) => {
-      if (r.ok && r.data) setUser(r.data.user);
+      if (r.ok && r.data) {
+        setUser(r.data.user);
+        // v1.25.0: remembered data is per-account — switching users wipes it.
+        setCacheScope(r.data.user.id);
+      } else setCacheScope(null);
       setChecked(true);
     });
   }, []);
@@ -5075,7 +5165,13 @@ export default function PortalPage() {
     return () => window.clearTimeout(t);
   }, [tab]);
 
-  if (!checked) return null;
+  /* v1.25.0 (CEO: "a dead skeleton waiting for my website like a Threads
+     so that my staff wont see any loading"): this used to be `return null`
+     — and because the site is a static export, THAT NULL WAS THE HTML FILE.
+     Staff saw a white screen through the whole JS download and the auth
+     round-trip. The skeleton below ships inside portal.html and paints
+     immediately, with zero JavaScript. */
+  if (!checked) return <PortalSkeleton />;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
@@ -5147,7 +5243,7 @@ export default function PortalPage() {
           items={navItems}
           active={activeTab}
           onSelect={(t) => setTab(t as TabName)}
-          onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
+          onSignOut={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => { clearApiCache(); setUser(null); })}
         />
       }
       /* v1.14.0: the side columns carry a date context.
@@ -5309,7 +5405,7 @@ export default function PortalPage() {
             className={btnHdr}
             title={tr("Sign out", lang)}
             aria-label={tr("Sign out", lang)}
-            onClick={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => setUser(null))}
+            onClick={() => void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => { clearApiCache(); setUser(null); })}
           >
             <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
