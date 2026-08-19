@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
@@ -140,9 +140,27 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
+  /* v1.29.5 (CEO: "For host I need to have a multiple host pick if it is
+     require"): one slot, several hosts. A session row in the database has
+     exactly ONE host — that is what makes the grid, the hour totals, leave
+     clashes and per-host notifications work — so picking N hosts creates N
+     sessions for the same slot rather than inventing a shared one. The
+     primary picker stays the plain <select> it always was (edit mode and
+     every existing caller are untouched); these are the EXTRA hosts, and
+     they only exist while creating. */
+  const [extraHosts, setExtraHosts] = useState<string[]>([]);
+  /** Primary + extras, de-duplicated, blanks dropped. */
+  const hostIds = (): string[] => {
+    const out: string[] = [];
+    for (const h of [draft.host_user_id, ...extraHosts]) if (h && !out.includes(h)) out.push(h);
+    return out;
+  };
+  const hostShort = (id: string) => (staff.find((u) => String(u.id) === String(id))?.name ?? "").split(" ").slice(0, 2).join(" ");
+
   const openAssign = (prefill?: Partial<typeof draft>) => {
     setDraft({ session_date: todayS, start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "", ...prefill });
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
+    setExtraHosts([]);
     setEditingId(null);
     setAssignOpen(true);
   };
@@ -197,6 +215,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       platform: s.platform, client_name: s.client ?? "", host_user_id: String(s.host_user_id), notes: s.notes ?? "",
     });
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
+    /* an amendment touches exactly ONE session, so multi-host has no meaning
+       here — clear it so a stale pick cannot leak into the next create. */
+    setExtraHosts([]);
     setEditingId(s.id);
     setOpenSession(null);
     setAssignOpen(true);
@@ -266,8 +287,16 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   };
 
   /** Validate the form + repeat rule; toast and return null when unusable. */
+  /** v1.29.5 — the ceiling on ONE press of Schedule. expandDates() already
+      caps a run at 62 days; multiplying by hosts could otherwise fire 300+
+      writes from a single click. When the product exceeds this the extra
+      entries are dropped and SAID SO (see expandOrExplain) — a silent
+      truncation would read as "scheduled everything" when it did not. */
+  const MAX_PER_PRESS = 120;
+
   const expandOrExplain = (): PlanEntry[] | null => {
-    if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
+    const hosts = hostIds();
+    if (!draft.session_date || !draft.start_time || hosts.length === 0) {
       showToast(L("No change", "Tiada perubahan"), L("Date, start time and host are required", "Tarikh, masa mula dan hos diperlukan"), "notice");
       return null;
     }
@@ -279,7 +308,23 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       showToast(L("Pick the days", "Pilih hari"), L("Toggle at least one weekday (Mon–Sun) for the run.", "Togol sekurang-kurangnya satu hari (Isn–Ahd) untuk ulangan ini."), "notice");
       return null;
     }
-    return expandDates().map((dt) => ({ ...draft, session_date: dt }));
+    /* One session per host per date: the database row IS one host, and the
+       grid, hour totals and notifications all count on that. */
+    const all = expandDates().flatMap((dt) =>
+      hosts.map((h) => ({ ...draft, session_date: dt, host_user_id: h })),
+    );
+    if (all.length > MAX_PER_PRESS) {
+      const kept = all.slice(0, MAX_PER_PRESS);
+      showToast(
+        L("Too many at once", "Terlalu banyak sekali gus"),
+        lang === "ms"
+          ? `${all.length} sesi diminta — ${MAX_PER_PRESS} pertama sahaja disediakan. Pendekkan julat ulangan atau kurangkan hos, kemudian ulang untuk bakinya.`
+          : `${all.length} sessions asked for — only the first ${MAX_PER_PRESS} are queued. Shorten the repeat range or pick fewer hosts, then repeat for the rest.`,
+        "notice",
+      );
+      return kept;
+    }
+    return all;
   };
 
   const addToPlan = () => {
@@ -324,6 +369,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       fails.length > 0 ? "notice" : undefined,
     );
     setAssignOpen(false);
+    setExtraHosts([]);
     void load(week);
   };
 
@@ -915,6 +961,66 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </label>
+
+              {/* v1.29.5 — MULTI-HOST. Styled only with the shared helpers
+                  (inputClassSm / chipNeutral / fieldLabel), so it inherits
+                  the portal's field sizing, radius and dark mode instead of
+                  carrying its own CSS. Create-only: an edit amends one row. */}
+              {editingId == null && (
+                <div className="col-span-2">
+                  {hostIds().length > 1 && (
+                    <div className="mb-1.5 flex flex-wrap gap-1.5">
+                      {/* every chip is removable, including the one sitting
+                          in the main picker: the hosts are equals here (one
+                          session each), so a chip you cannot remove would
+                          just look broken. Removing the picked one promotes
+                          the next in line into the picker. */}
+                      {hostIds().map((id) => (
+                        <span key={id} className={`${chipNeutral} gap-1`}>
+                          {hostShort(id)}
+                          <button type="button"
+                            aria-label={`${L("Remove", "Buang")} ${hostShort(id)}`}
+                            className="text-muted-foreground hover:text-danger"
+                            onClick={() => {
+                              if (id !== draft.host_user_id) { setExtraHosts((xs) => xs.filter((x) => x !== id)); return; }
+                              const [next, ...rest] = extraHosts;
+                              setDraft((d) => ({ ...d, host_user_id: next ?? "" }));
+                              setExtraHosts(rest);
+                            }}>
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <select
+                    className={inputClassSm}
+                    value=""
+                    aria-label={L("Add another host", "Tambah hos lain")}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      /* If the main picker is still empty, the first pick
+                         belongs THERE — otherwise the form would look
+                         hostless while carrying one. */
+                      if (!draft.host_user_id) setDraft((d) => ({ ...d, host_user_id: v }));
+                      else setExtraHosts((xs) => (xs.includes(v) ? xs : [...xs, v]));
+                      e.target.value = "";
+                    }}
+                  >
+                    <option value="">{L("+ Add another host (optional)", "+ Tambah hos lain (pilihan)")}</option>
+                    {staff.filter((u) => !hostIds().includes(String(u.id)))
+                      .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                  {hostIds().length > 1 && (
+                    <p className="text-muted-foreground mt-1 text-[11px] leading-snug">
+                      {lang === "ms"
+                        ? `${hostIds().length} hos — setiap seorang dapat sesi sendiri pada slot ini, satu baris setiap orang pada grid, dan dimaklumkan berasingan.`
+                        : `${hostIds().length} hosts — each gets their own session for this slot: one row each on the grid, notified separately.`}
+                    </p>
+                  )}
+                </div>
+              )}
               <label className="block">
                 <span className={fieldLabel}>{L("Start *", "Mula *")}</span>
                 <input type="time" className={inputClass} value={draft.start_time}
@@ -989,8 +1095,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 return (
                   <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
                     {dts.length > 0
-                      ? L(`→ Creates ${dts.length} session${dts.length === 1 ? "" : "s"}: ${dtList} — nothing outside these dates`,
-                          `→ Membuat ${dts.length} sesi: ${dtList} — tiada di luar tarikh ini`)
+                      ? (hostIds().length > 1
+                          ? L(`→ Creates ${dts.length} × ${hostIds().length} hosts = ${dts.length * hostIds().length} sessions: ${dtList} — nothing outside these dates`,
+                              `→ Membuat ${dts.length} × ${hostIds().length} hos = ${dts.length * hostIds().length} sesi: ${dtList} — tiada di luar tarikh ini`)
+                          : L(`→ Creates ${dts.length} session${dts.length === 1 ? "" : "s"}: ${dtList} — nothing outside these dates`,
+                              `→ Membuat ${dts.length} sesi: ${dtList} — tiada di luar tarikh ini`))
                       : repeat === "days" && repeatDays.length === 0
                         ? L("Toggle at least one weekday below/above.", "Togol sekurang-kurangnya satu hari di bawah/atas.")
                         : L("Set the until date — the run needs an end.", "Tetapkan tarikh sehingga — ulangan perlukan penghujung.")}
@@ -998,8 +1107,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 );
               })()}
               <p className="text-muted-foreground mt-1.5 text-[11px]">
-                {L("Flow: set the form (and a repeat if you want a run) → press Schedule. To stack MORE in one go — another slot, host or week — press + Add to plan between changes, then Schedule all.",
-                   "Aliran: isi borang (dan ulangan jika mahu satu siri) → tekan Jadualkan. Untuk susun LEBIH banyak sekali gus — slot, hos atau minggu lain — tekan + Tambah ke pelan antara perubahan, kemudian Jadualkan semua.")}
+                {L("Flow: set the form (and a repeat if you want a run) → press Schedule. Two or more hosts on the same slot? Add them under Host — each gets their own session. To stack DIFFERENT slots or weeks in one go, press + Add to plan between changes, then Schedule all.",
+                   "Aliran: isi borang (dan ulangan jika mahu satu siri) → tekan Jadualkan. Dua hos atau lebih pada slot sama? Tambah di bawah Hos — setiap seorang dapat sesi sendiri. Untuk susun slot atau minggu BERBEZA sekali gus, tekan + Tambah ke pelan antara perubahan, kemudian Jadualkan semua.")}
               </p>
             </div>
             )}
@@ -1031,7 +1140,12 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
                     {saving ? L("Scheduling…", "Menjadualkan…")
                       : plan.length > 0 ? L(`Schedule all (${plan.length})`, `Jadualkan semua (${plan.length})`)
-                      : repeat !== "once" && expandDates().length > 1 ? L(`Schedule ${expandDates().length} sessions`, `Jadualkan ${expandDates().length} sesi`)
+                      /* v1.29.5: the count is dates x hosts, not dates. The
+                         button must promise exactly what the press creates —
+                         2 hosts on a 5-day run is 10 sessions. */
+                      : expandDates().length * Math.max(1, hostIds().length) > 1
+                        ? (() => { const n = Math.min(MAX_PER_PRESS, expandDates().length * Math.max(1, hostIds().length));
+                            return L(`Schedule ${n} sessions`, `Jadualkan ${n} sesi`); })()
                       : L("Schedule", "Jadualkan")}
                   </button>
                   <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>{L("+ Add to plan", "+ Tambah ke pelan")}</button>

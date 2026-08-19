@@ -1,4 +1,4 @@
-a2z-v1.29.4-FULL — 316 files
+a2z-v1.29.5-FULL — 317 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	557940
+CHANGELOG.md	560328
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	6995
@@ -107,7 +107,7 @@ components/portal/payroll-panel.tsx	79627
 components/portal/portal-skeleton.tsx	6002
 components/portal/purchasing-panels.tsx	21972
 components/portal/role-panels.tsx	242829
-components/portal/roster-board.tsx	68881
+components/portal/roster-board.tsx	75716
 components/portal/sales-by-hour-card.tsx	3528
 components/portal/side-columns.tsx	12058
 components/portal/stokis-panel.tsx	15705
@@ -207,6 +207,7 @@ public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
 scratch/login-mobile-shot.mjs	2368
+scratch/multi-host-e2e.mjs	6698
 scratch/public-form-origin-check.sh	2046
 scratch/roster-toast-e2e.mjs	5543
 styles/globals.css	15803

@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.5] — 2026-08-19 — one slot, several hosts
+
+**CEO: "For host I need to have a multiple host pick if it is require."** New assignment now takes as many hosts as the slot needs. Pick the first in the Host box as always, then add more from **+ Add another host** underneath; each one appears as a removable chip.
+
+**What it actually creates, and why:** one session per host. A session row carries exactly ONE host — that single fact is what makes the staff grid, the per-person hour totals, leave-clash detection and individual notifications work. Inventing a shared multi-host row would have quietly broken all four. So three hosts on tonight's 20:30 slot become three sessions at 20:30: three rows on the grid, three sets of hours, three notifications, and each one can be completed or cancelled on its own.
+
+- **The button promises exactly what the press will do.** It counts dates × hosts, not dates: two hosts on a five-day repeat reads "Schedule 10 sessions" before you click, and the repeat preview line spells out the multiplication.
+- **A stated ceiling, never a silent one.** One press creates at most 120 sessions. Ask for more (say 4 hosts across a 62-day run) and it queues the first 120 and *says so* — a silent truncation would read as "scheduled everything" when it did not.
+- **Every chip is removable, including the one in the Host box** — removing it promotes the next host into the picker rather than emptying the form. The hosts are equals here; a chip you cannot remove would just look broken.
+- **Editing is untouched.** An amendment still concerns exactly one session, so the multi-host row is hidden in Edit mode and cleared when the dialog opens, and cannot leak into the next create.
+- **No new CSS.** The chips and the picker use the portal's shared style helpers (`chipNeutral`, `inputClassSm`, `fieldLabel`), so they inherit field sizing, radius, spacing and dark mode automatically — as asked.
+
+Proven end-to-end against the built portal (`scratch/multi-host-e2e.mjs`): three hosts picked → three POSTs, three distinct host ids, same date/slot/client on all three, button read "Schedule 3 sessions" beforehand; removing the picked host dropped it to "Schedule 2 sessions" and promoted the next host into the box; zero page errors.
+
+**Deploy notes:** site only, no worker change, no migration — but run `DEPLOY.bat` IN FULL as always.
+
 ## [1.29.4] — 2026-08-19 — the deploy no longer stops on a type-definition version
 
 **Reported from the CEO's machine: step 2 died with `npm error code ERESOLVE`.** `worker/package.json` pinned `@cloudflare/workers-types@^4`, while the wrangler it installs (4.116+) declares an OPTIONAL peer on `@cloudflare/workers-types@^5`. npm refuses the whole tree over that, so nothing after step 2 ran. My container never hit it because its `worker/node_modules` predated the wrangler bump — a clean machine is the only place this shows up, which is exactly why the first run of a new script belongs on a clean machine.
