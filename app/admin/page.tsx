@@ -7,7 +7,7 @@
  */
 
 import { TabIcon, LogOut, Ellipsis, CloseX } from "@/components/layout/nav-icons";
-import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
@@ -408,9 +408,9 @@ function MediaPanel() {
       // R2 free tier: images are resized/recompressed client-side first
       // (videos and documents pass through unchanged).
       const payload = kind === "image" ? await compressImage(file) : file;
-      const res = await fetch(
+      const res = await csrfFetch(
         `${API}/media?filename=${encodeURIComponent(file.name)}&kind=${kind}`,
-        { method: "POST", credentials: "include", headers: { "Content-Type": payload.type || file.type }, body: payload },
+        { method: "POST", headers: { "Content-Type": payload.type || file.type }, body: payload },
       );
       if (!res.ok) { setError(L("Upload failed.", "Muat naik gagal.")); showToast(L("No changes", "Tiada perubahan"), L("Upload failed — try again", "Muat naik gagal — cuba lagi"), "notice"); }
       else showToast(L("Saved", "Disimpan"), L(`${file.name} uploaded`, `${file.name} dimuat naik`));

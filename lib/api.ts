@@ -40,24 +40,75 @@ export function makeApi(prefix = "") {
   return <T>(path: string, init?: RequestInit) => api<T>(`${prefix}${path}`, init);
 }
 
+/* v1.26.2 — CSRF self-heal. A browser can hold a live (HttpOnly) session
+   cookie while the script-visible csrf_token cookie has been evicted; every
+   save then 403s with "CSRF token mismatch or missing" until re-login (the
+   CEO's screenshot). /auth/me now re-issues the cookie when it is missing,
+   so the recovery is: hit /auth/me once, then retry the request with the
+   fresh token. One retry only — a genuine forgery still fails closed. */
+async function refreshCsrfCookie(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/auth/me`, { credentials: "include" });
+    return res.ok && getCsrfToken() !== "";
+  } catch {
+    return false;
+  }
+}
+
+function isCsrfFailure(status: number, data: unknown): boolean {
+  return status === 403 &&
+    (data as { error?: { code?: string } } | null)?.error?.code === "csrf_failed";
+}
+
+/**
+ * The ONLY sanctioned way to make a raw mutating request outside api() —
+ * for binary bodies (photo/receipt/document uploads) and custom headers.
+ * Attaches the CSRF token, self-heals a missing csrf cookie exactly like
+ * api(), and returns the raw Response so callers keep res.ok / res.json().
+ * tests/csrf-guard.mjs fails the build on any bare fetch() mutation.
+ */
+export async function csrfFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const doFetch = () => {
+    const headers = new Headers((init.headers as Record<string, string>) ?? {});
+    const csrf = getCsrfToken();
+    if (csrf) headers.set("X-CSRF-Token", csrf);
+    return fetch(url, { credentials: "include", ...init, headers });
+  };
+  let res = await doFetch();
+  if (res.status === 403) {
+    const body = await res.clone().json().catch(() => null) as { error?: { code?: string } } | null;
+    if (body?.error?.code === "csrf_failed" && (await refreshCsrfCookie())) {
+      res = await doFetch();
+    }
+  }
+  return res;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   try {
     const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-    const headers = new Headers((init?.headers as Record<string, string>) ?? {});
-    if (init?.body && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
+    const attempt = async (): Promise<{ res: Response; data: T | null }> => {
+      const headers = new Headers((init?.headers as Record<string, string>) ?? {});
+      if (init?.body && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+      if (isMutating) {
+        const csrf = getCsrfToken();
+        if (csrf) headers.set("X-CSRF-Token", csrf);
+      }
+      const res = await fetch(`${API}${path}`, {
+        credentials: "include",
+        ...init,
+        headers,
+      });
+      const data =
+        res.status === 204 ? null : ((await res.json().catch(() => null)) as T | null);
+      return { res, data };
+    };
+    let { res, data } = await attempt();
+    if (isMutating && isCsrfFailure(res.status, data) && (await refreshCsrfCookie())) {
+      ({ res, data } = await attempt());
     }
-    if (isMutating) {
-      const csrf = getCsrfToken();
-      if (csrf) headers.set("X-CSRF-Token", csrf);
-    }
-    const res = await fetch(`${API}${path}`, {
-      credentials: "include",
-      ...init,
-      headers,
-    });
-    const data =
-      res.status === 204 ? null : ((await res.json().catch(() => null)) as T | null);
     return { ok: res.ok, status: res.status, data };
   } catch {
     return { ok: false, status: 0, data: null };

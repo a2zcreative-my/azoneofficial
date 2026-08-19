@@ -1,5 +1,7 @@
 "use client";
 
+import { csrfFetch } from "@/lib/api";
+
 /* v1.4.219 (CEO: "I want to have a users access control for CEO to
    assigned to the roles … which users need to access the tabs"): the
    manager card. Per tab, click role chips on/off and Save; "Reset to
@@ -126,8 +128,8 @@ export function TabAccessCard() {
     Object.prototype.hasOwnProperty.call(overrides, t) ? overrides[t]! : (DEFAULTS[t] ?? null);
 
   const save = async (tab: string, roles: string[] | null) => {
-    const res = await fetch("/api/v1/staff/tabs/access", {
-      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    const res = await csrfFetch("/api/v1/staff/tabs/access", {
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(roles === null ? { tab, reset: true } : { tab, roles }),
     });
     if (res.ok) {

@@ -17,7 +17,7 @@
  * these panels are conveniences, not the security boundary.
  */
 
-import { makeApi, getCsrfToken } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DetailsToggle } from "@/components/ui/details-toggle";
@@ -2270,8 +2270,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         if (compressedE.size > MAX_RECEIPT_MB * 1024 * 1024) {
           showToast(L("No changes", "Tiada perubahan"), `${L("Claim updated WITHOUT the receipt.", "Tuntutan dikemas kini TANPA resit.")} ${receiptTooBig()}`, "notice");
         } else {
-          const up = await fetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
-            method: "POST", credentials: "include",
+          const up = await csrfFetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
+            method: "POST",
             headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
             body: compressedE,
           });
@@ -2293,9 +2293,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (compressed.size > MAX_RECEIPT_MB * 1024 * 1024) {
         showToast(L("No changes", "Tiada perubahan"), `${L("Claim submitted WITHOUT the receipt.", "Tuntutan dihantar TANPA resit.")} ${receiptTooBig()} ${L("Then use Edit on your claim to attach it.", "Kemudian guna Sunting pada tuntutan anda untuk melampirkannya.")}`, "notice");
       } else {
-      const up = await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
+      const up = await csrfFetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": compressed.type || receipt.type || "image/jpeg" },
         body: compressed,
       });
@@ -2433,8 +2432,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                     if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
                     const comp = await compressImage(f);
                     if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                    const up = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, {
-                      method: "POST", credentials: "include",
+                    const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/receipt`, {
+                      method: "POST",
                       headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
                     });
                     if (up.ok) {
@@ -2572,8 +2571,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
                   const comp = await compressImage(f);
                   if (comp.size > 8 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
-                  const up = await fetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
-                    method: "POST", credentials: "include",
+                  const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
+                    method: "POST",
                     headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
                   });
                   if (up.ok) { showToast(L("Saved", "Disimpan"), L("Payment receipt attached — claimant notified", "Resit bayaran dilampirkan — penuntut dimaklumkan")); void load(); }

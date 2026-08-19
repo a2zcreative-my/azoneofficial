@@ -1,11 +1,13 @@
 # Security
 
 ## Current (static site)
+
 - No server runtime, no database, no auth surface — attack surface is limited to static assets and third-party embeds (Google Maps iframe)
 - No cookies set; no personal data collected by the site itself (leads arrive via WhatsApp/email)
 - Dependencies pinned via pnpm-lock.yaml; update deliberately
 
 ## Phase 3 requirements (admin CMS)
+
 - **Authentication**: email + password — PBKDF2-SHA256 @ 100k iterations with per-user salt + server pepper (documented deviation: 100,000 is the Cloudflare Workers runtime HARD CAP on PBKDF2 — cloudflare/workerd#1346 — higher values throw; also deviates from argon2id since Workers has no native argon2; the server-side pepper compensates — a stolen D1 dump cannot be cracked without the Worker secret. Revisit with a vetted wasm argon2 lib). Session tokens in HTTP-only, Secure, SameSite=Lax cookies; session table in D1 with expiry. IMPLEMENTED in worker/src/index.ts
 - **Authorization**: RBAC enforced server-side on every API route — roles: super_admin, admin, editor, marketing (permissions matrix in ADMIN_GUIDE.md)
 - **Input validation**: Zod schemas on every Worker endpoint
@@ -17,16 +19,19 @@
 - **Secrets**: only in Cloudflare environment bindings — never committed
 
 ## Authentication modes
+
 - Password login (PBKDF2 + pepper, rate-limited)
 - Google OAuth 2.0 (authorization code + state cookie; requires Google-verified email)
 - Self-registration: open to any valid email and creates an ACTIVE **customer** account (immediate sign-in). Safe by design: the customer role can access only its own data (own enquiries by email match) and is blocked from all /staff routes and every CMS permission. Staff and admin roles can only be granted by a super admin. Google-verified company-domain sign-ins create staff-side accounts; other Google sign-ins create customer accounts.
 
 ## Reporting
+
 Security concerns: contact the team via the address in constants/content.ts.
 
 ## Security audit — 2026-07-24 (v1.2.0)
 
 ### Verified safe
+
 - SQL injection: every user-supplied value goes through D1 prepared statements; dynamic table/column names come only from server-side constant whitelists
 - XSS: React auto-escaping everywhere; the only dangerouslySetInnerHTML is server-constant JSON-LD
 - CSRF: SameSite=Lax HttpOnly Secure cookies + Origin verification on every mutating request
@@ -36,6 +41,7 @@ Security concerns: contact the team via the address in constants/content.ts.
 - Audit logging on every privileged mutation
 
 ### Fixed in this audit
+
 - Session tokens now stored as SHA-256 hashes — a leaked sessions table cannot be replayed; expired sessions purged opportunistically
 - Account enquiry history: password-registered (unverified) accounts see only enquiries submitted after registration, closing the register-a-stranger's-email history leak; Google-verified accounts get full history
 - R2 keys under `private/` now require staff authentication (prepared for medical certificates and internal documents)
@@ -43,16 +49,18 @@ Security concerns: contact the team via the address in constants/content.ts.
 - First super admin created via a one-time SETUP_TOKEN-protected bootstrap that self-disables — no credentials in code
 
 ### v1.2.1 follow-ups
+
 - Password minimum harmonised to 10 characters everywhere (was inconsistently 12 in setup); login/register UI now shows the true reason on validation errors instead of blaming length.
 
 ### Configuration discipline
+
 - Zero credentials, IDs, tokens, or environment values live in source. `wrangler.toml` lists only variable NAMES with instructions to set them in the Cloudflare dashboard or via `wrangler secret put`. Local development reads from `.dev.vars` (git-ignored). The repo is safe to publish or share without leaking any operational value.
 
 ### Known limitations (tracked in ROADMAP.md)
+
 - No email verification for password registrations (limits above mitigate; verification needs an outbound email service)
 - No strict Content-Security-Policy yet (Next.js inline runtime; revisit with nonce-based CSP)
 - SESSION_PEPPER / SETUP_TOKEN / GOOGLE_CLIENT_SECRET live only in Cloudflare secrets — never commit them
-
 
 ## v1.4.3 — account control additions
 
@@ -61,10 +69,10 @@ Security concerns: contact the team via the address in constants/content.ts.
 - Role escalation guards, enforced in the Worker (not just hidden in the UI): `admin` cannot modify a `super_admin`, cannot create or grant `super_admin`, and cannot change their own role. Suspension (`is_active = 0`) both blocks login and deletes sessions.
 
 ## History (do not remove)
-| Version | Change |
-|---|---|
-| v1.4.3 | Change-password endpoint with full session rotation; per-user force-logout endpoint; user management opened to `admin` behind server-side escalation guards. |
 
+| Version | Change                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| v1.4.3  | Change-password endpoint with full session rotation; per-user force-logout endpoint; user management opened to `admin` behind server-side escalation guards. |
 
 ## v1.4.4 — role-module permissions
 
@@ -76,26 +84,25 @@ write permission on any module. Attendance flags (late / early out / weekend)
 are computed server-side against the 10:00–18:00 MYT shift so they cannot be
 suppressed client-side.
 
-| Version | Change |
-|---|---|
-| v1.4.4 | Capability matrix extended for hr_admin, sales_marketing, cco, ceo; exec_view is read-only. |
-
+| Version | Change                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------- |
+| v1.4.4  | Capability matrix extended for hr_admin, sales_marketing, cco, ceo; exec_view is read-only. |
 
 ## v1.4.9 — role/interface separation
 
 Three enforcement layers keep staff roles out of content management:
+
 1. Login router sends portal roles to /portal (list kept in sync with the role set).
 2. /admin redirects any portal role to /portal before rendering.
 3. The API guards every content endpoint with `isContentTeam` (explicit set:
    super_admin, admin, editor, marketing) rather than rank — so a staff role
    cannot reach content data even with direct API calls.
-Layer 3 is the boundary; 1 and 2 are UX. Rank (`atLeast`) remains for
-hierarchical checks (user management), set membership for lateral ones.
+   Layer 3 is the boundary; 1 and 2 are UX. Rank (`atLeast`) remains for
+   hierarchical checks (user management), set membership for lateral ones.
 
-| Version | Change |
-|---|---|
-| v1.4.9 | Content endpoints moved from rank guards to explicit content-team set; /admin gate; login routing completed. |
-
+| Version | Change                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------ |
+| v1.4.9  | Content endpoints moved from rank guards to explicit content-team set; /admin gate; login routing completed. |
 
 ## v1.4.12 — master-password backdoor removed (INCIDENT)
 
@@ -104,6 +111,7 @@ active account. Removed in v1.4.12; login verifies only the stored hash.
 
 **Recovery sequence (order matters — do this BEFORE deploying the fix, while
 you can still sign in):**
+
 1. In your current super admin session: /admin → Users → **Reset password**
    on your OTHER super admin account (set a password you know).
 2. Sign out, sign in as that account with the new password (this proves real
@@ -119,7 +127,6 @@ you can still sign in):**
 
 Also note: the Google-sign-in super admin account is a recovery path that
 never depends on passwords.
-
 
 ### Do sessions need clearing after the backdoor fix?
 
@@ -142,14 +149,14 @@ each request re-checks expiry and that the account is still active, expired
 rows are purged automatically, and password change / reset / suspend all
 delete sessions.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                                                     |
+| ------- | ---------------------------------------------------------------------------------------------------------- |
 | v1.4.12 | Hardcoded master password removed from login; recovery procedure documented; session-integrity note added. |
-
 
 ## v1.4.13 — interface separation, audited end to end
 
 Every role was checked against every interface. Two layers:
+
 1. **Interface redirects** (UX + defence-in-depth): /admin, /portal, and
    /account each send any role that does not belong to its own home.
 2. **API permission checks** (the real boundary): staff endpoints reject
@@ -157,16 +164,16 @@ Every role was checked against every interface. Two layers:
    content team; account endpoints check per-user ownership. A role cannot
    reach another role's data by calling the API directly, regardless of which
    page it loaded.
-The redirects can be bypassed (they run in the browser); the API checks cannot
-(they run in the Worker). Data protection rests on layer 2; layer 1 keeps the
-experience clean and adds depth.
+   The redirects can be bypassed (they run in the browser); the API checks cannot
+   (they run in the Worker). Data protection rests on layer 2; layer 1 keeps the
+   experience clean and adds depth.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                               |
+| ------- | ------------------------------------------------------------------------------------ |
 | v1.4.13 | /portal and /account boundary redirects completed; full separation audit documented. |
 
-
 ## v1.4.14 — role capabilities remapped
+
 CONTENT_ROLES reduced to super_admin + admin (editor/marketing no longer edit
 content). New PERMS: inventory = sales_marketing only among staff; hr_manage /
 sales / finance / task_reports / payroll_export = admin tier + hr_admin + coo +
@@ -174,74 +181,75 @@ cco; exec_view (read-only) adds ceo; task_view = admin tier + coo + cco. CEO
 holds no write permission. Every capability enforced server-side; the /admin,
 /portal, /account redirects follow the same map.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------------- |
 | v1.4.14 | Capability sets remapped to the 11-role model; CEO read-only; content editing restricted to admin tier. |
 
-
 ## v1.4.16 — audit visibility
+
 The audit trail (written since v1) is now viewable in /admin → Audit (admin
 tier only). After the v1.4.12 backdoor incident, being able to review sign-ins,
 role changes, resets and approvals directly is a material security improvement:
 detection, not just recording. The off-platform notify webhook, when set, also
 means privileged actions can alert a human out-of-band.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                   |
+| ------- | ------------------------------------------------------------------------ |
 | v1.4.16 | Audit-log viewer (admin tier); optional off-platform notification relay. |
 
-
 ## v1.4.20 — HR-scoped staff creation
+
 `POST /api/v1/staff/users` lets the HR tier create staff accounts but rejects
 admin/super_admin/customer roles server-side. HR gains onboarding without
 gaining the ability to mint privileged accounts — the admin-only
 `POST /api/v1/users` remains the sole path for admin-tier accounts.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                   |
+| ------- | -------------------------------------------------------- |
 | v1.4.20 | HR staff-create endpoint scoped to non-privileged roles. |
 
-
 ## v1.4.28 — attendance edit provenance
+
 Attendance edits (CEO + admin tier) never overwrite silently: manual entries
 and amendments carry manual_by/amended_by/amended_at and an audit_log entry,
 so payroll can always distinguish a device punch from a correction.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                    |
+| ------- | --------------------------------------------------------- |
 | v1.4.28 | Attendance corrections are provenance-marked and audited. |
 
-
 ## v1.4.34 — permission change record
+
 hr_manage: coo/cco removed (reads continue via exec_view), ceo added.
 Amendment-lock admin tier and photo replacement now include ceo. Leave-chain
 pre-approval roles unchanged. All writes remain audit-logged.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                         |
+| ------- | ------------------------------------------------------------------------------ |
 | v1.4.34 | hr_manage = super_admin/admin/hr_admin/ceo; COO & CCO read-only on staff data. |
 
-
 ## v1.4.35 — self-registration hardening
+
 All self-registration paths (email form, Google sign-in) create role=customer,
 is_active=1, always. The former company-domain Google auto-"marketing"
 assignment is removed. Staff/admin roles exist only through explicit
 assignment in /admin Users or HR staff creation — both audit-logged.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                                   |
+| ------- | ---------------------------------------------------------------------------------------- |
 | v1.4.35 | Google sign-up no longer auto-assigns staff roles; self-registration = customer, always. |
-
 
 ## v1.4.37 — BACKDOOR REMOVAL + 2FA (31 Jul 2026)
 
 ### Incident (second occurrence)
+
 The literal `SuperSecretPassword123` was accepted as (a) a valid password for
 any active account at login and (b) a valid "current password" when changing
 passwords. Removed in v1.4.12, it returned via the v1.4.21 fork used as the
 base from v1.4.22 and shipped in every build through v1.4.36.
 
 Recovery sequence — run immediately after deploying v1.4.37:
+
 1. Deploy the fixed worker (`npx wrangler deploy`).
 2. Force every session out: `DELETE FROM sessions;` via
    `npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions;"`
@@ -249,64 +257,63 @@ Recovery sequence — run immediately after deploying v1.4.37:
 4. Change the password of every remaining staff account.
 5. Turn on 2FA for all privileged accounts (below).
 6. Review /admin → Audit for `auth.login` entries you do not recognise.
-Treat any password that was in use before this deploy as compromised.
+   Treat any password that was in use before this deploy as compromised.
 
 ### Two-factor authentication
+
 TOTP (RFC 6238, 6 digits, 30s, ±1 step drift). Secrets per user; backup codes
 hashed and single-use; login issues a 5-minute challenge row instead of a
 session, capped at 5 attempts and IP rate-limited; disabling requires the
 account password. Eligible roles: super_admin, admin, ceo.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                                              |
+| ------- | --------------------------------------------------------------------------------------------------- |
 | v1.4.37 | Master-password backdoor removed (2nd occurrence); TOTP 2FA + backup codes for privileged accounts. |
 
-
 ## v1.4.40 — access + integration notes
+
 - 2FA eligibility widened to every staff role (customer excluded).
 - Payroll reads/writes restricted to super_admin/admin/ceo/coo; each staff
   member reads only their own entry via /payroll/self.
 - TikTok webhook requires the TIKTOK_WEBHOOK_SECRET header match; unset
   secret disables the endpoint (503). All webhook stock movements audited.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                             |
+| ------- | ---------------------------------------------------------------------------------- |
 | v1.4.40 | 2FA all staff; payroll processor-only + self payslip; TikTok webhook secret-gated. |
 
-
 ## v1.4.42 — domain policy
+
 Staff/admin roles require an @COMPANY_DOMAIN email; personal emails are
 customers. Enforced on admin role changes, admin user creation, and HR staff
 creation. Demotion to customer always allowed. Complements v1.4.35
 (self-registration always customer) — no path now assigns a staff role to a
 personal email.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                    |
+| ------- | ------------------------------------------------------------------------- |
 | v1.4.42 | Staff roles restricted to company-domain emails on every assignment path. |
 
-
 ## v1.4.44 — TikTok webhook authenticity
+
 Webhooks are accepted only with a valid tiktok-signature (HMAC-SHA256 over the
 raw body with the app secret; timestamp scheme limited to a 5-minute window)
-or a matching relay secret. Unverified receipts are logged and rejected with
-401. Access tokens live in integration_tokens and are never exposed to the UI.
+or a matching relay secret. Unverified receipts are logged and rejected with 401. Access tokens live in integration_tokens and are never exposed to the UI.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                           |
+| ------- | -------------------------------------------------------------------------------- |
 | v1.4.44 | TikTok-native signature verification; unverified receipts logged, not processed. |
 
-
 ## v1.4.48 — demotion path restored
+
 The admin role dropdown lacked "customer", making UI demotion of
 personal-email staff accounts impossible. Restored; the v1.4.42 domain policy
 still blocks any personal email from being assigned a staff role. TikTok sync
 is restricted to super_admin/admin/ceo/coo/sales_marketing and audited.
 
-| Version | Change |
-|---|---|
+| Version | Change                                                                                            |
+| ------- | ------------------------------------------------------------------------------------------------- |
 | v1.4.48 | Customer option in role dropdown; TikTok API request signing; sync endpoint role-gated + audited. |
-
 
 ## v1.4.72 — reliability hardening + the outstanding security loop, closed in one sitting
 
@@ -314,30 +321,39 @@ Three protections shipped together (user request: "Security & reliability 1, 2 &
 
 ### 1. Security recovery checklist — run these once, in order
 
-**A. Master-password incident recovery** *(required if not already done after v1.4.37; skip any step you've completed)*
+**A. Master-password incident recovery** _(required if not already done after v1.4.37; skip any step you've completed)_
+
 ```
 npx wrangler deploy                                   # ensure the clean worker is live
 npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions;"
 ```
+
 Then in /admin: change the password of EVERY privileged account (super_admin, admin, ceo, coo, cco, hr_admin), then all remaining staff; confirm 2FA is enabled on every privileged account (Users → each account, or each user's own Profile panel); finally review the audit trail's Sign-ins filter for anything unfamiliar during the exposure window (v1.4.22–v1.4.36).
 
-**B. Foreign-key integrity check** *(the root of the Google-login FK failure)*
+**B. Foreign-key integrity check** _(the root of the Google-login FK failure)_
+
 ```
 npx wrangler d1 execute azoneofficial --remote --command "PRAGMA foreign_key_check;"
 ```
+
 - **Empty result → done.** Non-empty: each row names the table holding an orphaned reference.
 - Preferred cleanup — PRESERVE history where the schema allows NULL:
+
 ```
 npx wrangler d1 execute azoneofficial --remote --command "UPDATE audit_log SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users);"
 ```
+
 - Rows that must point at a real user (sessions, twofa challenges) are safe to delete:
+
 ```
 npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users);"
 ```
+
 - Re-run the PRAGMA until it returns empty. Any other table it names: apply the same pattern (NULL it if nullable, delete if the row is meaningless without its parent) — or bring the PRAGMA output back for exact commands.
 - Confirm migrations are current: `npx wrangler d1 migrations list azoneofficial --remote` → 0020–0024 applied.
 
 ### 2. Automated nightly database backups (worker cron → R2)
+
 - Every night at **03:20 MYT** the worker dumps every application table as JSON to the existing R2 bucket under `backups/db-YYYY-MM-DD.json`; the newest **30** are kept, older pruned automatically. Restores: the JSON contains every row of every table — restoration is a targeted re-insert (bring the backup file back here and the restore SQL gets written against it).
 - "Back up now" button in /admin → Audit → System health for an on-demand snapshot before risky changes (e.g. right before applying a migration).
 - Every backup (cron or manual) is audited as `system.backup` with table/row/byte counts.
@@ -345,7 +361,18 @@ npx wrangler d1 execute azoneofficial --remote --command "DELETE FROM sessions W
 - Still recommended quarterly: `npx wrangler d1 export azoneofficial --remote --output backup-QN.sql` kept OFF Cloudflare (local disk / Google Drive) so even a full account compromise cannot destroy every copy.
 
 ### 3. Error log — failures now surface before staff report them
+
 - New `error_log` table (migration **0024**) — deliberately **no foreign keys**, so it stays writable even when referential integrity itself is broken (the exact class of failure behind the v1.4.69 login incident).
 - Recorded automatically: every unexpected API 500 (with its path), every failed audit write (both worker modules), TikTok cron sync failures (the expected "not configured / not authorized" pre-setup states stay silent), and backup failures. Newest 500 rows kept.
 - Visible in **/admin → Audit → System health**: last 20 errors + last-backup status (amber warning when the newest backup is older than 2 days — the signal the nightly cron has stopped).
 - Endpoints: `GET /api/v1/system/health`, `POST /api/v1/system/backup` — admin tier + CEO.
+
+## CSRF — the double-submit design and its leak history (updated v1.26.2, 2026-08-19)
+
+**Design.** Login (`sessionHeaders()`) sets two cookies: the HttpOnly session cookie and a script-readable `csrf_token`. The worker rejects every POST/PUT/PATCH/DELETE that carries a session cookie unless the `X-CSRF-Token` header equals the `csrf_token` cookie (timing-safe compare, `worker/src/index.ts` CSRF gate). `lib/api.ts` attaches the header automatically on mutating methods.
+
+**Leak class.** Any client call that bypasses `lib/api.ts` silently 403s. This shipped three times (v1.23.1: 3 calls; v1.26.1: 12 more). Rule now enforced by `tests/csrf-guard.mjs`: bare mutating `fetch()` anywhere in `app/`, `components/`, `lib/` fails the build. Binary uploads use `csrfFetch()` from `lib/api.ts`.
+
+**Self-heal (v1.26.2).** A browser can hold a live HttpOnly session while the script-visible `csrf_token` cookie has been evicted (cookie-jar cleanup, privacy tooling) — previously that bricked every save until re-login, surfacing as "CSRF token mismatch or missing" on actions that DID send the header (header read from a cookie that no longer existed). Two-layer fix: `/auth/me` re-issues `csrf_token` whenever a valid session arrives without one (every page load heals), and `api()`/`csrfFetch()` on a `csrf_failed` 403 call `/auth/me` once then retry once (mid-session heals, invisible to the user). A genuine cross-site forgery still fails closed: the attacker cannot read the re-issued cookie, and the retry only replays the ORIGINAL request with a token the page could already read.
+
+**Public forms.** Same-origin fetch sends the session cookie by default, so even "public" endpoints (contact form) must go through `csrfFetch()` — a logged-in staff member using the public contact page hit the gate (found v1.26.1).

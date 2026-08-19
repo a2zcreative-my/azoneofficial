@@ -12,7 +12,7 @@
  *    and phone number. Blood type is retired from both the form and the card.
  */
 
-import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { dmy } from "@/lib/format";
@@ -635,9 +635,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 let photoNote = "";
                 if (newPhoto && res.data?.id) {
                   const compressed = await compressImage(newPhoto);
-                  const up = await fetch(`${API}/users/${res.data.id}/photo`, {
+                  const up = await csrfFetch(`${API}/users/${res.data.id}/photo`, {
                     method: "POST",
-                    credentials: "include",
                     headers: { "Content-Type": compressed.type || "image/jpeg" },
                     body: compressed,
                   });
@@ -843,9 +842,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                       if (!file) return;
                       setRowMsg((m) => ({ ...m, [u.id]: "" }));
                       const compressed = await compressImage(file);
-                      const res = await fetch(`${API}/users/${u.id}/photo`, {
+                      const res = await csrfFetch(`${API}/users/${u.id}/photo`, {
                         method: "POST",
-                        credentials: "include",
                         headers: { "Content-Type": compressed.type || "image/jpeg" },
                         body: compressed,
                       });
@@ -960,8 +958,8 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   };
   useEffect(() => { void load(); }, [userId]);
   const upload = async (f: File) => {
-    await fetch(`${API}/users/${userId}/documents`, {
-      method: "POST", credentials: "include",
+    await csrfFetch(`${API}/users/${userId}/documents`, {
+      method: "POST",
       headers: {
         "Content-Type": f.type || "application/octet-stream",
         "X-Doc-Kind": kind, "X-Doc-Filename": f.name,

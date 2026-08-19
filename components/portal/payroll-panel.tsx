@@ -9,7 +9,7 @@
  * or hr_admin (hr_manage); COO/CCO see it read-only via exec view.
  */
 
-import { makeApi, getCsrfToken } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState } from "react";
 import { displayName } from "@/lib/names";
@@ -373,9 +373,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Save failed", "Simpan gagal"), "notice");
   };
   const uploadM2eTemplate = async (f: File) => {
-    /* v1.23.1: raw fetch (needed — binary body, api() would JSON it) but WITH
-       the CSRF header the middleware requires on every mutating call. */
-    const res = await fetch(`${API}/payroll/m2e-template`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() }, body: f });
+    /* v1.23.1: raw fetch (binary body, api() would JSON it); v1.26.2: through
+       csrfFetch so it self-heals a missing csrf cookie like every other call. */
+    const res = await csrfFetch(`${API}/payroll/m2e-template`, { method: "POST", body: f });
     const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     if (res.ok) { setM2eHasTpl(true); showToast(L("Saved", "Disimpan"), L("Blank M2E template stored — 💳 now generates the filled workbook", "Templat M2E kosong disimpan — 💳 kini menjana buku kerja yang terisi")); }
     else showToast(L("No changes", "Tiada perubahan"), j?.error?.message ?? L("Template upload failed", "Muat naik templat gagal"), "notice");

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { whatsappUrl } from "@/constants/content";
+import { csrfFetch } from "@/lib/api";
 import { inputClassLg as inputClass } from "@/lib/ui-styles";
 
 const API_BASE = "/api/v1";
@@ -30,7 +31,11 @@ export function ContactForm() {
     if (!form.name.trim() || !form.message.trim()) return;
     setStatus("sending");
     try {
-      const res = await fetch(`${API_BASE}/enquiries`, {
+      /* v1.26.1: same-origin fetch sends the session cookie by default, so a
+         LOGGED-IN visitor using the public contact form hit the CSRF gate and
+         got a silent "error". csrfFetch attaches the token when it exists;
+         anonymous visitors have none and need none. */
+      const res = await csrfFetch(`${API_BASE}/enquiries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

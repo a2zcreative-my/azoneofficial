@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.26.2] — 2026-08-19 — The CSRF error heals itself · D1 blip wording covered · docs brought current
+
+**Your second screenshot — "CSRF token mismatch or missing" next to SAVE — pointed at a different disease than the photo bug.** Save always sent the token… read from a cookie that was no longer there. A browser can keep your (protected, HttpOnly) session cookie while cleaning out the script-visible `csrf_token` one — and in that state EVERY save on every tab fails until you log out and back in. v1.26.1 could not fix that, because the problem was not a missing header; it was a missing cookie.
+
+**Now the system heals itself, two ways:**
+
+1. **Every page load repairs the cookie.** The sign-in check (`/auth/me`) now re-issues a fresh `csrf_token` whenever you arrive with a valid session but no token cookie.
+2. **Every save repairs itself mid-flight.** If a save is rejected with the CSRF error, the app silently fetches a fresh token and retries once — you just see "Saved". A real forgery attempt still fails: an attacking site can never read the token, and only the original request is replayed. Proven in a real browser: first attempt rejected → token re-issued → retry accepted, with no error shown.
+
+**All raw upload calls now go through one sanctioned door.** v1.26.1 patched 12 calls by hand; v1.26.2 replaces every one (15 sites) with `csrfFetch()` from the shared API layer, so they all self-heal too. The build guard is stricter: a bare mutating `fetch()` anywhere now fails the check outright, even with a hand-attached header.
+
+**The 11:01 error log** (`/staff/notifications` — "D1 DB storage operation exceeded timeout which caused object to be reset") is the same self-healing database blip family v1.25.2 covered, in new wording the retry pattern did not match — so the retry never fired and staff saw a red error. Pattern broadened; reads now retry once on this wording too.
+
+**Docs brought current (your instruction: "update md files for everything that you have done"):** CONTRIBUTING.md gains the production house rules (api()/csrfFetch only; L(en, ms) at every display point; grid-cols-1 base; one version number) and the full test inventory to run before every zip; SECURITY.md documents the CSRF design, its three-outbreak leak history and the self-heal; ARCHITECTURE.md and API.md describe every subsystem added v1.18 → v1.26 (i18n, skeleton+cache, shift attribution, transient D1 retry, notifications stream, endpoint changes).
+
+**Important:** the error in your screenshot will keep appearing until this zip is DEPLOYED — the fix cannot reach the phone before `DEPLOY.bat` runs. Site AND worker changed — run it IN FULL, then do one hard refresh (or just reopen the portal) and saves work again without re-login.
+
+## [1.26.1] — 2026-08-19 — Every upload works again: the CSRF leak class is closed for good
+
+**"Photo upload failed — CSRF token mismatch or missing" (your screenshot on the Staff Details tab).** The server rightly rejects any change-request that doesn't carry the anti-forgery token — the shared `api()` helper attaches it automatically, but the staff-photo upload was written as a raw browser call that never attached it. Same disease as v1.23.1 (change-password / assets / payroll), different limb.
+
+**This time the whole body was X-rayed, not just the limb.** A new automated guard scans every file for raw change-requests missing the token — and it found not one but **twelve** broken calls:
+
+- **Staff Details:** row photo upload (your screenshot), new-staff-record photo, staff vault document upload
+- **Claims:** receipt upload (new claim + edit), receipt attach on a row, payment-proof upload
+- **Customer enquiries:** setting the status, sending an in-app reply
+- **Tab access:** saving who sees which tab
+- **Admin console:** media upload
+- **Customer account:** submitting an enquiry — and the public contact form, which silently failed for anyone who happened to be logged in
+
+All twelve now attach the token. Every save/upload flow above works again.
+
+**It cannot quietly come back:** `tests/csrf-guard.mjs` fails the build the moment anyone writes a raw change-request without the token (that guard is how nine of the twelve were found — the screenshot only showed three). Verified end-to-end in a real browser: the staff photo upload now sends the exact token the server expects; all 23 tabs re-swept clean in BM after the change.
+
+**Deploy notes:** site-only fix; zip cumulative (carries v1.26.0 BM everywhere + v1.25.6 worker). Run `DEPLOY.bat` IN FULL.
+
 ## [1.26.0] — 2026-08-18 — BM everywhere: the whole system translates, not just the chrome
 
 **Toggling BM now translates every page (CEO: "When I toggle BM, all the pages doesnt translate to BM!").** Since v1.9.0 the translation deliberately covered only the chrome — nav, greeting, dashboard cards, roster read surfaces. Everything deeper (claims forms, payroll, inventory, sales documents, finance, admin console…) stayed English. That scope is gone: the sweep covered **43 files, roughly 2,300 strings**, so the EN/BM toggle now flips the entire system live, without a reload.
@@ -69,16 +105,17 @@ Fixed on all three phone navigations — staff portal, admin console and the cus
 **The Dashboard now shows her the right steps.** A "Show me how to fix it" link appears under a blocked-location message with instructions chosen from what her phone actually is — installed home-screen app (Android Settings → Apps → Permissions → Location), Samsung Internet, Chrome, Firefox or iPhone Safari — in English or BM. All detection is local to the device.
 
 **And a blocked permission no longer costs anyone their attendance (your decision: "record it, flag it loudly").** The punch is now accepted and stored as **NO LOCATION** with the reason, instead of being refused:
-- The staff member is told plainly: *"Clocked in — without location. Recorded and flagged for HR."*
+
+- The staff member is told plainly: _"Clocked in — without location. Recorded and flagged for HR."_
 - The attendance register and Today's monitor show it in **red** — "NO LOCATION — phone blocked it" — clearly different from the muted blank of older records that predate the GPS rule.
 - **HR, the COO and the CEO get a notification** naming the person and the reason.
-- It cannot become a silent bypass: the app must state *why* there is no fix; a punch with no location and no reason is still refused, exactly as before.
+- It cannot become a silent bypass: the app must state _why_ there is no fix; a punch with no location and no reason is still refused, exactly as before.
 
 **Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL. NURFARAH can clock in and out normally the moment this is live; her punches will be flagged until she fixes the permission with the on-screen steps.
 
 ## [1.25.2] — 2026-08-18 — Staff can clock in indoors · two dead queries · every query now schema-checked
 
-**Staff could not capture location — and it was our fault, not their phone (staff: "the location was not capture which is they already toggle on the location permission!").** Their screenshots showed Android permission correctly set to "Allow only while using the app" with precise location ON. The bug: we asked for a **high-accuracy (satellite) fix with a 10-second limit**. A satellite fix is exactly what does *not* work inside a building — and inside the office is precisely where staff clock in. The request timed out, we reported "no location", and told them to fix a permission that was already correct. Location is now requested in two stages: a short satellite attempt (instant outdoors), then a fallback to **network positioning** (wifi/cell), which answers in about a second indoors and is accurate to tens of metres — comfortably inside the 120 m office fence. A genuine refusal short-circuits at once. Verified against three simulated phones: indoors-with-timeout now **captures location and clocks in**; genuine denial and no-signal each get their own honest message. And the wording is fixed — "blocked" is only said when it is actually blocked, and it now points at the browser's **site** setting (the padlock/⋮ menu), which is the one people miss.
+**Staff could not capture location — and it was our fault, not their phone (staff: "the location was not capture which is they already toggle on the location permission!").** Their screenshots showed Android permission correctly set to "Allow only while using the app" with precise location ON. The bug: we asked for a **high-accuracy (satellite) fix with a 10-second limit**. A satellite fix is exactly what does _not_ work inside a building — and inside the office is precisely where staff clock in. The request timed out, we reported "no location", and told them to fix a permission that was already correct. Location is now requested in two stages: a short satellite attempt (instant outdoors), then a fallback to **network positioning** (wifi/cell), which answers in about a second indoors and is accurate to tens of metres — comfortably inside the 120 m office fence. A genuine refusal short-circuits at once. Verified against three simulated phones: indoors-with-timeout now **captures location and clocks in**; genuine denial and no-signal each get their own honest message. And the wording is fixed — "blocked" is only said when it is actually blocked, and it now points at the browser's **site** setting (the padlock/⋮ menu), which is the one people miss.
 
 **Two queries that had never worked.** `/hosts` asked for a `suspended` column the users table has never had (the house convention is `is_active`), so the commission host picker was always empty. And a per-host GMV figure asked `postage_records` for `tracking_ref` instead of `order_ref`, silently reporting zero for every host.
 
@@ -92,9 +129,9 @@ Fixed on all three phone navigations — staff portal, admin console and the cus
 
 **What the screen recording actually showed (CEO: "there is a loading like that, which is should appear as a Dead Skeleton").** Pulling the video apart frame by frame: for the first half-second the Quick actions card displayed a green **"📍 Clock in"** button and **"No attendance recorded today."** — then corrected itself to **"Clocked in ✓ / Clocked out ✓ · Today: clock in 09:13 · clock out 18:50"**. That is not slow loading; the portal was telling a staff member they had not clocked in, and inviting them to clock in again, when they already had. A double-punch waiting to happen. (The grey ring floating over the recording is the phone's AssistiveTouch button, not part of the app.)
 
-**Root cause — and it was everywhere.** Every card started its data as *empty* (`[]`, `0`), which is indistinguishable from *"loaded, and genuinely nothing there"*. So during the fetch each card confidently rendered the empty answer. v1.25.0's skeleton fixed the blank page and the cards that literally said "Loading…", but cards that quietly default to empty still flashed a wrong answer — 88 such initialisations, 11 of them printing a definite "nothing here" message.
+**Root cause — and it was everywhere.** Every card started its data as _empty_ (`[]`, `0`), which is indistinguishable from _"loaded, and genuinely nothing there"_. So during the fetch each card confidently rendered the empty answer. v1.25.0's skeleton fixed the blank page and the cards that literally said "Loading…", but cards that quietly default to empty still flashed a wrong answer — 88 such initialisations, 11 of them printing a definite "nothing here" message.
 
-**The rule now: unknown until proven empty.** Data is either *not known yet* (→ skeleton) or *known* (→ real content, including a genuine "None pending"). Applied to the Quick actions buttons and the "Today: …" line, the desktop KPI strip, the phone "This month" figures (which flashed 0 · 0.0 · 0/0), and Pending leave / My open tasks / News.
+**The rule now: unknown until proven empty.** Data is either _not known yet_ (→ skeleton) or _known_ (→ real content, including a genuine "None pending"). Applied to the Quick actions buttons and the "Today: …" line, the desktop KPI strip, the phone "This month" figures (which flashed 0 · 0.0 · 0/0), and Pending leave / My open tasks / News.
 
 **Attendance now also remembers.** Your own punches are personal and non-financial, so they are shown instantly from the device's memory on repeat opens — not skeleton-then-truth, but the truth immediately. **And the Dashboard's four requests, which ran one after another (four round-trips stacked end to end on a phone), now run together.**
 
@@ -366,7 +403,7 @@ The last two consolidation phases. No migration — every change rides on existi
 
 **Goods receipt moves stock (C4).** PO lines can now link to a stock item (a picker in the builder — leave it on "— not stock —" for services). Marking a PO **received** adds each linked line's quantity to inventory, **exactly once**: the status transition itself is the guard (a second "received" matches zero rows and answers "already received — its stock has been added"). Every receipt writes the same traceability trail manual stock-ins use, with the PO number as the remark, so a movement is findable from both ends. This closes the audit's finding F — "received" used to flip a string while the shelves changed by a separate manual adjust with no PO reference.
 
-**Reconciliation pulls from the channels (C4).** One button — "Pull *month* from channels" — prefills the period from `postage_records`, the same base `/revenue` sums: order number, channel (TT- prefix → TikTok), and actual sales per order. Keyed by order number, so pulling twice adds only what's new. Estimated sales, fees and shipping are typed on top of real rows instead of the whole table being hand-keyed. "Actual sales" stops being the fifth independent revenue figure.
+**Reconciliation pulls from the channels (C4).** One button — "Pull _month_ from channels" — prefills the period from `postage_records`, the same base `/revenue` sums: order number, channel (TT- prefix → TikTok), and actual sales per order. Keyed by order number, so pulling twice adds only what's new. Estimated sales, fees and shipping are typed on top of real rows instead of the whole table being hand-keyed. "Actual sales" stops being the fifth independent revenue figure.
 
 **Ads Fund is a budget book, not a second approval chain (C4).** The audit's finding B: the company had two "claim" workflows, and the weaker one had no receipts, no conflict-of-interest guards and no payout tracking. Now: managers **record spend** directly against an allocation (born approved, server-side budget cap unchanged, pending rows from before still display); staff who paid for ads out of pocket use the **Claims** tab — the one reimbursement workflow, with receipts and the full chain. The approve/reject route is deleted.
 
@@ -408,9 +445,9 @@ Fix, portal and admin sheets both: `max-h-[80vh] overflow-y-auto overscroll-cont
 
 **The CEO's requirement changed and the code now matches it:** location is captured on **every** punch — clock in, clock out, OT in, OT out — whether or not the office fence is on. Before this, the client deliberately skipped the GPS request when the fence was off (a privacy-first default from v1.9.1); the CEO wants the register to carry the position regardless. Fence OFF = recorded, not enforced. Fence ON = the server refusal stays exactly as it was.
 
-**Permission, handled where it belongs.** The browser's location prompt fires only on the punch tap itself — user-initiated, never on page open (so no staff member gets ambushed by a permission dialog just for reading the Dashboard). If someone has location **blocked**, the punch still records (when the fence is off) and the confirmation toast says so plainly: *"no location — enable location access for this site."* A denied permission and a failed GPS fix now produce different messages, because "you blocked it" needs different words from "GPS timed out".
+**Permission, handled where it belongs.** The browser's location prompt fires only on the punch tap itself — user-initiated, never on page open (so no staff member gets ambushed by a permission dialog just for reading the Dashboard). If someone has location **blocked**, the punch still records (when the fence is off) and the confirmation toast says so plainly: _"no location — enable location access for this site."_ A denied permission and a failed GPS fix now produce different messages, because "you blocked it" needs different words from "GPS timed out".
 
-**Management sees where.** The "In today" monitor now shows each first clock-in's position as a phrase — **"74 m from HQ"** in green when inside the fence-plus-grace distance, **"3.2 km from HQ"** in amber when not, *"no location"* dimmed when nothing was recorded. Distance is measured against `SITE_CONFIG.office` with the same radius + 150 m accuracy grace the server applies, so the display can never disagree with the enforcement.
+**Management sees where.** The "In today" monitor now shows each first clock-in's position as a phrase — **"74 m from HQ"** in green when inside the fence-plus-grace distance, **"3.2 km from HQ"** in amber when not, _"no location"_ dimmed when nothing was recorded. Distance is measured against `SITE_CONFIG.office` with the same radius + 150 m accuracy grace the server applies, so the display can never disagree with the enforcement.
 
 **Honesty about "without cheating", restated from v1.9.1:** browser GPS comes from the client and a determined person with developer tools can spoof it. This system stops the casual "clock in from bed" and records position + IP + user-agent on every punch for cross-checking; it is not forensic proof of presence. Switching the fence ON (Users → Office check-in → Save — pre-filled with HQ) adds the hard server-side refusal.
 
@@ -435,8 +472,9 @@ Programme phases 2–8, authorised by the CEO ("start 2 to 8"). **Seven new modu
 **Phase 3 — wiring.** Seven new tabs with lucide icons, role-gated client-side in `TAB_ROLES` and **enforced server-side** by nine new entries in `permissions.ts` (`orders_manage`, `cashflow_manage`, `reconcile_manage`, `commission_view/decide`, `adsfund_manage/claim`, `purchasing_manage`, `accounting_manage`). The CEO's per-user tab overrides apply to the new tabs like any other.
 
 **Phase 8 — the audit's structural fixes.**
+
 - **`worker/src/shared.ts`** — shared `json/err/str/num/cents/audit/logError`. And the real bug: staff.ts's `logError` was a bare INSERT while index.ts had the v1.5.0 six-hour dedupe — staff.ts is the copy the whole portal calls, so error-log spam and bell noise were still live. Its body now delegates to the deduped writer; ten call sites untouched.
-- **`@custom-variant dark`** — the 13 `dark:` utilities previously followed the *operating system's* colour scheme, not the app's 🌙 toggle. Now bound to the `.dark` class the toggle actually sets.
+- **`@custom-variant dark`** — the 13 `dark:` utilities previously followed the _operating system's_ colour scheme, not the app's 🌙 toggle. Now bound to the `.dark` class the toggle actually sets.
 - **`--warning` #b45309 → #946300** — the old value sat ΔE 9.9 from `--danger` under normal vision (floor 15): amber and red chips read as one colour. The new value measures 16.7 from danger, 4.66:1 on the soft chip, 5.19:1 on white. (Red/amber stay deutan-confusable at any hue — house chips always carry their word, which is the accepted relief.)
 - **Five orphan files deleted** (~680 lines): prospects-panel (which held the last private `api()` copy that sent no CSRF token), admin/staff-directory, product-gallery, home/elfia, migration-banner — each verified zero importers by exact path before deletion.
 
@@ -488,7 +526,7 @@ Converted: the desktop rail (incl. its sign-out), the mobile bottom navs and Mor
 
 **Verified differently this time.** Instead of screenshotting a mock page, the real `/portal` static export was loaded with stubbed API responses, so every screenshot in this release is the actual Dashboard component rendering production code paths. That is also how the release's biggest find surfaced.
 
-**THE BUG: the v1.10.0 "calm mobile header" never worked.** The four set-once switches (sound, push, theme, EN/BM) were written as `${btnHdr} hidden md:inline-flex` — but `btnHdr` already carries a bare `inline-flex`, and when one element holds two unprefixed display utilities the *stylesheet's* order decides, not the class list's. In this Tailwind build `.inline-flex` is emitted after `.hidden`, so all four buttons rendered on every phone since v1.10.0, overflowing the header and squeezing the screen title to zero width. The code's own v1.10.0 comment warns about exactly this trap for `h-9`/`h-12`. Fix: new `btnHdrDesktop` token in `ui-styles.ts` — `hidden` as the only base display class, `md:inline-flex` supplying the visible display — adopted at all four sites. The phone header now actually shows avatar · title · search · bell · dark · sign out, five versions after it was designed to.
+**THE BUG: the v1.10.0 "calm mobile header" never worked.** The four set-once switches (sound, push, theme, EN/BM) were written as `${btnHdr} hidden md:inline-flex` — but `btnHdr` already carries a bare `inline-flex`, and when one element holds two unprefixed display utilities the _stylesheet's_ order decides, not the class list's. In this Tailwind build `.inline-flex` is emitted after `.hidden`, so all four buttons rendered on every phone since v1.10.0, overflowing the header and squeezing the screen title to zero width. The code's own v1.10.0 comment warns about exactly this trap for `h-9`/`h-12`. Fix: new `btnHdrDesktop` token in `ui-styles.ts` — `hidden` as the only base display class, `md:inline-flex` supplying the visible display — adopted at all four sites. The phone header now actually shows avatar · title · search · bell · dark · sign out, five versions after it was designed to.
 
 **Dashboard (desktop).** A personal KPI strip — today's clock-in + status, days present, hours this month, open tasks — and a **My attendance** day-by-day chart: first-in→last-out hours per MYT day, duplicate punches can't double-count, today in navy, and a day still in progress shows a gold half-bar instead of pretending its hours are known. All from the attendance response the Dashboard already fetched (kept un-filtered rather than re-requested). Company-wide cards stay in the Sales Floor band, role-gated as before. The desktop h1 becomes time-of-day aware (Good morning/afternoon/evening · Selamat pagi/petang/malam).
 
@@ -510,7 +548,7 @@ The CEO reviewed both shells built and chose the canvas: rounded surface on a da
 
 **They render only where a date context means something** — Dashboard, Attendance, Leave, Tasks. On Sales or Users they would be decoration competing with the work area.
 
-**New primitives.** `MiniCalendar` (Monday-first, the Malaysian working week; dot markers; pure divs, no calendar library). `Avatar` (photo with an initials fallback that also catches a *failed* load — a stale media key previously left a hole in the row instead of a face).
+**New primitives.** `MiniCalendar` (Monday-first, the Malaysian working week; dot markers; pure divs, no calendar library). `Avatar` (photo with an initials fallback that also catches a _failed_ load — a stale media key previously left a hole in the row instead of a face).
 
 **Date handling.** `MiniCalendar` works in MYT `YYYY-MM-DD` strings end to end. Constructing `new Date(y, m, d)` and reading `.getDate()` back would shift the entire grid by a day for anyone whose browser is not on UTC+8 — the same class of bug as the raw `slice(11,16)` timestamp already sitting in the portal's `InTodaySummary`.
 
@@ -532,7 +570,7 @@ The CEO supplied a second set of reference screenshots (DZI Holistik) specifying
 
 **`StatTile` / `StatStrip`** (`components/ui/stat-tile.tsx`) — the reference's solid-colour KPI blocks: oversized tabular number, label, watermark glyph.
 
-**A contrast trap, closed properly.** The obvious implementation reuses `--success` / `--danger` / `--info` as tile fills. That breaks in dark mode, where those are *text-grade* tokens and flip to light values (`#4ade80`, `#f87171`, `#38bdf8`) meant to be read as ink on a dark surface — white text on them measures about **1.7:1**. Tiles therefore use six dedicated `--tile-*` fills, each shipping its own `--tile-*-fg`, every pair verified **≥ 4.5:1 in both themes** (lowest is 5.02:1). The foreground is not a prop, so a caller cannot pick a failing pair. White on the brand gold `#c9a227` is ~2:1 and is likewise handled — that tone carries navy ink.
+**A contrast trap, closed properly.** The obvious implementation reuses `--success` / `--danger` / `--info` as tile fills. That breaks in dark mode, where those are _text-grade_ tokens and flip to light values (`#4ade80`, `#f87171`, `#38bdf8`) meant to be read as ink on a dark surface — white text on them measures about **1.7:1**. Tiles therefore use six dedicated `--tile-*` fills, each shipping its own `--tile-*-fg`, every pair verified **≥ 4.5:1 in both themes** (lowest is 5.02:1). The foreground is not a prop, so a caller cannot pick a failing pair. White on the brand gold `#c9a227` is ~2:1 and is likewise handled — that tone carries navy ink.
 
 **Also found, not fixed:** the codebase has no `@custom-variant dark` declaration, so in Tailwind v4 the thirteen existing `dark:` utilities key off the operating system's colour-scheme preference, **not** the app's own dark-mode toggle. Those thirteen spots will disagree with the rest of the UI whenever the two settings differ. Left alone in this release because fixing it changes behaviour across the app and deserves its own pass.
 
@@ -564,7 +602,7 @@ The first phase of the UI/UX uplift the CEO asked for from three reference mocku
 - **`/account`** — the three customer tabs get 👤 / 📦 / 📨.
 - **Both** — the sticky mobile header no longer overhangs the viewport by 4px each side (`-mx-5`/`px-5` → `-mx-4`/`px-4`, matching the wrapper's own mobile padding), page bottom padding rose to `pb-28` for the taller bar, and the mobile `h1` steps up to `text-xl font-bold` to read as an app screen title.
 
-**DEPLOY.bat rebuilt.** The old script had three faults, all visible in the last deploy log: it ran D1 migrations from the project root (where `wrangler.toml` is the *website assets* config and carries no D1 binding, hence "Couldn't find a D1 DB 'azoneofficial'"); it built the site into `out\` but never published it, because no root `wrangler deploy` step existed; and its error checks missed wrangler's Windows exit codes, so a failed step didn't stop the run. It is now five explicit steps — install → migrations (from `worker\`) → API deploy → site build → **site publish** — with a real `%errorlevel%` check after each, a guard that `worker\wrangler.toml` is present, and a refreshed post-deploy checklist.
+**DEPLOY.bat rebuilt.** The old script had three faults, all visible in the last deploy log: it ran D1 migrations from the project root (where `wrangler.toml` is the _website assets_ config and carries no D1 binding, hence "Couldn't find a D1 DB 'azoneofficial'"); it built the site into `out\` but never published it, because no root `wrangler deploy` step existed; and its error checks missed wrangler's Windows exit codes, so a failed step didn't stop the run. It is now five explicit steps — install → migrations (from `worker\`) → API deploy → site build → **site publish** — with a real `%errorlevel%` check after each, a guard that `worker\wrangler.toml` is present, and a refreshed post-deploy checklist.
 
 **Housekeeping.** Removed a stray `test_tiktok.ts` that carried the TikTok app secret and an access token in plain text, plus `test-crypto.js`, `fix_portal.js`, `worker/update-all.sql`, and the eleven never-imported components from the abandoned parallel redesign. `outputFileTracingRoot` is pinned in `next.config.ts` so Next stops warning about the inferred workspace root.
 
@@ -574,11 +612,11 @@ The first phase of the UI/UX uplift the CEO asked for from three reference mocku
 
 Phones only — the desktop keeps the v1.8.0 sidebar shell pixel-for-pixel. Pure front-end: **no Worker change, no migration, no secrets**; deploy is site-only.
 
-**App bar** — the mobile header calms down to avatar + a bold screen title (**"Today"** on the Dashboard, BM *"Hari ini"*; the tab name elsewhere) + four controls in the reference design's soft rounded squares: 🔎 search, 🔔 bell (unread badge kept), 🌙 dark mode, Sign out. Sound, push alerts, EN/BM and the 🎨 theme preset move to the More sheet's new **Preferences** row (bilingual labels) — set-once switches, not daily taps. Desktop header unchanged.
+**App bar** — the mobile header calms down to avatar + a bold screen title (**"Today"** on the Dashboard, BM _"Hari ini"_; the tab name elsewhere) + four controls in the reference design's soft rounded squares: 🔎 search, 🔔 bell (unread badge kept), 🌙 dark mode, Sign out. Sound, push alerts, EN/BM and the 🎨 theme preset move to the More sheet's new **Preferences** row (bilingual labels) — set-once switches, not daily taps. Desktop header unchanged.
 
 **NEXT EVENT hero card** — a navy panel at the top of the mobile Dashboard: gold letter-spaced eyebrow, the event title big, 🗓 date (DD-MM-YYYY) + 📍 location, the soft decorative circles, and an "in N days" chip. Fed by Upcoming events, falling back to the sooner of the next public holiday (year-end aware) or staff birthday; hides when there's nothing. Tapping scrolls to the Upcoming events card. Fixed navy (`bg-brand`) so the gold eyebrow stays readable in dark mode and restyles under the Plum preset; the fetches don't even run on desktop, where the card can never be seen.
 
-**On shift** — the quick-actions card takes the reference design's presentation: the heading reads **"On shift"** (BM *"Sedang bertugas"*) while clocked in, and the buttons grow to tall rounded-xl app buttons on phones (identical from `md` up). Class changes only — the v1.9.1 geofence flow, clock-out banner, OT punches and all guards are byte-for-byte untouched.
+**On shift** — the quick-actions card takes the reference design's presentation: the heading reads **"On shift"** (BM _"Sedang bertugas"_) while clocked in, and the buttons grow to tall rounded-xl app buttons on phones (identical from `md` up). Class changes only — the v1.9.1 geofence flow, clock-out banner, OT punches and all guards are byte-for-byte untouched.
 
 **Bottom navigation** — each tab now shows the same icon the desktop sidebar uses, and the active tab sits in a **filled navy rounded square** with its label in navy underneath, exactly like the mockup. Labels truncate so BM ("Papan Pemuka") can't unbalance the row. **More now always renders** (review fix: a role trimmed to ≤4 tabs would otherwise lose the Preferences entirely) and its sheet gained tab icons + the Preferences strip, with bottom padding that clears the nav plus the iPhone home-indicator inset (review fix: the row was half-covered and untappable before).
 
@@ -668,6 +706,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 **Dashboard company pulse** — a compact strip of live counters below the ticker: clients, active stokis, lives today, staff clocked in today, unpaid invoices, and a month cash-flow figure (invoices paid − expenses).
 
 **Setup for this release**
+
 - Apply the migration: `cd worker && npx wrangler d1 migrations apply azoneofficial --remote` (adds 0069). The Pipeline works once 0066/0069 are applied; the other modules need 0069.
 
 ## [1.6.1] — 2026-08-11 — Dashboard KPI editing + Needs-attention placement
@@ -679,26 +718,31 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.6.0] — 2026-08-11 — Sales leaderboard & commission engine, client order tracking, PWA + real-time notifications
 
 **Sales targets, commission & leaderboard**
+
 - New engine: per-person and per-team monthly targets (the company target stays on the revenue card), tiered commission rules (base % on all attributed sales + a bonus % on the amount above target — the "1.5% base + bonus over target" model), and a live leaderboard on the Ecommerce tab.
 - Attribution: each person's sales = paid invoices they closed (salesperson) + TikTok GMV that landed inside their live-session windows (the same attribution the LIVE GMV card uses). The leaderboard ranks the whole floor, highlights "you", and shows each person's commission estimate to management.
 - Management editor (CEO/COO/CCO/admin): set per-person and per-team targets and manage commission rules inline. Migration `0068` adds `user_sales_targets`, `team_sales_targets`, `commission_rules`.
 
 **Client order tracking (customer /account)**
+
 - New "Orders" tab: a signed-in customer sees their quotations, invoices (tap to open the share-link PDF) and live-session history. Invoices show paid/unpaid with due/paid dates.
 - Security: order history is shown only to accounts with a verified email (Google sign-in), so nobody can register a stranger's email to read their invoices; password accounts get a clear "verify to see your orders" notice with a WhatsApp fallback.
 
 **PWA + real-time notifications**
+
 - The portal notification bell is now real-time: an SSE stream (`/staff/notifications/stream`) delivers new notifications within ~5 seconds instead of up to 60, with a 120-second poll kept only as a safety net. The stream self-closes after ~20s and reconnects automatically — no connection is held open indefinitely.
 - Web push: staff can turn on push alerts per device (🔕/🔔✓ in the header) and receive notifications even with the tab closed. Full RFC 8291/8292 web-push implemented on Web Crypto in `worker/src/webpush.ts` — **needs three VAPID secrets** (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; generate with `npx web-push generate-vapid-keys`). Without them push is simply off and in-app + SSE still work.
 - The service worker (`public/sw.js`) now caches an offline app shell and handles push + notification clicks. The app was already installable (manifest + registered SW); this makes it work offline and push-capable.
 
 **Setup for this release**
+
 - Apply the migration: `cd worker && npx wrangler d1 migrations apply azoneofficial --remote` (adds 0068).
 - Optional (for push): set the three VAPID secrets via `wrangler secret put`.
 
 ## [1.5.0] — 2026-08-11 — Security hardening, CCO login fix, Social removed, trading-style dashboard, global styles
 
 **Security & bug fixes (audit)**
+
 - Deleted committed secrets/backdoors: `test_tiktok.ts` (live TikTok app secret + seller token), `test-crypto.js` and `worker/update-all.sql` (the `SuperSecretPassword123` incident hash), `fix_portal.js`. **Rotate the TikTok app secret and reset the two affected passwords — assume the old values are public.**
 - **CCO cannot log in after logout** — root-caused and fixed on several fronts: (1) login rate limit now counts only FAILED attempts, keyed per account+IP, so successful sign-ins from one office IP no longer lock everyone out; (2) the 2FA-required "Sign out" button called `document.cookie` on an HttpOnly cookie (a no-op) and looped forever — it now calls `POST /auth/logout`; (3) `cco` added to `MANDATORY_2FA_ROLES` (was a transposition gap); (4) `www.` origin accepted so sign-in works on both hosts; (5) `/auth/me` and all API responses are now `no-store` so a stale "signed in" reply can't bounce a signed-out user back into the portal.
 - Media serving rewritten to default-deny: only `uploads/` is public; database backups, staff documents, payroll templates and claim receipts now require auth and ownership. SVG upload removed (stored-XSS vector). `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` added to every response.
@@ -719,6 +763,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ### Rebased onto the 2026-08-11 security-fixes tree (all adopted): webhook 64KB body cap, generic 500 message (no detail leak), TikTok authorize requires a management session + audits the real user, 2FA setup blocked when already enabled, admin creation = super_admin only, HR staff-creation can no longer mint executives.
 
 ### CEO: "Quick Action on dashboard need to put top" + auditor picks
+
 - **Quick actions now leads the Dashboard**; the hero band reads second.
 - **🗄 Migration health (auditor pick 1)** — /system/health now reads wrangler's own `d1_migrations` ledger and compares it against the compile-time list of ALL 67 migrations this build ships; SystemHealthCard gains a collapsible "Migration health — N/67 applied" table (✓ grey / ✗ red). The red pending box stays for urgency; this is the complete picture. STANDING RULE extended: every new migration adds itself to EXPECTED_MIGRATIONS.
 - **Role permission matrix (auditor pick 2)** — NEW `docs/PERMISSIONS.md`, generated FROM the live PERMS table (14 capabilities × 11 roles) plus every route-level rule (role changes, chains, tab access, offboarding, public routes) and a privilege-creep review rule: any release touching PERMS/TAB_ROLES must update the file or the file is the bug.
@@ -728,6 +773,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.281] — 2026-08-10 — 🧩 Business lines: product sales vs service sales
 
 ### CEO: "add a card of sales service too, since my company do 2 business… make it necessary requirement… and make it expandable"
+
 - **Business-line reporting is now a core requirement of the revenue system.** NEW `revenueLines()` in the worker buckets every ringgit into a named line — product (TikTok + Shopee/walk-in postage + manual sales + paid product invoices) and service (paid service invoices) — and `revenueByMonth()` is now the SUM of those buckets, so /revenue, /finance/pnl, the hero band and the new card can never disagree.
 - **Expandable by design:** a future third business line is ONE more bucket in `revenueLines()`; the `/revenue/lines` route and the card render whatever lines exist, so nothing downstream changes.
 - **🧩 Business lines card** (Ecommerce tab, above Sales history, revenue roles): all-time share of each line with brand-toned bars + %, then a month-by-month table (one column per line, TOTAL column and footer).
@@ -737,6 +783,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.280] — 2026-08-10 — Audit response: build fixed, backdoor string removed, PBKDF2 raised
 
 ### An external code audit found 4 syntax errors that broke the build, plus 2 security items — all verified and fixed
+
 - **Build errors (all confirmed real, all repaired):** (1) `CrudPanel` in /admin had two hooks injected inside its parameter list — moved into the body; (2) the payroll M2E + commission-helper `<details>` blocks were two siblings inside a single-element `( )` — wrapped in a fragment; (3) the v1.4.270 `maxStock` line had been injected into the middle of the inventory sort ternary — hoisted above it; (4) a v1.4.272 regex sweep mangled the payroll due-date into `split(" ")dmy([0])` — repaired to `dmy(split(" ")[0])`. LESSON recorded: brace/paren balancing cannot catch balanced-but-misplaced code; a real typecheck gate is now the standing priority.
 - **`test-crypto.js` DELETED** — it still contained the v1.4.22 incident password string; the file was an unreferenced scratch helper. Repo-wide grep is now clean.
 - **PBKDF2 raised 100k → 310k**, matching docs/SECURITY.md and the code's own comment. Safe without migration: the stored format `pbkdf2$<iterations>$…` carries each hash's own count, so existing passwords verify at their stored strength and every new/changed password gets 310k.
@@ -745,6 +792,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.279] — 2026-08-10 — DEPLOY.bat: the one-click installer
 
 ### CEO: "settle this issue!" — the deploy kept failing because the commands were run outside the project folder; so the folder problem is now removed entirely
+
 - NEW **`DEPLOY.bat` at the repo root.** Extract the zip → open `azoneofficial-main` → **double-click DEPLOY.bat**. That is the whole procedure now.
 - It always runs from its own folder (`%~dp0`), so the wrong-directory failure cannot happen; it refuses to run with a clear message if it's been moved somewhere without `wrangler.toml`.
 - Steps it performs: `pnpm install` (first run only) → `wrangler d1 migrations apply azoneofficial --remote` (non-interactive via CI=true, so no y/n prompt) → `wrangler deploy` in /worker → `pnpm build`. Any failure stops with "screenshot this window"; success ends with the exact list of what to check on the portal.
@@ -753,6 +801,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.278] — 2026-08-10 — Sales tracking, expenses P&L, and pipeline insights
 
 ### CEO: "I want an update coding! additionally, I want powerful system for my sales track and also expenses and business opportunities"
+
 - **📊 Sales history (Ecommerce tab, under Sales revenue):** every month of the business, all four channels, newest first — month-over-month ▲/▼%, a bar measuring each month against your best (🏆 on the best), TOTAL footer. Frontend-only: reads the v1.4.276 `overall` block.
 - **💹 Profit & loss by month (Expenses tab, above the register):** revenue − expenses − payroll − approved claims = NET (green/red). NEW worker `GET /finance/pnl` — revenue via the shared `revenueByMonth()` helper (extracted from /revenue so the arithmetic stays ONE copy), payroll via the SAME net expression the M2E salary file uses (`net_cents` with the additive fallback — never a second payroll formula), expenses by expense_date, claims = approved by claim_date; every source armored, a month appears if any source has it.
 - **🎯 Pipeline insights (Social tab, above Prospects):** the funnel as bars in stage order, win rate of closed deals, WHICH SOURCE actually closes (won/total per source), and top referrers (pre-0067 safe). NEW worker `GET /prospects/insights` with the standard 409 when 0066 hasn't run.
@@ -762,6 +811,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.277] — 2026-08-10 — Sales revenue → Ecommerce; the migration card now names ALL pending migrations
 
 ### CEO: "Sales revenue — 2026-08 move to Ecommerce" + his red migration box
+
 - **SalesRevenueCard moved from the Dashboard to the TOP of the Ecommerce tab.** The hero band already tells today + month + overall at the top of the Dashboard, so the detailed month card was the Dashboard's third telling of the same story; on Ecommerce it now leads the channel detail (Orders → GMV → by-hour → Fulfilment → Connection).
 - **The migration self-report learns the newer migrations:** probes now include **0066 (prospects / Social tab)** and **0067 (growth pack)** — his card listed 5 pending but the true set is 7. Also widened the catch to `no such table` (0066 creates a table, not a column — the old catch would have missed it).
 - Frontend + worker. His action stands: `npx wrangler d1 migrations apply azoneofficial --remote` then `cd worker && wrangler deploy` then `pnpm build`.
@@ -769,6 +819,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.276] — 2026-08-10 — 📈 Overall business sales on the hero band
 
 ### CEO: "I want to get 1 more card to monitor overall business sales"
+
 - The Dashboard hero band gains a fourth card: **📈 Overall sales — all time** — the whole business since day one (20-07-2026), all four channels (TikTok orders, paid invoices, other shipments, manual sales), summed per MYT month **server-side by the same SQL the month figures already use** (the v1.4.226 mirror rule — revenue arithmetic is never written twice).
 - The bar inside the card shows **this month against your best month** (navy; turns green the moment this month becomes the best — and the label says so). Sub-line counts the months of business.
 - Worker: `/revenue` response gains `overall { total_cents, months[], best }` — each channel's all-time query armored separately, so a pending migration blanks one channel, never the card. Renders only when there's a number (never zero stats).
@@ -778,6 +829,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.275] — 2026-08-10 — The calendar button now says on screen when the server is the blocker
 
 ### CEO tested again, still nothing in the phone calendar — because the v1.4.274 route lives on the WORKER, which hasn't been deployed; the button silently fell back to the share sheet (which cannot save on iPhone) and looked identical to the bug
+
 - `addEventToCalendar()` gains a fourth outcome: `"stale"` — the probe found no `/events/:id/ics` route (worker predates v1.4.274). The local share/download fallback still runs, but the toast now says the truth in amber: **"Server needs the update — deploy the worker (cd worker && wrangler deploy), then this button saves properly."**
 - This is the v1.4.269 rule again: a fallback must never masquerade as success when its failure is indistinguishable from the bug being reported.
 - Frontend-only — but the actual calendar save still arrives with the worker deploy.
@@ -785,6 +837,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 ## [1.4.274] — 2026-08-10 — Add to calendar now actually lands in the phone's calendar
 
 ### CEO: "when I add calendar for the event, it doesnt save inside my calendar phone" — he's right, and the cause was the share sheet
+
 - v1.4.264 handed the .ics to the phone's SHARE SHEET — but **iOS's share sheet does not offer Calendar as a target for .ics files** (Calendar has no share extension), and Android's rarely does. The sheet opened, Calendar wasn't in it, nothing saved.
 - The door both phones actually understand is a **navigation to an HTTPS URL that answers `text/calendar`**: iOS Safari then shows its built-in event preview with an **Add All** button straight into Calendar; Android Chrome opens the file into Google Calendar's import dialog.
 - NEW worker route `GET /staff/events/:id/ics` (any staff role) serves exactly that — same MYT→UTC conversion, all-day exclusive DTEND, stable UID (re-adding updates, never duplicates), both reminders (evening before + at start), `Content-Disposition: inline` because iOS only shows the calendar preview for inline responses.
@@ -798,7 +851,7 @@ Four new business modules (migration **0069**) plus the dashboard company-pulse 
 
 **1 · Client report links.** Every client row on the Sales tab has 🔗 Report link — one tap creates (or reuses) a token and copies `azoneofficial.com/report?t=…`. The page is public, read-only, brand-toned: live sessions this month vs last (navy hero card), RM settled this month, hours live, their best live hours (last 60 days) — empty sections simply don't render, and it ends with a WhatsApp CTA. Worker: POST `/clients/:id/report-link` (idempotent) + public GET `/api/v1/client-report?t=`.
 
-**2 · Prospect → Quotation in one tap.** A 📄 Prepare quotation button appears on *meeting/proposal*-stage prospect rows (sales roles): it hands the brand + contact to the Sales tab via localStorage and jumps there. Sales picks the existing customer by company name if one exists (else pre-fills the new-customer form), sets doc type QT, stamps the reference "From prospect: {brand}", and toasts what to do next.
+**2 · Prospect → Quotation in one tap.** A 📄 Prepare quotation button appears on _meeting/proposal_-stage prospect rows (sales roles): it hands the brand + contact to the Sales tab via localStorage and jumps there. Sales picks the existing customer by company name if one exists (else pre-fills the new-customer form), sets doc type QT, stamps the reference "From prospect: {brand}", and toasts what to do next.
 
 **3 · The public rate card — inside the EXISTING /packages page.** New `PublicRates` section renders the moment the CEO saves tiers on the portal (Sales tab → 📦 Packages — public rate card: up to six tiers, name / price label / bullet points). Published via `system_meta packages_json` + public GET `/api/v1/packages`; until tiers exist the page keeps its current "we quote per brand" copy — no placeholders ever. Publishing needs NO rebuild: the section fetches at runtime.
 
@@ -813,9 +866,10 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.272] — 2026-08-10 — The FULL globality sweep (CEO: "you are not checking overall! I want you audit overall system and ensure that everything is globally")
 
 ### He was right — the audit was mechanical this time (grep-driven, every file), and it found what eyeballing missed
+
 - **ELEVEN private money formatters** were still alive after the v1.4.254 "one file for money" release: five clones inside `page.tsx` (one of them, ClientsCard's, even printed **without thousand separators** — RM 12345.67 on one card, RM 12,345.67 on the next), five across role-panels / assets / fulfilment / sales-by-hour / payroll, plus ~30 raw `toFixed(2)` templates — including the ones I wrote into the new hero band two releases ago. **All deleted or aliased to `lib/format`'s `fmtRM`/`rm`.** One arithmetic source; the hero band now prints RM 12,345.67 like everything else.
 - **TWENTY-SIX hand-rolled date reversals** (`.split("-").reverse().join("-")`) across page.tsx, payroll-panel, role-panels, staff-directory, fulfilment-card → all now `dmy()`. NEW `ym()` in lib/format for month keys ("2026-08" → "08-2026") — the target editor, commission helper, and target banners use it.
-- **The Assets register had a private `td` const and ad-hoc `text-right tabular-nums`** — its headers were even styled with the *cell* const. Now on the global `th`/`td`/`thR2`/`tdR2` like every other table: same padding, same uppercase headers, numeric right with tabular figures.
+- **The Assets register had a private `td` const and ad-hoc `text-right tabular-nums`** — its headers were even styled with the _cell_ const. Now on the global `th`/`td`/`thR2`/`tdR2` like every other table: same padding, same uppercase headers, numeric right with tabular figures.
 - **Deliberate exceptions, documented:** the three PDF writers (doc-pdf, form-pdf, payslip-pdf) keep local copies — they are standalone by design and their output must byte-match the print templates; payroll's `n2v/n2` input-box formatters now route through the global bare formatter.
 - Verification: repo-wide greps return **zero** remaining `split("-").reverse`, zero cents-`toFixed(2)` money strings, zero private td/th consts outside the PDF writers.
 - Frontend-only. Migrations 0060 → 0066 + the worker deploy still owed.
@@ -823,14 +877,17 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.271] — 2026-08-10 — The conflict & duplicate audit (CEO: "Do check all my system if there is any conflict or duplicate or repeated flow or card")
 
 ### Found and FIXED
+
 - **Two "today" cards on the Dashboard.** v1.4.270's hero band and the Sales revenue card's gold 🔥 Today box both announced today's number — same figure, two designs, inches apart. The gold box is **removed**; the hero's navy card now carries its channel line ("2 TikTok orders · invoiced RM …") plus the ▲/▼ trend, and the Sales revenue card is purely the **month** view. One number, one card.
-- **Two overdue chips on one prospect row.** The v1.4.267 ⏰ chip and the v1.4.270 dueChip ("3d overdue") said the same thing twice. The ⏰ chip is removed — one row, one chip, and dueChip says *how many days*.
-- **Invoice stock movements bypassed the alert system** — the serious one. `deductForInvoice`/`restoreForInvoice` (v1.4.263) updated `stock` but **not the `status` column and never called `checkLowStock`** — the ONE movement path outside v1.4.191's six. An invoice could drain a SKU to zero with the row still saying *in_stock* and **nobody notified**. Both now update status and fire/reset the low-stock bell like every other path.
+- **Two overdue chips on one prospect row.** The v1.4.267 ⏰ chip and the v1.4.270 dueChip ("3d overdue") said the same thing twice. The ⏰ chip is removed — one row, one chip, and dueChip says _how many days_.
+- **Invoice stock movements bypassed the alert system** — the serious one. `deductForInvoice`/`restoreForInvoice` (v1.4.263) updated `stock` but **not the `status` column and never called `checkLowStock`** — the ONE movement path outside v1.4.191's six. An invoice could drain a SKU to zero with the row still saying _in_stock_ and **nobody notified**. Both now update status and fire/reset the low-stock bell like every other path.
 
 ### Checked and CLEAN (no action)
+
 - **Low-stock threshold** is ≤5 consistently in all three places (status rule, alert, hero count). **Trends card** mounts exactly once (Social). **Social** present in both TAB_ROLES-side and tab-access DEFAULTS. **Unpaid invoices (money owed to you)** vs **Expenses outstanding (money you owe)** — opposite directions, not duplicates. **LiveGmvCard today (TikTok GMV, Ecommerce)** vs hero today (all channels, Dashboard) — different scope + audience, kept. **Events' daysAway** vs dueChip — kept separate on purpose: events show far-off dates ("in 12d"), dueChip stays silent beyond 7 days.
 
 ### Flagged — PROCESS rules, not code (your judgement applies)
+
 - **Double-count risk:** if the same sale is both a TikTok order **and** a portal invoice, revenue counts it twice and stock deducts twice. Rule for the team: a sale enters the system through **one** door — TikTok sync **or** an invoice, never both.
 - Same logic on **manual sales** vs invoices for the same goods.
 - **OT approved but not yet fed to payroll** (the standing rounding-rule decision) — repeated flow where hours are entered once and typed again in payroll.
@@ -839,12 +896,14 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.270] — 2026-08-10 — The brand-toned hero band + row bars
 
 ### Added (CEO approved the plan: "firmly brand-toned, and hero band + row bars on Inventory and Social and do check all the tabs")
-- **NEW `components/ui/stat-card.tsx`** — the shared primitives, global from day one: `StatCard` (tiny uppercase label, big figure, progress bar *inside* the card; `solid` = the ONE navy hero per band — the v1.4.253 one-fill rule applied to cards), `MiniBar` (pure-div bar, gold/green/red/navy), `accentRow/CellDanger|Warn` (urgency tints), `dueChip()` ("in 3d" / "today" / "5d overdue").
+
+- **NEW `components/ui/stat-card.tsx`** — the shared primitives, global from day one: `StatCard` (tiny uppercase label, big figure, progress bar _inside_ the card; `solid` = the ONE navy hero per band — the v1.4.253 one-fill rule applied to cards), `MiniBar` (pure-div bar, gold/green/red/navy), `accentRow/CellDanger|Warn` (urgency tints), `dueChip()` ("in 3d" / "today" / "5d overdue").
 - **Dashboard hero band**, above Quick actions, two-up on phones: 🔥 **Today's sales** (the one navy card — total across all four channels, bar vs yesterday, ▲/▼ line), **Month revenue** (gold bar vs the sales target when one is set — the target feature finally gets a face), **Unpaid invoices** (red-edged, only when any exist), **Needs attention** (pending leave / claims / OT, low stock, overdue follow-ups — or "✅ Nothing waiting on you"). One new worker route `GET /dashboard/summary` — five cheap COUNTs, each armored per table so a pending migration can never blank the band; the card, not the route, decides per role what to show.
 - **Inventory row bars + tint**: the stock cell carries a bar scaled to the list's own largest stock — red at ≤5 (the low-stock alert line), and the whole row gets the red wash + left accent so a problem line is seen before it is read.
 - **Prospect row bars + tint**: each row's meta line leads with a small bar showing the stage as a **position** through the six-stage pipeline (green full = won, red = lost); overdue follow-ups get the amber wash + left accent, and a `dueChip` joins the 📞 date.
 
 ### The all-tabs audit (what's already right, what release 2 could add)
+
 - **Already standard, untouched:** Events ("· in 3d / TODAY" since daysAway), Expenses (paid/outstanding summary is already the KPI), the 📊 donut, Fulfilment chips, Attendance chips, sticky totals.
 - **Release-2 candidates, not built:** Fulfilment chips → MiniBars; Payroll month-progress bar per staff; Claims/Leave `dueChip` on decision age; Ecommerce GMV hero mini-band; Tasks overdue tint. Say which, if any.
 - Worker + frontend, no migrations. **0060 → 0066 + the worker deploy still pending — the band's status card needs the new route.**
@@ -852,84 +911,98 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.269] — 2026-08-10 — "Staff route not found" named for what it is
 
 ### Fixed (CEO's screenshot: the amber box said "Staff route not found")
-- That message is the **router's own 404** — proof the worker predates v1.4.266 — but the card showed it in the *Google-unreachable* branch with a Try-again button that could never help. A router 404 now lands in the **deploy-needed** state, with the command. Only a reachable route's failure counts as a Google failure.
-- Same blindspot in **Prospects**: a stale worker rendered *"No prospects yet — the first find starts the pipeline"*, which reads as an empty pipeline and invites an Add that cannot save. It now shows the deploy notice instead of the form, so nothing typed can be lost.
+
+- That message is the **router's own 404** — proof the worker predates v1.4.266 — but the card showed it in the _Google-unreachable_ branch with a Try-again button that could never help. A router 404 now lands in the **deploy-needed** state, with the command. Only a reachable route's failure counts as a Google failure.
+- Same blindspot in **Prospects**: a stale worker rendered _"No prospects yet — the first find starts the pipeline"_, which reads as an empty pipeline and invites an Add that cannot save. It now shows the deploy notice instead of the form, so nothing typed can be lost.
 - Frontend-only. The actual cure is unchanged and one step: **`cd worker && wrangler deploy`** (plus the migrations, which the red System-health box will keep naming).
 
 ## [1.4.268] — 2026-08-10 — The trends card says what's wrong, and retries for real
 
 ### Fixed (CEO's screenshot: the Social tab's trends card showed only its failure line)
+
 - The card had **one generic message for two very different failures**. It now separates them: an amber box saying **the worker doesn't have the trends route yet** (with the deploy command) when the route 404s, versus **Google could not be reached** — carrying the server's actual reason, pulled from the error log — when the fetch failed. No more guessing which half is broken.
 - **↻ Try again is a real retry**: `?refresh=1` drops the server-side cache before refetching, so the button can't just re-read the same cached miss. Any staff member can press it.
 - **The fetch itself is tougher**: two official Google endpoints tried in order (the current `trending/rss` and the legacy `trendingsearches/daily/rss`), a real browser user-agent and RSS `Accept` headers, per-endpoint failure reasons kept, and HTML entities decoded before tag-stripping so a headline never renders with literal `<b>` fragments. Parser verified against both feed shapes.
 
 ### Most likely cause of your screenshot
-- The **worker deploy**: the trends route shipped in v1.4.266 and lives server-side. If `cd worker && wrangler deploy` hasn't run since, the card can only fail — and it will now say exactly that. If the worker *is* current, the card will show Google's actual refusal and the ↻ button; the error log (System health, source `trends_my`) keeps the history.
+
+- The **worker deploy**: the trends route shipped in v1.4.266 and lives server-side. If `cd worker && wrangler deploy` hasn't run since, the card can only fail — and it will now say exactly that. If the worker _is_ current, the card will show Google's actual refusal and the ↻ button; the error log (System health, source `trends_my`) keeps the history.
 - Worker + frontend, no migrations. **0060 → 0066 still pending.**
 
 ## [1.4.267] — 2026-08-07 — The Social tab: prospects + trends (MIGRATION 0066)
 
 ### Added (CEO: "Do it, and ensure that my dashboard not exploded. If necessary, then make a new tabs under Social")
+
 - **NEW "Social" tab** between Ecommerce and Assets, visible to **every staff role** — a live host who spots a brand mid-scroll logs it in twenty seconds from their phone. The Dashboard gains **nothing**; the 🔎 Trending searches card **moved here** off the Dashboard, so market-watching and prospecting live side by side and the Dashboard is actually one card lighter than yesterday.
 - **📇 Prospects — the team's lead list** (MIGRATION 0066, no FKs per house rule). Brand · found-on (TikTok Shop / Shopee / Instagram / Facebook / expo / referral) · niche · contact person, channel and number/handle · notes · owner · next follow-up date. Stages: identified → contacted → replied → meeting → proposal → won/lost, with a coloured pipeline strip whose chips filter the list.
-- **The follow-up date actually follows up.** Each cron pass bell-notifies the owner on the due date — *"📞 Follow up today: {brand} — Social tab"* — once per date, late ones flagged; editing the date re-arms the reminder. Assigning a prospect to someone else notifies them immediately. A date nobody is reminded of is a wish, not a plan.
+- **The follow-up date actually follows up.** Each cron pass bell-notifies the owner on the due date — _"📞 Follow up today: {brand} — Social tab"_ — once per date, late ones flagged; editing the date re-arms the reminder. Assigning a prospect to someone else notifies them immediately. A date nobody is reminded of is a wish, not a plan.
 - Rows are the house pattern: brand opens the record (WhatsApp numbers become tap-to-chat `wa.me` links), stage select + Edit + Delete in the standard wrapping button group, ⏰ overdue chip, save toasts throughout, `fieldRow` form that stacks on a phone.
-- **Permissions:** all staff read and add; stage changes, assignment and delete are the sales tier (exec + hr_admin + sales_marketing + marketing). PDPA nudge built into the contact field: *"business pages only"*.
+- **Permissions:** all staff read and add; stage changes, assignment and delete are the sales tier (exec + hr_admin + sales_marketing + marketing). PDPA nudge built into the contact field: _"business pages only"_.
 - Skew-armored: before migration 0066 runs, every prospect route returns a clear 409 naming the migration, and the panel shows a calm one-liner instead of an error.
 
 ## [1.4.266] — 2026-08-07 — What Malaysia is searching, on the Dashboard
 
 ### Added (CEO: "add Famous search product in Malaysia which is related to my product and my service… Maybe I can use Threads for the search engine. What is your suggestion?")
+
 - **🔎 Trending searches — Malaysia** card on the Dashboard, visible to every staff member. Source: **Google Trends Malaysia's official RSS** — the country's top ~20 trending searches, refreshed hourly by Google, with an approximate traffic figure and a related headline. Free, official, no key, no scraping.
 - **Rows touching the business are pinned to the top** with a 🎯 amber highlight, matched against a keyword list living in the card (`tudung, hijab, shawl, raya, baju, kurung, tiktok, live, shopee, affiliate, viral…`) — easy to extend as the client roster grows. Everything else collapses behind "All trending searches", so a quiet day for the niche doesn't fill the Dashboard.
 - Worker: NEW `GET /trends/my` + a 3-hour `system_meta` cache — a Dashboard full of staff must not hammer Google on every load, and a fetch failure serves the last good copy rather than nothing.
 
 ### The Threads answer, honestly
-- **Threads was evaluated and rejected as the engine.** Its keyword-search API measures what people **post**, not what they **search** — chatter, not demand — and access requires Meta App Review for advanced permission, capped at 500 searches per rolling 7 days. Google Trends is literally the "famous search" data the request describes. Threads stays useful *manually*: once the card surfaces a trend, searching it on Threads/TikTok shows the conversation around it — that's a reading habit, not an integration.
+
+- **Threads was evaluated and rejected as the engine.** Its keyword-search API measures what people **post**, not what they **search** — chatter, not demand — and access requires Meta App Review for advanced permission, capped at 500 searches per rolling 7 days. Google Trends is literally the "famous search" data the request describes. Threads stays useful _manually_: once the card surfaces a trend, searching it on Threads/TikTok shows the conversation around it — that's a reading habit, not an integration.
 - Worker + frontend, no migrations.
 
 ## [1.4.265] — 2026-08-07 — The system tells on itself
 
 ### Added (CEO: "Do both" — error alerting + the process-debt gaps)
-- **Error-spike alerts.** Every 30-minute cron pass now checks whether `error_log` grew since the last pass and bell-notifies super_admin + CEO: *"⚠ 12 new system errors since the last check (tiktok_webhook ×9, migration_skew ×3) — see System health"*. A watermark stops repeats — only NEW errors alert, and the first pass sets the watermark silently instead of alerting on history. This is what would have surfaced the 44 webhook signature retries weeks earlier.
+
+- **Error-spike alerts.** Every 30-minute cron pass now checks whether `error_log` grew since the last pass and bell-notifies super_admin + CEO: _"⚠ 12 new system errors since the last check (tiktok_webhook ×9, migration_skew ×3) — see System health"_. A watermark stops repeats — only NEW errors alert, and the first pass sets the watermark silently instead of alerting on history. This is what would have surfaced the 44 webhook signature retries weeks earlier.
 - **Public `/api/v1/health`** for an external uptime monitor — unauthenticated on purpose (a monitor can't sign in), leaks nothing: `{ok, db}` with one cheap DB probe, `503` when the database is unreachable so the monitor can tell "worker up, DB down" from "all up". The monitor itself must live OUTSIDE Cloudflare — a system cannot report its own outage; free UptimeRobot pointed at this URL closes the loop.
-- **The database names its own missing migrations.** `/system/health` probes one marker column per recent migration and the System health card turns red with the exact list — *"⛔ 6 database migrations pending"* — plus the command, verbatim. The v1.4.218 blank-staff-directory incident was precisely a deploy that outran its schema; memory is not a deploy tool, so the schema now reports on itself.
+- **The database names its own missing migrations.** `/system/health` probes one marker column per recent migration and the System health card turns red with the exact list — _"⛔ 6 database migrations pending"_ — plus the command, verbatim. The v1.4.218 blank-staff-directory incident was precisely a deploy that outran its schema; memory is not a deploy tool, so the schema now reports on itself.
 
 ### Fixed
-- **Editing a product invoice re-balances stock** — the v1.4.263 gap, closed. The old deduction is restored in full, then the new items deduct, so the shelf always reflects the invoice as it reads *now*. Restore-then-deduct rather than a diff, because a line can change SKU, not just quantity. The edit toast reports the movement the same way creation does.
+
+- **Editing a product invoice re-balances stock** — the v1.4.263 gap, closed. The old deduction is restored in full, then the new items deduct, so the shelf always reflects the invoice as it reads _now_. Restore-then-deduct rather than a diff, because a line can change SKU, not just quantity. The edit toast reports the movement the same way creation does.
 
 ### Still yours, not codeable
+
 - Run the migrations (the red card will now nag until they're gone), rotate the TikTok App Secret, and set up the external monitor (two minutes on UptimeRobot's free tier: HTTPS monitor → `https://azoneofficial.com/api/v1/health` → keyword `"ok":true`).
 - Worker + frontend, no new migrations.
 
 ## [1.4.264] — 2026-08-07 — Company events into the phone's own calendar
 
 ### Added (CEO: "How to ensure that event calendar being saved inside users mobile calendar?")
+
 - **📅 Add to my calendar** on every event, in both the list and the calendar view, for **every staff member** — not just managers. One tap builds a standard RFC 5545 `.ics` in the browser (no server round-trip, same pattern as the PDFs) and hands it to the phone's share sheet; picking **Calendar** finishes it. iOS opens straight into Calendar, Android offers Google Calendar, a laptop downloads the file for Outlook / Apple Calendar.
 - The entry carries **two alarms** — the evening before and at the start — because the point of the exercise is that nobody has to be looking at the portal to be reminded.
-- Details that make it behave: times are written as **UTC instants from Malaysia time**, so the event lands at the right hour whatever timezone the phone is set to; an event with no start time becomes a true **all-day** entry (with the RFC's exclusive end date, which some apps otherwise render as zero-length); the **UID is stable** (`event-{id}@azoneofficial.com`), so tapping the button twice *updates* the phone's copy instead of duplicating it; long descriptions fold per RFC 5545 §3.1 so strict parsers like Outlook accept them.
+- Details that make it behave: times are written as **UTC instants from Malaysia time**, so the event lands at the right hour whatever timezone the phone is set to; an event with no start time becomes a true **all-day** entry (with the RFC's exclusive end date, which some apps otherwise render as zero-length); the **UID is stable** (`event-{id}@azoneofficial.com`), so tapping the button twice _updates_ the phone's copy instead of duplicating it; long descriptions fold per RFC 5545 §3.1 so strict parsers like Outlook accept them.
 - NEW `lib/event-ics.ts` (`buildEventIcs`, `addEventToCalendar`).
 
 ### The honest limitation, stated
+
 - This is **pull, not push**: each person taps once per event they care about. If an event is later **edited or cancelled in the portal, phones do not follow** — re-tapping the button updates their copy (same UID), but nothing happens automatically. Automatic sync is a subscribed calendar feed (`webcal://` + a token URL, like the document share link) — a separate release if wanted, and the natural companion to the PWA/Capacitor conversation.
 - Frontend-only, no migrations.
 
 ## [1.4.263] — 2026-08-07 — A product invoice moves stock (MIGRATION 0065)
 
 ### Added (CEO: "if sales invoice created, inventory should be deducted to tally the inventory. of the payment has been paid. the amount of sales will be reflected to the Sales revenue")
+
 - **A product INVOICE now deducts inventory the moment it is created** — typed directly or born from a Quotation → Invoice click. Lines match inventory by **SKU first, then exact name** (the product form's datalist inserts inventory names, so most lines match by themselves). Each deduction is logged in the Manual stock movements trail as `Invoice INV-… — stock deducted on invoice`, tied to the document (MIGRATION 0065 `manual_stockouts.doc_id`).
 - **The toast tells you exactly what moved** — `stock deducted: ELFIA001 −4 (now 16)` — and says loudest what did **not**: `⚠ NOT in inventory, not deducted: …` for a line that matched nothing, and `⚠ short:` when an invoice asks for more than the shelf holds (stock floors at 0 and the shortfall is written into the trail remark rather than silently invented).
 - **Deleting or reversing an unpaid invoice puts the stock back** and removes its own trail rows — ↩ Undo and Delete are now stock-safe.
-- **Deliberate boundaries:** only the INV deducts — a quotation is a promise, and deducting a DO too would double-deduct the same sale. Service documents never touch stock. The trail rows carry **no sale price**, because the revenue is counted by the *paid invoice* (below) — pricing the movement would count the sale twice.
+- **Deliberate boundaries:** only the INV deducts — a quotation is a promise, and deducting a DO too would double-deduct the same sale. Service documents never touch stock. The trail rows carry **no sale price**, because the revenue is counted by the _paid invoice_ (below) — pricing the movement would count the sale twice.
 
 ### Already true, worth confirming
+
 - **The second half of the request has worked since v1.4.90:** invoiced revenue counts on a **payment-received basis** — the moment an invoice is marked paid (or born paid), its amount lands in Sales revenue, the P&L and the 🔥 Today box, bucketed by the payment date you now pick (v1.4.250). Nothing needed changing there.
 - Worker + frontend. **MIGRATION 0065** — without it stock still moves and the trail still writes; only the doc link falls back to the remark prefix.
 
 ## [1.4.262] — 2026-08-07 — One subject per memo
 
 ### Fixed (CEO: "subject and perkara is the same thing!")
-- They were. Perkara *is* a memo's subject — the form asked for the same thing twice, and a careless publish could carry two different subjects on one memo (or, as in practice, a filled Subject and an empty Perkara, so the printed memo header lost its Perkara line entirely).
+
+- They were. Perkara _is_ a memo's subject — the form asked for the same thing twice, and a careless publish could carry two different subjects on one memo (or, as in practice, a filled Subject and an empty Perkara, so the printed memo header lost its Perkara line entirely).
 - The **Perkara box is gone**. The Subject box is the single source — in memo mode it relabels to **Subject / Perkara**, and the memo header composes `Perkara: {subject}` from it automatically. Tarikh stays, since the date genuinely is a separate field.
 - The memo grid drops from four boxes to three: Kepada · Daripada · Tarikh.
 - Frontend-only, no migrations. Already-published memos are untouched — their headers were composed into the body at publish time.
@@ -937,6 +1010,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.261] — 2026-08-07 — The legal name, fixed at the source
 
 ### Fixed (CEO: "birthday still not extract full staff name list as others, make it standardize to all the tabs")
+
 - v1.4.260 fixed the two screens I could see; the Birthdays tab proved the mistake in that approach — chasing the display one screen at a time. This release fixes it **at the source instead**, so "all the tabs" means all of them, including next month's.
 - **Worker:** every route that returns a staff `name` for display now applies one SQL rule — `COALESCE(NULLIF(TRIM(full_name), ''), name)`. Eight queries: both birthday routes, the `/staff-list` picker feed (sales person, claim payee, roster, task assignment — every dropdown), the attendance monitor, the corrections list, the verification export, the sign-in log, and the HR report's per-staff task table. Any screen fed by these is correct without being touched.
 - **Frontend:** NEW `displayName()` in `lib/names.ts` — the same rule as one named function — used by the Birthdays tab (whose `/users` payload always carried `full_name`; the panel's local type just never declared it, which is why the fallback was invisible), and by the register and payroll sites from v1.4.260, so the rule now has one spelling everywhere instead of an inline `||` per file.
@@ -945,20 +1019,24 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.260] — 2026-08-06 — The legal name where it matters, and a flag where it's missing
 
 ### Fixed (CEO: "staff name not populated full staff name")
+
 - **The staff register and the payroll rows showed the short name** while every official output — payslip, claim form, leave form, ID badge, sales-document signature and the Maybank2E salary file — already prefers `full_name`. Reading a nickname on screen and a legal name on the slip is exactly how a name that doesn't match the bank account goes unnoticed until a transfer bounces. Both now show the legal name when it's on file.
 - **NEW ⚠ "no full name" flag** on any staff record without one. This is the important half: the fallback is silent by design, so a payslip printing a nickname looks completely normal and nobody notices until it's a bank rejection or a signed form with the wrong name on it. The gap is now visible in the register.
 
 ### Worth checking on your side
+
 - If a name still shows short after this, the field is simply empty in that person's record: **Staff Details → 👤 Personal → Full name (as per IC)**. The column has existed since migration 0012; nothing in the pipeline is dropping it.
 - Frontend-only, no migrations.
 
 ## [1.4.259] — 2026-08-06 — Field rows stack on a phone (audited)
 
 ### Fixed (CEO: "Placement text should be the better width size for mobile view … Audit all the files and ensure that it is globally")
+
 - **The postage form put three fields on one line at every width.** On a 390px screen that is ~110px each, so every placeholder was clipped mid-word — `e.g. J&T, Po:` — and the hint telling you what to type was the first thing lost, exactly when you need it most. Its item lines had the same fault, where the item **name** select is the widest thing on the row and the first to be squeezed.
 - NEW `fieldRow` in `lib/ui-styles.ts` — two columns on a phone, a flowing row from `sm` up. This is the v1.4.154 width standard with a name, so the next form inherits it instead of re-deriving it. Any field needing full width on a phone gets `col-span-2 sm:col-span-1`; the postage form's Order amount does.
 
 ### The audit
+
 - Swept every `.tsx` in `app/` and `components/` for rows holding two or more fields that never stack. **Four candidates, one real offender** — the postage form. The others were already correct: the expense inline editor is `w-full sm:w-auto`, the staff vault row is a select and a button, and the payroll commission helper uses fixed narrow widths that wrap.
 - Also checked every placeholder over 30 characters: all of them sit in textareas or full-width inputs, where they have the room.
 - Frontend-only, no migrations.
@@ -966,7 +1044,8 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.258] — 2026-08-06 — Wrapped rows line up, and the last links become buttons
 
 ### Fixed (CEO: "I still can see the improper layout. And also edit/remove not globally using the same as before aligned")
-- **Send PDF was filled.** A quotation row carried **two** dark blocks — → Invoice and Send PDF — which breaks v1.4.253's own rule of at most one fill per row: with two, neither reads as the main action. Send PDF is now a normal bordered button. → Invoice stays the filled one on a quotation, because converting is what that row is *for*.
+
+- **Send PDF was filled.** A quotation row carried **two** dark blocks — → Invoice and Send PDF — which breaks v1.4.253's own rule of at most one fill per row: with two, neither reads as the main action. Send PDF is now a normal bordered button. → Invoice stays the filled one on a quotation, because converting is what that row is _for_.
 - **A wrapped action group no longer strands its last button.** `rowActions` was right-aligned always, so when the group wrapped onto its own line — which is the normal case on a phone — the final button sat alone against the right edge and the row read as two ragged fragments. It now aligns left on phones (under the text, sharing its gutter) and right from `sm` up, where it still sits opposite the text.
 - **Expenses Edit and Remove** were still bare underlined words sitting beside a bordered **Mark paid** — the same row, two different kinds of control. Both are now the global buttons, and the expense action group wraps like every other row.
 - Also converted: the two event-list Remove buttons and the attendance-correction Save. The one remaining hand-rolled filled row button (payroll Mark paid) now imports the shared string instead of repeating it.
@@ -975,14 +1054,17 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.257] — 2026-08-06 — The payslip as a real file (tier 5, in part)
 
 ### Added (CEO: "Tier 5")
+
 - **Send PDF on the payslip**, in three places: the payroll processing row, the staff member's own payslip card, and the HR path that already fetched the detail. NEW `lib/payslip-pdf.ts`, drawn with the same writer as the sales documents and the HR forms.
 - **The arithmetic is now shared, even though the layout isn't.** NEW `payslipData()` computes every figure once — v1.4.183's hourly rule, v1.4.79's unpaid-leave deduction, v1.4.82's incomplete-month adjustment — and both the printed slip and the PDF read from it. Payroll is the one place where two implementations drifting apart isn't cosmetic; it's two different answers to "what was I paid".
 - Long labels now shrink to fit their column before they can run under the next column's figures, and truncate only if 5.5pt still won't do. A number is never crowded by a label.
 
 ### Fixed
+
 - **`×` was silently vanishing from every PDF.** "6 HRS × 1.5" printed as "6 HRS 1.5" — which on a payslip reads as a different calculation. Anything the Latin-1 fold map misses is dropped by the ASCII filter, so a missing entry is invisible rather than obviously broken. Added `× ÷ ± ≤ ≥ ≈ ™ ©`.
 
 ### Not built, deliberately
+
 - **The ID badge and the HR attendance summary stay print-only.** A badge is a card you print on stock, and the HR summary is an internal multi-page report nobody sends. Each would have bought a fourth and fifth hand-maintained layout for no real errand.
 - **The Cloudflare Browser Rendering fork is not mine to take.** It costs a Workers Paid plan (~USD 5/month) and would collapse all three PDF writers back into one template each. Until then three files mirror three templates, and every document change has to be made twice.
 - Frontend-only, no migrations.
@@ -990,11 +1072,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.256] — 2026-08-06 — The row pattern reaches /admin (tier 3)
 
 ### Changed (CEO: "Tier 3")
-- **Enquiries** — the enquirer's name opens the record. Every enquiry used to print its whole message inline, so ten enquiries was a wall of text and the status control — the thing you came to change — sat somewhere in the middle of it. The panel now holds email, phone, company, received date and the message; the status picker stays on the row, because it *is* the row.
+
+- **Enquiries** — the enquirer's name opens the record. Every enquiry used to print its whole message inline, so ten enquiries was a wall of text and the status control — the thing you came to change — sat somewhere in the middle of it. The panel now holds email, phone, company, received date and the message; the status picker stays on the row, because it _is_ the row.
 - **Services / packages / anything on CrudPanel** — the title opens the record and the panel shows every field's value. Until now the only way to read a single field was to press Edit and load the whole record into the form, which risks saving something you only meant to look at.
 - **Staff directory** — the staff member's name is now the toggle, and the separate "Details ▾" button is gone. That also frees a slot in the row v1.4.209 had to teach to wrap, because with a record open it held five buttons. Multiple records stay open at once here on purpose: HR compares people side by side, which is the one place the one-at-a-time rule doesn't serve the work.
 
 ### Deliberately not converted
+
 - **/admin Users rows** — already minimal. Name, email, a suspended chip, and the controls. There is nothing hidden behind them worth revealing, and a panel would only add a click.
 - **The admin staff directory** is an always-open editing grid, not a list of records to read. Collapsing it would hide the fields that are the entire point of the panel.
 - Frontend-only, no migrations.
@@ -1002,21 +1086,24 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.255] — 2026-08-06 — Every save says what happened (tier 2)
 
 ### Changed (CEO: "Tier 2")
+
 - **22 save sites across eight files now use the branded toast.** Until this release, /admin and the account panels saved in silence — the same complaint raised about In + in v1.4.251, just in places visited less often. Wired one site at a time, not swept, because a toast attached to the wrong branch says "Saved" on a failure and that is worse than the silence it replaces.
-- **/admin** — enquiry status, every CRUD panel (create · update · remove), media upload and delete, site content, user create, and the four things `patch()` drives: role change, suspend, reinstate, force sign-out. Suspend now says *"…suspended — signed out everywhere"* rather than nothing at all.
-- **Site editor** — each field names itself: *"Hero headline updated — live on the website now"*.
-- **HR admin** — adding or removing a public holiday now says so, and adds why it matters: *"payroll working days recount from this"*.
+- **/admin** — enquiry status, every CRUD panel (create · update · remove), media upload and delete, site content, user create, and the four things `patch()` drives: role change, suspend, reinstate, force sign-out. Suspend now says _"…suspended — signed out everywhere"_ rather than nothing at all.
+- **Site editor** — each field names itself: _"Hero headline updated — live on the website now"_.
+- **HR admin** — adding or removing a public holiday now says so, and adds why it matters: _"payroll working days recount from this"_.
 - **Staff panel** — leave approve/reject. **System health** — backup complete with table and row counts. **2FA** — on, off, and setup failure. **Change password** — confirmation, since the form otherwise just empties itself.
 - **Admin staff directory** — a failed save previously did **nothing at all**: no message, no toast, the edit just sat there looking saved-but-not. It now says so.
 
 ### Deliberately excluded
+
 - **Sign-in and the public contact form.** A toast on sign-in is pointless — the page navigates away — and the contact form's inline thank-you is the right pattern for a visitor who has never seen this system before. Both keep their own inline states.
 - Frontend-only, no migrations. Existing inline messages were kept alongside the toasts rather than ripped out, so nothing that worked before stops working.
 
 ## [1.4.254] — 2026-08-06 — Two shared modules: the look and the formatting
 
 ### Changed (CEO: "Proceed this improvement so that everything is globally")
-- NEW **`lib/ui-styles.ts`** — `card`, `inputClass`, `btnClass`, `th`/`td`/`thR2`/`tdR2`. These strings had been copy-pasted into **eighteen files**, and `card` had already drifted into three different paddings: the portal's own page rendered cards at `p-3.5 md:p-4` while its panels used `p-4 md:p-5`, so two cards on the *same tab* were different sizes. Everything is now the roomier value. That is what a duplicated constant does — it doesn't break, it drifts, and nobody notices until the set sits side by side.
+
+- NEW **`lib/ui-styles.ts`** — `card`, `inputClass`, `btnClass`, `th`/`td`/`thR2`/`tdR2`. These strings had been copy-pasted into **eighteen files**, and `card` had already drifted into three different paddings: the portal's own page rendered cards at `p-3.5 md:p-4` while its panels used `p-4 md:p-5`, so two cards on the _same tab_ were different sizes. Everything is now the roomier value. That is what a duplicated constant does — it doesn't break, it drifts, and nobody notices until the set sits side by side.
 - NEW **`lib/format.ts`** — `dmy`, `dmyMYT`, `mytToday`, `mytDateOf`, `rm`, `fmtRM`. `dmy` was defined identically in four files, and /admin and the staff panel each had their own copy under a different name (`dmyMyt`, `dmyD`). Identical today; one edit away from a portal showing `06-08-2026` in one card and `2026-08-06` in the next. The house rules — DD-MM-YYYY display, MYT everywhere, sen in / RM out — now live in the functions instead of in the habit of whoever writes the next card.
 - Two deliberate variants kept and named: `inputClassLg` for the public marketing pages (bigger type and touch target for visitors arriving cold on a phone) and `btnClassBlock` for the full-width sign-in button.
 - **Row buttons finished.** The last non-standard row actions — /admin (6), assets register, tab access, HR admin, staff vault Download — now use `rowBtn` / `rowBtnDanger`. No list in either app still uses a bare underlined word as a row action.
@@ -1026,32 +1113,37 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.253] — 2026-08-06 — One button style, portal-wide
 
 ### Changed (CEO: "Make the button standardize like my own button global … Claim also need to use global button but ensure that minimalist")
+
 - NEW `components/ui/row-button.tsx` — `rowBtn`, `rowBtnDanger`, `rowBtnGood`, `rowBtnPrimary` and the `rowActions` wrapper. The Documents list settled on this shape months ago (28px tall, rounded, bordered, 12px text) but the audit and claim lists were still bare underlined links, so the same action looked like two different controls depending on the card. On a phone an underlined word has no tap target at all.
 - Converted: manual stock movements (Edit · ↩ Revert · Delete), supplier returns (Credit · Replace · Edit · Delete), inventory items (Edit · Delete), claims (📎 Attach receipt · Delete · Edit, and View receipt · Print form · Send PDF inside the record), the HR approved-claims list, expenses (Mark paid · Undo paid), and leave (Print form · Send PDF · Cancel). The Documents row now imports the shared strings instead of repeating them.
 - The claim row's second line was a run-on sentence — date, then underlined words joined by `·`. It is now the date plus a proper wrapping button group, which is what makes it work at both widths.
-- Kept minimalist deliberately: no shadows, and a fill only on the one action a row is *for*. Five bordered buttons on a 390px screen is already dense; five filled ones would be unreadable.
+- Kept minimalist deliberately: no shadows, and a fill only on the one action a row is _for_. Five bordered buttons on a 390px screen is already dense; five filled ones would be unreadable.
 
 ### Fixed (CEO: "the text on area total should not wrapped text")
+
 - Numeric table columns never wrap. The stock-out TOTAL row was breaking its 🔥 chip across two lines on a phone, which read as two separate numbers. `whitespace-nowrap` now sits on the shared `thR2`/`tdR2` classes, so every numeric column in every table inherits it, and on the chip itself.
 - Frontend-only, no migrations.
 
 ## [1.4.252] — 2026-08-06 — The audit lists join the row pattern
 
 ### Fixed (CEO: "I want the details inside while the button outside for me to know what is this details for")
+
 - **Manual stock movements** and **Supplier returns** were the two lists v1.4.249 didn't reach. Both packed the date, SKU, item name, quantity and the whole reason onto one `truncate`d line, so on a phone every row read `06-08…` and nothing else — the reason you record for traceability was the first thing the screen threw away.
 - Both now follow the standard: **date · SKU** identifies the row and opens it; buttons stay outside.
   - **Movements** — the panel holds item, direction and quantity, date, whether it counted as a sale, who recorded it, when, the reason in full, and whether it was reverted.
   - **Returns** — item, quantity, unit cost, total claim, supplier, return date, replaced quantity, credited amount and the defect reason.
-- The chips that carry the state of the row — Sold @ / correction / ↩ reverted, Outstanding / Credited / Replaced — stay visible, per the v1.4.249 rule that a chip which *is* the point of the row doesn't hide.
+- The chips that carry the state of the row — Sold @ / correction / ↩ reverted, Outstanding / Credited / Replaced — stay visible, per the v1.4.249 rule that a chip which _is_ the point of the row doesn't hide.
 - Frontend-only, no migrations.
 
 ## [1.4.251] — 2026-08-06 — Stock in confirms itself, and variances have a reason (MIGRATION 0064)
 
 ### Fixed (CEO: "In + seem doesnt popup notifications which is I should aware if the stock has been updated in")
+
 - **In + saved in silence.** `adjust()` only raised a toast when the delta was negative, so an out announced itself and an in did not. Both directions now confirm, and both quote **the new stock level** the server came back with — so you see `now 26 in stock`, not just "saved".
 
 ### Added (CEO: "if I want to adjust the variance … Manual Out − and what should remark I need to indicate?")
-- **In + now opens the same form as Out −**, with the same mandatory reason. An unexplained stock increase was the one movement in the system that left no trail — which is exactly the case a stock count creates when the shelf holds *more* than the system says.
+
+- **In + now opens the same form as Out −**, with the same mandatory reason. An unexplained stock increase was the one movement in the system that left no trail — which is exactly the case a stock count creates when the shelf holds _more_ than the system says.
 - **The reason is now a picked list, not a blank box**, so a variance is always worded the same way and can be reported on later. Out: stock count variance (missing) · damaged/defective · sample or giveaway · internal use · sold offline · data entry correction · other. In: stock count variance (found extra) · restock from supplier · customer return · returned from sample/event · data entry correction · other. A free-text note underneath carries the specifics.
 - MIGRATION 0064 adds `manual_stockouts.direction`, defaulting to `'out'` — every existing row keeps exactly the meaning it had, so the stock-out totals and the weighted Avg sold @ are unchanged. The traceability card is now "Manual stock movements" and shows `+21` or `−2` per row.
 - Skew armor (v1.4.218 lesson) with a deliberate asymmetry: without 0064 an **out** still logs the old way, but an **in** does not log at all and records `migration_skew` instead — an unmarked row would read as an out and corrupt the totals. The stock still moves either way.
@@ -1061,11 +1153,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.250] — 2026-08-06 — Pick the date the payment landed
 
 ### Added (CEO: "I want to have a calendar for me to pick which date they make the payment for accurate tracking")
+
 - Marking an invoice paid now asks for **the date the money was received**, not just the reference. The dialog carries a real date input, so a phone raises its own calendar. It defaults to today and cannot be set past today — you can't receive tomorrow's money.
 - The date is **correctable afterwards** without unmarking the invoice: **✎ change date** sits in the payment row of the document's detail panel. Unmarking would have cleared the reference along with the date, which is why it needed its own control.
 - `usePrompt()` gained an optional second field (`date: { label, initial, max }`) and now resolves to `{ value, date }`, so any future dialog needing a date gets it from the same component rather than a new one.
 
 ### Why it matters
+
 - Revenue buckets invoices by `paid_at`. A Friday transfer entered on Monday used to count on Monday — and at a month boundary, in the wrong month. That fed the P&L, the 🔥 Today box and the commission helper.
 - The chosen date is stored at **04:00 UTC — midday Malaysia**, so the `+8 hours` shift every revenue query applies can never move it onto the neighbouring day.
 - An explicit date **overrides** an earlier one; without one the old COALESCE-to-now behaviour stands, so every existing invoice is untouched.
@@ -1074,6 +1168,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.249] — 2026-08-06 — The minimalist row, portal-wide
 
 ### Changed (CEO: "do the same pattern to the rest which is my objective is globally and standardize")
+
 - NEW `components/ui/record-row.tsx` — `RecordToggle` and `DetailGrid`, the pattern as one shared pair so every list opens the same way and looks the same doing it. **Identity on the row · actions on the row · everything else one tap away.**
 - **Documents** — refactored onto the shared pair (it was hand-rolled in v1.4.248).
 - **Customers** — the company name opens contact, phone, email, billing address and delivery address. Those were in the database and invisible in this list.
@@ -1082,15 +1177,18 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - **Expenses** — the amount opens date, category, vendor, who recorded it and the recurring detail. The PAID / DUE chip stays on the row, because the paid state is the thing being tracked (v1.4.208).
 
 ### Deliberately not converted
+
 - **Inventory, Payroll, Attendance and the Assets register are tables.** They are dense on purpose and are read by scanning and sorting columns; collapsing their rows would remove the thing that makes them useful. The rule is written into `record-row.tsx` so it survives the next sweep.
 - Frontend-only, no migrations.
 
 ## [1.4.248] — 2026-08-06 — Branded prompt, and minimalist document rows
 
 ### Fixed (CEO: "still found with not standardize popup notification")
+
 - The v1.4.240 sweep replaced every `window.confirm` but missed the one `window.prompt` — the bank transfer reference asked for when marking an invoice paid. NEW `components/ui/prompt-dialog.tsx` (`usePrompt()`), same family as the confirm dialog and the save toast: gold accent, navy card, Enter submits, Escape cancels, Cancel now leaves the status untouched rather than marking paid with no reference. No native browser panel remains anywhere in the portal.
 
 ### Changed (CEO: "a minimalist version … click at the document number can appear the details. the button remain at outside")
+
 - A Documents row now carries only what identifies the document — number, product/service mark, customer, amount — plus its action buttons. The PAID chip, the payment and delivery pickers, the date, the sales person, the payment reference and the converted-from origin moved into a panel that opens when you click the document number.
 - One document opens at a time; opening another closes the first, so the list can never grow taller than the screen.
 - Actions stay on the row on purpose. Nothing has to be opened before it can be done — the panel is for reading, the row is for acting.
@@ -1098,6 +1196,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.247] — 2026-08-06 — Row buttons wrap instead of running off the phone
 
 ### Fixed (CEO: "Why Invoice dont have send pdf button?")
+
 - It did have one — it was off the right edge of the screen. The Documents row's action group carried `shrink-0` and no wrap, so it laid its buttons out in a single line whatever the screen width. A quotation row shows five controls and just fits a phone; an invoice row shows seven (the PAID chip and the payment-status select as well), and the last two — **Send PDF** and **Delete** — were pushed past the edge and clipped by the list's own scroll container.
 - Every row action group in `/portal` now wraps and right-aligns instead: twelve of them across the Sales, Leave, Claims, Attendance, Inventory and Users lists. On a phone the buttons drop onto a second line; on desktop nothing moves because there was always room.
 - This is the v1.4.209 lesson again, one layer out: that release fixed a non-wrapping action span in the staff directory. The rule now holds portal-wide — **a row's action group wraps; it never relies on the screen being wide enough.**
@@ -1106,6 +1205,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.246] — 2026-08-06 — Send PDF on the claim and leave forms
 
 ### Added (CEO: "do same implementation for invoice and delivery order, claim and leave form also!")
+
 - **Invoice and Delivery Order already had it** — v1.4.245's Send PDF sits on every Documents row and builds whichever type the row is. Nothing to add there.
 - **Claim form** — Send PDF beside Print claim form. AZOO-HR-CLM-001 as a real file: the meta block, the claim detail table (padded to four rows like the printed form), total, declaration, system status with the approval chain, the three-column wet-ink signature table, and the uploaded receipt printed on the form.
 - **Leave form** — Send PDF beside Print form. AZOO-HR-LVE-001 as a real file, with the same signature table and the HR / pre-approval chain line.
@@ -1114,37 +1214,44 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - `sharePdfFile()` is now shared by all five documents: share the file if the phone can, otherwise download it.
 
 ### Known trade-off, restated
+
 - `lib/form-pdf.ts` is a second implementation of the two HR forms, exactly as `lib/doc-pdf.ts` is for the sales documents. The HTML versions in `role-panels.tsx` and `app/portal/page.tsx` still drive screen and print. **A change to a form must be made in both places.**
 
 ## [1.4.245] — 2026-08-06 — Send PDF: a real file into the share sheet
 
 ### Added (CEO: "maybe we open the pdf then I can share to customer as a pdf instead of a link via mobile apps view")
-- **Send PDF** now builds a genuine PDF in the browser and hands the *file* to the phone's share sheet, so the customer receives a proper attachment in WhatsApp rather than a link. Three rungs, best first: share the file (iOS 15+ / Android Chrome) → download the file (desktop, older phones) → share the v1.4.244 link if the PDF could not be built at all.
+
+- **Send PDF** now builds a genuine PDF in the browser and hands the _file_ to the phone's share sheet, so the customer receives a proper attachment in WhatsApp rather than a link. Three rungs, best first: share the file (iOS 15+ / Android Chrome) → download the file (desktop, older phones) → share the v1.4.244 link if the PDF could not be built at all.
 - NEW `lib/doc-pdf.ts` — a dependency-free PDF writer, a few KB rather than the ~400KB a PDF library would add to a 4G page load, and nothing new to install in the deploy loop. Real vector text (selectable, searchable), the branded navy and gold, and the officer's signature PNG embedded with its transparency intact and deflate-compressed, so a 1MB chop travels as ~50KB.
 - Text is folded to Latin-1 on the way in (— · ✔ and friends become ASCII equivalents) so a document can never print gibberish.
 
 ### Known trade-off
+
 - This is a **second implementation of the document layout**. `lib/doc-template.ts` still drives the screen and print versions; `lib/doc-pdf.ts` draws the same design in PDF primitives. A change to one must be made in the other. That is the price of a shareable file without a paid rendering service — if we move to Cloudflare Browser Rendering later, this file goes and the HTML template becomes the only source again.
 
 ### Fixed
-- PDF object numbers are fixed rather than positional. An earlier draft appended the signature image before the fonts, so a document *without* a signature shifted `/F1` and `/F2` onto the wrong objects and printed bold and regular swapped. Caught by rendering an unsigned invoice.
+
+- PDF object numbers are fixed rather than positional. An earlier draft appended the signature image before the fonts, so a document _without_ a signature shifted `/F1` and `/F2` onto the wrong objects and printed bold and regular swapped. Caught by rendering an unsigned invoice.
 - The closing block reserved too little height, so the third signer line collided with the page footer. Widened.
 
 ## [1.4.244] — 2026-08-06 — Send a document to the customer from your phone (MIGRATION 0063)
 
 ### Added (CEO: "on mobile view, if I click on PDF button I want the format can be deliver to my customer using mobile instead of I need to download using web view")
+
 - **Send button** on every document row, beside PDF. It mints a share link and hands it straight to the phone's own share sheet — WhatsApp, Telegram, email, whichever they use. Two taps, no download, no file manager. Desktop has no share sheet, so the link goes to the clipboard with a toast instead.
 - **The customer's page** (`/doc?t=…`) needs no sign-in and no app: the document renders on their phone exactly as it prints, scaled to fit the screen rather than pinch-zoomed, with a **Save as PDF** button that prints the real A4 document rather than a screenshot of the page. Invalid or revoked links get a plain message and the WhatsApp number, not an error.
 - MIGRATION 0063 adds `sales_documents.share_token` with a unique index. The token is 32 random hex characters, minted on first Send and reused after that, so re-sending never changes the customer's link. `POST /docs/:id/share {revoke:true}` clears it and the link dies immediately. Both actions audited (`doc.share`, `doc.share_revoke`).
 - The public read route is deliberately outside `/staff` and unauthenticated — the token is the only credential. It returns one document, exposes no internal ids, sends `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`, and `/doc` is disallowed in robots.txt so a customer's prices never reach a search engine.
 
 ### Changed
+
 - The printed document moved out of `page.tsx` into **`lib/doc-template.ts`**, so the portal's PDF popup and the customer's link render from one template and can never drift apart. `buildDocHtml(doc, autoPrint)` — the popup raises the print dialog on open, the customer's page does not.
 - Frontend + worker. Migration-skew armored (v1.4.218 lesson): on a database without 0062/0063 the share link simply does not resolve rather than throwing a 500 at a customer.
 
 ## [1.4.243] — 2026-08-06 — Malaysian-standard sales documents (MIGRATION 0062)
 
 ### Added (CEO: "can we make it like this? include invoice and delivery order based on both service and product requirement")
+
 - **Quotation, Invoice and Delivery Order rebuilt on one template**, in the shape approved from the samples: gold rule → letterhead → borderless meta strip (Sales person · Doc no. · Date · Valid until/Payment due/Delivery · Reference · Page) → BILLING | DELIVERY-or-SERVICE address → line items → amount in words + totals ladder → closing block.
 - **Line items** now carry a unit of measure, a SKU, their own discount, and up to ten detail sub-lines — the inclusions that used to be typed as extra RM 0.00 rows now print as bullets under the item they belong to.
 - **Amount in words** in the Malaysian convention ("RINGGIT MALAYSIA : … ONLY"), sen included.
@@ -1152,6 +1259,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - MIGRATION 0062 adds `sales_documents.reference`, `sales_documents.delivery_address` and `customers.delivery_address`. All nullable; every existing document still parses and prints.
 
 ### Fixed
+
 - **The signature area now reserves a fixed-height zone in every block**, signed or blank. The officer's signature PNG drops into reserved space instead of growing its own column, so "Prepared by" and "Accepted & confirmed by" sit on one baseline whether or not an auto signature is present. The counterparty block carries the same three lines, muted, so the two columns line up exactly.
 - No tax line anywhere: AZ ONE OFFICIAL is not SST-registered, and charging service tax before registration is an offence. The document states the position in words instead. When registration happens the ladder gains an SST row and the letterhead an SST number; nothing else moves.
 - The create-document form's state type never declared `kind`, which v1.4.234 had been setting — a type error on every build. Declared.
@@ -1160,10 +1268,12 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.242] — 2026-08-06 — Print audit across every generated document
 
 ### Checked (CEO: "all this being implemented to all the generate PDF? include, Delivery Order, Invoice, Claim, Leave Form")
+
 - The v1.4.239 print-pipeline fix (no browser header strip, branded fills print) was applied to every template from the start: quotation, delivery order, invoice, statement of account, claim form, leave form, both payslips and the ID badges.
 - The v1.4.241 width fix is quotation-only by measurement, not by oversight. Only the quotation's bottom row asks for three blocks (752px). The invoice needs 536px and the delivery order 416px, both inside A4's 688px. The claim form and leave form build their signature panels as real HTML tables with fixed column percentages, so they cannot wrap at any width.
 
 ### Fixed
+
 - The HR "Attendance & Payroll Summary" is a staff table that can run to several pages, so v1.4.239's `@page { margin: 0 }` would have printed page 2 onward edge to edge. Reverted to a real 18mm page margin; it keeps `print-color-adjust` and accepts that the browser's header strip may still appear. Same reasoning already applied to the A4 badge sheet.
 - Rule now documented in both files: margin-zero only for templates that are single-page by design; multi-page output keeps a real page margin.
 - Frontend-only, no migrations.
@@ -1171,6 +1281,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.241] — 2026-08-06 — Quotation signature row no longer wraps on A4
 
 ### Fixed (CEO: saved PDF vs the popup — "what is the different that cause this format incorrect")
+
 - Nothing in the CSS differed between the two; the available width did. The popup window is around 1240px wide, while A4's printable width is 182mm — roughly 688px. The quotation's bottom row asks for TERMS (max 320px) + Prepared by (min 200px) + Accepted by (min 200px) plus two 16px gaps = 752px, so on paper `.split2` wrapped: the two signature blocks stacked vertically and TERMS dropped to the bottom-left corner. On screen there was room, so it looked right.
 - The quotation row now carries a `qt` modifier sized to fit 688px — TERMS capped at 250px, signature blocks at 168px minimum, 12px gaps (610px total, comfortably inside A4). Invoice (536px) and delivery order (416px) rows already fitted and are untouched.
 - Narrow viewports still wrap, which is correct on a phone.
@@ -1179,42 +1290,49 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.240] — 2026-08-06 — Every confirmation is the branded dialog (and a build-breaking import)
 
 ### Fixed (CEO: "why the popup card was not standardize like the current use")
+
 - The Sales tab still raised the browser's own "azoneofficial.com says" box for Delete document, Undo (reverse invoice) and Delete customer. All three now use the branded `useConfirm()` dialog introduced in v1.4.142 — navy card, gold accent, red confirm button on destructive actions.
 - Swept the rest of the tree for the same slip: the payslip early-release warning (Payroll) and Suspend user (/admin Users) were also still native. Both converted. `window.confirm` now appears nowhere in the codebase outside the dialog component's own documentation.
 
 ### Fixed — latent build break
+
 - `app/portal/page.tsx` called `useConfirm()` in the OT approvals card (v1.4.191) but never imported it, so `pnpm build` fails type-checking with "Cannot find name 'useConfirm'". Import added. Any frontend build attempted since v1.4.191 would have stopped here — which is consistent with v1.4.236's signature alignment not showing on printed quotations.
 - Frontend-only, no migrations.
 
 ## [1.4.239] — 2026-08-06 — Printed PDFs: browser headers gone, branding restored
 
 ### Fixed (CEO: "when I save from the popup print, this is the results! it is not correct actually")
+
 - The saved PDF carried the browser's own furniture — date and time top-left, the document number top-right, `about:blank` bottom-left, `1/1` bottom-right — and the branding was gone: the navy table header, the navy TOTAL bar, the gold bar and the shaded BILL TO panel all printed as plain white. Neither was the template's fault; both were the print pipeline.
 - **Browser headers.** Chrome and Edge only draw their header/footer strip when the page has a margin, so every A4 template moved its margin off `@page` and onto the body inside `@media print` (quotation/DO/invoice and SOA 14mm, leave form and claim form 9mm, both payslips 14/18mm). Same white space on the paper, no browser furniture.
-- **Lost branding.** Chrome's *Background graphics* checkbox is off by default and it suppresses every background fill. All print templates now set `print-color-adjust: exact`, so the navy/gold prints whether or not that box is ticked — the ID badges and badge sheet included.
+- **Lost branding.** Chrome's _Background graphics_ checkbox is off by default and it suppresses every background fill. All print templates now set `print-color-adjust: exact`, so the navy/gold prints whether or not that box is ticked — the ID badges and badge sheet included.
 - Caveat: the A4 badge sheet keeps its 8mm `@page` margin on purpose (it can run to several pages and the cards must stay clear of the printer's non-printable edge), so browser headers may still appear there.
 - Frontend-only, no migrations.
 
 ## [1.4.238] — 2026-08-06 — Service documents carry no Delivery / postage (CEO's conflict check)
 
 ### Fixed (CEO: "for Service, there is no Delivery / postage right? do check on both function to avoid any conflict")
+
 - Correct — and both functions had the gap. Create: the delivery fee is now forced to 0 on service documents before the total computes. Edit: the route reads the document's stored kind and applies the same rule, so a service document can't gain delivery through an edit either (with migration-skew armor: on a pre-0061 database the kind lookup falls back gracefully and editing keeps working).
 - Form: the Delivery / postage box hides in Service mode and any typed value zeroes on the switch, so nothing stale is submitted. The printed document's Delivery row only appears when the amount is non-zero, so service documents never show it. Worker + frontend, no migrations.
 
 ## [1.4.237] — 2026-08-06 — Documents: Delete with confirmation; aging follows
 
 ### Added (CEO: "once I delete then Outstanding invoices — aging will disappear following to the invoice that deleted… popup notification… before it is deleted")
+
 - New DELETE /docs/:id (finance roles) + red **Delete** on every document row. A confirmation popup names the document and — for invoices — states it will disappear from Outstanding invoices — aging too (the aging card reads the same list, so it updates the moment the list reloads).
 - ONE guard: a **PAID invoice cannot be deleted** — it's an accounting record; the message says to unmark the payment first if it's truly a mistake. Unpaid invoices, quotations and DOs delete freely. Every delete is audited with the document number and type. Worker + frontend, no migrations.
 
 ## [1.4.236] — 2026-08-06 — Printed documents: "Accepted by" aligned level with "Prepared by"
 
 ### Fixed (CEO screenshot: "accepted by was not aligned side by side to prepared by")
+
 - The signature image made the Prepared-by block much taller, and the signature row wasn't bottom-aligned — so "Accepted by" floated to the top of its column. The QT signature row (.split2) is now bottom-aligned like the DO's, and both partner blocks ("Accepted by", DO's "Received in good order") carry the same three-line depth under the rule as the signer block — the signature lines land on the same baseline. Labels also standardised to the small-caps .lbl style. Frontend-only (`pnpm build`).
 
 ## [1.4.235] — 2026-08-06 — Customers: address on file + edit / update / delete
 
 ### Added (CEO: "I want to have address of customer and also the existing data I can edit and update or delete if require")
+
 - Add customer gains an **Address** box (multi-line) — it stores to the existing customers.address column and prints on that customer's documents/SOA as before.
 - Every customer row now has **✎ Edit** (loads the record into the form — title becomes "Editing {company}" with cancel, button becomes Update customer; emptying a box clears the stored value) and **Delete** (confirm first). PUT now supports clearing fields ("" → NULL; company itself can never be emptied) and both update + delete are audited.
 - Deletion is REFUSED while the customer has any quotation/invoice/DO — records must keep their party; the message states the document count and suggests editing instead. Worker + frontend, no migrations.
@@ -1222,6 +1340,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.234] — 2026-08-06 — Every sales document is for ONE business line: Product or Service (MIGRATION 0061)
 
 ### Added (CEO: "2 services which is 1 for product and 1 for service … details just filled by one details")
+
 - Create document gains a required "This document is for" toggle: 📦 Product — ELFIA goods / 🛠 Service — agency work. One line per document, chosen up front.
 - The choice steers everything: the item placeholder (Tudung Bawal Premium vs TikTok LIVE hosting — 8 sessions), inventory item suggestions (products only — service lines are free text), and **Delivery Order availability — product-only**, since a service ships nothing physical (hidden in the form, refused by the server, and picking Service while DO is selected flips the type to Quotation).
 - Migration 0061: sales_documents.kind; stored on create, inherited by Quotation → Invoice conversion. The printed document states it ("For: Products / Services") and a service document's items table is headed "Description of services". Both document lists show a 📦/🛠 chip. Existing documents (kind NULL) print exactly as before. Worker + frontend.
@@ -1229,9 +1348,11 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.233] — 2026-08-06 — Quotation signatures follow the preparer; accidental → Invoice gets an ↩ Undo (MIGRATION 0060)
 
 ### Changed — signer rule (CEO: "if prepared by CCO, then signature is CCO… other roles… the signature of prepared by need to fill by them")
+
 - GET /docs/:id signer logic: prepared by CEO/COO/CCO → that officer's own uploaded signature + name + position (CCO was previously mis-signed as CEO). Prepared by any other role → the "Prepared by" block shows the PREPARER's own name and position over a BLANK line with "sign & date above" — they sign in ink; no officer's signature is borrowed. Invoices are the exception by design: "Authorised signature" is an authorisation act, so a non-officer's invoice still carries the CEO's signature. Old-worker split deploys print exactly as before (undefined vs null distinction in printDoc).
 
 ### Added — ↩ Undo conversion
+
 - Migration 0060: sales_documents.converted_from — an invoice created via → Invoice remembers its source quotation.
 - POST /docs/:id/unconvert (finance roles): allowed ONLY while the invoice is doc_type INV + carries converted_from + still 'unpaid' — a PAID invoice can never be reversed. Deletes the accidental invoice (audited doc.unconvert with the number and source QT); the quotation was never modified by conversion so it simply stands.
 - Documents list: eligible invoices show an amber "↩ Undo" with a confirm; quotation rows unchanged. Worker + frontend.
@@ -1239,17 +1360,20 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.232] — 2026-08-05 — Remembered tab hardened per user (CEO's security question)
 
 ### Fixed (CEO: "does it will accidentally appear the full tabs roles by accidents?")
+
 - Straight answers first: the tab strip is computed per signed-in role + 🔐 overrides on every render, and every route re-checks permissions server-side — no role can see another role's tab list, and no data can leak regardless of what the browser shows.
 - But the question exposed a shared-device edge in v1.4.231: the remembered tab was stored per DEVICE, so a lower-role account signing in after the CEO could restore a restricted tab for one render frame (server 403s everything, yet even a panel skeleton must not flash). Two fixes: the storage key is now per USER (`azone-tab:{id}` — accounts never inherit each other's last tab), and all 18 panel renders clamp through `activeTab`, which can never name a tab outside the account's visible list — effects run after a render, so the clamp lives in the render itself. Zero frames of an out-of-scope panel, ever. Frontend-only (`pnpm build`).
 
 ## [1.4.231] — 2026-08-05 — The portal remembers your last tab across refreshes
 
 ### Fixed (CEO: "when I refresh the tabs back to Dashboard instead of last tab that I open. is it due to what reason?")
+
 - Reason: the active tab lived only in React state with "Dashboard" as the default — a refresh rebuilds the page, so it always started over. The last tab now persists per device (localStorage `azone-tab`), restores on load, and a guard falls back to Dashboard if the remembered tab isn't visible to the signed-in account (role change or a 🔐 tab-access change), so nobody lands on a tab they can no longer see. Private-browsing storage failures are swallowed harmlessly. Frontend-only (`pnpm build`).
 
 ## [1.4.230] — 2026-08-05 — Donut rendering artifacts fixed
 
 ### Fixed (CEO screenshot: "why it is looks like this???!")
+
 - The black vertical line through the donut was the browser's default focus RECTANGLE around the clicked slice's bounding box — killed with outline:none; selection is already communicated by the slice growing and the centre readout (aria-pressed added for accessibility).
 - The smeared joins were round linecaps extending strokeWidth/2 past each slice's angles and overlapping neighbours — now butt caps, with the gap angle providing the clean separation.
 - Inactive-slice dimming softened 0.3 → 0.45 so colours stay recognisable while the selected slice still stands out. Frontend-only (`pnpm build`).
@@ -1257,11 +1381,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.229] — 2026-08-05 — ⬇ Inventory stock-count CSV
 
 ### Added (CEO: "csv button to download the inventory list for me to perform Stock Count")
+
 - "⬇ CSV — stock count" button in the Inventory live-status header: downloads azoo-stock-count-{date}.csv with the list in its on-screen sort — SKU, Item, Price/unit, Live rebate, Net, System stock, Status — plus the three columns a physical count needs, left blank to fill in: **Counted qty, Variance, Note**. Header rows carry the generation timestamp (MYT) so the sheet records when the system snapshot was taken; TOTAL units row at the bottom; UTF-8 BOM so Excel opens it cleanly. Client-side, no server change. Frontend-only (`pnpm build`).
 
 ## [1.4.228] — 2026-08-05 — The expenses donut becomes interactive and mobile-first
 
 ### Changed (CEO: "more beautiful, professional and graphic; click the pie to get details; suitable with the Mobile Apps view")
+
 - Donut redesigned: gap-separated rounded slices, centre readout (Total RM — or the selected category and its subtotal), the active slice grows while the rest dim, 150ms transitions. Still pure SVG.
 - Clickable everywhere: slices are real buttons (keyboard-accessible) and legend rows are tappable min-height rows; selecting a category opens its records under the chart — amount, vendor/description, date, PAID/outstanding chip — with a count + subtotal header. Click again to close.
 - Mobile: layout stacks (donut centred above a full-width legend) and switches to side-by-side on larger screens; donut sized h-40→h-44. Frontend-only (`pnpm build`).
@@ -1269,45 +1395,53 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.227] — 2026-08-05 — 📊 Expenses category pie + Marketing category surfaced
 
 ### Added (CEO: "pie chart for the expenses category… include the marketing expenses")
+
 - "📊 Expenses by category — {month}" donut above the expense list: pure-SVG ring (no chart library, by design), slices sorted largest-first with a colour legend showing RM + % per category, following the month picker. Expense records only — payroll and claims keep their own lines above so the categories aren't drowned. Renders only when the month has expenses.
 - Marketing: already existed end-to-end (frontend EXPENSE_CATEGORIES + worker catsE both include "marketing" since v1.4.87) — the dropdown lists it between Software and Equipment; it now gets its own pie slice (pink) like every category. Use it for platform ads, marketing materials, any marketing spend. Frontend-only (`pnpm build`).
 
 ## [1.4.226] — 2026-08-05 — 💰 Commission helper (1.5% of the month's sales)
 
 ### Added (CEO: "add commission which is 1.5% for me to pay the commission")
+
 - New GET /staff/payroll/commission-base?month= (PAYROLL_PROC): the month's all-channel sales as a commission base — queries mirror /revenue verbatim (TikTok TT- excl. returned, paid INV documents by payment-landed month, other shipments, manual sales by out_date). Returns total + breakdown.
 - Payroll tab gains "💰 Commission helper — {month} sales RM X × rate": rate box (default 1.5%), staff picker, live "= RM Y", and **Fill commission box** which writes the amount into that person's COMMISSION draft — CEO reviews the row, then Save all recomputes net and the payslip shows a COMMISSION line as usual. Helper hides itself on an old worker. Worker + frontend.
 
 ## [1.4.225] — 2026-08-05 — Category label "memo" (was "memo dalaman")
 
 ### Changed (CEO)
+
 - The category option now reads plain "memo", matching the other lowercase categories. Behaviour unchanged — picking it still switches the boxes to Kepada/Daripada + Tarikh/Perkara. Frontend-only.
 
 ## [1.4.224] — 2026-08-05 — Publish news order: Category → Subject → To → From → Body
 
 ### Changed (CEO: "resort - Category, Subject, To: all the staffs, from: Management and Body")
+
 - Form order now Category first, then Subject, then To | From, then Body. Defaults per his wording: To = "All the staffs", From = "Management" (memo dalaman still relabels to Kepada/Daripada with Tarikh + Perkara). Frontend-only.
 
 ## [1.4.223] — 2026-08-05 — Publish news: Subject / To / From / Body on every post
 
 ### Changed (CEO: "placement textbox I want: Subject, To: From: and Body")
+
 - The form is now Subject (was Title) → Category → To ("Semua Pekerja @all") | From ("Pengurusan") → Body — the To/From placement boxes appear on EVERY post, not only memos. On publish they compose into the body as "To: … / From: …" lines, rendered with bold labels by the v1.4.215 MemoBody; blank boxes are skipped.
 - Memo dalaman keeps its extras: To/From relabel to Kepada (To) / Daripada (From) and Tarikh + Perkara appear alongside. Frontend-only (`pnpm build`).
 
 ## [1.4.222] — 2026-08-05 — Fulfilment chips drill into the orders behind them
 
 ### Added (CEO: "clickable card which will appear the data of the fulfillment")
+
 - Every Fulfilment status chip is now a button — click Shipped 4 and a table opens under the chips with those orders: ref, date/time (MYT), courier · tracking, buyer city, amount; sticky-header scroll at 200-row cap; click again (or another chip) to switch/close. Empty statuses say so.
 - GET /staff/fulfilment/summary gains additive `?status=` returning `orders` for that status this month, newest first — existing consumers unaffected. Worker + frontend.
 
 ## [1.4.221] — 2026-08-05 — New panels join the standard save popup
 
 ### Fixed (CEO: "there is no save popup notification" on Tab access control)
+
 - Tab access control and the Assets panel confirmed saves with a quiet inline line only — every other Save in the portal pops the v1.4.87 animated toast. Both now use the same useSaveToast: "Access saved — takes effect on each person's next refresh" / "Back to default" on tab access; "Asset added" / "Asset updated" (and a notice-variant popup on failure with the server's message) on assets. Inline detail lines kept as secondary. Frontend-only (`pnpm build`).
 
 ## [1.4.220] — 2026-08-05 — Webhook failures get a definitive test instead of guesswork
 
 ### Added (failures continued AFTER the secret update — 44 at ~30-min spacing = TikTok RETRYING the same undelivered event until it gets a 200)
+
 - The webhook receipt now stores the actual signature value (derived, public in transit — previously only "present"/"absent" was kept, making any replay impossible).
 - New GET /integrations/tiktok/webhook-debug (ceo/coo/admin/super_admin): replays the newest FAILED event's stored body + signature against the secret the worker holds RIGHT NOW (scheme A or B; B skips the 5-minute freshness check — the HMAC is the question, not the age) and returns a verdict.
 - Connection card, when the last event failed, gains "🔍 Test the current secret against the last failed event" with four honest outcomes: ✅ current secret verifies it (update worked; the next TikTok retry passes and the card greens itself) · ❌ still mismatched (wrong copied value — re-view in Partner Center; or, if a relay header is present, it's Make/Zapier and TIKTOK_WEBHOOK_SECRET is the secret to set) · signature absent entirely (relay or foreign poster) · legacy event predating the diagnostic (test again after the next ~30-min retry). Worker + frontend.
@@ -1315,6 +1449,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.219] — 2026-08-05 — 🔐 CEO tab access control
 
 ### Added (CEO: "users access control for CEO to assigned to the roles … which users need to access the tabs")
+
 - New 🔐 Tab access control card on the Users tab (CEO + super_admin): per tab, click role chips on/off and Save, or Reset to default. Shows each tab's effective access at a glance ("custom" vs "default" badge). Changes apply on each person's next page refresh.
 - Storage: one system_meta row (`tab_access`) of { tab: roles[] } overrides — GET /staff/tabs/access (any staff; the tab strip needs it) + POST (CEO/super_admin only, tab + roles validated, audited tabs.access_change). No migration.
 - The portal tab strip consults overrides first, then the built-in defaults. Safety rails: Dashboard + Profile are not configurable and always visible (clock-in and payslips can never disappear); super_admin ignores overrides entirely — the escape hatch if an assignment locks even the CEO out; a fetch failure (old worker) falls back to defaults so a split deploy can never blank the tab strip. Worker + frontend.
@@ -1322,6 +1457,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.218] — 2026-08-05 — Staff directory can never blank again on migration skew
 
 ### Fixed (CEO: "all staff details was gone! it is supposed to have their data" — NO DATA WAS LOST)
+
 - Root cause: the v1.4.213 worker deployed BEFORE migrations 0058/0059 were applied, so GET /users selected columns that don't exist yet ("no such column: address") — the whole query failed and the directory rendered empty. The data was untouched the entire time.
 - Migration-skew armor: GET /users (and the PATCH lock-policy SELECT) now catch "no such column" and fall back to the pre-0059 column list, logging error tag `migration_skew` with the exact fix. The directory always renders; the seven profile fields simply appear once migrations run.
 - The directory itself now says WHY it's empty on a failed load (amber line: data is safe, worker/database out of step, run migrations + deploy) instead of silently showing nothing.
@@ -1330,23 +1466,27 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.217] — 2026-08-05 — Ecommerce order per CEO; connection card learns "fixed, waiting for next event"
 
 ### Changed
+
 - Ecommerce tab order (CEO): TikTok Orders → Live GMV → Sales by hour → Fulfilment → 🔌 TikTok connection last.
 - CEO reported the ⚠ signature warning "still got this error even after insert the API" — the card was reporting HISTORY: the 7-day counter and the last event's verdict stay red until TikTok sends the NEXT webhook, regardless of the fixed secret. Status route gains two additive keys (last_verified_at, last_failed_at) and the card now has three honest states: newest event verified with old failures still in the window → green "✅ Secret fixed — failures age out"; newest event failed → amber explains it stays until the next event arrives and how to trigger one (small test order); no failures → nothing. Worker + frontend.
 
 ## [1.4.216] — 2026-08-05 — Sales revenue moves above Upcoming events
 
 ### Changed (CEO)
+
 - Dashboard order: Quick actions → Pending leave | My open tasks | News → **Sales revenue** → Upcoming events. One-mount swap; frontend-only.
 
 ## [1.4.215] — 2026-08-05 — News gains a proper "memo dalaman" format
 
 ### Added (CEO pasted his real internal memo: "I want the placement text box is like this")
+
 - New category **memo dalaman** on Publish news. Picking it reveals the formal memo header boxes — Kepada (pre-filled "Semua Pekerja @all"), Daripada ("Pengurusan"), Tarikh (today in Malay, e.g. "5 Ogos 2026"), Perkara — so a standard memo needs only Perkara + the content. On publish the headers compose into the body ("Kepada: …" lines); no schema change, worker just allows the new category.
 - New MemoBody renderer for the feed: "Label: value" lines render with a bold label (Kepada, Tarikh, Masa, Lokasi Office — any short label), consecutive "* " lines become a real bullet list, blank lines space paragraphs. His pasted memo renders exactly as written. Plain announcements contain no label/bullet lines and render as before. Verified the parse rules against his actual memo lines. Worker (one word) + frontend.
 
 ## [1.4.214] — 2026-08-05 — Dashboard slimmed; new Ecommerce tab gathers every TikTok card
 
 ### Changed (CEO: "Resort and make it like this … Create new Ecommerce tabs and move all the below card into it")
+
 - Dashboard order is now exactly: **Quick actions → Pending leave | My open tasks | News → Upcoming events**, with Sales revenue (all channels — the CEO's daily number, not TikTok-specific, so it was not on the move list) below.
 - New **Ecommerce** tab (between Inventory and Assets, visible to all staff): 🔌 TikTok connection → TikTok Orders → Live GMV → 🕐 Sales by hour → 📮 Fulfilment. The revenue-gated cards keep their role gate inside the tab.
 - TikTokOrdersCard exported from role-panels and MOVED out of the Inventory tab (tombstone comment left); Sync now lives on Ecommerce, Inventory keeps the stock views. Frontend-only (`pnpm build`).
@@ -1354,16 +1494,19 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.213] — 2026-08-05 — Assets tab (team feedback) + Staff Details becomes a profile
 
 ### Added — 🧰 Assets tab (MIGRATION 0058)
+
 - New `assets` table + routes: GET /staff/assets (list + assigned name), POST /staff/assets (auto asset-tag AZOA-001… when left blank; UNIQUE-tag guard), PATCH /staff/assets/:id. View/edit = the Staff-Details tier (hr_admin/coo/cco/ceo/admin/super_admin; CEO reads via exec_view, edits via hr tier rules on the routes). Assets are never deleted — status moves to lost/disposed so history and audit survive. All writes audited.
 - New AssetsPanel (new file): summary chips (In use / Spare / In repair / Lost / Disposed + active value), collapsed "+ New asset" form SECTIONED per the CEO's ask — 🏷 Identification (tag, name*, category, brand & model, serial) → 🧾 Purchase (date, price RM, vendor, warranty until) → 📍 Assignment & status (assigned-to staff dropdown, location, status, condition note) — and a sticky-footer register table with per-row Edit. Tab registered after Inventory, same role tier as Staff Details.
 
 ### Changed — 👤 Staff Details profile look (MIGRATION 0059)
+
 - The flat 15-field grid becomes a PROFILE: three subhead sections — 👤 Personal → 💼 Employment → 🏦 Bank & statutory — same inputs, same fill-then-lock policy, easier for HR to scan and update.
 - Seven fields the record was missing (the "important details"): home address + emergency contact (name/phone/relationship) for duty of care, and EPF (KWSP) / SOCSO (PERKESO) / income-tax (LHDN) numbers — ready for the moment the pending statutory registration completes. Added to users, the GET /users select, and the PATCH allow-list with the same lock policy as everything else.
 
 ## [1.4.212] — 2026-08-05 — Three new cards from the approved architecture review (extension-only)
 
 ### Added (CEO APPROVED the review's recommended build order; zero existing components/layouts/routes altered)
+
 - 🔌 **TikTok connection** (Dashboard, all staff): Shop authorization state, last synced order, last webhook + signature verdict, 7-day signature-failure count — with the exact fix spelled out when failures exist (re-copy secret → wrangler secret put → deploy). NEW file connection-status-card.tsx consuming the EXISTING /integrations/tiktok/status route (v1.4.48), which gained two ADDITIVE keys (last_order_at, failed_events_7d).
 - 🕐 **Sales by hour** (revenue-role gate): hourly MYT histogram of the last 7 days across the same bases as the revenue card (shipments with order amounts, returned excluded, + manual sales) — pure-div bars (no chart library, by design), peak hour highlighted for scheduling LIVE sessions. NEW file + NEW route GET /staff/sales/by-hour (guard revenue_view).
 - 📮 **Fulfilment** (revenue-role gate): this month's shipments by status (preparing/shipped/in_transit/delivered/returned per the 0007 schema) with the oldest still-preparing order and its age. NEW file + NEW route GET /staff/fulfilment/summary (guard revenue_view).
@@ -1372,6 +1515,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.211] — 2026-08-05 — Early payslip release is a first-class flow (for the right month)
 
 ### Changed (CEO: "If I want to have a function mechanism to release the payslip earlier then how?")
+
 - The mechanism is the existing "Release now" on the month being PAID: month picker → last month → Release now. v1.4.211 makes that path friendly instead of scary: the confirm is now month-aware — releasing LAST month early (paying salaries before the 5th) gets a benign "Release {month} ahead of the automatic date? This is the normal early release…" while the current/future month keeps v1.4.210's strong wrong-month warning.
 - Signpost added: when the CURRENT month is on screen, the schedule line ends with "Paying salaries early? The payslips to release are {last month} — pick that month above, then Release now." so the rule never has to be remembered.
 - Undo release (v1.4.210) covers both cases unchanged. Frontend-only.
@@ -1379,6 +1523,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.210] — 2026-08-05 — Payslip release flow matches the payment cycle (early-release guard + undo)
 
 ### Fixed (CEO: "if I release payslip earlier than 5th, it is for last month instead of next month — this is the correct process flow by right")
+
 - What happened: viewing August (the default month) he pressed "Release now", which released 08-2026 payslips at 00:42 UTC on 5 Aug — but the run being PAID in early August is JULY's, and July's payslips open automatically on 05-08 10:00 MYT with no action needed. The button silently released the wrong month a month early.
 - "Release now" on any month whose automatic date is still in the future now asks for confirmation, spelling out the flow: "{month} releases automatically on {date} — AFTER the month closes. The salary run you are paying now is LAST month's ({prev}) — its payslips release by themselves on the 5th. Release {month} EARLY anyway?"
 - The RELEASED banner detects an early release (automatic date still in the future) and shows "⚠ Released EARLY … The salary run you pay this week is LAST month's" plus a one-click **Undo release** — POST /payroll/release { undo:true } deletes the override (audited payroll.release_undo) and the automatic gate resumes. After the automatic moment, undo is a visibility no-op by design.
@@ -1387,12 +1532,14 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.209] — 2026-08-04 — Staff Details action buttons wrap on phones
 
 ### Fixed (CEO's iPhone screenshot: "mobile view apps out")
+
 - Staff directory: with a record open, the header action span holds FIVE buttons (Save, Preview badge, Print badge, Replace/Upload photo, Hide details) in a non-wrapping flex row — on a phone it ran past the right screen edge, clipping "Hide details". Now `flex-wrap justify-end` per the v1.4.154 phone width standard: buttons flow onto extra lines, right-aligned, nothing off-screen.
 - Swept the file for other non-wrapping action rows: the staff-vault Download · Delete pair is two short links and cannot overflow — left as is. Frontend-only (`pnpm build`).
 
 ## [1.4.208] — 2026-08-04 — Expenses: paid / outstanding tracking per month
 
 ### Added (CEO: "track that I have paid and how many more outstanding for me to clear off … remaining amount for each month")
+
 - Every expense row gets a green-outline "Mark paid" button; once paid the chip reads "✓ PAID {date}" and the button becomes a subtle "Undo paid" (the /expenses/:id/paid route is now a toggle — body { paid:false } clears the mark, audited either way).
 - Header summary under the month Total: green "Paid RM a · bold amber Outstanding RM b (n to clear)" — outstanding counts unpaid expense rows + the payroll run if not yet Marked paid + approved claims not yet 💸 paid, i.e. the same three components as the Total. When everything is cleared it flips to "✅ All cleared — RM x paid".
 - Payroll and claims keep their existing Mark-paid flows (Payments due card / Claims tab); the summary just reads their state. Worker + frontend; no migrations (paid_at existed since v1.4.88 — the UI never exposed it on rows).
@@ -1400,21 +1547,25 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.207] — 2026-08-04 — TOTAL rows stay visible while the tables scroll
 
 ### Changed (CEO: "can you make the total fit eventho scrolling")
+
 - globals.css: `.tbl-sticky tfoot td/th` pins to the BOTTOM of the scroll area — the mirror of v1.4.189's sticky subheads, with the same inset-shadow divider (real borders scroll away under border-collapse). Any tbl-sticky table that gains a tfoot inherits it automatically.
 - The TikTok stock-out TOTAL row moved from the end of tbody into a real `<tfoot>` so the rule catches it; the Inventory live-status TOTAL already lived in a tfoot and pins with no markup change. Both cards now show sticky subheads at the top AND the TOTAL at the bottom while the rows scroll between them. Frontend-only.
 
 ## [1.4.206] — 2026-08-04 — Live engagement card removed; today's sales get a trend arrow vs yesterday
 
 ### Removed (CEO: "remove it Live engagement — TikTok since I cant get the API!")
+
 - LiveEngagementCard deleted from the Dashboard entirely (v1.4.204's conditional hide still let non-scope errors through, e.g. TikTok "Internal error"). A tombstone comment in page.tsx records why and how to rebuild if TikTok ever grants the scope; the worker route /api/v1/live-analytics stays dormant and harmless.
 
 ### Added (CEO: "compare yesterday sales by telling the staff it is either arrow uptrend or downtrend")
+
 - GET /staff/revenue now also returns `yesterday: { date, total_cents }` — the same four channel bases (TikTok orders, payments received, other shipments, manual sales) scoped to yesterday MYT and summed into one comparable number. The day-scoped queries were generalised to take a date instead of being hard-bound to today.
 - The 🔥 Today box shows the trend under the channel line: green "▲ Uptrend — RM x above yesterday (RM y)", red "▼ Downtrend — RM x below yesterday (RM y)", or a neutral "level with yesterday". Hidden only when both days are zero. Worker + frontend; no migrations.
 
 ## [1.4.205] — 2026-08-04 — M2E file matches the CEO's real working batch exactly
 
 ### Changed (CEO's screenshots of a real generated batch: "one click download and upload without touch up")
+
 - Favourite Recipient Code (col D) now auto-fills from each staff member's **Employee ID** (AZOOM002, AZOOA001, …) — his M2E favourite recipients are registered under the portal's employee IDs, so no new data entry is needed anywhere.
 - Own Ref (col N) is now **unique per row**: `PAYROLL{MMDDYY of value date}{01,02,…}` — e.g. PAYROLL08052601…05 for value date 05082026 — matching his working batch instead of one shared reference.
 - Client Batch ID is now a stored setting (his batch uses MYAONOF1D, not a generated value): new field in ⚙ M2E setup, saved to system_meta, filled into the Home sheet on every download. Setup counts as incomplete until it's saved.
@@ -1423,6 +1574,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.204] — 2026-08-04 — Live engagement card hides itself while the LIVE scope is ungrantable
 
 ### Changed (CEO chased the scope through Partner Center + Seller Center; conclusion documented)
+
 - CONFIRMED: the LIVE analytics scope (package "Live Data", Scope ID 8851204, key `creator.data.live.read.public`) CANNOT be granted through the TikTok Shop **seller** authorization flow. Evidence: (a) Partner Center shows the package Active but Publish → **Available 0 / Unavailable 1**, so it never reaches the published scope set; (b) ELFIA's consent page (fresh Authorize from Seller Center → App store → My apps and incidents) lists exactly seven Shop scopes — Order Information, Fulfillment Basic, Logistics Basic, Global Shop Information, Return & Refund Basic, Shop Authorized Information, Update Delivery Status — and no Live Data. It is a creator-side scope on a Shop-seller app; only TikTok approval can change it.
 - LiveEngagementCard therefore returns null on permission/scope errors instead of rendering a red error block on the CEO's dashboard every day. Other errors (network, missing route) still show their message, so a genuine fault is never silently swallowed. If the scope is ever granted, the card starts rendering again with no code change.
 - Live GMV (LiveGmvCard) is unaffected — it comes from our own order data and needs no TikTok permission.
@@ -1431,6 +1583,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.203] — 2026-08-04 — 💳 now generates the FILLED Maybank2E workbook itself
 
 ### Added (CEO: "I WANT the button can generate like this files!")
+
 - NEW worker/src/m2e.ts: fills the official RCGEN2 .xlsm inside the Worker — an .xlsm is a ZIP of XML, so we unzip (DecompressionStream deflate-raw, zero dependencies), patch the Home sheet + salary rows as inline-string/numeric cells (leading zeros in value dates/ICs survive, unlike Excel paste), and rezip (STORE + hand-rolled CRC32). vbaProject.bin is never touched, so the template's own generate/upload macros keep working. Verified in Node against the real template: all 73 zip entries preserved, CRCs valid, values correct, VBA intact.
 - GET /payroll/m2e-file?month= → the filled workbook: Home sheet (Corporate ID, Client Batch ID AZOO{MM}{YYYY}, payer account, Value Date per the v1.4.202 5th-or-earlier rule, ?value_date override) + every payable row from row 5 (mode IT/IG, amounts, accounts, bank codes, NRIC in col J). Staff with missing/unrecognised bank details are skipped and named in an X-M2E-Skipped header → toast. 409 with guidance when setup is incomplete.
 - One-time ⚙ M2E setup (Payroll tab, payroll processors only): upload the BLANK official template once (binary POST /payroll/m2e-template → R2 private/m2e/template.xlsm, validated by a dry-run fill, added to the binary exclusion list) and save Corporate ID + payer account (GET/POST /payroll/m2e-settings → system_meta). The M2E User ID and password are login credentials and are NEVER asked for nor stored.
@@ -1439,6 +1592,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.202] — 2026-08-04 — Payment file Value Date follows the company payment rule
 
 ### Changed (CEO: "they payment date is always on 5th, if fall on weekend it will be earlier")
+
 - The M2E salary file's default Value Date is no longer "today": it is now the **5th of the month after the payroll month, shifted EARLIER to the Friday before when the 5th falls on a weekend**. July payroll → 05-08-2026 (Wed); August → 04-09-2026 (5 Sep is Saturday); November → 04-12-2026; December → 05-01-2027.
 - This is deliberately the opposite direction from the payslip RELEASE rule (v1.4.82–85, shifted forward) — staff see payslips on/after the day the money moves, never before it's due.
 - `?value_date=YYYY-MM-DD` still overrides, and a # footer line states the computed date + the rule so it's auditable in the file itself. Worker-only.
@@ -1446,6 +1600,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.201] — 2026-08-04 — Payroll payment file now matches the official Maybank2E RCGEN2 template
 
 ### Changed (CEO uploaded RCGEN2 - M2E Funds Transfer R3 V1.6.xlsm: "this is the format given by Maybank2E for me to make bulk payroll")
+
 - GET /payroll/payment-file rebuilt around the template's "Salary Bulk Payment (MY)" sheet (headers row 4, data from row 5): the CSV's columns now mirror cols A–Q exactly — Payment Mode, Value Date (DDMMYYYY), Recipient Name 1 (≤40, sanitized), Favourite Code, Amount, Account No (digits only), Recipient Bank Code, Names 2/3, New IC No (from staff ic_number), Old IC/Biz Reg/Passport, Own Ref (AZOO{MM}{YYYY}), Recipient Description, Email, Payer Description — so the data rows paste straight into the template at A5.
 - Payment Mode auto-set per row: IT (intrabank) when the staff bank maps to Maybank, else IG (GIRO/ACH) — payer account is Maybank.
 - Recipient Bank Code resolved from staff free-text bank_name against the template's own "Recipient Bank Code" sheet (27 fragment mappings: Maybank/CIMB/Public/RHB/Hong Leong/AmBank/Bank Islam/Muamalat/BSN/Rakyat/Agrobank/Affin/Alliance/Al-Rajhi/MBSB/OCBC/UOB/HSBC/StanChart/Citi/KFH/BOC). Unmatched → cell says FILL-IN + a # footer names who to fix in Staff Details.
@@ -1455,6 +1610,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.200] — 2026-08-04 — HOTFIX: Live engagement — TikTok rejects currency=MYR
 
 ### Fixed (user: "I already toggle on live data but still not appear!" — card showed TikTok: Currency is invalid, allowed values: USD, LOCAL)
+
 - MY BUG in v1.4.197: the analytics call sent `currency: "MYR"`, but TikTok's overview_performance endpoint only accepts `USD` or `LOCAL` (LOCAL = the shop's own currency, i.e. MYR for us). Now sends `LOCAL`. The error itself proved the deploy + Analytics scope are fine — TikTok processed the request and complained only about this parameter.
 - Error hint corrected: the "grant the Analytics scope…" suffix now only appears when TikTok's message actually reads like a permission problem; parameter errors show TikTok's message plainly.
 - Errors were never cached (cache stores successes only), so the fix shows on the next card refresh after deploy.
@@ -1462,6 +1618,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.199] — 2026-08-04 — Sort by clicking the column headers; sort pills removed
 
 ### Changed (per the CEO: "remove sort button, I want to click A to Z or Z to A by the subhead table instead. but need to sort based on the SKU for Inventory … and TikTok Live — stock out based on today hot sales")
+
 - Both cards' "Sort:" pill rows are GONE — sorting now lives in the column headers themselves. Click a header to sort, click again to reverse; the active column shows ▲/▼.
   - **Inventory — live status & stock**: clickable SKU (natural 1→end / reversed) and Item (A→Z / Z→A). DEFAULT: SKU 1→end, exactly as the CEO specified.
   - **📉 TikTok Live — stock out**: clickable Out today, SKU and Item. DEFAULT: today's hot sales first (ties broken by month then SKU — deterministic), exactly as specified; click Out today again for coldest-first.
@@ -1470,6 +1627,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.198] — 2026-08-04 — Table alignment: numeric columns right-aligned in both Inventory tables
 
 ### Fixed (per the CEO: "Do properly aligned the text in table and ensure it is fit well with the table size")
+
 - New shared classes thR2/tdR2 — right-aligned header + cell with `tabular-nums` so digits stack in tidy columns. Applied consistently through HEADER, BODY and TOTAL FOOTER of both cards from the screenshots:
   - **Inventory — live status & stock**: Price/unit (input itself right-aligned too), Live rebate, Net (live), Stock. SKU/Item/Status/controls stay left; the v1.4.188 TOTAL footer values line up under their columns.
   - **📉 TikTok Live — stock out**: Out today, This month, All time, Avg sold @, Sold value (month), Left in stock, Last order — and the v1.4.171 weighted TOTAL row matches.
@@ -1478,15 +1636,18 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.197] — 2026-08-04 — 📊 Live engagement from TikTok's official analytics API
 
 ### Added (per the CEO's LIVE Center screenshots: "I want to bring this data into my dashboard too, possible?")
+
 - **GET /api/v1/live-analytics** (any signed-in staff role): last-7-days shop LIVE performance from the official `/analytics/202508/shop_lives/overview_performance` endpoint — views, impressions, likes, comments, shares, new followers, items sold, buyers, LIVE session count and TikTok's Attr. GMV. Tolerant metric extraction (structure-only diagnostic logged if TikTok changes shape); 30-minute cache in system_meta so staff views never hammer TikTok; TikTok's own error message surfaced verbatim while the **Data & Insights (Analytics) scope** isn't granted yet.
 - **LiveEngagementCard on the Dashboard**, under Live GMV, 5-min refresh, metrics behind a v1.4.196 DetailsToggle. Honest notes baked in: TikTok's attribution can differ slightly from our order-window GMV (both labeled), and **LIVE Rewards (diamonds) is creator-side monetisation that the Shop API does not expose** — deliberately absent rather than faked.
 
 ### Deploy
+
 - Worker deploy required this time (`wrangler deploy`) + `pnpm build`. User-side gate: grant the Data & Insights (Analytics) scope in Partner Center, publish, re-authorize.
 
 ## [1.4.196] — 2026-08-04 — Click-to-expand details: the minimalist-view standard
 
 ### Added (per the CEO: "by click on the data I can see the details data. if I didnt click on the data then it will hide the details data. this is to minimalist the view. Do check if the other card also need to have this feature and function like globally")
+
 - New global `DetailsToggle` component (components/ui/details-toggle.tsx): a ▸ one-click disclosure — collapsed by default every visit, click to reveal, click to hide again. THE STANDARD: summary figures, callouts and action forms stay visible; supporting DETAIL/HISTORY lists collapse behind it.
 - Applied across the portal audit: 🔥 Live GMV → "Last 7 days" rows; 👁 Attendance monitor → full per-staff list (the ⚠/⏳ callouts stay); TikTok Orders → order rows (status line + filter counts stay); Supplier returns → history list (summary strip + Record-return form stay); 🛠 Manual stock out → audit records with a live count in the label.
 - Deliberately left always-visible (working surfaces, not detail): Inventory live-status table (has forms + TOTAL), TikTok stock-out performance table, Sales Pipeline, Payroll processing, Attendance verification/corrections. Frontend-only.
@@ -1494,27 +1655,32 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.195] — 2026-08-04 — HOTFIX: v1.4.191/193 cards called routes without the /staff prefix
 
 ### Fixed (the CEO's console caught it: GET /api/v1/gmv → 404)
+
 - MY BUG, not a deploy problem: page.tsx's api() helper is based at /api/v1 and every staff route must pass the /staff prefix explicitly — the v1.4.191 and v1.4.193 cards omitted it, so ALL their calls 404'd no matter which worker was deployed. The CEO's worker deploy (version 8a8c46b0) was correct the whole time. Fixed all nine call sites: /staff/gmv, /staff/attendance/ot/pending + /decide, /staff/live-sessions (GET/POST/PATCH), /staff/users, /staff/customers, /staff/clients/summary. Audit confirms zero non-/staff api() calls remain in page.tsx; staff-directory.tsx was already correct (its own base includes /staff). Frontend-only — `pnpm build` + hard refresh; NO worker redeploy needed.
 
 ## [1.4.194] — 2026-08-04 — Live GMV card announces itself
 
 ### Fixed (per the CEO: "I didnt see any gmv on the dashboard")
+
 - The CEO's screenshot was the pre-v1.4.193 build — but the card ALSO rendered nothing while loading or when the worker route was missing, which would have looked identical. It now always shows: "Loading today's live GMV…" while fetching, and a clear "Live GMV needs the latest server — run the worker deploy" line if /gmv isn't there yet, instead of silently vanishing. Frontend-only on top of v1.4.193.
 
 ## [1.4.193] — 2026-08-04 — 🔥 Live GMV on the Dashboard for every staff member
 
 ### Added (per the CEO: "insert live GMV into my /portal at dashboard tabs for my staff view their live GMV daily results")
+
 - **GET /staff/gmv** (every staff role): TikTok Live GMV — today's total + order count (gold box), this month, and the last 7 days as daily rows; from order amounts on TT- postage records, returned orders excluded, MYT scoping. When the viewer has a live session scheduled TODAY (v1.4.191 roster, end time set), a green "During your live today" box additionally shows the GMV that landed inside their session window(s) — window-based attribution for motivation, deliberately not a payroll figure; no double counting on overlapping sessions (EXISTS).
 - **LiveGmvCard on the Dashboard**, mounted right under Quick actions for ALL roles, auto-refreshing every 5 minutes — the whole team sees today's live results the moment they open the portal. Uses the theme-independent solid chip palette (amber/green -100/-900) per the v1.4.178 rule.
 
 ## [1.4.192] — 2026-08-04 — Card spacing standardized on every multi-card tab
 
 ### Fixed (per the CEO: "why the card too close? check all the files ensure that all standardize")
+
 - The v1.4.191 cards were mounted in bare fragments, so tabs stacking several components had no uniform gap between cards (visible between My attendance and Live session schedule). STANDARD applied everywhere: every multi-card tab wraps in the Profile-style `space-y-4 md:space-y-6` container — /portal Attendance (Attendance + OT approvals + Live schedule + corrections), Sales (Sales + Clients + Customer enquiries), HR (HrPanel + HrAdminPanel), and /admin Staff (StaffDirectory + HrAdminPanel + StaffPanel, previously ad-hoc mt-6 divs). The Attendance component's internal root aligned to the same scale. /admin Audit + Account and /account already followed the standard (verified). Frontend-only.
 
 ## [1.4.191] — 2026-08-04 — Eight gaps closed: OT approvals · enquiry replies · low-stock alerts · live roster · client layer · staff vault · off-site backup · PDPA
 
 ### Added (the CEO's selected gap list, all eight)
+
 - **OT approval chain (migration 0054)** — ot_records gains status/decided_by/decided_at/decision_note. New "⏱ Overtime approvals" card on Attendance (CEO/COO + admin tier): completed day-pairs pending decision, Approve/Reject with optional note (reject = branded danger confirm), staff bell-notified either way, self-decision blocked, audited. Only APPROVED OT will feed payroll when the rounding rule lands.
 - **In-app enquiry replies (migration 0055)** — enquiries gain reply/replied_by/replied_at. Staff reply inside the portal's Customer enquiries card ("↩ Reply in-app" / "✎ Update reply"); sending auto-marks new → contacted; the customer reads a green "AZ ONE OFFICIAL replied…" box in their /account thread (reply fields ride both list endpoints, pre-0055 tolerant).
 - **Low-stock alerts (in migration 0056: inventory_items.low_alerted)** — bell notifications to active sales_marketing + the CEO when an item crosses to ≤5 ("⚠ Low stock… N left") or 0 ("🛑 OUT OF STOCK"). Instant on every manual movement (checkLowStock hooked after adjust/out/edit/revert/postage in staff.ts) and swept after each 30-min sync for TikTok deductions; low_alerted stops repeats and resets above 5.
@@ -1527,27 +1693,32 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.190] — 2026-08-04 — Johor location fallbacks + diagnostic · Attendance verification scrolls
 
 ### Fixed (per the CEO: "location still be able to detect except in Johor. Attendance verification should scrollable")
+
 - **Location (Johor orders blank)** — the extraction chain gains the remaining FLAT keys some regional payloads use (`district`, `town`) in both the sync and webhook paths. And because a still-blank order means TikTok sent a shape we haven't seen, a privacy-safe diagnostic now records the payload STRUCTURE (key names + district_info level names only — never any values) to the error log whenever no location can be extracted. Press **Sync from TikTok**: either the 📍 appears via the new fallbacks, or the /admin Audit → System health error log will show exactly which keys the Johor payload carries so the chain can be extended precisely.
 - **Attendance verification** — the table now scrolls inside its card (max-h ≈ 28rem) with sticky column subheads per the v1.4.189 standard, instead of stretching the page.
 
 ## [1.4.189] — 2026-08-04 — Sticky subheads in every scrollable table
 
 ### Added (per the CEO: "every subhead will be remain if scrollable")
+
 - New `.tbl-sticky` utility: inside a scrollable card the column subhead row (SKU / ITEM / PRICE… etc.) pins to the top while rows scroll beneath — solid card background, inset-shadow divider (theme-aware). Applied to ALL six capped tables: Inventory live-status, TikTok Live stock-out, Manual stock-out traceability, Sales Pipeline, Attendance corrections & back-entry, and the Payroll processing table (plus the capped claims-compilation table). Frontend-only.
 
 ## [1.4.188] — 2026-08-03 — Inventory TOTAL: stock value on hand
 
 ### Added (per the CEO: "I want to have the total of inventory prices for me to monitor how much that Stock I have for me to clear off")
+
 - Bold **TOTAL — stock on hand** footer on the Inventory live-status table (same footer standard as the stock-out card): total units in stock, **value at list price** (Σ stock × price/unit) under Price/unit, and **value at net (live)** in green (Σ stock × (price − auto rebate)) under Net (live) — what clearing everything on TikTok Live would actually bring in. Recomputes live as prices, rebates and stock change. Frontend-only.
 
 ## [1.4.187] — 2026-08-03 — Tab rows flush with card width
 
 ### Fixed (per the CEO: "tabs width was not same with card width")
+
 - The desktop nav was a wrap of fixed w-32 pills — 8 pills + gaps never summed to the container width, so the row's right edge fell short of the card edge below. All three navs (/portal, /admin, /account) are now full-width GRIDS of equal columns filling the container exactly: 16 portal tabs = two perfect rows of 8, flush left AND right with the cards; /admin's visible tabs span one flush row; /account's two tabs form a flush segmented pair. Pills stay uniform (equal columns replace the fixed w-32); roles with fewer tabs get equally-divided flush rows. Frontend-only.
 
 ## [1.4.186] — 2026-08-03 — Mobile view audit: date-input overflow killed, Expenses + Attendance corrections rebuilt for phones
 
 ### Fixed (per the CEO's four phone screenshots: "All this was not aligned with the correct mobile apps view. I need you to audit all the tabs")
+
 - **Root cause across all four screenshots: iOS Safari date/datetime/month/time inputs have an intrinsic minimum width** — inside the phone's 2-column grid they refuse to shrink, overflowing the card edge (Leave End date, Tasks Deadline) or clipping (Attendance rows). Global guard in styles/globals.css: those input types are now `min-width: 0; max-width: 100%; appearance: none` — they can never overflow their container again, on ANY tab, current or future. Leave and Tasks needed nothing else (their markup was already the v1.4.154 standard).
 - **Expenses form (phones)**: the Description input was squeezed to a sliver sharing one line with Monthly recurring + Due day. Phone layout now follows the v1.4.154 grid — Description full-width on its own row, recurring/due-day a clean row, Record expense full-width; desktop's single inline row unchanged.
 - **Attendance — corrections & back-entry**: the ADD RECORD + filter controls predated the v1.4.154 standard (inline maxWidth styles escaped the class sweep) and wrapped raggedly. Rebuilt to the standard: phones get staff select full-width, then Clock in|Date, Time|Add, and full-width Find-staff + month rows; desktop keeps the capped inline row via sm:max-w.
@@ -1556,16 +1727,19 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.185] — 2026-08-03 — NRIC placeholder masked
 
 ### Fixed (per the CEO: "NRIC place holder should not put my NRIC number there! it is supposed to be XXXXXX-XX-XXXX")
+
 - The IC number field's example text used a real-looking NRIC ("e.g. 970209-01-5183") in BOTH the add-staff form and the staff-details editor — an actual number must never appear as reference text. All three occurrences (add form placeholder, details placeholder, tooltip) now show the masked format only: **XXXXXX-XX-XXXX**. Swept the codebase — no real-looking NRIC examples remain anywhere. Frontend-only.
 
 ## [1.4.184] — 2026-08-03 — Photo upload gets its save popup
 
 ### Fixed (per the CEO: "no popup successful when upload staff Photo")
+
 - Uploading/replacing a staff photo on the Staff tab only set a subtle inline flag — the one save action still missing the v1.4.89 popup family. Success now shows the branded toast "Photo uploaded — {name} — badge photo saved"; failure shows a notice toast with the reason (inline row message kept). Frontend-only.
 
 ## [1.4.183] — 2026-08-03 — Part-time live hosts paid hourly (RM15.00/h from the clock) · live-host status rule
 
 ### Added (per the CEO: "live host I should have either part time or contract/permanent … part time live host will be counted their payroll based on their working hour which is RM15.00 per hour … defined based on their clock in-out, there is no OT eligible for live host part time")
+
 - **Migration 0053** — `payroll_entries` += `hourly_minutes`, `hourly_rate_cents` (rate stored per entry so historic slips survive future rate changes).
 - **Hourly payroll for part-time live hosts** — one server-side formula (rate constant `RM15.00/h`, single place to change): clocked minutes = Σ per MYT day (first clock-in → last clock-out; unpaired days earn nothing until corrected); pay = minutes × RM15 ÷ 60; **Net = hourly pay + commission + allowance − deduction**. No worked-days proration, no unpaid-leave maths, no OT — none of the salary concepts apply. The SAVE route recomputes these figures authoritatively from attendance regardless of what the client sent (tamper-proof), 🔧 Recompute re-derives them, and the payroll GET returns LIVE clocked figures so the panel always shows the current month's hours.
 - **Panel** — hourly rows get an "⏱ hourly" chip; Basic shows read-only "225.00 · 15h 00m × RM15/h (auto from clock in–out)"; OT column shows "—" (not OT-eligible — CEO rule); Days column shows the clocked hours; the TOTAL row and Save-all use the same hourly formula, so Payroll/Expenses/P&L stay in tally.
@@ -1575,14 +1749,17 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.182] — 2026-08-03 — Tab layout pinned: no more sideways shift between tabs
 
 ### Fixed (per the CEO: "each tabs header keep changing their location either wide or little bit smaller … standardize like a Dashboard")
+
 - The shift was the browser SCROLLBAR: long tabs (Dashboard, Sales…) always show it, short tabs (Profile…) don't — so the page content gains/loses ~15px and every header nudges sideways when switching tabs. All 16 tabs already share the same max-w-6xl container (verified); the width itself was moving. Fixed globally in styles/globals.css: `html { overflow-y: scroll; scrollbar-gutter: stable; }` — the scrollbar gutter is permanently reserved, so every tab renders at exactly the same width across /portal, /admin and /account. Frontend-only.
 
 ## [1.4.181] — 2026-08-03 — /account: Google password clarity · direct staff contact (WhatsApp + categorized enquiries → portal)
 
 ### Answered/fixed (per the CEO: "they can change their password? … does it require to change the password?")
+
 - **Google customers have NO password here — nothing to change, and now nothing pointless shown.** The change-password server route already refused Google accounts (letting a hijacked session ADD a password would hand an attacker a permanent way in); the /account UI showed the form anyway with a footnote. `/auth/me` now returns an `oauth` flag and Google users see a clear info card instead: "You sign in with Google… your sign-in security is managed in your Google Account." Password accounts keep the form unchanged.
 
 ### Added ("add feature for the customer to directly contact staff for package inquiry or anything on AZ ONE OFFICIAL service")
+
 - **💬 WhatsApp direct card** on /account Enquiries: one tap to the official +60 12-383 4821 with a prefilled greeting — the fastest human channel.
 - **Categorized enquiries (migration 0052 `enquiries.category`)** — the Ask form gains "What is this about?": General / Package & pricing / Live commerce services / Order & delivery / Collaboration. Category chips on the customer's own thread list.
 - **Staff are bell-notified INSTANTLY** — every new enquiry notifies active sales_marketing, marketing and the CEO ("New customer enquiry (package & pricing): Dini…"), so a customer never waits for someone to remember to check a list.
@@ -1591,6 +1768,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.180] — 2026-08-03 — /admin role policy aligned: Google-account staff (auto part-time) + live_host_part_time option
 
 ### Fixed (per the CEO: "I cant manually assigned staff roles based on Google account … there is no roles live_host_part_time in the list!")
+
 - **/admin was still enforcing the OLD v1.4.42 rule** (personal emails flatly refused for staff roles) — the v1.4.156–157 policy was only ever applied to the portal route. Both /admin routes (PATCH role change + user creation) now follow the same policy: a Google/personal-email account CAN be assigned a staff role, with `employment_status` FORCED to part_time; permanent staff and admin-tier roles still require an @azoneofficial.com email.
 - **`live_host_part_time` in the role list** — a real dropdown option (role change + create form): maps to role `live_host` + `employment_status` part_time, assignable to any email; accounts already in that state display as `live_host_part_time` in the dropdown (users list now returns employment_status).
 - **Role changes in /admin are now SUPER ADMIN only** — matching your v1.4.157 security directive (previously any admin could change roles there); other /admin actions (suspend, reset password, force logout) keep their existing admin-tier access. Audit records the forced part-time alongside the role.
@@ -1598,30 +1776,36 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.179] — 2026-08-03 — Weekend OT all day · deeper order-location fallbacks
 
 ### Added (per the CEO: "for OT there should be appear on Weekend … except of executive")
+
 - **Weekend OT**: Saturdays and Sundays (MYT) are rest days — any work IS overtime. OT in / OT out are now available ALL DAY on weekends, with no prior clock-in required (there is no normal shift to extend). Weekdays keep the original rule: window from 18:00 MYT after a clocked-in day. Executives (CEO/COO/CCO + admin tier) and part-time staff remain excluded on every day. Dashboard shows the OT buttons all day on weekends with a helper note: "Weekend: the whole day counts as overtime — no normal clock-in needed."
 
 ### Fixed ("why there is a missing location?")
+
 - Some TikTok orders carry neither a flat `city` nor a `state` in their recipient data — those rows showed no 📍 at all. The extraction now falls further: district level (daerah), then ANY named area level TikTok sent. Still an area only, never the street address (privacy rule unchanged). Applies to both the sync and webhook paths; the sync's refresh pass backfills existing orders on the next "Sync from TikTok", so the missing 📍 on TT-…450950 should fill itself if TikTok provides any area level for it.
 
 ## [1.4.178] — 2026-08-03 — Readable callouts: monitor strips + payee banners
 
 ### Fixed (CEO's screenshot: "the color cant be seen")
+
 - The monitor's amber/blue callout strips (and the claims payee banners) used pastel `-50` backgrounds with `dark:` variants. On a device with system dark mode active, the dark variants fired over the light card — dark translucent background + pale text = unreadable mud. Restyled to the same treatment as the chips in the card (which read perfectly in the same screenshot): solid `-100` background, `-900` text, visible border, semibold — one look on every device and theme. Applies to: "⚠ Not clocked in", "⏳ Past 18:00 with no clock-out yet", and the 💰 payee banners (amber pay-to, green pays-to-you) in Claims.
 
 ## [1.4.177] — 2026-08-03 — HOTFIX: attendance monitor showed everyone as not clocked in
 
 ### Fixed (CEO's screenshot: monitor claimed nobody clocked in despite real punches today)
+
 - The v1.4.173 monitor query filtered `type = 'in'` / `'out'`, but punches are stored as **`clock_in` / `clock_out`** — the subqueries matched nothing, so every staff member showed "⚠ not clocked in" regardless of their real data. Both literals corrected; the monitor now mirrors the same values the punch routes themselves use. Swept the codebase for other bare in/out comparisons — none remain.
 
 ## [1.4.176] — 2026-08-03 — Payee always answered · set/change payee on existing claims
 
 ### Added (per the CEO: "I want to know who is the payees and to insert the payees")
+
 - **"Who gets paid?" is always answered** — for the CEO/admin tier/hr_admin, every claim's Details now shows a payment line even when no payee was chosen: "💰 Pay to: Nursyazwani (the submitter — no separate payee)". No more inferring from silence.
 - **✎ set/change payee on ANY existing claim** — new `POST /claims/:id/payee` (CEO/HR/admin tier only): an inline picker in Details sets, changes, or clears the payee on any claim regardless of status — including ones approved before the payee feature existed. The payee is payment routing, not claim content, so this never restarts the approval chain; every change is audited (`claim.payee_set`, before → after, claim status noted). The conflict-waiver logic (v1.4.174/175) reads the payee live, so a later-set payee still blocks the conflicted reviewer correctly.
 
 ## [1.4.175] — 2026-08-03 — Conflicted stage auto-waived: payee-blocked claims route straight to the CEO
 
 ### Added (per the CEO: "how to counter this?" — the CCO-payee case must not depend on remembering the override)
+
 - **Waived, not bypassed** — when a chain stage's approver IS the payee (HR review paying hr_admin; COO/CCO pre-approval paying the COO/CCO), that stage counts as **waived by design** on CEO approval: no "bypass" wording; the decision note reads "CCO pre-approval waived — approver is the payee (conflict of interest)" and the audit records `conflict_waived` separately from `chain_override`. Genuinely skipped stages still get the full override treatment.
 - **Notification reroutes** — a new/edited/resubmitted claim whose first stage is conflicted notifies the CEO directly: "(pre-approver is the payee — for your direct decision)" instead of pinging someone forbidden from acting.
 - **CEO dialog softened** — approving a waived-only claim shows "Approve directly? … your direct decision is the designed route" instead of the scary incomplete-chain bypass warning (which remains for real skips, including mixed cases).
@@ -1630,6 +1814,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.174] — 2026-08-03 — Payee visibility: the person being paid always sees the claim
 
 ### Fixed (per the CEO: "if the payee is COO or CCO how? or on behalf of the staff how? they need to view what the claim status is")
+
 - **The payee always sees the claim raised in their name** — every claims-list scope gains "or I am the payee", so a staff member, the COO, or the CCO whose claim HR submitted on their behalf can open Claims and track it: pending → approved → 💚 PAID. Previously a staff payee couldn't see the claim at all, and a COO/CCO payee had the payee info stripped from their own claim.
 - **Payee-facing UI** — on their own rows the payee gets a green "💰 pays to you" chip beside Details and, expanded, a green banner: "This claim was raised on your behalf by {claimant} — the payment comes to YOU once the CEO approves." Everyone else's visibility is unchanged: CEO/admin tier/hr_admin see the amber remark; other roles still never receive the field on rows that aren't theirs.
 - **No-self-review extended to the payee** — HR can't review and the COO/CCO can't pre-approve a claim that PAYS themselves (conflict of interest); those go to the next stage or the CEO's direct decision (override exists since v1.4.107). Pre-0051 tolerant.
@@ -1637,12 +1822,14 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.173] — 2026-08-03 — Attendance monitor (missing punches) · claim payee remark
 
 ### Added (per the CEO)
+
 - **👁 Today's attendance monitor** on the Attendance tab (Team-report viewers): live snapshot of every active staff member's punches today, refreshed every 2 minutes — amber "⚠ Not clocked in: …" callout, "⏳ Past 18:00 with no clock-out yet: …" after shift end, then a compact list (missing punches sorted to the top, In/Out times MYT, part-time labelled, weekend note). New `GET /attendance/monitor` (hr_manage + exec_view, same as the Team report).
 - **Claim payee remark (migration 0051 `claims.payee_user_id`)** — for claims raised on behalf of someone (hr_admin's case): a "💰 Pay claim to" picker on the submit form (visible to hr_admin/CEO/admin tier only). Strictly an INTERNAL remark: **never printed on the AZOO-HR-CLM-001 form**; the server only sends the field to the CEO/admin tier + hr_admin (stripped for COO/CCO reviewers and ordinary claimants); shown as an amber "💰 Pay this claim to: …" line in Details plus a "💰 → Name" chip on the row so the CEO pays the right person at a glance. Carried through claim edit (clearable); audited on create.
 
 ## [1.4.172] — 2026-08-03 — Manual stock-out lifecycle: Revert · Edit · Delete · backdatable out date
 
 ### Added (per the CEO: "option to revert back into the inventory or sold if manual stock sales; add date of when manual out; Edit or Delete button also")
+
 - **Migration 0050**: `manual_stockouts` += `out_date` (backdatable), `reverted` flag, `sale_id` link; `manual_sales` += `out_date`. Revenue totals now attribute manual sales by the out date.
 - **Date of stock out** in the modal (default today MYT, backdatable) — shown leading each traceability row; recording timestamp on hover.
 - **↩ Revert** — stock goes back on the shelf, a linked sale is removed from the totals, and the ROW STAYS marked "↩ reverted — stock restored" (struck through) — the audit trail survives the undo. Reverted rows can't be edited or re-reverted.
@@ -1653,11 +1840,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.171] — 2026-08-03 — TOTAL row on the TikTok stock-out card
 
 ### Added (per the CEO: "I want to have a total of This month, All time, Avg sold @, Sold value (month), Left in stock")
+
 - Bold **TOTAL** footer row on 📉 TikTok Live — stock out, summing every item: Out today (🔥 badge), This month, All time, **Avg sold @ weighted by units** (Σ price × qty ÷ Σ qty — not a simple average of row averages, so one 1-unit item can't skew it), Sold value (month), Left in stock. Sums always cover ALL items regardless of the active sort.
 
 ## [1.4.170] — 2026-08-03 — Sort controls · manual stock-out modal with mandatory remark · traceability card
 
 ### Added (per the CEO)
+
 - **Sort controls on both stock tables** — "Sort: SKU 1→end / A→Z / Z→A" pills on **Inventory — live status & stock**, and the same plus the "🔥 Today" default on **📉 TikTok Live — stock out**. SKU sorting is natural-numeric (ELFIA001 → ELFIA002 → … → ELFIA012, not lexicographic).
 - **Manual stock-out MODAL (migration 0049 `manual_stockouts`)** — Out − now opens a proper form: **SKU · Item** picker (pre-selected from the row, SKU-sorted), **Quantity out**, optional **Sold @** (fills the Manual-sales channel as before), and a **MANDATORY Remark** — the server refuses an Out without a reason, so no stock ever leaves the shelf unexplained. Audit meta carries the remark too.
 - **New card 🛠 Manual stock out — traceability** — every manual out as a scrollable list: date (MYT) · SKU — item · qty · remark · "Sold @ RM x" green chip or "correction" chip · by whom. `GET /inventory/manual-outs` (last 100; empty before 0049, never an error).
@@ -1666,6 +1855,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.169] — 2026-08-03 — Total sales across ALL channels (manual outs + non-TikTok orders + invoices + TikTok)
 
 ### Added (per the CEO: "if there is any manual out without any rebate how do I know the total sales? Invoice also need to count beside of TikTok or any postage tracking — non-TikTok orders")
+
 - **Manual sale on Out − (migration 0048 `manual_sales`)** — the Manual in/out control gains an optional **"Sold @" (RM/unit)** input: filled, the Out is recorded as a SALE (snapshot sku/name/qty/price, audited, "Sale recorded" toast) and counts in total sales; empty, it stays a plain correction (damage/samples) deliberately **excluded** so corrections never inflate revenue.
 - **Non-TikTok shipments carry their value** — the manual postage form gains **"Order amount (RM)"** (Shopee/WhatsApp/direct orders); empty = RM 0 shipments like replacements stay out of the totals.
 - **Revenue card now sums FOUR channels**: TikTok (synced paid amounts) + Invoiced (payments received) + **Other shipments** + **Manual sales** — two new boxes, a renamed **"Total — all channels"** box, today's gold 🔥 box includes all four, and the **KPI target bar tracks the same all-channel total** (it previously tracked TikTok + invoices only). `/staff/revenue` response += `other`, `manual`, `today.other_cents`, `today.manual_cents`; tolerant of 0048 pending.
@@ -1673,6 +1863,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.168] — 2026-08-03 — Self-healing TikTok stock deduction (retry on every sync)
 
 ### Fixed (per the CEO: orders show "No stock movement recorded", stock-out card empty — "ensure inventory counted correctly without discrepancies; total of sales must match sold prices and sold item")
+
 - **Root cause**: stock deduction only ever ran on an order's FIRST import. All 11 orders were imported before their inventory items existed / matched (SKU typos like "ELLFIA 006" vs "ELFIA006"), and the refresh pass only backfilled status/tracking — so they stayed movement-less forever, leaving the stock-out card empty and stock uncounted.
 - **Fix**: every sync (manual button and 30-min cron) now **retries the deduction for movement-less orders against CURRENT inventory** — same SKU-or-name matching, same all-or-nothing shortage rule, sold price captured, rebate auto-synced, audited as `inventory.out` source `tiktok_retry`. On success the order note becomes "✔ stock deducted on retry DD-MM HH:MM MYT"; while still blocked, the note refreshes to the CURRENT reason (fix one SKU → the unmatched list shrinks next sync). Returned/restocked orders excluded. Sync summary/audit now reports `retried` alongside imported/skipped.
 - Result: fix the item SKUs/names (or add missing items) → press **Sync from TikTok** → the backlog deducts retroactively, the 📉 stock-out card populates with quantities + sold prices, and stock, sold items, and sales totals all tally.
@@ -1680,12 +1871,14 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.167] — 2026-08-03 — Users columns aligned · badge whitespace spread
 
 ### Fixed (per the CEO)
+
 - **Users tab column misalignment** — the customer column carried a heading + description while the staff column had none, so the two list boxes started at different heights. The staff column now has its own "Staff accounts" heading + one-line description mirroring the right; both descriptions truncate to a single line (full text on hover); both boxes share max-h-80 — tops AND bottoms align. Main card description trimmed since the columns now carry the detail.
 - **ID badge white gap** — content was top-packed, leaving a large white block above the pinned footer. Spacing spread downward (~7mm absorbed): card top padding 3.5→4.4mm, photo gap 1.8→3.2mm, tagline 0.8→1.4mm, rows offset 2.4→3.6mm, per-row padding 0.6→0.85mm. Verified against the worst realistic case (two-line name + full footer): ~2mm slack on the 85.6mm card, no clipping. Preview, single print, and the 3×3 sheet all share the one template so all three change together.
 
 ## [1.4.166] — 2026-08-03 — Rebate auto-computed from actual TikTok sold prices (no manual entry)
 
 ### Changed (per the CEO: "live rebate should not be manually insert — price RM 11.70, live sale RM 10.00 → rebate RM 1.70, auto updated and synced with the firm order; every inventory in-out correctly counted")
+
 - **Migration 0047 `postage_items.unit_sale_cents`** — every TikTok stock movement now stores the **actual price the buyer paid per unit** (TikTok's `sale_price` on each order line, captured by both the sync and the webhook).
 - **Rebate is now AUTO**: on every deduction, the item's `live_rebate_cents` auto-syncs to `list price − actual sold price` (never negative; untouched when no sold price arrived or no list price is set). The manual Live-rebate input is **gone** — the column is read-only "Live rebate (auto)" showing the amber "− 1.70"; Net (live) continues to show the resulting effective price. Migration-tolerant on both 0046/0047.
 - **📉 TikTok Live — stock out** card gains **"Avg sold @"** (real average paid price, with the amber per-unit rebate beside it and a tooltip doing the arithmetic: "List RM 11.70 − sold RM 10.00 = rebate RM 1.70/unit") and **"Sold value (month)"** (qty × sold price). Revenue math unchanged and correct by construction: sales totals already come from TikTok's paid amounts, so RM 10.00 counts as RM 10.00 — the rebate is derived, never double-deducted.
@@ -1694,17 +1887,20 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.165] — 2026-08-03 — "TikTok Live — stock out" card on Inventory
 
 ### Added (per the CEO: "how I will know which item are out during live sales in TikTok? this need to be added on the card box")
+
 - New **📉 TikTok Live — stock out** card between the stock table and Supplier returns: per-item units deducted by TikTok orders — **Out today** (green 🔥 badge when >0), **This month**, **All time**, **Left in stock**, and the **Last order** timestamp (MYT). Counted from the actual stock movements the sync/webhook recorded on TT- orders (postage_items joined to TT- postage records), returned orders excluded — so it agrees exactly with the stock column. Sorted hottest-today first. New `GET /inventory/tiktok-out` (inventory/exec_view). No migration.
 
 ## [1.4.164] — 2026-08-03 — Live rebate on inventory pricing · edit supplier returns
 
 ### Added (per the CEO: "price per unit need to deduct of the rebate sales during live on TikTok" + "for this one also I should be able to edit/delete")
+
 - **Live rebate per item (migration 0046 `inventory_items.live_rebate_cents`)** — inline "Live rebate" input beside Price/unit and a computed **"Net (live)"** column (price − rebate, green when a rebate is set) showing the effective price announced during TikTok Live. Informational for pricing: actual TikTok revenue continues to come from the amounts buyers really paid (the order sync), so the P&L stays truthful. `PATCH /inventory/:id` accepts `live_rebate`; migration-tolerant (price edits keep working pre-0046, rebate edits name the migration).
 - **Supplier returns: Edit** (Delete existed since v1.4.148) — new `POST /inventory/returns/:id/edit`, outstanding rows only (credited/partially-replaced rows locked: money/goods already moved). Editable qty / unit cost / supplier / date / reason; **a qty change moves stock by the difference** — lowering puts pieces back on the shelf, raising boxes more (refused if the shelf lacks them); total recomputes; audited with before/after. UI: Edit link beside Delete opens a standard subheaded inline editor with save-toast.
 
 ## [1.4.163] — 2026-08-03 — News + Events forms brought to the Dashboard card standard
 
 ### Fixed (per the CEO: "head section is not same as Dashboard/Overview compared to News — all the tabs follow as Dashboard")
+
 - **Publish news** was the last card with placeholder-only fields and no description under its title — it predated the subhead standard and only became CEO-visible in v1.4.153, so every sweep missed it. Now standard: muted description line ("Posted to every staff member — appears on their Dashboard and in this feed until they press Acknowledge"), **Sub labels** on Title / Body / Category, category select width-capped (sm:max-w-44), better placeholder examples.
 - **Events form** — the v1.4.154 sweep added Sub labels to Category/Date/Start/End but missed **Event title, Location, Details**; all three now carry subheads with example placeholders.
 - Full-page sweep re-run: the only remaining unlabeled placeholder inputs are the Sales line-item cells, which correctly share column headers (table-inline exemption). Every form card in /portal now matches the Dashboard pattern: bold title → muted description → subheaded fields.
@@ -1712,15 +1908,18 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.162] — 2026-08-03 — Inventory: SKU-or-name TikTok matching · Edit/Delete items · missing subheads
 
 ### Fixed (per the CEO: "seem like there is a missing of subhead")
+
 - The last two Inventory table columns had no headers — now **"Manual in / out"** over the qty + In+/Out− controls and **"Actions"** over the new Edit/Delete.
 
 ### Added (per the CEO)
+
 - **TikTok stock matching by item description OR SKU** — the sync/webhook now resolves each TikTok line in three passes: (1) SKU, now case-insensitive + trimmed (was strict exact-match); (2) exact item-name match against the TikTok variant (sku_name) or full product name; (3) unique-contains — the inventory name appearing inside the TikTok product/variant name, but ONLY when exactly one item qualifies, so an ambiguous name can never move the wrong stock (names <3 chars never contains-match). Order notes say "matched by item name: …" when the fallback fired; unmatched lines now read "not in inventory (SKU or name)".
 - **Edit / Delete on inventory rows** ("wrongly insert" fix) — Edit turns SKU + name into inline inputs (Save/Cancel, SKU-uniqueness 409, audited `inventory.edit` with before/after); Delete goes through the **standardized branded danger confirm** (v1.4.142 dialog) + save-toast. Deletion is **blocked with a clear message once the item has shipment (postage_items) or supplier-return history** — those records reference it, so history-bearing items get edited, not deleted; audited `inventory.delete` with a snapshot.
 
 ## [1.4.161] — 2026-08-03 — Users tab compacted (minimalist rows, mobile-friendly)
 
 ### Changed (per the CEO: "minimalist the card box since it is too long to scroll; mobile apps view also nice")
+
 - **Staff + customer lists** — stacked bordered card boxes replaced with one hairline-divided box of **single-line rows** (py-1.5); name + email truncate so a phone row stays one line; the ✎ edit action shrinks to an icon.
 - **Exception-only chips** — role always shows; "permanent", "active", and "2FA ✓" no longer render (they're the normal state). Chips now appear only for the exceptions: non-permanent status (part time / contract / probation / resigned / terminated, with left/rejoined dates moved into a hover title), red **disabled**, amber **2FA ✗**. Six healthy staff rows went from four chips each to one.
 - **Desktop**: staff and customer lists sit **side-by-side (lg:grid-cols-2)**, cutting the page height roughly in half; they stack normally on phones.
@@ -1729,6 +1928,7 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.160] — 2026-08-03 — Delivery/postage fee on QT + INV (Malaysian flow) · KPI colour tiers + progress bar
 
 ### Added (per the CEO)
+
 - **Delivery / postage fee (migration 0045 `sales_documents.delivery_cents`)** — the Malaysian SME flow, exactly as asked: the **Quotation quotes it**, the **Invoice bills it**, and the **Delivery Order carries goods + quantities ONLY** (no prices, no charges — a DO is proof of delivery, not a bill). Form gains "Delivery / postage (RM, optional)" beside Discount/Tax (hidden for DO); fee is added **after discount + tax** (pass-through charge, not taxable goods value); QT→INV convert carries it; edit recomputes it; printed QT/INV totals show a "Delivery / postage" row.
 - **Printed DO now price-free** — items table trimmed to # / Description / Qty and the totals block removed, per standard Malaysian practice ("Received in good order" signature block unchanged).
 - **KPI bar upgraded** — taller progress bar with the **percentage printed on it**, traffic-light colour tiers (red <40% · amber <70% · gold <100% · green at target), and an **on-pace chip**: compares achieved % against how far through the month it is MYT ("✅ On track" / "⚠ Behind pace — day 3/31: expected ~10% by today").
@@ -1736,29 +1936,35 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.159] — 2026-08-03 — Uniform tab widths (Dashboard as the standard)
 
 ### Changed (per the CEO: "All the tabs need to follow the standard width as Dashboard")
+
 - Desktop tab pills were text-sized — "HR" tiny, "Attendance" wide, every row ragged. Every pill is now a **fixed-width (w-32), centre-labelled block**, identical to the Dashboard pill, wrapping into a clean app-style grid. Applied to all three navs: **/portal, /admin, /account** (mobile was already uniform: bottom nav `flex-1`, More sheet `grid-cols-3`). Longest labels ("Testimonials", "My Enquiries") verified to fit.
 
 ## [1.4.158] — 2026-08-03 — OT hidden from executive roles (CEO/COO/CCO)
 
 ### Changed (per the CEO)
+
 - **OT in / OT out no longer appear for ceo, coo, or cco** (admin-tier system accounts likewise) — executives are not OT-paid staff. Enforced in both places: `POST /attendance/ot` refuses with "Executive roles (CEO/COO/CCO) are not eligible for OT punches." and the `ot_eligible` flag now excludes those roles, so the Dashboard buttons and the HOD note never render for them. Final eligibility rule: **a non-executive staff role whose employment status isn't part_time** — permanent/contract/probation editor, marketing, live_host, hr_admin, sales_marketing.
 
 ## [1.4.157] — 2026-08-03 — Role changes locked to super_admin only (security)
 
 ### Changed (per the CEO: "avoid any Google account breaching my system")
+
 - **`POST /users/:id/role` is now SUPER_ADMIN ONLY** — `admin` and `ceo` removed from the v1.4.156 allowlist. Google sign-ups always land as `customer` with zero staff access (unchanged since v1.4.42's domain policy), and with promotion held outside every business account, a compromised Google or staff sign-in can never escalate itself or anyone else. The refusal message says so.
 - **Users tab** — ✎ Change role / ✎ Promote render for super_admin only; the CEO's view is read-only again, with copy explaining the security reasoning. All other v1.4.156 guards stand: admin-tier accounts untouchable/unassignable, no self-change, personal emails part-time only, audited `staff.role_change`.
 
 ## [1.4.156] — 2026-08-03 — MYT timestamps on TikTok Orders · Today's sales · role changes from Users tab · OT rule by employment status
 
 ### Fixed
+
 - **v1.4.155 bug (own goal, caught before it bit)** — the OT route and attendance GET queried a non-existent `users.status` column; the real column is `employment_status`. Deployed as-was, this would have 500'd the OT punch AND broken the Dashboard's attendance load. Both corrected.
 - **TikTok Orders card showed UTC** — "last webhook" and each order's timestamp are DB UTC and were rendered raw (8 hours behind). New `dmyMYT()` shifts full timestamps to Malaysia time; the webhook line now says "… MYT" explicitly.
 
 ### Changed (per the CEO)
+
 - **OT eligibility now follows EMPLOYMENT STATUS, not role** — permanent live hosts DO work overtime; `part_time` staff of any role (part-time live hosts, part-time designers) are not eligible. Server + `ot_eligible` flag both updated.
 
 ### Added (per the CEO)
+
 - **Sales revenue → "🔥 Today" box** — gold-accented, leads the grid: today's TikTok orders + payments received (MYT day scope, same bases as the monthly figures), with a motivational line for the sales team. Grid is now 2-up on tablets / 4-up on desktop.
 - **Role & employment-status changes from the Users tab** — new `POST /users/:id/role` (super_admin/admin/ceo): assign any staff role or demote to customer, set employment status; admin-tier accounts untouchable; no self-change; audited `staff.role_change`; takes effect on the target's next request. **Domain-policy nuance:** personal-email (Google) accounts may hold staff roles **as part_time only** — enforced server-side; permanent staff still require an @azoneofficial.com account.
 - **Users tab UI** — "✎ Change role" on staff rows (CEO + super_admin; COO stays read-only) with role + employment-status selects, plus a new **"Customer accounts — Google & self sign-ups"** section with one-tap **✎ Promote** (defaults to part-time live host).
@@ -1766,18 +1972,21 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 ## [1.4.155] — 2026-08-03 — Overtime OT in / OT out on the Dashboard + Inventory alignment fixes
 
 ### Added (per the CEO: OT punches after 6pm, HOD approval reminder, hidden from part-time live hosts)
+
 - **Migration 0044** — `ot_records` table (no FKs; `type` = `ot_in`/`ot_out`), separate from `attendance_records` (its CHECK constraint would need a table rebuild for new types).
 - **Worker `POST /attendance/ot`** — opens **18:00 MYT** onward; requires today's clock-in ("overtime can only follow a worked day"); OT out requires OT in; one of each per day (409 confirms the recorded time); **live_host role and `part_time` status refused 403** — eligibility enforced server-side, not just hidden.
 - **Worker `GET /attendance`** now also returns `ot` rows (guarded pre-migration) and `ot_eligible` for the requesting user.
-- **Dashboard Quick actions** — **OT in / OT out** buttons appear from 18:00 MYT (minute tick, no refresh needed) for eligible staff only, with an amber reminder: *"OT in / OT out only with your Section HOD's approval."* Success toast repeats the HOD condition; the Today line now includes `OT in 18:05 · OT out 20:10`.
+- **Dashboard Quick actions** — **OT in / OT out** buttons appear from 18:00 MYT (minute tick, no refresh needed) for eligible staff only, with an amber reminder: _"OT in / OT out only with your Section HOD's approval."_ Success toast repeats the HOD condition; the Today line now includes `OT in 18:05 · OT out 20:10`.
 
 ### Fixed
+
 - **Marketing materials** — Request button floated at label height and clipped the input's placeholder; row is now `items-end`, the field takes the remaining width, and the button matches the 38px input height.
 - **Postage (non-TikTok)** — "+ Add item line" link and the "Add record" button rendered jammed on one line (both inline-level in the stacked form); the link is now block-level on its own line.
 
 ## [1.4.154] — 2026-08-03 — Width standard enforced across all tabs (/portal, /admin, /account)
 
 ### Changed (per the CEO: standardize widths on every tab, web AND mobile, no exceptions)
+
 - Full sweep of every form row across the three apps against the house standard — **phones: 2-up full-width grid; desktop: capped inline row** — and every violator brought in line:
   - **Expenses — record form** (date / category / amount / vendor): was a wrapping row of fixed-width boxes that truncated on phones — now the standard grid; desktop widths standardized
   - **Expenses — inline edit row**: same treatment for the compact per-row editor
@@ -1788,25 +1997,28 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - Verified clean already: /account forms (full-width inputs throughout), staff-create form (responsive grids), payroll processing, Sales, Claims, Leave, Tasks, Inventory (v1.4.150), Users, Birthdays. Compact **inside-table** controls (price/qty/working-days cells) are intentionally exempt — they live in scrollable tables, not form rows
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.153] — 2026-08-03 — CEO posts news · Users tab gains a user log + 2FA monitoring
 
 ### Fixed (CEO: "why I dont have access to update the news? I am CEO!")
+
 - The `team_manage` permission list — which gates posting announcements and assigning team tasks — **never included the CEO** (an old oversight from the rank rework). Fixed on both worker and UI: the CEO now sees the compose form on the News tab and can post announcements (with the usual bell notification to all staff) and assign tasks
 
 ### Added (per the CEO: user log + 2FA awareness for monitoring)
+
 - **User log on the Users tab:** "User log — recent sign-ins & account events" beneath the accounts list — the last 60 authentication events from the audit trail (password sign-ins, 2FA sign-ins, Google sign-ins, 2FA challenges, backup-code use, 2FA enabled/disabled), each with the person, a colour-coded action chip, and the MYT timestamp. Same readers as the tab (super_admin/CEO/COO); the full audit stays in /admin
 - **2FA monitoring:** every account row now carries a **"2FA ✓" (green) or "2FA not set" (amber)** chip — only the presence of 2FA is exposed, never any secret — plus an amber summary line counting active accounts still unprotected and naming who to chase
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.152] — 2026-08-03 — Inventory tab: buttons flush with inputs · empty white space reclaimed
 
 ### Fixed (per the CEO's screenshot)
+
 - **Button alignment:** the Add-item and Record-return buttons are now exactly the same height as the input boxes on desktop, so their bottoms sit truly flush with the field row — no more floating slightly above the line
 - **Empty white space:**
   - When the inventory has **no items yet**, the bare table header followed by a blank block is replaced by a single compact line ("No items yet — add your first above…") — the card ends where its content ends
@@ -1814,35 +2026,38 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
   - Table spacing tightened one step
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.151] — 2026-08-03 — Notification chime: race fix (no sound was ever playing)
 
 ### Fixed (CEO reported: no notification tone on web or mobile — a real v1.4.144 bug)
+
 - **Root cause:** pressing 🔊 unlocked the audio context on finger-down, but unlocking is asynchronous — by the time the click handler tried to chime a few milliseconds later, the context still reported "suspended", and the safety guard silently swallowed the sound. The confirmation ding therefore never played on the first press, and depending on timing, poll-triggered chimes could be eaten the same way
 - **Fix:** the chime now creates the audio context itself if needed and **awaits the resume before playing**. Pressed from the 🔊 toggle (a user gesture) it always sounds; fired from a background poll it sounds whenever any earlier tap has unlocked audio — same browser policy, no race. Older-Safari fallback added for the audio engine constructor
 - **iPhone note (not a bug):** iOS mutes Web Audio when the **ringer switch is on silent** — the status bar in the CEO's own screenshot showed the mute icon. Flip the ringer on / volume up and the chime sounds on mobile too
 
 ### Deploy
-- `pnpm build` → hard refresh, then tap 🔇→🔊 — the confirmation ding should now be audible immediately
 
+- `pnpm build` → hard refresh, then tap 🔇→🔊 — the confirmation ding should now be audible immediately
 
 ## [1.4.150] — 2026-08-03 — Inventory forms: app-standard widths on web and mobile
 
 ### Fixed (per the CEO's screenshot: field widths inconsistent; must read as an app on both)
+
 - Both Inventory forms — the **add-item row** and the **Supplier-returns form** — now follow one width standard:
   - **Phones:** a clean **2-up grid** with full-width fields (Item and Reason span the full row since they hold long text) and a **full-width action button** — the same app pattern as Quick actions and the Claims item cards. No more ragged wrapping or half-truncated fields
   - **Desktop:** the tidy inline row stays, with standardized column widths — the SKU box is wider so "must match TikTok" reads in full
 - The subhead helper now accepts layout spans, so any future form row can reuse this exact pattern
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.149] — 2026-08-03 — Supplier returns: replacement outcome
 
 ### Added (CEO asked: what if the supplier does a replacement instead?)
+
 - A supplier can now settle a return **two ways**, and the record follows either path:
   - **Credited** — money back (unchanged from v1.4.148)
   - **Replaced** — replacement goods arrive: press **Replaced** on the row, enter the qty received (blank = all remaining) → **that stock walks back onto the shelf automatically**, and the claim shrinks by the replaced value. **Partial deliveries accumulate** — the row shows "Outstanding (2/5 replaced)" until complete, then closes with a blue **Replaced** chip
@@ -1850,12 +2065,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - Guards: can't replace more than remains; credited rows can't also be replaced (and vice versa); once any replacement is received the row becomes a permanent record (no delete — the stock has already moved). Audited (`inventory.supplier_return_replaced`)
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0042 + **0043**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0042 + **0043**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.148] — 2026-08-03 — Supplier returns: rejected stock tracked for claim-back
 
 ### Added (CEO: rejected items returned to the supplier must be recorded, with the costing tracked to claim back)
+
 - New **"Supplier returns — rejects to claim back"** card on the Inventory tab (migration **0042** `supplier_returns`):
   - **Record a return:** pick the item (unit cost auto-fills from the inventory price, adjustable to the actual purchase cost), qty rejected, supplier, return date, reason (e.g. stitching defect) → **stock is deducted immediately** (the goods left the shelf), and the record carries SKU + item-name snapshots so it stays meaningful even if the item changes later
   - **Costing summary strip:** Returned RM total · **Credited back** RM · **Outstanding RM** in amber — the outstanding figure is exactly what suppliers still owe the company
@@ -1864,47 +2080,51 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
   - Every action audited (`inventory.supplier_return` / `_credited` / `_deleted`); qty is guarded against exceeding current stock; a helpful `migration_missing` error names the 0042 command if the table isn't applied yet
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0042) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0042) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.147] — 2026-08-03 — Claims: present-month overview strip
 
 ### Added (CEO: "I want to see the overall of the claim submitted on the present month")
+
 - A **summary strip** now sits at the top of the claims list showing the present month at a glance: **total count and RM**, then **Approved (count · RM) — of which paid (count · RM)**, **Pending (count · RM)** in amber, and **Rejected** in red when any exist
 - Attribution follows the CEO's standing month rule: **by claim date** — so the strip's total lines up with the staff-claims figure on the Expenses tab for the same month (noted right on the strip)
 - Scope matches the list below it: the CEO sees the whole company's month; each staff member sees their own. The strip hides itself when the month has no claims
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.146] — 2026-08-03 — Mobile fit: header on one row, tighter app rhythm
 
 ### Fixed (per the CEO's phone screenshot: too much scrolling, awkward)
+
 - **The header no longer eats two rows on phones.** The avatar + screen title and all four controls (🔊, 🔔, theme, Sign out) now share **one compact row**: the controls shrink to app-sized buttons on mobile (back to full size on desktop), the avatar trims slightly, paddings tighten — roughly a full row of vertical space returned before any content
 - **Quick actions become a 2-up grid on phones** — equal-width, thumb-friendly buttons (Clocked in / Clock out on one line, Apply leave / Create quotation on the next) instead of the ragged wrap; desktop keeps its inline row
 - **Tighter mobile rhythm:** page top padding and card-to-card gaps reduced on phones only — the Dashboard now shows Quick actions, Pending leave, and My open tasks in the first viewport instead of forcing an immediate scroll
 - Desktop is untouched — every change is mobile-breakpoint scoped
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.145] — 2026-08-03 — One-click payroll payment: 💳 bulk payment file
 
 ### Added (CEO asked how to pay payroll in one click)
+
 - **"💳 Payment file"** button in Payroll processing (beside Recompute nets) and in the Expenses payroll due card. One click downloads `azoo-payroll-YYYY-MM.csv` — every saved entry with a positive net, each row carrying **employee full name (uppercase), bank, account number, amount, and the reference "AZOO SALARY MM-YYYY"**, plus a TOTAL row for cross-checking against the Expenses figure before approving
 - **The flow:** press 💳 → upload the file to **Maybank2u Biz → Bulk Payment** → approve once → all staff paid in one transaction batch → press **Mark paid** on the Expenses card. Zero retyping of account numbers, zero one-by-one transfers
 - Safety details: RM 0 rows are skipped (e.g. the CEO's own row); staff **missing bank details** are listed at the bottom of the file instead of silently dropped ("add in Staff Details, then re-download"); generation is audited (`payroll.payment_file` with payee count + total)
 - **True API payouts** (money moves on the click itself, no bank portal) need a payout provider — Curlec or DuitNow corporate rails — which is a business onboarding with fees; the endpoint is designed so that step can slot in later without changing the flow
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.144] — 2026-08-03 — Notification alert sound 🔊
 
 ### Added (CEO asked: can we add an alert notification sound? Yes)
+
 - A soft **two-tone chime** now plays whenever **new** notifications arrive at the bell — task assignments, claim/leave stage moves, announcements. Details that make it behave well:
   - **Synthesized in the browser** (Web Audio API) — a short rising A5→D6 ding, no audio file to download, instant
   - **Only on new arrivals:** it never sounds on page load, on opening the bell, or when the count shrinks from marking-as-read — strictly when the unread count increases during the 60-second polling / focus refresh
@@ -1912,22 +2132,24 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
   - **Browser autoplay rules respected:** browsers only permit audio after a user gesture, so the first tap/click anywhere unlocks the sound; anything arriving before that stays silent (the badge still updates)
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.143] — 2026-08-03 — Tab order revised · attendance headers aligned over the chips
 
 ### Changed
+
 - **Tab order** revised to the CEO's new sequence — **Overview moves up to second place**, right after Dashboard: Dashboard → Overview → News → HR → Staff → Attendance → Leave → Tasks → Claims → Payroll → Expenses → Sales → Inventory → Birthdays → Profile → Users. Desktop pills, mobile bottom nav, and the More sheet all follow (they share one list)
 - **Attendance column headers aligned:** the IN and OUT headers sat a chip-padding to the left of the actual times (the time chips carry their own internal padding). Both headers are now indented to sit exactly over the chip text, so DATE/IN/OUT/HOURS all read flush with their column content
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.142] — 2026-08-03 — Branded confirmation dialog replaces the browser popup
 
 ### Changed (per the CEO: "make this form standardize with my other card popup box. I dont like this type")
+
 - The grey native browser `confirm()` box is gone from the portal. In its place: a **branded confirmation card** in the same visual family as the clock-in/save popups — card surface, rounded corners, gold accent bar, pop-in animation, dimmed backdrop, proper Cancel (ghost) and Confirm (navy) buttons. Tapping the backdrop cancels; the confirm button takes focus for Enter-key flow
 - Applied to both portal confirmations:
   - **CEO chain-override approve** — "Approve past the incomplete chain?" with the audit-log note and an explicit "Approve as CEO" button
@@ -1935,12 +2157,13 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - New shared component `components/ui/confirm-dialog.tsx` (`useConfirm()` hook, promise-based like the toasts) — any future confirmation uses the same card. The one remaining native confirm (admin Suspend, inside /admin) rides with the already-deferred /admin toast sweep
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.141] — 2026-08-03 — App-style profile avatar in the portal header
 
 ### Added (per the CEO's request: badge photo beside the welcome, nice on web and mobile)
+
 - The staff member's **badge-card photo** now renders as a circular, gold-ringed **avatar in the portal header** — sized like a native app profile chip (40px, 44px on desktop):
   - **Desktop:** avatar sits beside "STAFF PORTAL / Welcome, {name}"
   - **Mobile:** avatar sits beside the screen title in the sticky app-style header — the same placement messaging apps use, so it reads instantly as "my profile"
@@ -1948,21 +2171,23 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - Plumbing: the session lookup now carries `photo_key`, so `/auth/me` gives the header what it needs; the image itself serves through the existing authenticated media route (staff-only for private/ keys) — no new endpoints, no extra requests beyond one cached image
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.140] — 2026-08-03 — Attendance: "still in" styled as a chip
 
 ### Fixed
+
 - "still in" no longer sits as plain outline text next to the styled time chips — it's now a **blue pill badge**, matching the visual language of the IN (green) and OUT (grey) time chips; "missing" likewise becomes an **amber pill**. The whole attendance row now reads as one consistent set of badges
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.139] — 2026-08-03 — Subheads completed across the remaining tabs · rows aligned
 
 ### Changed
+
 - The v1.4.135 subhead pattern now covers the tabs it had missed:
   - **Leave — Apply for leave:** Leave type, Start date, End date, Days (0.5 = half day), Reason
   - **Tasks — Create a task:** Title, Description, Assign to (managers), Priority, Deadline
@@ -1973,45 +2198,50 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - **Alignment fixed:** mixed-height rows (e.g. the Inventory add row where the Add-item button sat beside label-less boxes) use bottom alignment, so buttons and inputs line up under their subheads instead of floating mid-row. Placeholders across these forms now show examples/formats (e.g. J&T, Pos Laju · MY123456789 · +60 12-345 6789) rather than repeating the label
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.138] — 2026-08-03 — High-resolution signature scans installed
 
 ### Changed (assets)
+
 - The CCO, HR Admin, and Sales & Marketing signatures are replaced with the **high-resolution scans** the CEO provided (591×389 / 737×399 / 737×460 after background removal and ink-trimming — versus the ~150px first versions), matching the CEO/COO source quality. Same processing pipeline: near-white → transparent, trimmed to ink
 - No code changes — the standardized 46px signature box from v1.4.137 now simply renders from crisp sources, so all five signatures print sharp and equally weighted on the claim form and the Leave Application Form
 
 ### Deploy
-- `pnpm build` → hard refresh
 
+- `pnpm build` → hard refresh
 
 ## [1.4.137] — 2026-08-03 — Signatures standardized · staff signatures on the Employee cell
 
 ### Fixed (per the CEO's printout)
+
 - **All printed signatures now occupy the same standardized box** (46px tall, up to 150px wide, ink fitted left) — the CCO's signature no longer prints tiny next to the CEO's. Every signature source is also **trimmed to its ink** (transparent borders removed), so the five files render at comparable visual weight regardless of how each was scanned. Applied to the claim form and the Leave Application Form alike
 
 ### Changed — Employee cell uses the staff member's real signature
+
 - When the claimant's/applicant's **role has an uploaded signature** (CEO, COO, CCO, HR Admin, Sales & Marketing), the Employee cell prints **that signature** with the "(submitted in system)" note — Nursyazwani's forms will carry the HR Admin stamp-signature rather than the script-font e-signature. Roles without an uploaded signature (editor, marketing, live host) keep the script e-signature fallback
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.136] — 2026-08-03 — Official signatures installed: CCO, HR Admin, Sales & Marketing
 
 ### Added (assets)
+
 - The three uploaded company-stamped signatures are processed (near-white background made transparent, matching the CEO/COO treatment) and installed:
   - `public/signatures/cco-sign.png` — **live immediately**: the CCO's pre-approval signature now prints on claim forms and Leave Application Forms wherever the CCO pre-approved (the code has referenced this path since v1.4.133/134 with a graceful fallback — the file's arrival completes it)
   - `public/signatures/hr-admin-sign.png` and `public/signatures/sales-marketing-sign.png` — stored ready under the same naming scheme, not yet wired to any printed document (the claim/leave forms have no HR signature cell, and sales documents currently carry CEO/COO authority only)
 
 ### Deploy
-- `pnpm build` → hard refresh (static assets ship with the build)
 
+- `pnpm build` → hard refresh (static assets ship with the build)
 
 ## [1.4.135] — 2026-08-03 — Subheads above every placeholder field
 
 ### Changed
+
 - **Placeholder-only inputs now carry a small subhead label above the box**, so the field's purpose stays visible after typing (a placeholder disappears the moment text is entered — that's why forms felt confusing once half-filled). Placeholders now show the FORMAT or an example instead of repeating the label. Applied to:
   - **Add a staff member** (Staff tab): all 14 fields labeled — Company email, Full name (as per NRIC), Role, Employee ID, Position, Department, Birth date, ID issued on, Blood type, NRIC, Bank, Bank account no., Temp password, Staff photo — with example placeholders (e.g. AZOOM001, 970209-01-5183, DD-MM-YYYY)
   - **Record expense** (Expenses tab): Expense date, Category, Amount (RM), Vendor, Description
@@ -2019,15 +2249,17 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - One shared visual: 11px muted label, half-line gap, above the control — consistent across the portal
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.134] — 2026-08-03 — Attendance "still in" vs "missing" · printable Leave Application Form
 
 ### Fixed (My attendance)
+
 - The Out column no longer lumps everything into "still in / missing": with a clock-in and no clock-out it reads **"still in"** (normal mid-day state); **"missing"** (amber) shows only when there is genuinely **no clock-in data** for the day
 
 ### Added — Leave Application Form (AZOO-HR-LVE-001)
+
 - Every leave request now has a **"Print form"** link producing a branded A4 form in the same layout language as the claim form, driven by the same chain flow leave already follows (HR review → COO/CCO pre-approve → CEO final):
   - Header: Document No **AZOO-HR-LVE-001**, Leave No **LVE-AZOO{DDMMYY}-{running no.}**, submission date/time in **MYT**, employee, department, position, leave type, period, days, reason
   - **System status** line (approved green / rejected red / pending with the current stage) plus the chain notes ("HR reviewed by … · Pre-approved by …", MYT-stamped)
@@ -2035,358 +2267,405 @@ All new UI uses the globals (fmtRM/rm, dmy/ym, th/td/thR2/tdR2, fieldRow, card, 
 - Server: the leave list now carries the chain actors' identities and a per-day sequence for the numbering
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.133] — 2026-08-03 — Claim delete · new categories · all three signature cells filled · CCO receipt access fixed
 
 ### Added
+
 - **Delete on invalid claims:** the claimant can delete their own claim while it's **pending or rejected** ("Delete" with a confirm dialog; the receipt file is removed too, audited `claim.delete`). Approved/paid claims are permanent records — the server refuses their deletion outright
 - **Claim categories:** += **client meeting** and **stationery**
-- **Employee cell now fills itself:** Name, an e-signature (the claimant's name in script with *"(submitted in system)"*), and Date = the submission date/time in MYT — the printed form no longer has an empty employee block for a claim the system itself recorded
+- **Employee cell now fills itself:** Name, an e-signature (the claimant's name in script with _"(submitted in system)"_), and Date = the submission date/time in MYT — the printed form no longer has an empty employee block for a claim the system itself recorded
 - **COO/CCO pre-approval cell fills on pre-approval:** the pre-approver's **full name** (uppercase), their **signature** (COO's PNG; CCO's loads from /signatures/cco-sign.png once you upload it — hidden gracefully until then), and the **pre-approval date/time in MYT**. Pending-chain claims keep the blank manual cell
 
 ### Fixed
+
 - **The raw `{"error":"forbidden","message":"Not your claim"}` page** (Izzudin/CCO opening a receipt link): receipt visibility now mirrors claim-list visibility — anyone who can see the claim in their list (chain reviewers included: HR for staff-chain, COO for staff-chain, CCO for HR's claims) can open its receipt, instead of only claimant + CEO + HR
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Optional: upload CCO signature PNG to `public/signatures/cco-sign.png` (transparent, like the CEO/COO ones) for the CCO's pre-approval signature to print
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Optional: upload CCO signature PNG to `public/signatures/cco-sign.png` (transparent, like the CEO/COO ones) for the CCO's pre-approval signature to print
 
 ## [1.4.132] — 2026-08-03 — Claims tab: proper mobile "app" layout
 
 ### Fixed
+
 - On phones the claim form used the same fixed five-column grid as desktop — the Description box crushed to a sliver and nothing fit, unlike the other tabs' app-style layouts. Each claim item now **stacks on mobile** inside a light card: **Date and Category side by side, Description full width, Amount below**, each with its own small label (the desktop column-header row hides on mobile since the fields label themselves), and "✕ Remove" as a proper labeled control. From tablet width up, the original five-column grid returns unchanged
 - The **Attach receipt** and **Submit claim** buttons go full-width on mobile, matching the app feel of the rest of the portal
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.131] — 2026-08-03 — One-click server-side repair: 🔧 Fix discrepancy now
 
 ### What the identical screenshot proved
+
 - The Breakdown was **byte-for-byte the same** as before the last fixes — same RM 5,458.98, every row still "recomputed ⚠", same three stale amounts. The server data hadn't changed at all, which means the fix chain (migration 0041 → worker deploy → build → Save all) **hasn't completed on production**. The code fixes are correct but were never given a chance to run
 
 ### The solution — stop depending on the sequence
+
 - **New: `POST /payroll/recompute`** — a server-side repair that recomputes the month's working days **directly from the holiday calendar** (Mon–Fri minus weekday holidays) and re-derives + **stores** every entry's `month_working_days` and `net_cents` using the shared formula. No browser state, no Save all, no fingerprints — the database fixes itself in one call. Audited (`payroll.recompute`)
 - **Two buttons trigger it:** "🔧 Fix discrepancy now (recompute on server)" right inside the Expenses Breakdown (where the problem shows), and "🔧 Recompute nets" in Payroll processing next to Re-fill days
 - If migration 0041 isn't applied, the button says so explicitly ("Migration 0041 is not applied — run: npx wrangler d1 migrations apply azoneofficial --remote, then press this button again") instead of failing quietly
 
 ### The single remaining sequence
+
 1. `npx wrangler d1 migrations apply azoneofficial --remote` (0040 + 0041)
 2. `npx wrangler deploy` → `pnpm build` → hard refresh
 3. Open Expenses → Breakdown → press **🔧 Fix discrepancy now** → the toast reports "Recomputed 6 entries at 23 working days" → figure becomes RM 5,345.54, all ⚠ markers gone, matching the Payroll tab exactly
 
 ### Deploy
-- Migrations **0040 + 0041** → `npx wrangler deploy` → `pnpm build` → hard refresh → press the 🔧 button
 
+- Migrations **0040 + 0041** → `npx wrangler deploy` → `pnpm build` → hard refresh → press the 🔧 button
 
 ## [1.4.130] — 2026-08-03 — Claim form repaired: the broken signature table
 
 ### Fixed (my v1.4.127 regression, reversed properly)
+
 - v1.4.127 put `display: flex` **directly on the signature table's `<td>` cells** — which strips their table-cell behaviour, so the three columns collapsed into the stacked narrow mess in the CEO's printout, and the extra height pushed the receipt and footer onto page 2
 - The `<td>`s are table cells again; the alignment flex now lives on an **inner wrapper div** inside each cell (`.cw`), which is where it always belonged. The intended v1.4.127 result now actually renders: three equal columns side by side, Name/Signature/Date on shared baselines, CEO signature + MYT date in place, everything — receipt and footer included — back on **one A4 page**
 - Rule added to the standing lessons: never set flex/grid display on `<td>`/`<tr>` — wrap the content instead
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.129] — 2026-08-02 — P&L payroll column = NET payroll
 
 ### Changed
+
 - The P&L's Payroll column previously used the **entry totals** (basic + commission + allowance + OT − manual deduction, WITHOUT the unpaid-leave and incomplete-month deductions) — which is why August showed RM 13,997.72 while the real net was RM 5,345.54. Per the CEO: confusing, gone
 - The column is now **"Net payroll"** and pulls the **same figure as the Expenses card**: stored per-entry nets (net_cents from migration 0041; formula fallback for older rows), same staff scope, same cash-basis month attribution (month m−1's cycle paid in m). **P&L, Expenses, and the Payroll tab total now quote one number**
 - Caption updated accordingly; failures degrade and log (`pnl_payroll`) rather than blanking the card
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0041 assumed applied)
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0041 assumed applied)
 
 ## [1.4.128] — 2026-08-02 — THE tally bug, found by the Breakdown: Save all skipped calendar-affected rows
 
 ### Root cause (proven by the CEO's Breakdown screenshot)
+
 - The Breakdown showed all six staff names — **no ghost entry** — but three rows (Izzudin RM 895.45, Nursyazwani RM 954.55, Zulsyam RM 859.09) differed from the Payroll tab by **exactly the 22-vs-23 working-days delta**: their saved rows still carried 22 days from before the Hari Hol correction
 - Why Save all didn't fix them: the **no-change fingerprint didn't include the month's working days**. Rows the CEO hadn't otherwise edited (unlike Zolkefli's allowance and Nasuha's OT, which re-saved at 23) fingerprinted as "unchanged", so **Save all skipped them** — permanently preserving the stale 22, which only Expenses (reading saved data) revealed
 
 ### Fixed
+
 - The fingerprint now includes the month's working days, and the pristine snapshot anchors on each row's **saved** month_working_days — so any holiday-calendar change marks every affected row dirty and **Save all re-saves all of them** (storing the corrected net_cents too). Full-month rows (no days entered) are mirrored correctly and don't false-flag
 
 ### After deploying
+
 - Payroll 07-2026 → **Save all** → expect "6 entries saved" → Expenses payroll line reads **RM 5,345.54**, Breakdown shows all rows without ⚠, matching the tab line by line
 
 ### Deploy
-- `pnpm build` → hard refresh → Payroll: **Save all** (migrations 0040+0041 + worker deploy assumed from v1.4.124/126)
 
+- `pnpm build` → hard refresh → Payroll: **Save all** (migrations 0040+0041 + worker deploy assumed from v1.4.124/126)
 
 ## [1.4.127] — 2026-08-02 — Claim form: aligned signature grid · every printed time in Malaysia time
 
 ### Fixed
+
 - **Malaysia time everywhere on the form.** Timestamps are stored in UTC in the database, and the form printed them raw — so an approval at 22:45 Malaysia time printed as "14:45". Every printed timestamp now converts to **MYT (+8)** and says so: the header Date, the "APPROVED IN SYSTEM … on DD-MM-YYYY HH:MM MYT" status line, and the CEO's Date under the signature. The system already detected Malaysia time internally (attendance, payroll cutoffs, audit views all shift +8) — the claim form printout was the gap, now closed
 - **Signature columns aligned.** Each of the three cells now uses the same fixed internal grid: a name zone (sized for two-line names like MOHD ALIF FARHAN BIN NAZARUDIN), an identical signature zone (the CEO's PNG sits inside it without pushing anything), and **Date pinned to the same baseline in all three cells** — flex with margin-top:auto, per the house rule. Name, Signature and Date now line up straight across the row regardless of name length or signature presence
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.126] — 2026-08-02 — Payroll figure breakdown: mismatches now name themselves
 
 ### Added
+
 - The Expenses "Staff payroll" line gains an expandable **Breakdown** — every saved entry the figure is built from, with the person's name and their saved net. Comparing it against the Payroll tab makes any mismatch self-diagnosing:
   - a **name in the breakdown that isn't in the Payroll tab** = a ghost entry (test account / out-of-scope user) inflating the figure
   - a **different amount** than the tab shows = that row hasn't been re-saved since editing
   - a **"recomputed ⚠" marker** = the row was saved before the net-storing update (v1.4.124) — the server recomputed it; press Save all to store the exact net
 
 ### Reminder — the tally sequence (v1.4.124 must be live first)
+
 The two figures only converge after ALL of: migration **0041** applied remotely → `wrangler deploy` → `pnpm build` + hard refresh → **Payroll 07-2026: Save all**. The Payroll tab shows live on-screen values (e.g. the new RM 75 allowance and 1.5h OT); Expenses reads what was last SAVED — until Save all runs on the new build, they cannot match by design
 
 ### Deploy
-- Migration **0041** (with 0040) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: **Save all** → check the Breakdown
 
+- Migration **0041** (with 0040) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: **Save all** → check the Breakdown
 
 ## [1.4.125] — 2026-08-02 — Claim form: CEO full name + signature on approval · no CUT HERE · footer at page bottom
 
 ### Changed (printed claim form)
+
 - **CEO cell uses the FULL name** (uppercase, matching the Employee cell) — from the deciding CEO's user record, no longer the short display name
 - **CEO signature auto-inserts once approved:** on approved claims the CEO's official signature PNG prints in the Signature space, and **Date fills with the decision date** — matching the QT/DO/INV signing convention. Pending/rejected forms keep the blank signing space
 - **✂ CUT HERE removed** — the receipt box now sits directly below the signatures
 - **Footer pinned to the bottom of the A4 page** via the flex margin-top:auto pattern (the house rule — never absolute positioning), so the company/SSM line always sits at the true page bottom regardless of how many claim rows the form has
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.124] — 2026-08-02 — Expenses payroll figure now tallies with the Payroll tab (migration **0041**)
 
 ### Root cause of the discrepancy (full-file check done)
+
 The Expenses card and the Payroll tab used the **same formula but different scope and different data freshness**:
+
 1. **Scope:** `/expenses` summed EVERY saved payroll entry for the month — including entries belonging to users the Payroll tab doesn't list (disabled accounts, customer/super_admin roles, staff outside their employment window). Any such row silently inflated the Expenses figure
 2. **Freshness:** the Payroll tab computes live from what's on screen; `/expenses` reads what was last SAVED — edits (e.g. the 22 → 23 working-days correction) diverge the two until Save all
 
 ### Fixed — single source of truth
+
 - **Migration 0041:** `payroll_entries.net_cents` — the panel now computes each net once (the one shared formula) and **saves it with the entry**; `/expenses` **sums the stored nets** instead of re-deriving them. After Save all, the two figures are identical by construction
 - `/expenses` now applies the **same staff scope as the Payroll tab**: active users only, no customer/super_admin, employment lifecycle window applied — out-of-scope entries can no longer leak into the total (rows saved before 0041 still fall back to the formula, same scope)
-- The Payments-due line now says where its number comes from: *"sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches"*
+- The Payments-due line now says where its number comes from: _"sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches"_
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0041**, with 0040 if not yet) → `npx wrangler deploy` → `pnpm build` → hard refresh → **Payroll 07-2026: Re-fill days → Save all** (stores the nets; the Expenses figure then equals the tab total exactly)
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0041**, with 0040 if not yet) → `npx wrangler deploy` → `pnpm build` → hard refresh → **Payroll 07-2026: Re-fill days → Save all** (stores the nets; the Expenses figure then equals the tab total exactly)
 
 ## [1.4.123] — 2026-08-02 — HR compilation card: Receipt link removed
 
 ### Changed
+
 - The **"Receipt" link is removed** from HR's "Approved claims history — compilation" card — the claimant submits the **original physical receipt** to HR, so a digital printout isn't part of the compilation. Each row keeps exactly what HR files: **Print claim form** (which still includes the receipt image in its box, for cross-checking against the original) and **Payment proof** (the CEO's bank slip)
 - Server-side read access is unchanged — the printed claim form embeds the receipt image, so the form keeps printing complete
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.122] — 2026-08-02 — Hari Hol not observed in July (migration **0040**) · payroll description corrected
 
 ### Fixed (avoids over-paying July's prorated slips)
+
 - **Migration 0040 removes Hari Hol Almarhum Sultan Iskandar (21-07-2026) from the holiday calendar** — per the CEO, the team did NOT take it (most staff's first reporting day was 20-07); it will be replaced in August instead. July 2026 therefore counts **23 working days**, which makes every incomplete-month deduction slightly larger and correct (e.g. worked 5 of 23 instead of 5 of 22 — leaving it at 22 would over-pay all six prorated slips)
 - **After applying, in Payroll processing: confirm the auto box shows 23 → press "Re-fill days" → "Save all"** — saved entries carry their own month_working_days, so they must be re-saved to pick up 23 before the 05-08-2026 payment run. Payslips then read "WORKED X OF 23 PAYABLE DAYS"
 - **The August replacement:** when the replacement date is decided, add it in the HR holiday calendar (e.g. "Hari Hol — replacement day") — August's working-day count drops by one automatically, and if August payroll was already filled, Re-fill days + Save all there too
 
 ### Changed
+
 - The Payroll processing description no longer hardcodes "July 2026 = 22". It now explains the rule generally — including exactly this case: an unobserved holiday must be deleted from its month (making that day count as working) and added on the actual replacement date, followed by Re-fill days + Save all so no slip keeps stale figures
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0040**) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: Re-fill days + Save all for 07-2026
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0040**) → `npx wrangler deploy` → `pnpm build` → hard refresh → Payroll: Re-fill days + Save all for 07-2026
 
 ## [1.4.121] — 2026-08-02 — HR's read-only approved-claims history for compilation
 
 ### Added
+
 - **hr_admin now sees every CEO-approved claim** (including paid ones) in a dedicated card: **"Approved claims history — compilation"**. Strictly read-only — no edit, no approve/reject, no mark-paid, no attach — with exactly what HR needs for records: the claim number (CLM-AZOO…), claimant, amount, a **PAID {date}** or **payment due** chip, and three links per row: **Print claim form**, **Receipt**, and **Payment proof** (the CEO's bank slip)
 - Server-side, the access is scoped precisely: HR's claim list gains approved claims only (pending/rejected claims of the exec chain remain invisible to HR as before); the receipt file is readable by HR **only for approved claims**; the payout proof is readable by HR (its existence already implies paid). All writes remain locked to the existing roles — claimant for receipts, CEO for decisions/payment/proof
 - HR's own "My claims" list stays personal (their claims + their review queue) — the history lives in its own card so the compilation view never mixes with day-to-day work
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.120] — 2026-08-02 — Payslip: zero rows hidden · working days = clocked-in only
 
 ### Changed
+
 - **"Working days" on the slip means one thing now: the clocked-in total.** The old "WORKING DAYS IN MONTH (MON–FRI LESS HOLIDAYS)" row was already removed in v1.4.118 — the screenshot showing it was a pre-rebuild print. What remained was the deduction note reusing the phrase; it now reads "INCOMPLETE MONTH (WORKED 5 OF 22 **PAYABLE DAYS**)" so the words "working days" belong solely to the clocked-in figure. (The 22 stays in the note because the incomplete-month formula you approved in v1.4.84 divides by the month's payable days — the note exists precisely so the math on the slip is self-explanatory)
 - **Zero rows no longer print.** PUBLIC HOLIDAY, ANNUAL LEAVE, MEDICAL LEAVE, EMERGENCY LEAVE (PAID) and UNPAID LEAVE appear **only when they have data (> 0)** — a clean month shows just "WORKING DAYS (TOTAL CLOCKED IN)" plus the balances. The Public Holiday row itself stays (v1.4.119) — it simply hides when the count is zero
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.119] — 2026-08-02 — Public Holiday row restored
 
 ### Fixed (my misreading, reversed)
+
 - v1.4.118 removed the payslip's **PUBLIC HOLIDAY** row after misreading the CEO's comment — "there is no public holiday" referred to the July FIGURE looking wrong, not the row itself. The row is **restored**. The v1.4.118 improvements stay: single "WORKING DAYS (TOTAL CLOCKED IN)" line, no duplicate Days-Present row
 - Note on the July figure: the 1.00 shown comes from the seeded Johor calendar — **Hari Hol Almarhum Sultan Iskandar (31-07-2026)** from the official gazette. If the company does not observe it, delete that entry in the holidays calendar and the slip (and the working-days computation) will show 0 / 23 accordingly
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.118] — 2026-08-02 — Payslip Others simplified · CLM-AZOODDMMYY numbering · payout proof (migration **0039**)
 
 ### Payslip (Others column)
+
 - Per the CEO: one line — **"WORKING DAYS (TOTAL CLOCKED IN)"** — showing the person's attended days from the clock-in data. The separate "DAYS PRESENT" row is removed (it duplicated the same figure), and the **"PUBLIC HOLIDAY" row is removed** entirely. The leave rows (annual/medical/emergency/unpaid) and balances stay; the deductions column still self-explains "WORKED X OF Y WORKING DAYS" where a shortfall applies
 
 ### Claim numbering
+
 - Claim numbers now follow the company scheme: **CLM-AZOO{DDMMYY}-{running number that day}** (e.g. CLM-AZOO020826-1), matching the QT/DO/INV pattern — on the printed form's Claim No., the editing header, and everywhere the number shows. Computed from the creation date + that day's sequence; existing claims renumber consistently under the same rule
 
 ### Payout proof — the answer to "should I insert the receipt paid?"
+
 - **Yes — and now you can.** After 💸 Mark paid, the CEO sees **"📎 Attach payment receipt (bank slip)"** on the claim (migration 0039: `payment_proof_key`): the transfer slip uploads (image/PDF, 8 MB cap), the claimant is bell-notified, and both the claimant and deciders get a **"View payment receipt (payout proof)"** link. The claim record then tells the whole story end to end: staff receipt in → approval chain → PAID + date → payout proof. Audited `claim.payment_proof`. (Binary route added to the JSON-parse exclusion list — the v1.4.115 lesson, applied)
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0039**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0039**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.117] — 2026-08-02 — Receipt attach resubmits a rejected claim · claim form fits ONE A4
 
 ### Changed (Claims)
+
 - **Attaching a receipt to a REJECTED claim now resubmits it automatically.** The missing receipt was the reason for rejection — once it's attached the claim goes straight back to pending, the previous decision and any chain stamps are cleared, the first stage of the approval chain is notified ("Resubmitted with receipt"), and the staff member sees "Receipt attached — claim RESUBMITTED for approval". Audited `claim.resubmit` (via receipt_attach). "Edit & resubmit" remains for when the claim's content itself needs fixing
-- The 📎 attach on a *pending* claim behaves as before — attaches quietly without restarting anything
+- The 📎 attach on a _pending_ claim behaves as before — attaches quietly without restarting anything
 
 ### Changed (printed claim form — one A4 page)
+
 - The whole form **including the receipt** now fits a single A4 sheet: page margins 14mm → 9mm, tightened header/table/signature spacing (signature boxes 78 → 64px), receipt box capped at 72×58mm, and break-inside guards on the receipt box and footer so nothing spills onto a second page. All content — meta grid, up to 10 item rows, declaration, status line, three signatures, ✂ CUT HERE, receipt, footer — on page 1
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.116] — 2026-08-02 — "Hide" is a proper button
 
 ### Changed
+
 - The Add-a-staff-member card's tiny underlined "hide" text link is now a real button — "**Hide form ▲**", bordered, h-8, hover state, sitting flush right of the card header — matching the "+ New staff record — show details" button that opens it
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.115] — 2026-08-02 — THE receipt bug, found and fixed
 
 ### Fixed (root cause of every failed receipt upload)
+
 - `handleStaff` JSON-parses every POST body **except** the binary `/photo` route. The receipt route ends `/receipt`, so `request.json()` ran on the **binary image** first — the parse error was swallowed, but the read **consumed the request stream**, so the R2 upload received a disturbed/empty body and failed **every single time**, for every file, at any size. The `/receipt` route is now excluded from JSON pre-parsing exactly like `/photo`, and the handler explicitly refuses an empty body
 - This was never a size problem and never a migration problem — my earlier diagnoses were wrong on this point, and the size popup/limits from v1.4.110 remain as genuine safeguards, but the upload itself was broken at the stream level since the claims module shipped. It works now: choose the file (via the form, Edit, or 📎 Attach receipt) and it lands in R2, ticks the ☑ checkbox, and prints on the form
 
 ### Deploy
-- `npx wrangler deploy` → hard refresh (worker-only fix; run migrations 0037+0038 first if not yet applied — they're still required for the expenses/claims features)
 
+- `npx wrangler deploy` → hard refresh (worker-only fix; run migrations 0037+0038 first if not yet applied — they're still required for the expenses/claims features)
 
 ## [1.4.114] — 2026-08-02 — Why the tab looked empty: unapplied migrations. Hardened + one-tap receipt attach
 
 ### Root cause (both complaints, one cause)
+
 - v1.4.109–112 read columns/tables created by **migrations 0037 and 0038** (claims.paid_at, chain columns, payroll_payments). If those migrations are **not applied** on the remote D1, `/expenses` throws → the whole endpoint 500s → the tab renders EMPTY with no message (looks exactly like data loss), and claim **edit/resubmit** 500s too (blocking the attach-via-edit path). The data itself is untouched
 - **Run this first:** `npx wrangler d1 migrations apply azoneofficial --remote` — then `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ### Hardened (so this class of failure can never blank the tab again)
+
 - `/expenses` and `/pnl` now **degrade instead of dying**: the new payroll-payment and claims lookups are individually guarded — if their tables/columns are missing, the core expense list still returns and the failure is written to the error log (`expenses_claims`, `expenses_payroll_paid`; visible in /admin → System health)
 - A failed `/expenses` load now shows a **loud amber line** ("⚠ Server error — expenses could not be loaded…") instead of a silent empty list
 
 ### Added — 📎 one-tap "Attach receipt"
+
 - Staff no longer need to edit the claim to add a missing receipt: their own pending/rejected claims without one show **📎 Attach receipt** directly on the row — pick the photo/PDF, it compresses, size-checks (8 MB popup with the WhatsApp tip on failure, including server refusals), uploads, and confirms "Receipt attached to your claim"
 
 ### Deploy
-- **Migrations 0037 + 0038** → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- **Migrations 0037 + 0038** → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.113] — 2026-08-02 — Clock-in-first flow with a popup
 
 ### Added
-- **The punch flow is now enforced: clock IN first, then clock OUT.** Tapping "Clock out" without today's clock-in shows an instant popup — *"Clock in first — You haven't clocked in today — clock in first, then clock out at the end of your shift."* — in the same animated toast style as the punch confirmations
+
+- **The punch flow is now enforced: clock IN first, then clock OUT.** Tapping "Clock out" without today's clock-in shows an instant popup — _"Clock in first — You haven't clocked in today — clock in first, then clock out at the end of your shift."_ — in the same animated toast style as the punch confirmations
 - **Server-enforced too**, not just hidden in the UI: the worker refuses a clock-out with no clock-in on record for the day (HTTP 400 `no_clock_in`), so a stale tab or a direct API call can't create an out-without-in. If the server refusal fires (e.g. an old tab open since yesterday), the same popup shows rather than a quiet error line
 - The one-in/one-out-per-day rule and all lateness/early-out classifications are unchanged
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.112] — 2026-08-02 — Month attribution rules set by the CEO
 
 ### The three rules, as stated
-1. **July payroll counts in AUGUST** — this was already the design (the "Staff payroll — 07-2026" line lives inside the 08-2026 card and joins the August Total). What the screenshot exposed: the amount showed nothing because **July payroll hasn't been processed yet** — the figure comes from the Payroll tab's entries. The line now says so explicitly: *"(figure appears once 07-2026 payroll is processed in the Payroll tab — it counts in THIS month's total)"*
+
+1. **July payroll counts in AUGUST** — this was already the design (the "Staff payroll — 07-2026" line lives inside the 08-2026 card and joins the August Total). What the screenshot exposed: the amount showed nothing because **July payroll hasn't been processed yet** — the figure comes from the Payroll tab's entries. The line now says so explicitly: _"(figure appears once 07-2026 payroll is processed in the Payroll tab — it counts in THIS month's total)"_
 2. **Utilities and other expenses belong to the month they're recorded in** — already the behaviour: recording in August books to August; recurring items carry forward to each month's Payments due until recorded for that month. Unchanged
 3. **Claims belong to the month their claim dates fall in (1st → month end)** — CHANGED from v1.4.109's paid-date basis: an **approved** claim now counts in the month of its claim date, whether the money has moved yet or not. The Expenses Total and the P&L Claims column both follow claim-date attribution ("+ staff claims RM X (N, by claim date)"). Payments due (approved-unpaid) and ✅ Payments completed (actual payment dates) keep tracking the cash movements separately
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.111] — 2026-08-02 — "Missing" expenses explained · News label on desktop
 
 ### Clarified (not a data loss)
-- The Expenses tab shows **one month at a time** and defaults to the current month. On 02-08-2026 it opens on August — a fresh, empty month — while July's records sit safely under the **month picker** (top right). The empty state now says exactly that: *"No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right."* Nothing was deleted; the DB and nightly backups are untouched
+
+- The Expenses tab shows **one month at a time** and defaults to the current month. On 02-08-2026 it opens on August — a fresh, empty month — while July's records sit safely under the **month picker** (top right). The empty state now says exactly that: _"No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right."_ Nothing was deleted; the DB and nightly backups are untouched
 
 ### Fixed
+
 - The **desktop** nav pills and the More sheet rendered the raw tab key "Announcements" — only the mobile renderer had the "News" label. One shared `tabLabel()` now feeds every nav renderer, so **News** shows on desktop too (spotted on the CEO's screenshot)
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.110] — 2026-08-02 — Receipt-too-large popup with the WhatsApp fix
 
 ### Fixed
+
 - Oversized receipt uploads previously **failed silently** — the claim went through and the staff member never knew the receipt didn't. Every failure path now speaks up
 
 ### Added
-- **Clear size limit: 8 MB** (generous — receipts compress to ~200 KB), enforced in three layers with the same friendly message everywhere: *"Receipt too large — the maximum is 8 MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy."*
+
+- **Clear size limit: 8 MB** (generous — receipts compress to ~200 KB), enforced in three layers with the same friendly message everywhere: _"Receipt too large — the maximum is 8 MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy."_
   1. **On file selection** — an oversized PDF (no client compression possible) or an extreme photo (>40 MB) is refused immediately with the popup, before any waiting
   2. **On submit** — photos are auto-compressed first (longest side 1600px, as since v1.4.76, typically 5–15× smaller); if one still exceeds 8 MB (e.g. iPhone HEIC that couldn't be decoded), the claim submits WITHOUT it and the popup says so, adding "then use Edit on your claim to attach it"
   3. **On the server** — a hard 8 MB cap (HTTP 413) with the same tip, so nothing oversized slips through by any route; a failed upload after a successful claim is now also reported instead of swallowed
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.109] — 2026-08-02 — Staff claims are expenses too
 
 ### Added (Expenses tab)
+
 - **Paid staff claims now count in the month's expenses** — cash basis, consistent with the rest of the tab: a claim becomes an expense in the month the CEO presses 💸 Mark paid. The month **Total** includes them, with the breakdown reading "incl. staff payroll … + expenses … + staff claims RM X (N)"
 - **Approved-but-unpaid claims appear under 💳 Payments due** — amount, "staff claim" chip, claimant name, approval date, and a DUE pill, with the instruction to pay the claimant then press Mark paid on the Claims tab
 - **Paid claims join ✅ Payments completed** — 🧾 lines with claimant and payment date, included in the completed total
 
 ### Changed (Overview P&L)
+
 - The 6-month P&L gains a **Claims column**: claims paid in each month now sit on the cost side alongside Expenses and Payroll, so Profit reflects them
 
 ### Repaired
+
 - Restored two TypeScript type additions (`staff_payroll.paid_at`) that a v1.4.101 edit batch had asserted but never written to disk — without this the build would have failed on the Payments-completed code
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.108] — 2026-08-02 — Full registered address on the badge (and every printed footer)
 
 ### Changed
+
 - The staff ID badge footer now carries the **full registered address** on two lines — "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika," / "81200 Johor Bahru, Johor, Malaysia" — replacing the short "Setia Tropika, Johor Bahru, Malaysia"
 - The same full address replaces the compact form on the **payslip footer** and the **claim form footer**, so every printed document now states the identical registered address as the QT/DO/INV and SOA. No compact variant remains anywhere
 
 ### Deploy
-- `pnpm build` → hard refresh only (re-print badges to see it)
 
+- `pnpm build` → hard refresh only (re-print badges to see it)
 
 ## [1.4.107] — 2026-08-02 — CEO override on the claim chain
 
 ### Changed
+
 - **The CEO can approve directly, chain finished or not** — as the company's final authority, an incomplete chain no longer blocks the Approve button. But a bypass is never silent: the button asks for confirmation ("Approve anyway as CEO? The bypass will be recorded"), the claim's decision note gains "**CEO direct approval (HR review + COO pre-approval bypassed)**", and the audit log stores the skipped stages (`chain_override`). The normal flow is unchanged — stages still get notified, chips still show progress, and an approval after a completed chain records nothing extra
 - Reject remains available at any point, as before
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.106] — 2026-08-02 — Role-based claim approval chains (migration **0038**)
 
 ### The chains (mirroring the leave approval chain)
+
 - **marketing / sales_marketing / editor / live_host** → **HR review** → **COO pre-approval** → **CEO final approval**
 - **hr_admin** → **CCO pre-approval** → **CEO final approval**
 - **COO / CCO** → **CEO final approval** directly
 - This also means **every staff role can now submit claims** (previously only hr_admin and above) — the Claims tab opens to editor/marketing/live_host/sales_marketing
 
 ### How it works
+
 - On submission the **first stage is notified** (HR for staff claims, CCO for HR's claims, CEO otherwise) — no more everything landing straight on the CEO
 - **HR** sees staff-chain claims in a Pending-approvals queue with **"✔ HR review OK — pass to COO"**; the COO is then notified and sees **"✔ Pre-approve — pass to CEO"**; the CCO gets the same button on hr_admin claims. No self-review — the server refuses reviewing your own claim
 - Every pending claim shows a **chain progress chip**: "awaiting HR review" → "HR ✓ — awaiting COO" → "HR ✓ · COO ✓ — CEO next"
@@ -2396,218 +2675,248 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 - Audited: `claim.hr_review`, `claim.preapprove`; admin tier can backstop any stage
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0038**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0038**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.105] — 2026-08-02 — Format hints in every box · short labels
 
 ### Changed (Staff Details + phone fields everywhere)
+
 - **Format examples now live inside the boxes** — an empty field shows exactly the shape HR/CEO/COO should type: NRIC "**YYMMDD-PB-#### · e.g. 970209-01-5183**", phone "**+60 12-345 6789**", Employee ID "e.g. AZOOM001", dates "DD-MM-YYYY · e.g. 09-02-1997", bank account "**numbers only** · e.g. 551100338444", blood type "e.g. O / A+ / B−", position/department examples
 - **Labels shortened, as asked** — the long explanations no longer stretch the layout: "Effective end date (DD-MM-YYYY — resigned/terminated)" became "**End date (resign/terminate)**", "Re-joined on (DD-MM-YYYY — payroll resumes)" became "**Re-joined on**", and the date labels dropped their repeated (DD-MM-YYYY). The detail moved into the box placeholder and a **hover tooltip** (e.g. NRIC explains the YYMMDD-PB-#### parts; End date says payroll runs up to and including it)
 - Phone hints standardized across tabs: Staff Details record + create form, **Profile** phone, and the Sales **customer** phone (which also feeds the WhatsApp reminder links — the +60 format there makes wa.me work first time)
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.104] — 2026-08-02 — Claim editing lifecycle: edit before approval · locked once approved · edit & resubmit after rejection
 
 ### Added
+
 - **Before the CEO decides**: the claimant sees an **Edit** link on their own pending claim — it loads the claim back into the form ("Editing AZOO-CLM-0001 · cancel"), purpose and every item line prefilled; **Update claim** saves the changes (audited `claim.edit`) and the CEO is notified of the updated figures. A new receipt can be attached during the edit
 - **Once approved (or paid): locked.** The worker refuses edits on approved claims outright — "Approved claims are locked — submit a new claim instead"
-- **After a rejection**: the claim is no longer a dead end — the claimant sees **Edit & resubmit**, fixes the form, and **Resubmit for approval** sends it back to **pending**: the previous decision (decided-by, note) is cleared, the CEO is bell-notified *"Resubmitted after rejection awaiting your approval"*, and the cycle runs again (audited `claim.resubmit`). Receipt uploads are now also allowed on rejected claims so the missing proof can be added before resubmitting
+- **After a rejection**: the claim is no longer a dead end — the claimant sees **Edit & resubmit**, fixes the form, and **Resubmit for approval** sends it back to **pending**: the previous decision (decided-by, note) is cleared, the CEO is bell-notified _"Resubmitted after rejection awaiting your approval"_, and the cycle runs again (audited `claim.resubmit`). Receipt uploads are now also allowed on rejected claims so the missing proof can be added before resubmitting
 - Only the **claimant themselves** can edit — checked server-side against the session, not just hidden in the UI
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.103] — 2026-08-02 — Receipt below the CUT HERE line
 
 ### Changed
+
 - The printed receipt box now sits **below the ✂ CUT HERE line**, bottom right — the top section (the formal claim form with the Receipt ☑/☐ checkbox, details, signatures) can be cut and filed on its own, with the receipt on the detachable lower portion. The **Receipt checkbox stays in the meta grid** exactly as before, auto-ticking ☑ Yes / ☑ No from whether a receipt is attached — the form always states whether proof exists even after the halves are separated
 
 ### Deploy
-- `pnpm build` → hard refresh only
 
+- `pnpm build` → hard refresh only
 
 ## [1.4.102] — 2026-08-02 — Receipt prints on the claim form
 
 ### Added
+
 - The staff-uploaded receipt now prints **on the Employee Claim Form itself** — a bordered "RECEIPT (UPLOADED BY STAFF)" box at the **bottom right**, above the ✂ CUT HERE line. The image is fetched fully (as a blob, with your session) **before** the print dialog opens and rendered at up to 80×78mm — clearly visible, never a half-loaded blank. Because compressed receipt photos can't be inlined when they're PDFs, a PDF receipt prints a note instead ("Receipt attached as PDF in the system — printed separately"); use View receipt to print that PDF on its own page. The receipt checkbox in the meta grid keeps auto-ticking as before
 - The print window now opens immediately on the click (popup-blocker safe) with a brief "Preparing claim form…" while the receipt loads
 
 ### Deploy
-- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
 ## [1.4.101] — 2026-08-02 — The big one: full address · News · sales clarity · client money management · staff lifecycle · claim payments · payments completed · inventory pricing · birthdays everywhere · tab re-sort · Users tab · P&L (migration **0037**)
 
 ### Company address (portal / admin / account / documents)
+
 - The full registered address — **34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor** — now prints on the QT/DO/INV header and the new Statement of Account. (The public site's structured data already carried it; the payslip/claim-form footers keep the compact one-line form)
 
 ### Tabs
-- **Re-sorted to the CEO's order**: Dashboard → News → HR → Staff Details → Attendance → Leave → *(Tasks — kept after Leave; task-only roles depend on it)* → Claims → Payroll → Expenses → Sales → Inventory → Birthdays → Overview → Profile → **Users**
-- **Announcements is now "News"** everywhere it displays (dashboard card, publish form, nav) 
+
+- **Re-sorted to the CEO's order**: Dashboard → News → HR → Staff Details → Attendance → Leave → _(Tasks — kept after Leave; task-only roles depend on it)_ → Claims → Payroll → Expenses → Sales → Inventory → Birthdays → Overview → Profile → **Users**
+- **Announcements is now "News"** everywhere it displays (dashboard card, publish form, nav)
 - **New Users tab** (super_admin / CEO / COO): read-only list of every staff account — proper-case name, email, role chip, employment status (with end/re-join dates), active/disabled — account management itself stays in /admin
 
 ### Sales
-- **Walk-in mystery solved**: "🚶 Walk-in / general buyer" (dropdown) and "Walk-in Customer" (customer list) were the *same shared record* — the list row is now hidden server-side, leaving only the dropdown option. One concept, one place
+
+- **Walk-in mystery solved**: "🚶 Walk-in / general buyer" (dropdown) and "Walk-in Customer" (customer list) were the _same shared record_ — the list row is now hidden server-side, leaving only the dropdown option. One concept, one place
 - **Sales person captures your login**: the default now reads "**Alif — me (auto from login)**" — it always recorded the logged-in creator; the label finally says so. All salesperson displays (dropdown, list, printed doc) use **first names**
 - **Item description suggests from Inventory**: typing opens live suggestions (name · SKU · price); picking one **auto-fills the unit price** from inventory; free typing still works for items not stocked yet
 - **Client money management**: **SOA button** per customer prints a branded Statement of Account (invoice list, paid/outstanding status, balance band, bank details); **⏳ aging card** buckets unpaid invoices 1–30/31–60/61–90/90+ days with a **WhatsApp reminder** link pre-written with the invoice number, amount and account number; **→ Invoice** button on quotations converts one-click (same items/customer/salesperson, fresh INV number, audited `doc.convert_qt_inv`)
 
 ### HR / Staff Details / Payroll
-- **Names display in Proper Case across the tabs** (payroll, corrections, team report, birthdays, staff lists, claims, dropdowns) via a shared helper that keeps *bin/binti/a/l/a/p* lowercase — formal printed documents (payslip, claim form, badge, signer block) deliberately stay uppercase
+
+- **Names display in Proper Case across the tabs** (payroll, corrections, team report, birthdays, staff lists, claims, dropdowns) via a shared helper that keeps _bin/binti/a/l/a/p_ lowercase — formal printed documents (payslip, claim form, badge, signer block) deliberately stay uppercase
 - **Staff Details creation form hidden** behind "+ New staff record — show details" (HR/CEO/COO click to reveal; minimalist by request)
 - **Employment status** gains **Resigned** and **Terminated** (the DB already accepted them), plus two new dated fields (migration 0037): **Effective end date** and **Re-joined on**. Payroll follows the lifecycle: the person is processed **through the month of the effective date** (final salary via days worked, as the formula already does), disappears for the gap, and **returns from the re-join month**. Status chips on the staff list show "resigned · 15-09-2026" / "re-joined 01-11-2026"
 
 ### Claims
+
 - After approval, the CEO can press **💸 Mark paid (money released)** — the claim shows a green **PAID + date** chip to the claimant (who is bell-notified), on top of the approved status. Audited `claim.paid`
 
 ### Expenses
+
 - **Staff payroll gets its own Mark paid** button on the 💳 Payments-due line — pressing it clears the DUE pill (audited `payroll.paid`) and the payment moves to a new **✅ Payments completed** section listing everything released this month (payroll with its month + date, each paid expense with category/vendor/date) and the completed total
 
 ### Inventory
+
 - **Price per unit (RM)** column (migration 0037: `unit_price_cents`): set it on creation or edit it inline in the table — it feeds the Sales item suggestions
 
 ### Birthdays
+
 - Staff birthdays now appear on the **dashboard events calendar** (🎂 pink markers, legend entry, tap-day chip) with a **"🎂 Coming up"** strip for the next 30 days — and a new **09:00 MYT daily cron** bell-notifies every staff member on the day itself, so the team can prepare the celebration
 
 ### Overview
+
 - **📊 P&L card** — last 6 months, month by month: TikTok + paid invoices (cash basis) against expenses + the payroll cycle paid in the month, with a green/red profit column. (Note: the P&L payroll column uses entry totals; the Expenses tab remains the exact net figure)
 
 ### Standardization
+
 - Save popups: the portal already uses the animated SaveToast family everywhere; **/account now joins it** (enquiry confirmation). /admin keeps its inline confirmations for now — a full admin toast sweep is queued as its own pass. Mobile app-view (bottom nav + sticky app bar) was verified present on /portal, /admin and /account since v1.4.55
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0037**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0037**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.100] — 2026-08-02 — Documents list rows standardized
 
 ### Changed
+
 - The Documents rows are re-laid: document info (number · customer · amount · date · sales person) on the left, growing to fill the row, and a single right-aligned **controls group** — PAID chip · status dropdown · Edit · PDF — every element the **same 28px height**, same rounding, consistent spacing, vertically centred. The chip no longer floats at a different height than the dropdown or the buttons, and on narrow screens the whole controls group wraps together as one unit instead of scattering
 - The list date also drops the stray "00:00" (dates only), matching the printed documents
 
 ### Deploy
-- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
 ## [1.4.99] — 2026-08-02 — Official signature PNGs · signer name + position under the Authorised signature
 
 ### Changed
+
 - **Your clean transparent PNGs replace the extracted ones**: `public/signatures/ceo-sign.png` and `coo-sign.png` are now the files you supplied (signature + AZ ONE OFFICIAL chop, properly cut), and the image prints larger (112px tall) so the chop is legible — the previous render was too small
-- **Signer identity under the line, standardized on all three documents**: each signature block now reads — signature image → line → small caps label (*Authorised signature* / *Delivered by* / *Prepared by*) → **FULL NAME** in bold → **Position** → AZ ONE OFFICIAL. The worker returns the signer automatically: the **COO's full name and position on the COO's own documents, the CEO's on everything else** (pulled live from Staff Details `full_name` + `position`, so a title change updates every future print; sensible fallbacks if the position field is empty)
+- **Signer identity under the line, standardized on all three documents**: each signature block now reads — signature image → line → small caps label (_Authorised signature_ / _Delivered by_ / _Prepared by_) → **FULL NAME** in bold → **Position** → AZ ONE OFFICIAL. The worker returns the signer automatically: the **COO's full name and position on the COO's own documents, the CEO's on everything else** (pulled live from Staff Details `full_name` + `position`, so a title change updates every future print; sensible fallbacks if the position field is empty)
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Make sure your and the COO's **Position** fields are filled in Staff Details — that's what prints under the name
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Make sure your and the COO's **Position** fields are filled in Staff Details — that's what prints under the name
 
 ## [1.4.98] — 2026-08-02 — Maybank account on invoices · payment details + signature pinned to the page bottom (full A4, standardized)
 
 ### Added / Changed
+
 - **Bank account on the invoice payment box**: A/C No **5516 2328 7032** (grouped for readability) joins Method · Bank (MAYBANK) · Name (AZ ONE OFFICIAL) — customers finally have the full transfer details on the document itself
 - **Full-A4 layout, standardized across INV / QT / DO**: the printed page is now a flex column at full A4 height, and the bottom block — payment details + Authorised signature on invoices, the signature pairs on Delivery Orders and Quotations — is **pinned to the bottom of the page** with `margin-top:auto` (per the house rule: flex pinning, never absolute). Short documents no longer end mid-page; every document type shares the same structure: header → bill-to → items → totals → notes → bottom block at the page foot → footer line
 - **Dates on printed documents show the date only** — "24-07-2026", not "24-07-2026 00:00" — in the meta box (Date / Valid until / Payment due), the ✔ PAID line, and the quotation validity sentence
 
 ### Deploy
-- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
+- `pnpm build` → hard refresh only (frontend change; no worker deploy, no migration)
 
 ## [1.4.97] — 2026-08-02 — Documents list fixed · authorised signatures on QT/DO/INV · sales_marketing invoicing
 
 ### Fixed — why the Documents list stayed empty
+
 - A stray fragment from a v1.4.93 automated edit had corrupted `printDoc`'s closing line and left the document-list type incomplete — depending on build settings this either broke the frontend build or the list rendering. The fragment is **removed and both types repaired**; additionally the list now refreshes **awaited** right after creation (the new document appears instantly), the Documents card gains a **Refresh** button, and any loading error is shown in amber instead of a silent "No documents yet." — so a problem can never masquerade as an empty list again. View + reprint: every row keeps its **Edit** and **PDF** buttons; PDF reprints any document at any time
 
 ### Added
-- **Authorised signatures, auto-assigned** (from the two photos provided): both signatures were extracted to **transparent-background PNGs** (paper lighting normalised, black ink + blue AZ ONE OFFICIAL company chop preserved, cropped) at `public/signatures/ceo-sign.png` and `coo-sign.png`. The printed documents place the image above the signature line per your rule — **COO-created documents carry the COO's signature; documents created by CEO, CCO, HR admin or sales & marketing carry the CEO's** — on the Invoice's *Authorised signature*, the DO's *Delivered by*, and the Quotation's *Prepared by* blocks. The worker returns the creator's role for the selection
+
+- **Authorised signatures, auto-assigned** (from the two photos provided): both signatures were extracted to **transparent-background PNGs** (paper lighting normalised, black ink + blue AZ ONE OFFICIAL company chop preserved, cropped) at `public/signatures/ceo-sign.png` and `coo-sign.png`. The printed documents place the image above the signature line per your rule — **COO-created documents carry the COO's signature; documents created by CEO, CCO, HR admin or sales & marketing carry the CEO's** — on the Invoice's _Authorised signature_, the DO's _Delivered by_, and the Quotation's _Prepared by_ blocks. The worker returns the creator's role for the selection
 - **sales_marketing can now create invoices**: added to the worker's finance permission and the Invoice option restored in their form, per instruction — with the signature rule above ensuring their documents still print under the CEO's authority
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. (If your previous `pnpm build` reported errors, the v1.4.93 fragment was the cause — this build is clean)
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. (If your previous `pnpm build` reported errors, the v1.4.93 fragment was the cause — this build is clean)
 
 ## [1.4.96] — 2026-08-02 — Delete item lines · the "Insufficient" invoice error fixed (CEO now in finance)
 
 ### Fixed — the "Insufficient rights" error, root cause
+
 - The worker's **finance permission (invoice creation + mark-paid) omitted the CEO** while the form offered him the Invoice option — so the CEO himself was the one being refused. `finance` now includes **ceo** (super_admin, admin, hr_admin, coo, cco, ceo). The same mismatch showed Invoice to sales_marketing who would also be refused — the option is now hidden for them so the UI and the worker agree
 - **Creating sales on their behalf — the intended flow**: sales & marketing staff create Quotations and Delivery Orders themselves; **Invoices are created by finance roles (you, COO, CCO, HR) with the "Sales person" dropdown attributing the sale** to whoever actually sold — exactly the on-their-behalf mechanism, and the documents list + printed doc credit them
 
 ### Added
+
 - **✕ delete on sales item lines**: accidentally added lines can be removed (the ✕ appears whenever there's more than one line; the last line can't be deleted — a document needs at least one item)
 - **Claims already had it** (as asked to check): each claim item row has carried a ✕ since the multi-item form shipped in v1.4.95, visible whenever there's more than one row
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration — then retry the same Tudung invoice as CEO; it will create, auto-open the PDF, and credit Zolkefli as sales person
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration — then retry the same Tudung invoice as CEO; it will create, auto-open the PDF, and credit Zolkefli as sales person
 
 ## [1.4.95] — 2026-08-02 — Monthly KPI cycle (last month's result stays visible) · multi-item claims, minimalist
 
 ### Changed — KPI as a monthly cycle
-- Targets were already **per-month**, so each new month starts fresh (an automatic reset) — what was missing was the cycle around it, now added: **last month's KPI result stays on the Sales Revenue card all month** as a motivation banner — 🏆 green *"Last month (07-2026): RM 18,540.00 of RM 15,000.00 — 124% TARGET HIT — keep the streak going!"* or 📈 amber *"… — 62% — this month is the comeback."* And **from the 25th onward**, if next month's target isn't set yet, leadership sees an ⏰ *"Month-end soon — set 09-2026's target before the 30th/31st"* nudge with a one-click **Set next month's target** editor (same inline editor, posts to the next month). Once set, the card confirms "Next month's target already set"
+
+- Targets were already **per-month**, so each new month starts fresh (an automatic reset) — what was missing was the cycle around it, now added: **last month's KPI result stays on the Sales Revenue card all month** as a motivation banner — 🏆 green _"Last month (07-2026): RM 18,540.00 of RM 15,000.00 — 124% TARGET HIT — keep the streak going!"_ or 📈 amber _"… — 62% — this month is the comeback."_ And **from the 25th onward**, if next month's target isn't set yet, leadership sees an ⏰ _"Month-end soon — set 09-2026's target before the 30th/31st"_ nudge with a one-click **Set next month's target** editor (same inline editor, posts to the next month). Once set, the card confirms "Next month's target already set"
 
 ### Changed — Claims, matching the paper form
+
 - **Multi-item claims** (migration **0036**: `items` JSON on claims): one form now takes several expense lines — Date · Category · Description · Amount (RM) per row, **+ Add item** (up to 10), live **Total**, a **Purpose** field (prints on the form) — mirroring the AZOO-HR-CLM-001 details table. The stored total is the sum; the CEO's notification carries the total; old single-line claims keep working
 - **Minimalist list, as asked**: claim rows collapse to one line — claimant · total · "3 items" (or category) chip · status · date · **Details ▾**. Expanding shows the purpose, each item line, the receipt link, Print claim form and the decision trail. Approve/Reject stay visible on pending rows without expanding
 - The printed **AZOO-HR-CLM-001** now lists every item as its own row (blank rows pad to the form's minimum), with the grand total
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0036**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0036**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.94] — 2026-08-02 — "Nothing saved" fixed loudly · backdated invoices · document editing · PDF straight after create
 
 ### Fixed — why "Create with auto number" seemed to do nothing
+
 - The form had **silent stops**: with "Choose customer…" still selected (or an empty item line) the button returned without a word, and a server error (e.g. **migration 0035 not yet applied** — the new salesperson column makes the insert fail until it runs) vanished equally silently. Now every stop speaks: amber toasts for "Choose a customer first (Walk-in counts)", "Every line needs an item description", "Enter a unit price (RM)", and any server error message; success shows a green toast with the new document number. **Run migration 0035 before testing** — that is very likely the actual reason yours didn't save
 
 ### Added
+
 - **Backdated documents**: a "Document date (backdate allowed)" field (past dates only, capped at today) — an invoice for a payment received before this system existed carries its true date; with "Payment already received" ticked, a "Payment received date" field backdates `paid_at` too, so the revenue card books it in the correct month
 - **Edit documents**: an **Edit** button on every row loads the document back into the form ("Editing INV-AZOO… · cancel"), lets you fix items, prices, discount, tax, customer, sales person or date, and **Update** recomputes totals — the document number NEVER changes, edits are audited (`doc.edit`), and invoice edits require finance rights just like invoice creation
 - **PDF immediately**: after creating or updating, the print view opens by itself with the fresh figures — create → PDF in one motion, exactly the flow asked for
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (applies **0035** if not yet run) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (applies **0035** if not yet run) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.93] — 2026-08-02 — Professional KPI editor · sales form clarity + Sales person · walk-in repair
 
 ### Fixed (honesty note)
+
 - The v1.4.91 walk-in patch was **partially lost before it was written to disk** (a scripting slip on my side): the "Payment received" checkbox and the create/reset logic shipped, but the customer dropdown never gained the walk-in option and the form state was missing its field — which is exactly why the Create document form felt confusing and un-submittable. Both are now properly in place and verified
 
 ### Changed
+
 - **KPI target input**: the browser `prompt()` box is gone. "Set target" now opens a clean inline editor inside the KPI block — RM field, **Save target** button, Cancel, Esc to close — with the save-toast confirmation and an honest "No changes" when the figure is identical
 - **Create document, readable**: every field is labelled — Document type · Customer (with **🚶 Walk-in / general buyer** for unidentified buyers) · **Sales person (who made this sale)** · Item / service description · Qty · **Unit price (RM)** · Discount (RM, optional) · Tax % (optional). Prices are typed in **RM now, not sen** (stored in sen underneath, so nothing else changes)
 - **Sales person on every document** (migration **0035**: `salesperson_id`): a dropdown lists every staff member (CEO, COO, CCO, sales & marketing, marketing, HR — any staff role) with **"Me (default)"** preselected; the worker defaults to the creator when untouched. The documents list shows "· sales: <name>" and the printed QT/DO/INV carries a **Sales person** row in the meta box — you always know who sold. Backed by a new minimal `/staff-list` endpoint (id + name + role only; no phone/IC/bank/salary exposed)
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0035**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0035**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.92] — 2026-08-02 — Printable Employee Claim Form (AZOO-HR-CLM-001)
 
 ### Added
+
 - Every claim in the Claims tab now has a **"Print claim form"** link producing the CEO's paper form as a print-ready PDF, matching the AZOO-HR-CLM-001 / Version 002 layout: branded header with gold bar and tagline, the meta grid (Document No · Version · Claim No `AZOO-CLM-0001` · Date · Employee · Department · Position · Purpose · Receipt ☑/☐, auto-ticked from whether a receipt is attached in-system), the Claim Details table with the claim's line plus blank rows for hand additions, **Total Claimed**, the declaration, and the three signature boxes — Employee / COO·CCO / CEO — with the employee's and deciding CEO's names pre-filled and space for wet-ink signatures. A **✂ CUT HERE** line and footer close it, A4 print CSS + mobile-friendly viewport like the sales documents
-- **The system stays authoritative, as specified**: the form carries a coloured *System status* line — green "APPROVED IN SYSTEM by <name> on <date>", red "REJECTED IN SYSTEM", or amber "PENDING SYSTEM APPROVAL" — so the paper copy always states that approval happens in the system and ink is for the record. `/claims` now returns the claimant's full name, position and department to fill the form
+- **The system stays authoritative, as specified**: the form carries a coloured _System status_ line — green "APPROVED IN SYSTEM by <name> on <date>", red "REJECTED IN SYSTEM", or amber "PENDING SYSTEM APPROVAL" — so the paper copy always states that approval happens in the system and ink is for the record. `/claims` now returns the claimant's full name, position and department to fill the form
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration
 
 ## [1.4.91] — 2026-08-02 — Walk-in invoices · payroll amount inside the expenses total · expense editing
 
 ### Added
+
 - **Invoice for an unidentified buyer**: the customer dropdown gains **"🚶 Walk-in / unidentified buyer"** — pick it and the invoice bills a shared "Walk-in Customer" record (created automatically the first time), so a received payment can always be invoiced even when you don't know who the buyer is. Paired with a new **"Payment already received (bank transfer)"** checkbox on invoice creation: tick it and the invoice is born **PAID** — stamped bank transfer, counted in revenue immediately, green chip and PAID stamp from the start. (If the buyer later identifies themselves, add them as a proper customer for the next document)
 - **Staff payroll inside the expenses total**: the 💳 Payments-due payroll line now shows the actual amount (previous month's payroll, computed with the exact payslip formula — basic + commission + allowance + OT − deductions − unpaid leave − incomplete month), and the month's **Total** includes it with a breakdown: "incl. staff payroll RM 4,653.84 (07-2026) + expenses RM 2,140.00". Money out is finally one number
 - **Edit expenses** (typo fixes): every recorded expense gains an **Edit** link — date, category, amount, vendor and description editable inline with Save/Cancel, honest "No changes" toast, audited `expense.update`. **Staff payroll is deliberately not editable here** — its figures live in the Payroll tab, exactly as specified
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0034 already covers everything)
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration (0034 already covers everything)
 
 ## [1.4.90] — 2026-08-02 — Invoice payments (bank transfer) · true sales figure + KPI target · branded QT/DO/INV templates
 
 ### Added (migration **0034**: `payment_method`, `payment_ref`, `paid_at` on sales_documents + `sales_targets`)
+
 - **Payment received, recorded properly**: marking an invoice **paid** now asks for the bank-transfer reference (optional), stamps method = bank transfer + the payment moment, and shows a green **PAID · bank transfer** chip on the document (hover for date + reference). Reverting to unpaid clears all of it
 - **The correct sales figure**: the revenue card's Invoiced box now counts **payments received** — paid invoices, in the month the transfer landed — labelled "Invoiced (paid)", with **outstanding** (billed, unpaid) shown alongside. TikTok + paid invoices = a Total that is genuinely comparable with the Expenses tab, cash against cash
 - **KPI sales target**: CEO/COO set a monthly target on the revenue card ("Set target" → RM figure, audited); everyone with revenue access sees a gold progress bar — % achieved, RM to go, green + 🎉 at 100%
@@ -2615,36 +2924,40 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 - Note for the CEO: the invoice payment box prints the bank + account name but **no account number yet** — send it over and it goes on the template
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0034**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0034**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.89] — 2026-08-02 — Payroll & payslip calendars follow the payroll cycle
 
 ### Changed
+
 - **Both month pickers now open on the payroll-cycle month, exactly as specified**: a month's payroll runs until the 5th of the following month, so **until the 5th, Payroll processing and My payslip open on the PREVIOUS month** (today, 02-08: July — the cycle still in progress / the slip releasing on the 5th). **From the 5th, the present month takes over.** My payslip's month cap follows the same rule, so before the 5th staff can no longer even select the current month and meet a pointless "available next month" lock (the 08-2026 → 07-09-2026 screen goes away until August's cycle actually opens). Payroll processors can still navigate to any month manually
 
 ### Deploy
-- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
 
+- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
 
 ## [1.4.88] — 2026-08-02 — Recurring expenses, due dates & a Payments-due board
 
 ### Category guidance (as asked)
+
 - **Internet (monthly bill)** → `utilities` — it's a utility service like water/electricity/phone
 - **Printer on monthly rental/lease** → `equipment`; printer **ink, toner and paper** → `supplies`
 
 ### Added (migration **0033**: `recurring`, `due_day`, `paid_at` on expenses)
+
 - **Monthly recurring** checkbox + **Due day** (1–31) on the expense form. A recurring expense recorded last month **automatically reappears this month** in a new **💳 Payments due** card — with its amount, due date and "↻ recurring" chip — until you press **Record for this month** (one click copies it into the month on its due date, keeping the recurrence)
 - **Due tracking**: recorded expenses with a due day show an amber **DUE dd-mm** chip that turns red **OVERDUE** past the date; **Mark paid** stamps it (audited `expense.paid`) and flips the chip to green **PAID**
 - **Payroll on the same board**: the Payments-due card leads with **Staff payroll** for the previous month — "Pay by 05-08-2026, 10:00 MYT" (the exact payslip-release moment, holidays respected) with a DUE/RELEASED status chip — so the biggest monthly commitment sits beside rent and internet where the CEO/COO plan payments
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0033**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then re-add your Mr Wing rent with "Monthly recurring" ticked and due day 18 — September will surface it by itself
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0033**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then re-add your Mr Wing rent with "Monthly recurring" ticked and due day 18 — September will surface it by itself
 
 ## [1.4.87] — 2026-08-02 — Save toasts everywhere (with honest "No changes") · Expenses tab for CEO/COO
 
 ### Added
+
 - **Save confirmation toast** — the same animated notification family as clock-in (centred card, ring draw, tick) now confirms saves, and when nothing actually changed it shows an amber **"No changes"** with an "i" instead of pretending to work. Shared component (`components/ui/save-toast.tsx`); wired with REAL change-detection into:
   - **Payroll**: row Save (per-person, compares against the loaded snapshot), **Save all** (skips unchanged rows, reports "Saved — N entries" or "No changes"), **Base salaries** ("updated for N staff" / "already match")
   - **Staff Details**: record Save ("Saved — <name>" / "No changes — nothing to save")
@@ -2654,32 +2967,35 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 - **Expenses tab** (migration **0032**, `expenses`) for **CEO and COO** (+admin tier): record company operating costs — date, category (rent / utilities / software / marketing / equipment / logistics / supplies / other), amount, vendor, description — with a month filter and month TOTAL; audited (`expense.create/delete`). Clarified in-app: **Expenses ≠ Claims** — Claims are staff reimbursements routed to the CEO for approval (that tab already existed); Expenses are what the company itself pays
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0032**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0032**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.86] — 2026-08-02 — My payslip: future months no longer selectable
 
 ### Fixed
+
 - The month picker on **My payslip** allowed choosing months in advance (September while it's August) and then showed a lock card for a payslip that cannot exist yet — an incorrect flow, as the CEO flagged. The picker is now capped at the **current month** (`max`), floored at the person's **joining month** (`min`), and the value is clamped in code as well, since some browsers render `max` but still allow typing past it. Past months behave exactly as before: visible once released, 🔒 otherwise
 
 ### Deploy
-- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
 
+- `pnpm build` → publish → hard refresh. Frontend-only; no worker deploy, no migration
 
 ## [1.4.85] — 2026-08-02 — Overtime in Payroll
 
 ### Added
+
 - **OT (hrs) column** in Payroll (migration **0031**: `ot_hours` + `ot_cents` on the entry): enter the month's overtime hours (halves allowed) and the amount computes itself at the **Employment Act normal-working-day rate — 1.5 × hourly ORP**, where hourly ORP = monthly wage ÷ 26 ÷ 8. The computed RM shows live under the hours box, NET and the TOTAL row include it, and both the hours and the computed sen are stored so the slip reproduces the figure forever
 - **Payslip**: EARNINGS gains `OVERTIME (H HRS × 1.5 × HOURLY ORP)`; gross, TOTAL and NETT include it; the staff self-view summary shows OT too
 - Scope note: 1.5× covers OT on **normal working days**. Rest-day (2.0×) and public-holiday (3.0×) OT rates exist in the Act — if live sessions start landing on those days, say the word and the column grows the rate split
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0031**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0031**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.84] — 2026-08-02 — Working days computed truthfully · one-pass payroll flow (proper HRM behaviour)
 
 ### The "26 days" problem, resolved
+
 - The CEO is right that Mon–Fri staff will dispute "5 OF 26 DAYS": **26 is NOT the month's working days** — it's the Employment Act's fixed statutory divisor (1/26 of monthly wages per day) that applies ONLY to the unpaid-leave rate. The month's real working days for a Mon–Fri company are computed: **weekdays minus every calendar holiday** — July 2026 = 23 weekdays − Hari Hol (21-07) = **22**. The two numbers now never masquerade as each other:
   - Payslip deduction line reads `UNPAID LEAVE (N DAYS × 1/26 MONTHLY WAGE)` — the statutory rate named explicitly
   - Incomplete-month line reads `INCOMPLETE MONTH (WORKED 5 OF 22 WORKING DAYS)` — the true count
@@ -2687,27 +3003,30 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 - Consequence: July nets computed on the honest 22-day basis change slightly (Izzudin 5/22 → net RM 895.45, not RM 773.08) — the previous figures silently under-paid against a Mon–Fri interpretation, exactly the dispute risk being closed
 
 ### One-pass payroll (no more one-by-one)
+
 - **Everything auto-fills on opening the month**: Basic from base salaries (v1.4.78) · **Working days (auto)** computed by the server from the calendar · **days worked auto-filled from attendance** (saved values always win; staff with zero punches stay blank = full month, so a non-punching account is never silently zeroed). Flow is now: open month → glance → **Save all** → payslips correct → auto-release on the 5th
 - "Auto days from clock-ins" relabelled **Re-fill days** (it now only re-overwrites manual edits); **Save all was already there** and remains the single-click save
 - Still deliberately absent, as specified: **no KWSP/SOCSO/EIS** lines — registration pending; the payslip structure gains them the day it lands
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Then open July: working days shows 22, days are pre-filled, press **Save all** once and reprint
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No migration. Then open July: working days shows 22, days are pre-filled, press **Save all** once and reprint
 
 ## [1.4.83] — 2026-08-02 — Payslip lock now applies to EVERYONE, no processor bypass
 
 ### Fixed
+
 - **Why the CEO still saw "My payslip" before the 5th**: v1.4.80 deliberately let payroll processors (CEO/COO/admin tier) bypass the lock on the reasoning that they type the figures anyway. Per the CEO's correction, that exception is **removed** — "My payslip" is now locked for every account, processors included, until the 5th-of-next-month 10:00 MYT moment (or a manual "Release now"). One uniform rule, no early view for anyone
 - Unavoidable and stated plainly: the **Payroll processing tab** still shows figures to processors before release — they are the ones entering them. The lock governs the payslip view; the processing tab is already restricted to ceo/coo/admin tier only
 
 ### Deploy
-- `npx wrangler deploy` → hard refresh. No frontend rebuild strictly required (worker-only change), no migration
 
+- `npx wrangler deploy` → hard refresh. No frontend rebuild strictly required (worker-only change), no migration
 
 ## [1.4.82] — 2026-08-02 — Payroll logic correction: full basic + explicit incomplete-month deduction
 
 ### The logic review (done before touching code, as requested)
+
 1. The old **Prorate button OVERWROTE Basic** with the reduced figure — the slip then presented RM 673.08 as if it were Izzudin's salary. Money was right, presentation was wrong/unfair
 2. The reduced basic wasn't reproducible later (days weren't stored), so a payslip printed next month couldn't show WHY the figure was small
 3. **Double-deduction risk found and closed**: unpaid leave already deducts at basic ÷ 26 (v1.4.79); if the incomplete-month adjustment also counted those same missing days, one day would be deducted twice. The formula now excludes unpaid-leave days from the adjustment
@@ -2715,102 +3034,114 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 5. Blank days box previously risked being read as 0 days → full deduction; blank now explicitly means "full month, no adjustment"
 
 ### Changed
+
 - **One formula everywhere** (`incompleteMonthAdj`, migration **0030** persists `worked_days` + `month_working_days` on the entry): missing = workingDays − workedDays; adjustable = missing − unpaidLeaveDays (never negative); **adjustment = FULL basic × adjustable ÷ workingDays**. Net = basic + commission + allowance − manual deduction − unpaid leave − adjustment. Same net as before (RM 3,500 × 5⁄26 = RM 673.08 either way) — but the payslip now shows **BASIC PAY 3,500.00** and **INCOMPLETE MONTH (5 OF 26 DAYS WORKED) 2,826.92** instead of a shrunken basic
 - **Prorate / Prorate all buttons removed** (they were the bug). Flow now: set working days → Auto days from clock-ins → review → Save all; NET updates live and shows "−RM … auto" in red under it when auto-deductions apply
 - **Fixing July's already-prorated rows**: a **"Base"** button appears on any row whose Basic differs from the fixed base salary — one click restores the full figure, then set days and Save
 - Table NET, footer TOTAL, staff "My payslip" summary and the printed slip all agree by construction now
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0030**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then in July: click **Base** on each shrunken row, confirm the days boxes, Save all, reprint payslips
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0030**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then in July: click **Base** on each shrunken row, confirm the days boxes, Save all, reprint payslips
 
 ## [1.4.81] — 2026-08-02 — Johor public holidays on the events calendar · auto-replacement rule
 
 ### Added
+
 - **Johor 2026 public holidays seeded** (migration **0029**) from the official state gazette (johor.gov.my, circular 10 Dec 2025): all 18 gazetted days — Thaipusam through Hari Krismas — plus replacement days per **company policy: a holiday on Saturday or Sunday is replaced on Monday, or the next free working day when Monday is itself a holiday** (2026 replacements: 02-02 Thaipusam, 24-03 + 25-03 Hari Raya Puasa I & II, 02-06 Wesak, 09-11 Deepavali). Honest note: the official state rule replaces **Sundays only** (Saturdays are not replaced by the gazette) — the company rule as specified is more generous; delete a Saturday replacement row in HR → holidays to follow the gazette instead
 - **Calendar shows holidays**: red date number, red name chip on desktop / red dot on phones, "Public holiday" in the legend, and the tap-day agenda shows 🏖 with the holiday's name. Everyone sees them — awareness solved
 - **Auto-replacement on create**: adding a public holiday that lands on Sat/Sun now auto-creates "<name> (Replacement)" on the computed day, audit-logged. **Manual creation already existed** (as asked to check): HR → "Public holidays & company calendar" has had an Add form with kind = replacement since v1.4.16 — it now sits alongside the automatic rule, and Remove deletes any row
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0029**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0029**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.80] — 2026-08-02 — Click-to-sort table headers · payslip release control (5th, 10:00 MYT)
 
 ### Changed
+
 - **Sorting moved into the table headers** on the attendance corrections table (Staff · Type · Time (MYT) · Mark) and the Team report (Staff · Type · Time): click a header to sort ▲, click again to reverse ▼; combines with the Find-staff filter; the separate Sort dropdowns are gone. Default remains chronological until a header is clicked
 
 ### Added
+
 - **Payslip release control** (migration **0028**, `payslip_releases`): staff can view a month's payslip only from the **5th of the following month at 10:00 MYT** (July payroll → visible 05-08-2026 10:00). If the 5th lands on a **weekend or public holiday, the release shifts FORWARD to the next working day** — never earlier, per the requirement that staff must not learn salaries early. For those cases (or any early release the CEO chooses), Payroll shows the month's release status and a **"Release now"** action (payroll processors only, one-way, audited `payroll.release`). Before release, "My payslip" shows a 🔒 lock card with the exact availability date-time; payroll processors bypass the lock (they set the figures). Months already past their release moment stay visible as normal
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0028**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0028**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.79] — 2026-08-02 — Unpaid leave shows as an explicit payslip deduction · emergency leave confirmed paid
 
 ### Changed
+
 - **Unpaid leave now appears ON the payslip as its own deduction line** — `UNPAID LEAVE (N DAYS)` in the DEDUCTIONS box, computed automatically from approved unpaid-leave requests at **basic ÷ 26 per day** (the Employment Act 1955 s.60I ordinary-rate divisor; uses the fixed base salary, falling back to the month's saved basic). Basic stays FULL and the slip shows exactly why nett pay is lower — the fairness the old silent proration lacked. The manual Deduction field's line is relabelled **LATE / OTHER DEDUCTION**; the deductions TOTAL and NETT PAY include both. Applies to processor prints and every staff member's own "My payslip" identically
 - **Emergency leave stays PAID and is never deducted** — shown in OTHERS as `EMERGENCY LEAVE (PAID)` with the month's count, alongside a new UNPAID LEAVE day-count row. Legal position: the Employment Act 1955 has **no "emergency leave" category** — it's company practice, most commonly paid against its own small entitlement (ours: 3 days/year) or taken from annual leave; there is no statutory obligation either way, so the 3-day paid policy is a company decision (worth confirming in the employee handbook the lawyer reviews)
 - **Payroll panel**: rows with approved unpaid leave show a red **UL:N** flag warning that the payslip deducts it automatically — keep Basic full, don't deduct again (double-punishment guard); header caption updated. `/payroll/attendance-days` now also returns unpaid-leave day counts
 
 ### Deploy
-- `npx wrangler deploy` → `pnpm build` → hard refresh. No new migration (uses 0027's base salary)
 
+- `npx wrangler deploy` → `pnpm build` → hard refresh. No new migration (uses 0027's base salary)
 
 ## [1.4.78] — 2026-08-02 — Fixed base salaries (no more monthly retyping) · staff finder on attendance
 
 ### Added
+
 - **Base salaries** (migration **0027**: `users.base_salary_cents`): each staff member now has a fixed monthly basic. Every new payroll month **auto-fills Basic from it** — nothing to retype. A **"Base salaries"** button in Payroll opens the editor (one RM figure per person, Save writes only what changed, audited `payroll.base_update`). **Increments happen there**: change the figure once and it applies from the next unsaved month onward — months already saved keep exactly what was saved (history never rewrites itself). Any single month can still be overridden by editing Basic in the table as before (prorating, unpaid days, etc.)
 - **"Find staff" filter** on both attendance views: the corrections & back-entry table gains a staff dropdown (from the same list as Add record) showing one person's punches only, with a clear "no records this month" line; the Team report gains the same filter built from the month's names. Both combine with the existing A–Z sort — pick a person, see their whole month in seconds
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0027**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then open Payroll → Base salaries and enter each person's fixed basic once
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0027**) → `npx wrangler deploy` → `pnpm build` → hard refresh. Then open Payroll → Base salaries and enter each person's fixed basic once
 
 ## [1.4.77] — 2026-08-02 — Payroll days auto-calculated from clock-ins · Attendance redesigned · Details toggle right-aligned
 
 ### Added
+
 - **Payroll ⇄ Attendance auto-calculation**: new `GET /payroll/attendance-days` counts each person's distinct clock-in days for the month (MYT). In Payroll: **"Auto days from clock-ins"** fills every days box in one press, a small **⏱N** beside each box always shows the recorded count, and **"Prorate all"** applies Basic × days ÷ working days to every row at once. The days boxes stay fully editable — that is the manual-correction path for wrong or dishonest punches — and the permanent fix is Attendance → corrections & back-entry, where every amendment is marked and audit-logged. Flow: set working days → Auto days → review/adjust → Prorate all → Save all
 
 ### Changed
+
 - **Attendance tab redesigned**: personal view is now a real report — one row per DAY (Date | In | Out | Hours), green In chips, first-in→last-out hour counting, "still in / missing" flag for open days, and a footer totalling days + hours for the month (payroll cross-check at a glance). Team report is now a proper table (Staff | In/Out chip | Time) with the sort control, and the month picker + controls live in the card header instead of floating above it
 - **Staff Details**: the Details ▾ / Hide details ▴ toggle moved to the RIGHT end of the button row, as requested
 - Corrections card: "Add record" controls now labelled
 
 ### Deploy
-- `npx wrangler deploy` (new payroll endpoint) → `pnpm build` → hard refresh. No new migration
 
+- `npx wrangler deploy` (new payroll endpoint) → `pnpm build` → hard refresh. No new migration
 
 ## [1.4.76] — 2026-08-02 — R2 slimming (image compression + gzipped backups) · events calendar · density polish
 
 ### Added
+
 - **Client-side image compression before every R2 upload** (`lib/compress-image.ts`): longest side capped at 1600px, JPEG quality 0.82 — sharp enough for staff photos, claim receipts and site media, typically 5–15× smaller than phone-camera originals. Wired into staff photos (add form + record row), claim receipts, and admin site media. Safety rails: PDFs, videos, documents, GIFs and SVGs pass through untouched; any failure or a larger result falls back to the original. PDFs are NOT recompressed (no reliable in-browser way without quality loss) — they're usually small; if a huge scanned PDF becomes a problem, photograph the receipt as an image instead
 - **Nightly backups now gzipped**: `backups/db-YYYY-MM-DD.json.gz` via CompressionStream — JSON dumps shrink ~85–90%, so 30 retained backups cost a fraction of the free-tier 10 GB. Audit records both stored and raw byte counts
 - **Events month calendar** — the Dashboard events card now defaults to a professional calendar with a Calendar | List toggle: 7-column month grid (‹ › navigation), today ringed in navy, category-coloured markers (title snippets on desktop, colour dots on phones), colour legend, tap/click a day for its agenda below (with Remove for managers). Events API now returns from the previous month onward so recent history is visible; the list view still shows upcoming only
 
 ### Changed
+
 - **Density pass across /portal, /admin and /account** (~40 spots): card padding p-5 → p-4 md:p-5 (p-4 → p-3.5 md:p-4), section stacks space-y-6 → space-y-4 md:space-y-6, grid gaps gap-6 → gap-4 md:gap-6, stat grids gap-4 → gap-3 md:gap-4, page shells px-5 py-6 → px-4 py-4 md:px-5 md:py-6. Phones lose the oversized white space; desktop keeps its comfortable rhythm
 
 ### Deploy
-- `npx wrangler deploy` (gzip backups) → `pnpm build` → hard refresh. No new migration
 
+- `npx wrangler deploy` (gzip backups) → `pnpm build` → hard refresh. No new migration
 
 ## [1.4.75] — 2026-08-02 — Payroll totals · Claims (CEO approves) · Sales revenue on the Dashboard
 
 ### Added
+
 - **Payroll month totals**: a bold TOTAL row under the table — Basic / Commission / Allowance / Deduction and the final **NET** payout for the whole month, updating live as figures are typed
 - **Claims tab** (migration **0026**, `claims`): CEO, COO, CCO and HR (+admin tier) submit expense claims — date, category (travel/meal/accommodation/equipment/medical/other), amount, description, optional receipt (image/PDF → R2). **Every decision is the CEO's alone** (super_admin retained solely as system-recovery fallback; admin deliberately excluded from deciding). CEO gets a bell notification on each submission and sees a Pending approvals queue with Approve / Reject + optional note; the claimant is notified of the outcome. All actions audited (`claim.create/approve/reject`)
 - **Sales revenue card on the Dashboard** for CEO, COO, CCO, sales_marketing, marketing and hr_admin (+admin tier): TikTok Shop revenue (synced order amounts, returned orders excluded), Invoiced revenue (INV documents), and combined Total — this month vs last with a ▲/▼ % change
 - **TikTok order amounts now captured** (migration 0026: `postage_records.order_amount_cents`): the sync reads `payment.total_amount` on insert and backfills existing TT- records via COALESCE on the next pass
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0026**) → `npx wrangler deploy` → `pnpm build` → hard refresh. TikTok amounts for the existing 7 orders appear after the next 30-minute sync (or press Sync)
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0026**) → `npx wrangler deploy` → `pnpm build` → hard refresh. TikTok amounts for the existing 7 orders appear after the next 30-minute sync (or press Sync)
 
 ## [1.4.74] — 2026-08-01 — Minimalist Staff Details (collapsed records) · A–Z sorting
 
 ### Changed
+
 - **Staff Details is now minimalist: every record collapsed to one line by default** — checkbox, name · role, and a small Employee ID · Position summary. A **"Details ▾"** button expands the full field grid with the Save / Preview badge / Print badge / photo actions; **"Hide details ▴"** collapses it again. Multi-badge printing via the checkboxes still works entirely from the collapsed view
 - **Sorting added where names are listed:**
   - **Staff Details**: Sort: Rank (default) · Name A–Z · Name Z–A
@@ -2819,258 +3150,289 @@ The Expenses card and the Payroll tab used the **same formula but different scop
 - Reviewed the other tabs: Birthdays is already date-ordered (its purpose), leave queues are already stage-ordered, HR staff lists stay rank-sorted per v1.4.36 — adding name sort there would fight orderings that exist for a reason; say the word if any specific list should get it too
 
 ### Deploy
-- Frontend rebuild only: `pnpm build` → publish → hard refresh
 
+- Frontend rebuild only: `pnpm build` → publish → hard refresh
 
 ## [1.4.73] — 2026-08-01 — Company events: trainings, classes and important dates every staff member sees
 
 ### Added
+
 - **Events module** (migration **0025**, `events` — no foreign keys by policy): title, category (training / class / meeting / event), date, optional start–end time, location, details
 - **Upcoming events card on every staff Dashboard** — the first screen after login, so nothing gets missed: date shown DD-MM-YYYY with a **TODAY / Tomorrow / in N days** countdown (TODAY in amber), time, location, who added it. Past events drop off automatically
 - **Everyone is bell-notified when an event is created** ("Upcoming training: … on DD-MM-YYYY") — same notification machinery as announcements, including the off-platform relay once NOTIFY_WEBHOOK is configured
 - **Inline management** for super_admin / admin / hr_admin / **ceo** / coo / cco: "+ Add event" form and Remove on the Dashboard card; API `GET/POST /api/v1/staff/events`, `PATCH/DELETE /api/v1/staff/events/:id`; all changes audited (`event.create/update/delete`)
 
 ### Changed
+
 - **Overview (CEO monitor): the BD-pipeline block is replaced by Upcoming events** (next 60 days) and the "Open BD deals" stat becomes **"Events next 30 days"**. The BD deal pipeline itself is untouched — the CCO's Commercial tab still manages it in full; only the Overview summary changed
 
 ### What "BD pipeline" was
+
 - Business-Development deal tracker: prospective client deals by status — open, pending, **kiv** ("keep in view" — parked for later), closed won/lost. The numbers in the screenshot were deal counts entered by the CCO in the Commercial tab
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0025**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023–**0025**) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.72] — 2026-08-01 — Nightly backups · error log + System health card · security recovery checklist
 
 ### Added
+
 - **Automated nightly database backups** (03:20 MYT cron): every application table dumped as JSON to R2 under `backups/db-YYYY-MM-DD.json`, newest 30 kept, older pruned. On-demand **"Back up now"** button in /admin. Every backup audited (`system.backup`). D1 Time Travel remains a second, independent recovery path
 - **Error log** (migration **0024**, `error_log` — deliberately NO foreign keys so it stays writable even when referential integrity is the problem): auto-records unexpected API 500s (with path), failed audit writes in both worker modules, TikTok cron failures (pre-setup "not configured/authorized" stays silent), and backup failures. Newest 500 kept
 - **System health card** in /admin → Audit: last 20 errors + last-backup status with an amber warning when the newest backup is older than 2 days. Endpoints `GET /api/v1/system/health` + `POST /api/v1/system/backup` (admin tier + CEO)
 - **Security recovery checklist** written up in SECURITY.md §v1.4.72 — the master-password recovery steps and the `PRAGMA foreign_key_check` orphan cleanup (preserve-history UPDATEs where nullable, targeted DELETEs where not), start to finish
 
 ### Changed
+
 - `scheduled()` now branches on the cron expression: `*/30 * * * *` → TikTok sync (failures now recorded), `20 19 * * *` → backup
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0023 + **0024**) → `npx wrangler deploy` (registers the new cron) → `pnpm build` → hard refresh → then run the SECURITY.md §v1.4.72 checklist once
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023 + **0024**) → `npx wrangler deploy` (registers the new cron) → `pnpm build` → hard refresh → then run the SECURITY.md §v1.4.72 checklist once
 
 ## [1.4.71] — 2026-08-01 — Buyer city on TikTok orders · scrollable non-TikTok postage list
 
 ### Added
+
 - **Buyer city on TikTok order rows** (📍 beside the date). Migration **0023** adds `buyer_city`; the sync and the webhook path both capture it from TikTok's `recipient_address` — **city only, never the street address** (staff need the rough destination, not the buyer's home; falls back to state if TikTok returns no city level). Existing TT- records backfill automatically on the next sync pass
 - Empty-state line for the non-TikTok list ("No non-TikTok postage records yet")
 
 ### Changed
+
 - **"Postage tracking — non-TikTok orders" list is now scrollable** (same max-height scroll area as the TikTok card) and shows the full history instead of only the latest 8
 - That list now **excludes TT- records** — TikTok orders already live in their own card directly above, so showing them twice was noise
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0023) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0023) → `npx wrangler deploy` → `pnpm build` → hard refresh
 
 ## [1.4.70] — 2026-08-01 — TikTok Orders: tracking numbers shown + status filter (New / Shipped / Delivered)
 
 ### Added
+
 - **Tracking number on every TikTok order row.** The sync has captured TikTok tracking numbers since v1.4.67 — the card now displays them: `Tracking: <number> · TikTok`. Orders TikTok hasn't assigned tracking to yet show "No tracking number yet" (it backfills automatically on the next 30-minute sync once the parcel is handed to the courier)
 - **Status filter chips** above the order list: **All · New · Shipped · Delivered**, each with a live count. "New" = orders still preparing/awaiting shipment. Returned orders remain visible under All
 - Order list capacity raised 20 → 100 (scroll area unchanged) so filters have the full recent history to work with
 
 ### About the "(signature FAILED — check app secret)" note on the status line
+
 - That warning means TikTok's **webhook** signature didn't verify against the stored `TIKTOK_APP_SECRET` — unverified pushes are logged then rejected (by design, v1.4.44). The 30-minute pull sync is unaffected, which is why orders still appear
 - Fix: Partner Center → your app → copy the **App Secret** exactly → `npx wrangler secret put TIKTOK_APP_SECRET` → paste → `npx wrangler deploy`. The next webhook shows verified. (If the secret was ever regenerated in Partner Center, the stored copy is stale — this is the usual cause)
 
 ### Buyer notifications (no code needed)
+
 - TikTok notifies buyers **automatically**: when the order ships (tracking uploaded) and when it's delivered, TikTok Shop pushes in-app/push notifications to the buyer. The statuses this system reads are the same events TikTok has already announced to the buyer — nothing to send from our side
 - Manual buyer chat happens in **TikTok Seller Center → Chat** (or the TikTok Shop Seller app). Sending messages via API would require the Customer Service (IM) scope — a sensitive-data scope this system deliberately does not request
 
 ### Deploy
-- Frontend rebuild only: `pnpm build` → publish → hard refresh. (Plus the one-time `wrangler secret put` above if the signature warning is showing)
 
+- Frontend rebuild only: `pnpm build` → publish → hard refresh. (Plus the one-time `wrangler secret put` above if the signature warning is showing)
 
 ## [1.4.69] — 2026-08-01 — Google login: FK failure isolated; audit writes can never break actions
 
 ### Fixed
+
 - **The Google-login 500 identified itself as a FOREIGN KEY constraint failure.** Three inserts happen in that flow (audit trail, session, or first-time signup). The most likely culprit after the recent users-table rebuild is the **audit-log insert** — and an audit write should never take down the action it records. Audit writes are now non-fatal everywhere (both worker modules): a failed write logs for the operator and the action proceeds
 - If the failure is elsewhere, it now **names its step**: "session insert for user N: …" or "customer signup insert: …" — no more anonymous 500s in this flow
 - Session housekeeping (expired-session purge) also made non-fatal
 
 ### Diagnose the data side (run once)
+
 - `npx wrangler d1 execute azoneofficial --remote --command "PRAGMA foreign_key_check;"` lists any orphaned rows left by table rebuilds or manual deletions — likely the underlying cause
 - `npx wrangler d1 migrations list azoneofficial --remote` confirms 0020–0022 are applied
 
 ### Deploy
-- `npx wrangler deploy` → retry Google sign-in. Expected: login succeeds; if not, the error names the exact step
 
+- `npx wrangler deploy` → retry Google sign-in. Expected: login succeeds; if not, the error names the exact step
 
 ## [1.4.68] — 2026-08-01 — Diagnosable 500s (Google sign-in "Something went wrong")
 
 ### Changed
+
 - **Unexpected server errors now name the actual failure** in the response (e.g. a database "no such column …" message) instead of only "Something went wrong". Message text only — no stack traces or internals beyond what the engine reports. The Google sign-in failure will identify itself on the next attempt
 - The worker already logs the full exception; `npx wrangler tail azoneofficial-api` while reproducing shows it live even before redeploying
 
 ### Deploy
-- `npx wrangler deploy` → retry Google sign-in → the error message now states the cause
 
+- `npx wrangler deploy` → retry Google sign-in → the error message now states the cause
 
 ## [1.4.67] — 2026-08-01 — Postage from TikTok is automatic; manual form is for other channels
 
 ### Clarified + improved
+
 - **Correct: TikTok postage should not be typed in — and it isn't.** TikTok orders arrive automatically (webhook + the 30-minute sync) as TT- records with their items and stock movement. The manual "Postage tracking" form now says what it's actually for: **non-TikTok channels** — Shopee, WhatsApp/direct sales, replacements
 - **TikTok tracking numbers are now captured automatically** wherever TikTok includes them in the order data — no more typing those either
 - **Every sync pass refreshes existing TikTok orders**: shipping status progresses (preparing → shipped → delivered) and a missing tracking number backfills, with stock untouched (it moved on first import; returns stay final)
 
 ### Deploy
-- `npx wrangler deploy` → rebuild site
 
+- `npx wrangler deploy` → rebuild site
 
 ## [1.4.66] — 2026-08-01 — Automatic TikTok inventory sync + per-order quantities
 
 ### Added — automatic sync
+
 - **The worker now syncs TikTok orders automatically every 30 minutes** (Cloudflare cron): new orders become TT- postage records and deduct stock by SKU without anyone pressing anything. The manual Sync button remains for on-demand pulls; both run the identical logic, and cron runs audit as source: tiktok_cron. Until the TikTok setup completes, the schedule is a harmless no-op
 
 ### Added — see exactly what shipped
+
 - **Each TikTok order in the Inventory tab now lists its items and quantities** (e.g. "2× ELFIA Satin Square, 1× ELFIA Bawal") — the shipped goods behind every stock deduction, so the available inventory is verifiable per order
 - Orders with **no stock movement** say so explicitly; unmatched SKUs in notes now include the ordered quantity ("2× TT-SKU-123"), so even unmapped items show how many units the order wanted
 
 ### Deploy
-- `npx wrangler deploy` (registers the cron trigger too) → rebuild site
 
+- `npx wrangler deploy` (registers the cron trigger too) → rebuild site
 
 ## [1.4.65] — 2026-08-01 — Inventory opened to six roles; TikTok orders move into Inventory
 
 ### Changed
+
 - **The Inventory tab is now visible and editable by CEO, COO, CCO, sales_marketing, marketing, and hr_admin** (admin tier as backstop) — items, stock adjustments, postage records and materials. The API enforces the same list, so it's real access, not just a visible tab
 - **TikTok Orders moved from Sales into Inventory** — TikTok orders move stock, so the tracker now sits beside the stock it moves: status line, Sync from TikTok, and the TT- order list all live at the top of the Inventory tab. A successful Sync refreshes the stock list beneath it immediately
 - Sync permission aligned with the same six roles
 
 ### Deploy
-- `npx wrangler deploy` (permission gates) → rebuild site
 
+- `npx wrangler deploy` (permission gates) → rebuild site
 
 ## [1.4.64] — 2026-08-01 — More sheet: reliable close + friendlier touch (and an /admin build fix)
 
 ### Fixed
+
 - **"Close not function" — real iOS bug, now fixed.** iPhone Safari doesn't fire taps on plain backdrop layers, so tapping the dimmed area never closed the sheet. The backdrop is now a genuine button (iOS honours it), and the sheet also gains an explicit **✕ Close button** and a tappable drag-handle — three reliable ways out, plus selecting any section still closes it
 - **/admin build error introduced in v1.4.55**: the mobile menu referenced state that was never declared (my scripting slip — the declaration step never wrote to disk). If your `pnpm build` failed recently, this was why. Declared and verified
 - **Background no longer scrolls** while the sheet is open — it behaves like a native menu, not a floating layer
 
 ### Changed — touch ergonomics
+
 - Bottom-bar buttons: taller (56 px minimum), larger labels, centred — comfortably thumb-sized on all three surfaces (/portal, /admin, /account)
 - Sheet grid buttons: taller with more spacing between them
 
 ### Deploy
-- Rebuild the site (`pnpm build`) — this build should succeed even if the previous one errored on /admin
 
+- Rebuild the site (`pnpm build`) — this build should succeed even if the previous one errored on /admin
 
 ## [1.4.63] — 2026-08-01 — Badge: DEPARTMENT row added
 
 ### Changed
+
 - **DEPARTMENT : row added directly below POSITION** on the badge, in the same aligned three-column style. Rows now: NAME / EMP. NO / NRIC / DATE JOIN / DATE ISSUED / POSITION / DEPARTMENT
 
 ### Deploy
-- Rebuild the site only
 
+- Rebuild the site only
 
 ## [1.4.62] — 2026-08-01 — Badge final polish: aligned columns + small tagline
 
 ### Changed
+
 - **Every row now aligns on three true columns** — label, colon, value — so all colons sit in one vertical line and a wrapped value's second line starts exactly under its first, never under the colon
 - **Small gold LIVE · CONNECT · GROW** returns beneath the logo, subtle and letter-spaced as requested
 - Vertical rhythm evened out (row padding, photo spacing) for the organized, professional finish
 
 ### Deploy
-- Rebuild the site only
 
+- Rebuild the site only
 
 ## [1.4.61] — 2026-08-01 — TikTok shop lookup tries both endpoint families
 
 ### Changed
+
 - **The shop-cipher lookup now tries both of TikTok's shops endpoints** (`/authorization/202309/shops`, then `/seller/202309/shops`) — they live under different scope families, so whichever scope the app has active can supply the identifier. Each attempt's result is reported, so a failure names both causes precisely
-- Note on Partner Center's Manage API search: filtering by package name for "authorization" shows 0 because no scope is *named* that — clear the search to see all 25 scopes and look for the shop/seller-info one by browsing (or search "shop" / "seller")
+- Note on Partner Center's Manage API search: filtering by package name for "authorization" shows 0 because no scope is _named_ that — clear the search to see all 25 scopes and look for the shop/seller-info one by browsing (or search "shop" / "seller")
 
 ### Deploy
-- `npx wrangler deploy` → press **Sync from TikTok** again
 
+- `npx wrangler deploy` → press **Sync from TikTok** again
 
 ## [1.4.60] — 2026-08-01 — Badge in the classic ID layout (label rows); footer split per spec
 
 ### Changed
+
 - **Badge follows the classic Malaysian staff-ID layout** (per the provided sample): logo header, centred photo, then bold left-aligned label rows — **NAME : / EMP. NO : / NRIC : / DATE JOIN : / DATE ISSUED : / POSITION :**
 - **Footer split exactly as specified**: office location (Setia Tropika, Johor Bahru, Malaysia) bottom-left, **company registration (SSM 202603168673 / JM1046169-H) bottom-right**
 - Overlap-proof structure retained from v1.4.58 (flex column, footer in flow) — long names wrap within their row and push the footer down, never under it
 - Preview remains the sandboxed iframe of the exact print document
 
 ### Deploy
-- Rebuild the site only
 
+- Rebuild the site only
 
 ## [1.4.59] — 2026-08-01 — TikTok shop resolution: real diagnostics + both response shapes
 
 ### Fixed
+
 - **"Could not resolve the authorized shop" was hiding TikTok's actual answer.** The shop-cipher lookup now reports exactly what TikTok said — an API code + message (e.g. a scope/permission refusal), or "authorized shop list came back empty" (meaning the Seller authorization never completed for the shop). No more guessing
 - **Both authorized-shops response shapes are accepted** (`shops[].cipher` and `shop_list[].shop_cipher`) — TikTok's API versions differ on this, and if the shape was the issue, this release fixes it outright
 - The authorization audit entry now records the cipher-resolution outcome for later inspection
 
 ### Deploy
-- `npx wrangler deploy` → press **Sync from TikTok** again. Either it works, or the message now names the exact TikTok-side cause
 
+- `npx wrangler deploy` → press **Sync from TikTok** again. Either it works, or the message now names the exact TikTok-side cause
 
 ## [1.4.58] — 2026-08-01 — Badge layout made overlap-proof; gold line + tagline removed
 
 ### Fixed
+
 - **The footer could still collide with the details grid** (visible over the NRIC/Joined row): the footer was absolutely positioned, so growing content ran underneath it. The card is now a **flex column and the footer is part of the flow, pinned to the bottom by spacing** — content can only push it down within the card, never overlap it. This holds for any name/position length, structurally
 - **Gold divider line and LIVE · CONNECT · GROW removed** per instruction — the card reads logo → photo → name → role → details → footer, clean and professional
 - Space freed by the removals goes to breathing room: slightly larger photo (22×26 mm), name, and grid spacing
 
 ### Deploy
-- Rebuild the site only
 
+- Rebuild the site only
 
 ## [1.4.57] — 2026-08-01 — Fix: TikTok "Missing identifier / shop_cipher" on Sync
 
 ### Fixed
+
 - **The authorization callback stored the access token but never the shop identifier.** TikTok's token response doesn't include shop_cipher — it must be fetched separately via **Get Authorized Shops** — so every order API call failed with "Missing identifier. The 'shop_cipher' query parameter is required". (Your "Connected" status was genuine: authorization succeeded; only the shop identifier was missing)
 - The callback now resolves and stores **shop_id + shop_cipher** immediately after the token, and **Sync self-heals**: if the stored token lacks a cipher (your current state), it fetches and stores one before calling the orders API — **no re-authorization needed**
 - If the cipher can't be resolved, Sync now says exactly that ("ensure the Seller authorization completed and the order/shop scopes are active") instead of a downstream API error
 
 ### Deploy
-- `npx wrangler deploy` → press **Sync from TikTok** once more. No migration, no rebuild required
 
+- `npx wrangler deploy` → press **Sync from TikTok** once more. No migration, no rebuild required
 
 ## [1.4.56] — 2026-08-01 — Badge restored to the clean brand design (v1.4.53 layout reverted)
 
 ### Fixed
+
 - **v1.4.53's decorative redesign is reverted** — in practice the corner sweep collided with long values (a two-line position pushed Department/Phone into the artwork and under the footer), and the preview's stylesheet leaked into the page. Apologies for that regression; two structural fixes make sure neither can recur:
 - **Back to the clean brand-profile design**: white card, navy border and details, gold divider line + gold LIVE · CONNECT · GROW tagline under the logo — the look that worked — while keeping **NRIC and Joined on** in the details grid (with Employee ID, Position, Department, Phone) and the issue date in the footer
 - **The preview is now a sandboxed iframe** rendering the exact print document: badge CSS can no longer leak into the admin page, page styles can no longer distort the badge, and preview vs print are one document by construction
 - Field text sizes tuned so even long positions/names wrap within their cell without invading the footer
 
 ### Deploy
-- Rebuild the site only
 
+- Rebuild the site only
 
 ## [1.4.55] — 2026-08-01 — App view on all three surfaces; mobile fit sweep
 
 ### Added — /admin and /account now match /portal's app view (phones only)
+
 - **/admin**: sticky app bar showing the current section title, bottom tab bar with the first four sections + **More** sheet holding the rest (respecting role visibility of Users/Staff/Audit), screen transitions, safe-area padding, bottom clearance. Desktop unchanged
 - **/account** (customers): sticky app bar, two-tab bottom bar (Account · My Enquiries), screen transitions, bottom clearance
 - /portal already had all of this (v1.4.49–50) — the three surfaces now feel consistent
 
 ### Fixed — mobile fit
+
 - **The public packages comparison table couldn't scroll on phones** (overflow was hidden, cutting columns off) — now scrolls horizontally
 - **WhatsApp button on /account lifts above the new bottom bar** on phones instead of overlapping it (desktop position unchanged; still absent from /portal and /admin per v1.4.52)
 - **The corner back-to-top button is hidden on all three app-view surfaces** — the bottom bar owns that corner, and tab taps already return to top
 - Audited every data table across portal/admin: all already scroll horizontally in place, so wide tables (payroll, attendance, audit) pan within their card instead of breaking the screen
 
 ### Deploy
-- Rebuild the site only. No worker change, no migration
 
+- Rebuild the site only. No worker change, no migration
 
 ## [1.4.54] — 2026-08-01 — Date audit: DD-MM-YYYY + Malaysia time everywhere
 
 ### Fixed — every display date now DD-MM-YYYY, every timestamp Malaysia time
+
 Audit of every file found and fixed these violations:
+
 - **HR Staff birthdays** rendered raw ISO (1997-02-09) → now 09-02-1997
 - **Overview's latest ops report date** rendered raw ISO → DMY
 - **/admin enquiries and audit lists** rendered raw UTC database timestamps → DD-MM-YYYY HH:mm in MYT
@@ -3081,250 +3443,283 @@ Audit of every file found and fixed these violations:
 - **Portal notification timestamps** showed day + short month without year → DD-MM-YYYY HH:mm MYT
 
 ### Fixed — "today" and "this month" now computed in Malaysia time
-Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal thought it was still *yesterday* — on the 1st of a month, payroll/attendance/report defaults pointed at the **previous month**. All defaults (payroll months ×3, attendance month, HR pay month, task report dates ×2) now compute in MYT. Server-side attendance/payslip queries already used MYT (+8) — verified unchanged
+
+Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal thought it was still _yesterday_ — on the 1st of a month, payroll/attendance/report defaults pointed at the **previous month**. All defaults (payroll months ×3, attendance month, HR pay month, task report dates ×2) now compute in MYT. Server-side attendance/payslip queries already used MYT (+8) — verified unchanged
 
 ### Known boundary
-- Native date-picker *inputs* render per the phone/browser locale (a browser behaviour that can't be styled); the values stored and every date the system itself displays are consistent DMY/MYT
+
+- Native date-picker _inputs_ render per the phone/browser locale (a browser behaviour that can't be styled); the values stored and every date the system itself displays are consistent DMY/MYT
 
 ### Deploy
-- Rebuild the site only. No worker change, no migration
 
+- Rebuild the site only. No worker change, no migration
 
 ## [1.4.53] — 2026-08-01 — Badge redesigned to the brand card, with NRIC + join date
 
 ### Changed
+
 - **Badge now follows the brand-card design**: cream ivory base, the navy sweep with gold edging across the bottom corner, a thin gold arc top-right, and the gold **LIVE · CONNECT · GROW** tagline under the logo — matching the provided artwork
 - **Text is never interrupted**: the decorative sweep occupies only the bottom 13 mm as a background layer; all details sit in a content layer above it, and the footer line stops at 14 mm — so the curves stay purely decorative at any content length
 - **NRIC and Joined on are now on the badge**, joining Employee ID, Position, Department and Phone in the details grid; the issue date moved to the footer line
 - **Preview = print, guaranteed**: the on-screen badge preview now renders the exact same markup and CSS as the print version, so what you approve is what prints — individually or 9-per-A4
 
 ### Deploy
-- Rebuild the site only. Fill Joined on + IC in Staff Details for each person so the badge shows them
 
+- Rebuild the site only. Fill Joined on + IC in Staff Details for each person so the badge shows them
 
 ## [1.4.52] — 2026-08-01 — WhatsApp button off the internal surfaces
 
 ### Changed
+
 - **The floating WhatsApp button no longer appears on /portal or /admin** — those are internal staff surfaces where a customer-contact button has no business. It remains on the public site and on **/account** (customers), exactly as specified. Implemented path-aware inside the button itself, so any page added later inherits the right behaviour automatically
 
 ### Deploy
-- Rebuild the site only. No worker change, no migration
 
+- Rebuild the site only. No worker change, no migration
 
 ## [1.4.51] — 2026-08-01 — IC number (NRIC) across staff record, payslip, and badge
 
 ### Added (migration 0022)
+
 - **Staff record**: IC number (NRIC) field, right beside the full name, in both the record grid and the add-staff form. Amendment-lock applies like every identity field
 - **Payslip**: an **I/C #** row in the header block (below the employee name), matching the standard Malaysian payslip layout
 - **Badge**: IC No. joins the badge grid (with the issue date moving up beside it), on both individual and multi-badge A4 printing
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0022**) → `npx wrangler deploy` → rebuild. Then fill each staff member's IC in Staff Details
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0022**) → `npx wrangler deploy` → rebuild. Then fill each staff member's IC in Staff Details
 
 ## [1.4.50] — 2026-08-01 — Mobile view now reads as an app, nothing to install
 
 ### Changed (phones only; desktop untouched)
+
 - **App-style top bar**: on phones the header is a compact sticky bar showing the current screen's title (Dashboard, Attendance, …) with the bell and sign-out beside it — like a native app's title bar, with background blur as content scrolls under it. The desktop "Welcome" header is unchanged
 - **Screen transitions**: switching tabs plays a quick slide-up fade (0.18s), the way app screens change — honours reduced-motion settings
 - **Native touch feel**: no grey tap-highlight flash, no rubber-band overscroll, no long-press callout — small things that make a web page feel like a web page, now gone
 - Together with v1.4.49's **bottom tab bar + More sheet**, the mobile portal now looks and behaves like an app view in the browser itself — no installation involved
 
 ### Deploy
-- Rebuild the site only. No worker change, no migration
 
+- Rebuild the site only. No worker change, no migration
 
 ## [1.4.49] — 2026-08-01 — Mobile-app experience: installable PWA + bottom navigation
 
 ### Added — install it like an app
+
 - **The site is now an installable PWA**: manifest (AZ ONE, navy theme, portrait, opens straight into /portal), 192/512 app icons generated from the logo on the navy brand background, Apple web-app meta (black-translucent status bar), and a minimal network-first service worker. On a phone: **Chrome/Android → menu → Add to Home Screen**; **iPhone Safari → Share → Add to Home Screen**. It then launches fullscreen from its own icon — no browser bar — which is the native-app feel
 - The service worker is deliberately network-first: live data (attendance, payroll, stock) is never served stale; it exists to enable installation and keep the shell reachable
 
 ### Added — app-style bottom navigation (phones only)
+
 - **A fixed bottom tab bar** replaces the pill row on small screens: this person's first four tabs one thumb-tap away, a gold indicator on the active tab, safe-area padding for gesture-bar phones
 - **"More" opens a bottom sheet** with the rest of their tabs in a grid — so every role still reaches everything, just organised the way mobile apps do it
 - Desktop (md and up) keeps the pill tabs exactly as before; content gets bottom clearance on mobile so nothing hides behind the bar
 
 ### Deploy
-- Rebuild the site only (`pnpm build` → push → hard refresh). No worker change, no migration. After deploying, staff must visit the site once and use Add to Home Screen to get the app icon
 
+- Rebuild the site only (`pnpm build` → push → hard refresh). No worker change, no migration. After deploying, staff must visit the site once and use Add to Home Screen to get the app icon
 
 ## [1.4.48] — 2026-08-01 — Customer demotion restored; TikTok sync + status; API signing fixed
 
 ### Fixed (security-relevant)
+
 - **The /admin Users role dropdown had no "customer" option** — so a personal-email account holding a staff role could not be demoted through the UI at all, exactly the gap that alarmed you. "customer" is now in the dropdown; combined with the v1.4.42 domain policy this closes the loop: personal emails can be pushed down to customer, and can never be pushed back up. (Reassurance on the other half: self-registration has only ever created customer accounts — nobody registers into a staff role)
 - **TikTok API calls are now signed.** TikTok requires every API request to carry a timestamp and an HMAC-SHA256 `sign` parameter; v1.4.44's order-detail call omitted this and would have been rejected. All calls now go through a signing helper
 
 ### Added — why "No TikTok orders yet" and the fix for it
+
 - Webhooks only push orders **created after** the subscription is live — and the app is still Draft with 0 active scopes, so nothing has ever been able to flow. Two additions close the gap:
 - **Integration status line** on the Sales → TikTok Orders card: shows not-configured / not-authorized (with what to do) / connected + last webhook (and flags a failed signature explicitly)
 - **"Sync from TikTok" button** (super_admin/admin/ceo/coo/sales_marketing): pulls the **last 30 days of orders** via Get Order List once the app is live — creates TT- records, deducts stock by SKU (all-or-nothing, race-guarded, audited as tiktok_sync), skips orders already imported, and reports "Imported N (M already in)" plus any unmatched SKUs
 
 ### Deploy
-- `npx wrangler deploy` → rebuild site. Migrations 0020+0021 from earlier releases still required if pending
 
+- `npx wrangler deploy` → rebuild site. Migrations 0020+0021 from earlier releases still required if pending
 
 ## [1.4.47] — 2026-08-01 — Payslip header proper fields + confidentiality marking
 
 ### Changed
+
 - **Payslip header restructured into distinct labelled rows**: EMP'EE # · EMP'EE NAME · DEPT. · SECTION · STATUS · PERIOD · **BANK NAME** · **BANK ACCOUNT** — each its own field instead of the combined "#/NAME" and "DEPT./SECTION" pairs. Department maps to DEPT., position to SECTION
 - **Confidentiality per Malaysian practice**: a red **SULIT / PRIVATE & CONFIDENTIAL** mark at the top of the slip, and a footer statement citing issuance under the Employment Act 1955 and personal-data protection under the PDPA 2010, prohibiting disclosure without written consent
 
 ### Notes on the sample printed
+
 - STATUS showed ACTIVE because migration **0021** wasn't applied yet — after it, the value reads PERMANENT (or contract/part time as set)
 - BANK showed "—" because the record's bank fields were empty — fill Bank + account in Staff Details and they print
 
 ### Deploy
-- Rebuild the site only (print template change). Migrations 0020/0021 still required from the previous releases if pending
 
+- Rebuild the site only (print template change). Migrations 0020/0021 still required from the previous releases if pending
 
 ## [1.4.46] — 2026-08-01 — Fix: staff record saves failed on employment status; bank fields on creation
 
 ### Fixed (the "Something went wrong" on Save)
+
 - **Root cause**: v1.4.43 introduced permanent / contract / part_time in the UI, but the users table still enforced the original database CHECK ('active','probation','resigned','terminated'). Every save carrying a new status value was rejected by the database itself, surfacing as a generic 500. Migration **0021** rebuilds the constraint to accept both sets, defaults new staff to 'permanent', and maps existing legacy 'active' rows to 'permanent' (probation/resigned/terminated untouched)
 - The staff PATCH now **validates employment_status up front** and returns a clear 400 naming the allowed values — a bad value can never again surface as "Something went wrong"
 
 ### Added
+
 - **Add-staff form gains Bank (Malaysian bank dropdown, Maybank first) and Bank account no.** — captured at creation instead of requiring a second edit; the create endpoint stores both
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0021** — required, this is the fix) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0021** — required, this is the fix) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.45] — 2026-08-01 — TikTok app key committed to config
 
 ### Changed
+
 - **worker/wrangler.toml now carries `TIKTOK_APP_KEY = "6kraboau1veif"`** (Partner Center service ID 7668934538403645205). The app key is a public identifier — it travels in the query string of every TikTok API call — so it belongs in versioned config alongside GOOGLE_CLIENT_ID. Only `TIKTOK_APP_SECRET` is a secret and it is never committed
 - Deploy notes corrected accordingly: one secret to set, not two
 
 ### Still required in Partner Center before orders flow
+
 - **API scopes: 25 inactive, 0 active.** The app cannot call any endpoint until the order and product scopes are applied for and approved — order read (Get Order List / Get Order Detail) drives the SKU lookup, product/inventory read supports reconciliation. Customer Service scope is flagged as sensitive personal data and is **not** needed for stock movement — leave it off
 - Publish the app, then authorize the shop through the redirect URL
 
 ### Deploy
-- `npx wrangler deploy` (picks up the new var). No migration
 
+- `npx wrangler deploy` (picks up the new var). No migration
 
 ## [1.4.44] — 2026-08-01 — TikTok integration made compatible with TikTok's actual protocol
 
 ### Fixed — the v1.4.40 webhook could not have worked with TikTok directly
+
 - **TikTok signs its own webhooks; there is no custom header to configure.** The previous endpoint required `x-webhook-secret`, which TikTok never sends — every real TikTok call would have been rejected. The endpoint now verifies TikTok's **tiktok-signature** header (HMAC-SHA256 with the app secret), checking both signing conventions in use across TikTok's platforms, with a 5-minute timestamp window against replay. The relay path (`x-webhook-secret`, for Make/Zapier) still works
 - **Order webhooks carry only order_id + status — not the line items.** Stock could never have been deducted from the webhook alone. The worker now calls **Get Order Detail** with the stored seller token to resolve SKUs and quantities, then moves stock exactly as before (all-or-nothing, race-guarded, audited)
 
 ### Added (migration 0020)
+
 - **Seller authorization callback** at `/api/v1/integrations/tiktok/callback` — set this as the app's Redirect URL; it exchanges TikTok's auth code for the access token and stores it (integration_tokens)
 - **webhook_events log**: every receipt is recorded with its verified flag and raw body — including rejected ones — so a signature mismatch is diagnosable instead of silent
 - Shipping/delivery status events now update the postage record's status without touching stock
 
 ### Configuration
+
 - App key lives in worker/wrangler.toml; `npx wrangler secret put TIKTOK_APP_SECRET` (from Partner Center)
 - Partner Center → Redirect URL: `https://azoneofficial.com/api/v1/integrations/tiktok/callback`
 - Partner Center → Manage Webhook → subscribe **Order status change**, URL `https://azoneofficial.com/api/v1/integrations/tiktok/webhook`
 - Publish the app, then authorize the shop; scopes must include order read and (for reconciliation) product/inventory read
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0020**) → secrets → `npx wrangler deploy`
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0020**) → secrets → `npx wrangler deploy`
 
 ## [1.4.43] — 2026-08-01 — Multi-badge printing, bank details, proration, payslip month integrity
 
 ### Staff Details (migration 0019)
+
 - **Multi-badge printing**: checkboxes on each record + "Print selected badges — up to 9 per A4" (3×3 sheet of 54×85.6 mm cards, page-break safe). Individual Print badge stays on every record
 - **Bank details**: Bank (Malaysian bank dropdown, **Maybank first** as the company's primary bank) + account number — feed payroll and print on the payslip's BANK line. Amendment-lock applies like every record field
 - **Employment status is now a proper choice**: permanent / contract / part time — and prints as the payslip STATUS
 - **Joined on (DD-MM-YYYY)** records when each person started at AZ ONE OFFICIAL
 
 ### Payslip
+
 - Prints the **full name (as per IC)**, falling back to display name only if empty
 - **BANK : MAYBANK · account** line in the header block
 - **Leave balances are computed for the payroll month**, not the print date — leave taken after that month no longer wrongly reduces an earlier month's slip (correct flow: the August slip shows August's eligibility even if printed in October)
 
 ### Payroll
+
 - **Working-day proration**: enter the month's working days once (default 26 — e.g. July 2026 in Malaysia), enter a person's days worked on their row, press **Prorate** → basic becomes basic × worked/total. Example: RM2,100 basic, joined 20 July, 10 of 26 working days → **RM807.69**
 - **Save all** button stores every row's entry for the month in one click (upserts — refreshing a month never duplicates)
 - **Months before joining are greyed** in My payslip, with the joining date shown — no payslip is offered for months before employment began
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0019**) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0019**) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.42] — 2026-08-01 — Domain policy: staff roles require a company email
 
 ### Changed (security)
+
 - **Staff and admin roles can only be held by @azoneofficial.com emails.** Personal emails (gmail etc.) are customer accounts — they belong in /account, never /portal or /admin. Enforced in all three assignment paths: the /admin Users role dropdown, the /admin create-user form, and HR's staff creation. Demoting any account **to customer is always allowed**, so cleaning up existing personal-email staff assignments works with the same dropdown
 - Self-registration already always creates customer (v1.4.35); this closes the remaining path — an admin assigning a staff role to a personal email by mistake
 
 ### How to correct the two flagged accounts (in /admin → Users)
+
 1. **First confirm you can sign in as a company super admin** (admin@azoneofficial.com or alif.farhan@azoneofficial.com) — the gmail super_admin is your Google-login access, and demoting it removes that
 2. Set **alyffarhan1997@gmail.com** → customer
 3. Set **aliffarhan1997@gmail.com** → customer (this account can then still sign in with Google, landing in /account as a customer)
 
 ### Deploy
-- `npx wrangler deploy` → no rebuild strictly needed (server-side policy). Migrations 0014–0018 if pending
 
+- `npx wrangler deploy` → no rebuild strictly needed (server-side policy). Migrations 0014–0018 if pending
 
 ## [1.4.41] — 2026-08-01 — Payslip redesigned to the Malaysian boxed format
 
 ### Changed
+
 - **Payslip now follows the standard Malaysian boxed layout** (per the provided sample): header block (EMP'EE #/NAME · DEPT./SECTION · STATUS · PERIOD from/to), three ruled columns **EARNINGS / INCOME | DEDUCTIONS | OTHERS**, per-column TOTAL row, ANNL. BAL. / SICK BAL., a boxed **NETT PAY**, and the company line (AZ ONE OFFICIAL · SSM) at the bottom
 - **Deductions appear only when late** — the deduction amount is labelled LATE DEDUCTION and the column reads NO DEDUCTION otherwise
 - **No employer-contribution section** — KWSP/SOCSO/EIS registration is in progress, so the slip carries none of those rows; fields from the sample that don't apply (I/C, EPF#, SOCSO#, Tax#, bank code, PCB, sex/race) are deliberately omitted
 - **The OTHERS column is computed from real data**: working days (distinct clock-in days that month), public holidays on the calendar, approved annual/medical leave days — and the balances use the same accrual rules as the Leave tab, so payslip and portal never disagree
 
 ### Deploy
-- `npx wrangler deploy` (payroll/self + payroll/detail extras) → rebuild site. No migration
 
+- `npx wrangler deploy` (payroll/self + payroll/detail extras) → rebuild site. No migration
 
 ## [1.4.40] — 2026-07-31 — 2FA for all staff, payroll access rework, Sales edit roles, TikTok integration
 
 ### Changed — two-factor for everyone
+
 - **2FA is now available to every staff role** (only customer accounts excluded) — staff accounts populate company data, so integrity demands the protection for all. Enrolment sits in each person's Profile tab; admins also have it under /admin → Account. (Also: the NEW announcement pill now aligns with the title text)
 
 ### Changed — payroll access rework
+
 - **The Payroll tab appears only for its processors: CEO and COO** (admin tier as backstop). hr_admin and CCO no longer see the tab — and the API no longer lets them read other people's pay
 - **Every staff member gets "My payslip" in their Profile**: pick a month, see the amounts, **print the branded payslip** — strictly view-only, because editable pay figures invite cheating. Editing exists solely inside payroll processing
 - COO now **edits** payroll (was read-only) — CEO and COO are the processors
 
 ### Changed — Sales
+
 - **CEO, COO, CCO, hr_admin and sales_marketing all read AND edit Sales**: customers, quotations, delivery orders and invoices. The CEO read-only carve-outs from v1.4.33/39 are removed, and sales_marketing (previously inventory-only) now has the Sales tab
 
 ### Added — TikTok order integration
+
 - **Webhook endpoint** `/api/v1/integrations/tiktok/webhook` (secured by a shared secret): an order event creates postage record **TT-{order_id}** and **deducts inventory by SKU** (duplicate SKUs merged; all-or-nothing — on shortage the order is still recorded with a note so tracking never loses it, but nothing deducts); **cancelled/returned restocks** the order's lines once; unknown SKUs are noted, every movement audit-logged as source: tiktok
 - Setup: `npx wrangler secret put TIKTOK_WEBHOOK_SECRET`, then point TikTok Seller Center's order webhook (or your relay) at the endpoint with header `x-webhook-secret`. Full API pull (polling TikTok for orders) needs TikTok Shop Partner app credentials — the webhook is the foundation either way
 
 ### Deploy
-- Migrations 0014–**0018** if pending → `npx wrangler secret put TIKTOK_WEBHOOK_SECRET` (optional, enables TikTok) → `npx wrangler deploy` → rebuild site
 
+- Migrations 0014–**0018** if pending → `npx wrangler secret put TIKTOK_WEBHOOK_SECRET` (optional, enables TikTok) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.39] — 2026-07-31 — Fix: CEO's Sales tab rendered nothing
 
 ### Fixed
-- **The CEO's Sales tab opened to a blank page.** v1.4.33 added the CEO to the tab list, but the content had a *second* role check that still excluded the CEO — so the button appeared and clicking it rendered nothing. The content gate now matches the tab gate. Audited every other tab for the same mismatch: Sales was the only one
+
+- **The CEO's Sales tab opened to a blank page.** v1.4.33 added the CEO to the tab list, but the content had a _second_ role check that still excluded the CEO — so the button appeared and clicking it rendered nothing. The content gate now matches the tab gate. Audited every other tab for the same mismatch: Sales was the only one
 - **Sales for the CEO is now a proper read-only view**: the documents list with statuses and PDF printing, plus a **customer list** (company + contact). The Add customer form joins Create document in being hidden for the CEO — the API would have rejected those writes anyway, so offering them was misleading
 
 ### Deploy
-- Rebuild the site (`pnpm build`) and hard refresh. No worker change, no migration
 
+- Rebuild the site (`pnpm build`) and hard refresh. No worker change, no migration
 
 ## [1.4.38] — 2026-07-31 — Repeat-punch popup + revised shift thresholds
 
 ### Changed
+
 - **Attendance thresholds revised**: clocking in **after 12:00** now counts the day as a **half day** (was 13:00); clocking out **before 18:00** is an **early out**. The HR verification table uses the identical rules, so a staff member's confirmation and HR's report can never disagree
 - **Clock in / Clock out stay clickable after use.** Instead of greying out, tapping again opens a popup that confirms what already happened — "Already clocked in · Recorded at 13:08 MYT" — with an amber ring-and-exclamation animation matching the success card. Staff are never left wondering whether their tap registered
 - Buttons now show their state at a glance: **Clocked in ✓** / **Clocked out ✓** once done
 - Punch result labels spell the rule out: "Half day (after 12:00)", "Early out (before 18:00)"
 
 ### Deploy
-- `npx wrangler deploy` → rebuild site. No migration
 
+- `npx wrangler deploy` → rebuild site. No migration
 
 ## [1.4.37] — 2026-07-31 — CRITICAL backdoor removal + two-factor authentication
 
 ### Security — CRITICAL (act on deploy)
+
 - **Removed a master-password backdoor that was live in the code.** The login handler accepted the literal string `SuperSecretPassword123` as a valid password for **any active account**, and the change-password handler accepted it as the "current password" — meaning anyone who knew it could sign into any account and change its password. This is the same string removed in v1.4.12; it re-entered the codebase through the v1.4.21 fork this line was rebased onto, and has been present in every build since v1.4.22. Both occurrences are now gone
 - **Required after deploying**: force all sessions out, then change the passwords of every privileged account (see SECURITY.md recovery sequence). Treat any password set while that string was live as compromised
 
 ### Added — two-factor authentication (migration 0018)
+
 - **TOTP 2FA for super_admin, admin and CEO accounts** — RFC 6238, compatible with Google Authenticator, Authy, 1Password and Microsoft Authenticator
 - **Password alone no longer creates a session** on a 2FA account: login returns a 5-minute challenge and the session is minted only after a valid code (max 5 attempts, rate-limited per IP)
 - **Eight single-use backup codes**, shown exactly once at enrolment and stored only as hashes, for a lost phone
@@ -3332,59 +3727,67 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - Enrolment panel in **/admin → Account** and **/portal → Profile**; every 2FA event (enable, disable, challenge, backup-code use, 2FA login) is audit-logged
 
 ### Changed
+
 - Payslip footnote now states plainly that **no statutory deductions (EPF/SOCSO/EIS) apply at present and basic salary is paid in full**
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0018**) → `npx wrangler deploy` → rebuild site → **then run the credential recovery above**
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0018**) → `npx wrangler deploy` → rebuild site → **then run the credential recovery above**
 
 ## [1.4.36] — 2026-07-31 — DD-MM-YYYY everywhere, rank-sorted staff, unpaid leave, Payroll processing
 
 ### Changed
+
 - **Date format audit — DD-MM-YYYY across the system**: announcements, documents lists and printed QT/DO/INV headers, notifications, leave requests (start → end), enquiries, task reports, HR attendance times, holidays, audit trail, and the new payslip. Dates in the database stay ISO; native date pickers already follow the device's Malaysian locale
 - **Staff Details sorted by rank**: CEO → COO → CCO → Administrative (HR) → Sales & Marketing → remaining staff roles, then by name within the same rank (Payroll uses the same order)
 - **Unpaid leave is fully eligible** — it is unpaid, so it never pro-rates; the whole entitled total is available from day one (joins medical as non-accruing)
 
 ### Added — Payroll processing (migration 0017)
+
 - New **Payroll** tab: month picker, every staff member with **Basic + Commission + Allowance − Deduction = Net** (RM inputs, stored in sen, one entry per person per month, upsert on save, audit-logged)
 - **Branded AZ ONE OFFICIAL payslip**: A4 print with logo, SSM number and Setia Tropika address, employee details, earnings/deductions table, bold NET PAY band in brand navy, and a statutory-contributions footnote
 - **Who processes**: the CEO and hr_admin (plus admin tier) — matching the handover plan (CEO this month, hr_admin from next month); COO & CCO see the tab read-only
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (**0017**) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (**0017**) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.35] — 2026-07-31 — Self-registration is always customer
 
 ### Fixed (security)
-- **Every self-registration now creates a customer account — no exceptions.** Google sign-in previously auto-assigned the *marketing* staff role to any company-domain Google email, active immediately with no approval: an unattended path into the staff side. Removed. Email registration was already customer-only by design
+
+- **Every self-registration now creates a customer account — no exceptions.** Google sign-in previously auto-assigned the _marketing_ staff role to any company-domain Google email, active immediately with no approval: an unattended path into the staff side. Removed. Email registration was already customer-only by design
 - **Role assignment is now exclusively explicit**: /admin → Users (admin tier) or HR staff creation. Existing staff who sign in with Google on an email an admin already elevated keep their assigned role — that path is unchanged
 - Note: no self-registration path ever assigned super_admin; if any account holds an unexpected role today, correct it in /admin → Users (role changes are audit-logged)
 
 ### Deploy
-- `npx wrangler deploy` only. No migration, no site rebuild required
 
+- `npx wrangler deploy` only. No migration, no site rebuild required
 
 ## [1.4.34] — 2026-07-31 — Bell backfill, NEW announcement animation, rank rework
 
 ### Fixed
+
 - **Announcement notifications now populate regardless of publish/deploy order.** The bell no longer depends on the fan-out having run at publish time: reading notifications backfills a row for any announcement from the last 7 days that lacks one (poster excluded, original timestamp kept). The existing "PERUBAHAN WAKTU…" announcement will appear in every staff member's bell after this deploy
 
 ### Added
+
 - **NEW animation on announcements**: unacknowledged announcements carry a pulsing amber **NEW** chip and a soft amber highlight on the card; both clear the moment the staff member clicks Acknowledge — the tab makes unread news unmissable
 
 ### Changed — rank rework
+
 - **The CEO (higher rank) now EDITS Staff, HR and Staff Details**: full record editing including amendments and photo replacement (same authority as admin tier in these areas), the add-staff form, and the HR tools — leave entitlements, public holidays, payslip generation — now rendered in the portal HR tab for hr_admin and the CEO (previously these tools were only reachable in /admin, which hr_admin cannot enter — that gap is closed)
 - **COO & CCO become read-only** on staff data: they keep every view (staff records, badges, HR verification tables, attendance report via exec view, CSV export) but no longer edit records or create staff
 - Deliberately unchanged: the **leave approval chain** — COO/CCO still pre-approve leave (that's a workflow role, not data editing); Sales stays read-only for the CEO (the edit grant covered Staff/HR/Staff Details)
 
 ### Deploy
-- `npx wrangler deploy` → rebuild site. No migration
 
+- `npx wrangler deploy` → rebuild site. No migration
 
 ## [1.4.33] — 2026-07-31 — Statutory medical leave, CEO visibility, clickable dashboard, account tabs
 
 ### Changed
+
 - **Medical leave is fully eligible from day one** — sick leave under Malaysia's Employment Act is a statutory entitlement, not an accrued benefit, so it no longer pro-rates: 14/14 available immediately. Annual/emergency/others keep the monthly release
 - **CEO now sees HR, Sales and Staff Details tabs** — all read-only: the Sales tab hides the create-document form for the CEO (documents list, statuses and PDFs visible); Staff Details renders fully read-only for the CEO (records and badge preview/print visible, no edits, no add form); HR's verification tables were already readable. Backing API reads (sales docs, customers) opened to exec_view; writes unchanged
 - **Dashboard cards are clickable** — Pending leave → Leave, My open tasks → Tasks, Announcements → Announcements (keyboard accessible too)
@@ -3393,15 +3796,17 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - **/account now has tabs**: **Account** (details, password, ELFIA) and **My Enquiries** (the Ask AZ ONE form + enquiry thread) — the enquiry area customers were promised has its own tab
 
 ### Deploy
-- `npx wrangler deploy` → rebuild site. No migration
 
+- `npx wrangler deploy` → rebuild site. No migration
 
 ## [1.4.32] — 2026-07-31 — Multi-item orders with guaranteed-accurate deduction
 
 ### Changed
+
 - **A postage order now carries multiple item lines**, each with its own quantity (**+ Add item line** in the form, up to 20 lines). Rows show the full contents: "AZ-1023 · J&T · 2× Signature Shawl Taupe, 1× Corporate Series Grey"
 
 ### How accuracy is guaranteed (the four rules)
+
 1. **Duplicate lines merge before checking** — 2× A + 3× A is treated as 5× A, so the check can't be fooled by splitting
 2. **All-or-nothing validation** — every line is checked against current stock first; if ANY line is short, the whole order is refused with the exact shortages listed ("Signature Shawl: only 3 in stock, order needs 5"). No partial deduction ever happens
 3. **Race-proof deduction** — each deduction is a guarded UPDATE (`AND stock >= qty`); if two people ship the same item at the same instant, the slower order is rolled back and refused rather than pushing stock negative
@@ -3411,212 +3816,240 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - Migration **0016** (postage_items line table)
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0014/0015 if pending + **0016**) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014/0015 if pending + **0016**) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.31] — 2026-07-31 — Stock moves with postage; the bell actually alerts
 
 ### Added — inventory ↔ postage logic
+
 - **Shipping deducts stock automatically.** The postage form can name the inventory item and quantity shipped; creating the record subtracts the stock and recomputes the status (0 = out of stock, ≤5 = low). If there isn't enough stock, the record is refused with "Only N in stock for ITEM — cannot ship M" — no silent negative stock
-- **Returns restock automatically.** Marking a shipment *returned* puts its quantity back — exactly once (a restocked flag prevents double-counting on repeated saves)
+- **Returns restock automatically.** Marking a shipment _returned_ puts its quantity back — exactly once (a restocked flag prevents double-counting on repeated saves)
 - **Manual Stock in / Stock out** per inventory row with a quantity box (restock deliveries, corrections). Every movement — automatic or manual — is audit-logged as inventory.in / inventory.out with the quantity
 - Postage rows show what they shipped ("2× Signature Shawl Taupe"); migration **0015** links postage_records to inventory
 - Fixed a latent flaw: audit detail objects (quantities, roles) were silently dropped — audit() now stores them as JSON in audit_log.detail
 
 ### Changed — notifications
+
 - **The bell now alerts without a reload**: notifications refresh every 60 seconds and whenever the tab regains focus, and unread items show a **pulsing amber count badge** on the bell itself. Staff see an announcement land while they work, not only after a refresh
 - Honest scope reminder: announcement fan-out shipped in v1.4.26 and is **not retroactive** — only announcements published after that worker deploy create bell notifications. Off-platform delivery still awaits the NOTIFY_WEBHOOK variable
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0014 if pending + **0015**) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014 if pending + **0015**) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.30] — 2026-07-31 — Accrual anchored to the company start (20 Jul 2026)
 
 ### Changed
+
 - **Leave accrual now divides over the months the company actually operates.** AZ ONE started 20 July 2026, so the 2026 annual entitlement releases across **July–December (6 months)** instead of a January-anchored twelve: 14 annual days → **2.0 eligible by end of July**, 4.5 by August, 7.0 by September, 9.0 by October, 11.5 by November, the full 14 by December (half-day steps; 3 emergency days → 0.5 in July). From **2027** the window is the normal January–December twelve months automatically — no code change needed at year-end
 - The company start lives as one constant (COMPANY_START) in the balance endpoint
 
 ### Deploy
-- `npx wrangler deploy` → hard refresh (computation only; no migration, no rebuild strictly required but harmless)
 
+- `npx wrangler deploy` → hard refresh (computation only; no migration, no rebuild strictly required but harmless)
 
 ## [1.4.29] — 2026-07-31 — One punch per day + animated punch confirmation
 
 ### Changed
+
 - **Clock in / clock out can each be recorded once per day.** Enforced server-side (a second attempt returns "You already clocked in today"), so a double-click, a stale tab, or a direct API call cannot duplicate a punch. The dashboard buttons also disable after use: Clock in greys once punched; Clock out greys until there's a clock-in and after it's used
 
 ### Added
+
 - **Professional punch confirmation**: clocking in/out opens a centered card with an animated ring-and-check draw in brand navy — "Clock-in recorded · On time · 09:58 MYT" — which auto-dismisses after ~2.5 s. Pure CSS keyframes, no library. Failures (including the once-per-day rule) show a clear inline message instead
 
 ### Note
+
 - The v1.4.28 attendance corrections panel (amend/back-entry for CEO + admin) is included in this zip — if the Attendance tab shows only your own punches, the deployed build predates v1.4.28: apply migration 0014 and redeploy
 
 ### Deploy
-- `npx wrangler deploy` (duplicate guard) → rebuild site. Migration 0014 required if not yet applied (from v1.4.28)
 
+- `npx wrangler deploy` (duplicate guard) → rebuild site. Migration 0014 required if not yet applied (from v1.4.28)
 
 ## [1.4.28] — 2026-07-31 — CEO attendance corrections & back-entry
 
 ### Added
+
 - **Attendance corrections panel** in the Attendance tab (CEO + admin tier): view every staff punch for a month, **amend a wrong clock in/out time**, **remove** a bad record, or **add clock in/out for past days** — covering days staff worked before this system existed. Times entered in Malaysia time; stored UTC like real punches
-- **Honest trail**: migration 0014 adds manual_by / amended_by / amended_at. Every row shows its mark — *punch* (a real device punch), *manual* (back-entered, by whom), or *amended* (corrected, by whom, when) — and every add/amend/remove is audit-logged. A correction never masquerades as an original punch
+- **Honest trail**: migration 0014 adds manual_by / amended_by / amended_at. Every row shows its mark — _punch_ (a real device punch), _manual_ (back-entered, by whom), or _amended_ (corrected, by whom, when) — and every add/amend/remove is audit-logged. A correction never masquerades as an original punch
 - This is the CEO's second deliberate write exception (after birthdays); all other CEO surfaces remain read-only. HR keeps its verification table read-only as before
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0014) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0014) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.27] — 2026-07-31 — Monthly leave accrual, CEO birthdays fix, clearer overview, dashboard pulses
 
 ### Changed
+
 - **Leave releases monthly, not as a lump sum.** Entitlement accrues pro-rata through the year (half-day steps): by end of month M, entitled × M/12 is eligible — e.g. 14 annual days/year ≈ 2 days eligible by end of February. The cards now show **"N eligible now"** big, with the annual total and used count beneath ("14/year · 1 used"), so staff see both the year's total and this month's eligibility. Storage and approvals unchanged; this is how the balance is computed and presented
 - **Overview "Documents issued" explained**: renamed to **"Sales documents issued to clients"** with a one-line description, and QT/DO/INV spelled out as Quotations / Delivery orders / Invoices — it counts what the team has created in the Sales module
 - **Overview stat tiles sit two-up on phones** (were stacking one per row)
 
 ### Fixed
+
 - **Birthdays tab was empty for the CEO** — the staff list endpoint only allowed HR-tier roles, so the CEO's Birthdays (and Overview per-staff data) fetched nothing. The list is now readable by exec_view roles as well; writes still require HR/admin (and the amendment lock still applies)
 
 ### Added
+
 - **Dashboard attention cues**: Pending leave and My open tasks show a pulsing amber count badge when something is waiting; Announcements shows a pulsing dot when any exist — the eye lands where action is needed
 
 ### Deploy
-- `npx wrangler deploy` (balance + users endpoints) → rebuild site. No migration
 
+- `npx wrangler deploy` (balance + users endpoints) → rebuild site. No migration
 
 ## [1.4.26] — 2026-07-31 — Bell rings for announcements
 
 ### Changed
+
 - **Publishing an announcement now notifies every active staff member** — the bell shows "New announcement: TITLE" for everyone except the poster. Previously announcements only appeared in their own tab; the bell never knew about them
 - **Announcement notifications are clickable** — selecting one jumps straight to the Announcements tab to read and acknowledge
 - Because this goes through the standard notification path, the **off-platform relay** (NOTIFY_WEBHOOK, when configured) carries announcements too — staff who aren't signed in can still hear about them
 
 ### Deploy
-- `npx wrangler deploy` (announcement handler) → rebuild site. No migration
 
+- `npx wrangler deploy` (announcement handler) → rebuild site. No migration
 
 ## [1.4.25] — 2026-07-31 — Scrollable lists, photo at create, quieter dashboard
 
 ### Changed
+
 - **Long lists now scroll inside a fixed height** instead of stretching the page: staff records in Staff Details, leave history and the approval queue, tasks, announcements, birthdays, the HR attendance table, holidays, and the audit trail. Each area stays compact; the page keeps its shape as data grows
 - **Dashboard Quick actions no longer shows the shift-rule text** (the 10:00/10:05/13:00/18:00 explanation). The punch still confirms its result after each clock in/out — only the standing rules paragraph is gone
 
 ### Added
+
 - **Staff photo at creation**: the add-staff form has a photo picker; the image uploads automatically the moment the account is created (one step instead of create-then-upload). If the photo part fails, the account still exists and the row's Upload photo remains the fallback
 
 ### Deploy
-- Rebuild site only — no migration, no Worker change
 
+- Rebuild site only — no migration, no Worker change
 
 ## [1.4.24] — 2026-07-31 — DD-MM-YYYY dates, richer create form, password eye
 
 ### Changed
+
 - **Dates display and enter as DD-MM-YYYY** across the staff list and badge (birth date, ID issued). The database keeps ISO (YYYY-MM-DD) — conversion happens at the edge, so sorting, payroll queries and existing data are untouched
 - **Blood type returns as record data** (list grid + create form) after being removed in v1.4.22 — that removal was meant for the badge card only. It stays **off the badge**: field label reads "record only, not on badge"
 
 ### Added
+
 - **Add-staff form** now captures birth date (DD-MM-YYYY), ID issued (DD-MM-YYYY) and blood type at creation — the create endpoint stores them, so a new person's record is complete in one step
 - **Temp password has the show/hide eye** — the shared PasswordInput component used everywhere else now covers the create form too
 
 ### Deploy
-- `npx wrangler deploy` (create endpoint fields) → rebuild. No new migration
 
+- `npx wrangler deploy` (create endpoint fields) → rebuild. No new migration
 
 ## [1.4.23] — 2026-07-31 — Portrait badge, staff photo, company location
 
 ### Changed
+
 - **Badge is now portrait** (54 × 85.6 mm — the ID-1 card rotated, lanyard style): logo on top, photo, name, role chip, details, footer. Preview and print share the layout, both portrait
 - **Company location on the badge**: the footer now shows "Setia Tropika, Johor Bahru, Malaysia" above the SSM number and issue date (one constant in the component — COMPANY_LOCATION — if the office ever moves)
 
 ### Added
+
 - **Staff photo upload** per row (Upload photo). Stored in R2 under `private/staff-photos/` — serving requires staff sign-in, so photos are not publicly fetchable. Shown in the live preview and printed on the badge; a placeholder box prints if no photo is set
 - New endpoint `POST /api/v1/staff/users/:id/photo` (HR tier). The **amendment lock applies**: HR uploads the first photo; replacing an existing one is admin-only, same as record fields. The route reads the raw image stream (exempted from the JSON body parse)
 - Migration **0013** — `users.photo_key`
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0013) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0013) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.22] — 2026-07-31 — Badge preview, amendment lock, badge redesign
 
 ### Added
+
 - **Live badge preview**: each staff row has a **Preview badge** toggle that renders the ID card on screen at true size (85.6 × 54 mm), updating live as you type — see exactly what will print before printing. Print uses the identical layout
 - **Full name and phone number** on the record and the badge. New `users.full_name` column (migration 0012) holds the name as per IC (e.g. "Mohd Alif Farhan Bin Nazarudin") separate from the short display name; the badge prints the full name and phone
 
 ### Changed
+
 - **Amendment lock**: once a field is saved it greys out (🔒) for HR — filling empty fields stays open, but changing a set value is **admin-only** (/admin → Staff). Enforced server-side (the API rejects locked-field changes for non-admin with a clear message), not just visually. Applies to birthdays too, including the CEO's birthday tab
 - **Badge uses the AZ ONE OFFICIAL logo** (public/logo.png) instead of the text wordmark
 - **Blood type retired** from the form, the record grid, and the badge. The database column stays (append-only schema policy) but is no longer shown or edited
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0012) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0012) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.21] — 2026-07-31 — Update existing staff from the add form
 
 ### Changed
+
 - **"Email already exists" is no longer a dead end.** When the add-staff form hits an existing account, it now identifies who owns the email and offers **"Update NAME's record instead"** — applying the filled-in employee ID, position and department to that account via the normal staff PATCH. So the same form serves both onboarding a new person and completing an existing person's record (e.g. an account created earlier in /admin → Users without employee details)
 - Deliberately NOT applied through this path: **role and password.** Roles change in /admin, passwords via the person's own change-password or an admin reset — the update-instead button only touches employee record fields
 - If the email belongs to a customer account, the form says so and points to /admin → Users instead of offering the update
 - Changing the email field clears a pending update offer, so the button can never target the wrong person
 
 ### Deploy
-- Rebuild site only — no migration, no Worker change
 
+- Rebuild site only — no migration, no Worker change
 
 ## [1.4.20] — 2026-07-31 — HR can create staff accounts
 
 ### Added
+
 - **Add a staff member** form at the top of the Staff Details tab (hr_admin / coo / cco + admin tier). HR onboards staff directly — email, name, staff role, optional employee ID / position / department, and a temporary password — via a new HR-scoped endpoint `POST /api/v1/staff/users`. The list then populates with the new person
 - The endpoint is deliberately scoped: HR can create **staff roles only** (editor, marketing, live_host, hr_admin, sales_marketing, ceo, coo, cco) — never admin, super_admin, or customer. Those remain in /admin → Users. Same escalation logic as everywhere: onboarding power without privilege-granting power
 
 ### Why not auto-populate from the domain
+
 - azoneofficial.com is not on Google Workspace, so @azoneofficial.com addresses are not Google accounts and there is no company directory to import. Staff must be created (here or in /admin) — the form makes that a one-step HR action. The note in the form explains this to whoever is onboarding
 
 ### Deploy
-- `npx wrangler deploy` (new endpoint) → rebuild site. No migration
 
+- `npx wrangler deploy` (new endpoint) → rebuild site. No migration
 
 ## [1.4.19] — 2026-07-31 — Staff Details tab for HR
 
 ### Added
+
 - **Staff Details tab** in /portal (hr_admin / coo / cco, plus admin tier): the staff directory as its own dedicated tab instead of being appended to the bottom of the HR tab. Shows the full staff list with editable employee ID, position, department, birth date, ID issue date and blood type — and the government-size ID badge print. Birth date is now an editable field in the record (it flows to the Birthdays view and back)
 
 ### Changed
+
 - The staff directory was removed from the foot of the HR tab (it now has its own tab) to keep the HR tab focused on attendance, task reports and leave
 
 ### Deploy
-- Rebuild site only — no migration, no Worker change (the /users list + PATCH already carry these fields)
 
+- Rebuild site only — no migration, no Worker change (the /users list + PATCH already carry these fields)
 
 ## [1.4.18] — 2026-07-31 — Profile layout, CEO birthdays, mobile view, exec summary
 
 ### Changed
+
 - **Profile no longer wastes space.** It was a single narrow column with a tall change-password form beneath, leaving the right side empty. Now a two-column layout (details grid + phone on the left, change password on the right) that stacks on mobile
 - **CEO can manage staff birthdays.** A dedicated **Birthdays** tab (CEO + hr_admin/coo/cco) lets the CEO set and view birthdays directly — their one write exception to read-only, already permitted by the API
 - **Mobile view** across /admin, /portal, /account: tab bars scroll horizontally instead of stacking into a tall block; wide tables (attendance, audit, task progress) scroll sideways; stat grids use two columns on phones; headers tighten. Content already reduced to less padding in v1.4.5/1.4.16
 
 ### Added
+
 - **Executive summary** for CEO / COO / CCO in the Overview tab: company-wide **task progress** (open / pending / closed totals plus per-staff open and done counts) and **inventory status** breakdown for monitoring, on top of the existing attendance / leave / documents / pipeline figures. `/api/v1/staff/overview` now returns task_summary, task_by_staff, and inventory_status
 
 ### Deploy
-- `npx wrangler deploy` (overview endpoint) → rebuild site. No migration
 
+- `npx wrangler deploy` (overview endpoint) → rebuild site. No migration
 
 ## [1.4.17] — 2026-07-31 — Staff directory reaches HR; save feedback
 
 ### Fixed / Changed
+
 - **hr_admin (and coo/cco) can now fill in employee ID, position, department and badge details.** The staff directory + ID badge tool previously lived only in /admin (super_admin/admin). It is now also in the portal **HR** tab, so hr_admin manages it in their own interface. The API already permitted them (`hr_manage` includes hr_admin) — only the UI was missing
 - The directory component moved to a shared location (`components/staff/staff-directory.tsx`) so /admin and /portal share one implementation
 - **Save now reports failure.** A failed field save was silent; it now shows "Save failed — check access" so the cause is visible instead of looking like nothing happened
 
 ### Note
-- If the Staff tab still shows only leave admin + module cards (no editable employee fields), the deployed build predates v1.4.15 — deploy this build to get the directory and badge tool
 
+- If the Staff tab still shows only leave admin + module cards (no editable employee fields), the deployed build predates v1.4.15 — deploy this build to get the directory and badge tool
 
 ## [1.4.16] — 2026-07-31 — Payroll, calendar, audit viewer, document PDFs
 
 ### Added
+
 - **Leave entitlement editor** (/admin → Staff): set days per staff per type per year. Balances already deduct approved leave from these numbers — this gives them a source instead of a hardcoded default. Confirmed the deduction works: the balance endpoint computes entitled − approved-days-used
 - **Public holidays / company calendar** (`/api/v1/staff/holidays`, HR-managed): dates staff can see, and a basis for leave day-counting and attendance so a holiday is not treated as a working day
 - **Payslip / payroll summary** (`/api/v1/staff/payslip`): per-staff monthly attendance breakdown (days present, on-time, late, half-days, early-outs) plus approved leave days — viewable in /admin → Staff and printable at A4
@@ -3625,13 +4058,14 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - **Document PDFs**: QT/DO/INV can be printed as branded A4 documents (company mark, SSM number, line items, totals, customer block) from /portal → Sales → **PDF**. Backed by a new single-document endpoint `GET /api/v1/staff/docs/:id`
 
 ### Deploy
+
 - `npx wrangler d1 migrations apply azoneofficial --remote` (0011) → `npx wrangler deploy` → rebuild site
 - Optional: set `NOTIFY_WEBHOOK` (a Worker var / secret pointing at your email or WhatsApp relay URL) to turn on off-platform delivery
-
 
 ## [1.4.15] — 2026-07-31 — Badges, self-tasks, attendance policy, leave approval chain
 
 ### Added
+
 - **Staff ID badge** at government card size (85.6 × 54 mm, ISO/IEC 7810 ID-1): /admin → Staff → Staff directory → **Print badge**. Admin sets employee_id, position, department, issue date, blood type per person; the badge prints at true dimensions with the company mark and SSM number
 - **Admin sets employee fields** (employee_id / position / department + badge extras) inline in the new Staff directory
 - **Staff create their own tasks** with a deadline and status (open / pending / closed). Managers can still assign to others; a plain staff member self-assigns
@@ -3639,6 +4073,7 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - **Attendance CSV export** for payroll stays (hr_admin/coo/cco/admin)
 
 ### Changed
+
 - **Attendance policy** (lunch not monitored — break in/out removed). Clock rules in Malaysia time: clock-in ≤10:00 on time · after 10:05 late · from 13:00 half day; clock-out 13:00 half day · before 18:00 early out · 18:00 completed. The dashboard confirms the result after each punch and prints the rule
 - **Leave approval chain** replaces single approve/reject:
   - Staff: applied → HR review → CCO/COO pre-approve → CEO final approve
@@ -3649,12 +4084,13 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - **Reduced white space** across /admin, /portal, /account (tighter padding, wider content columns)
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0010) → `npx wrangler deploy` → rebuild site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0010) → `npx wrangler deploy` → rebuild site
 
 ## [1.4.14] — 2026-07-31 — Role model overhaul
 
 ### Changed — roles (breaking; migration required)
+
 - **Reduced to 11 roles.** Removed managing_director, business_dev, finance_admin, live_manager. Migration `0009_role_cleanup.sql` reassigns any existing holders (MD→admin, business_dev→cco, finance_admin→hr_admin, live_manager→live_host) and tightens the users.role CHECK constraint to the final set
 - **editor / marketing moved fully to /portal** as task/pipeline roles with **no inventory visibility**; website and content editing now require **super_admin or admin** only (they left the content team)
 - **hr_admin** gains **attendance CSV export for payroll** (`GET /api/v1/staff/attendance/export?month=YYYY-MM`, MYT-converted, shift-flagged) alongside docs (QT/DO/INV), leave, birthdays, task reports
@@ -3664,106 +4100,116 @@ Defaults previously used UTC, so between **midnight and 8 AM MYT** the portal th
 - Login routing, /admin and /portal gates, role dropdowns, and portal tab gating all updated to the new set
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0009) → `npx wrangler deploy` → rebuild site. 0009 rewrites the users table (data preserved) and reassigns removed roles — review /admin → Users afterwards
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0009) → `npx wrangler deploy` → rebuild site. 0009 rewrites the users table (data preserved) and reassigns removed roles — review /admin → Users afterwards
 
 ## [1.4.13] — 2026-07-31 — Complete interface separation (audited)
 
 ### Fixed — interface boundaries
+
 - **/portal now redirects content-only roles (editor, marketing) to /admin.** Previously it only bounced customers, so a content role opening /portal saw a staff surface it had no modules for. admin/super_admin are intentionally allowed through, since they open portal modules from the admin Staff bridge
 - **/account now bounces any non-customer to their own interface** (staff → /portal, content team → /admin). Previously any signed-in role could view the customer area
 
 ### Verified — the security boundary (already correct, now documented)
+
 This release is mostly an audit. Every role was checked against every interface. The data protection was already enforced server-side and did not depend on the redirects:
+
 - `/api/v1/staff/*` rejects customers at the entrance, then each module endpoint checks its own permission (`hr_manage`, `inventory`, `bd_manage`, `ops_manage`, `exec_view`, `task_reports`) — a staff role cannot read or write another function's data even by calling the API directly
 - content/dashboard/media/CRUD endpoints require `isContentTeam` (super_admin, admin, editor, marketing) — no staff role can reach content management
 - `/account/*` endpoints check per-user ownership; password accounts see only enquiries created after their own registration, so no one can register a stranger's email to read their history
 - Interface redirects are user-experience and defence-in-depth; the API checks are the actual boundary. Both now agree for every role
 
 ### Role → interface map
+
 - **/admin**: super_admin, admin, editor, marketing
 - **/portal**: ceo, coo, cco, managing_director, hr_admin, sales_marketing, business_dev, finance_admin, live_manager, live_host (admin/super_admin may deep-link in via the Staff bridge)
 - **/account**: customer
 
-
 ## [1.4.12a] — 2026-07-31 — Docs: session integrity after the backdoor fix
 
 ### Documentation
-- SECURITY.md now answers directly whether sessions must be cleared after the v1.4.12 fix: yes for backdoor-era sessions (handled by the recovery sequence's password resets + Force logout), no for stored data — the flaw was authentication, not data. Confirmed by audit that the session lifecycle is otherwise correct: hashed tokens, expiry + active-user re-checks per request, automatic purging, and session revocation on every password change / reset / suspend
 
+- SECURITY.md now answers directly whether sessions must be cleared after the v1.4.12 fix: yes for backdoor-era sessions (handled by the recovery sequence's password resets + Force logout), no for stored data — the flaw was authentication, not data. Confirmed by audit that the session lifecycle is otherwise correct: hashed tokens, expiry + active-user re-checks per request, automatic purging, and session revocation on every password change / reset / suspend
 
 ## [1.4.12] — 2026-07-31 — SECURITY: hardcoded master password removed from login
 
 ### Security — critical
+
 - **The login handler contained a hardcoded universal password**: any active account, including super admin, could be signed into with a fixed literal string, bypassing password verification entirely. This backdoor is removed — login now verifies only the account's real stored password. Discovery came through symptoms: sign-ins with the master string succeeded, while change-password (which checks the real hash and has no backdoor) reported the current password as incorrect
 - **Follow-up required after deploying**: (1) the string lived in the repository, so treat it and any account password that may have been shared alongside it as compromised — reset account passwords via /admin → Users; (2) Force logout all accounts to end any session created via the backdoor; (3) if the string was reused anywhere else, rotate it there too. The recovery order that avoids locking yourself out is in SECURITY.md
-
 
 ## [1.4.11] — 2026-07-31 — Full admin authority: Staff tab in /admin
 
 ### Added
+
 - **Staff tab in /admin** (admin + super admin): direct **leave administration** — every request (annual/medical/emergency/unpaid/replacement) with a pending queue, approve/reject with an optional comment the requester sees, decision history, and a pending counter. Uses the same guarded API as the portal (`hr_manage`), so every decision stays audit-logged and notifies the staff member
 - A **staff-modules bridge** in the same tab: admin accounts hold full rights in every portal module (HR attendance verification, inventory/postage, commercial pipeline, operations, overview) — the bridge opens them in /portal, where they live
 
 ### Security model (unchanged, now written down)
-- Admin authority is granted by explicit server-side permission sets, not by the interface: `hr_manage` includes admin and super admin, every approval is audit-logged, escalation guards keep super admin above admin, and the v1.4.9 separation still bars staff roles from /admin. Full authority and containment are the same design, viewed from opposite sides
 
+- Admin authority is granted by explicit server-side permission sets, not by the interface: `hr_manage` includes admin and super admin, every approval is audit-logged, escalation guards keep super admin above admin, and the v1.4.9 separation still bars staff roles from /admin. Full authority and containment are the same design, viewed from opposite sides
 
 ## [1.4.10] — 2026-07-31 — Fix: change-password showed a generic error for every failure
 
 ### Fixed
-- The change-password form compared the API's nested error object (`{error:{code,message}}`) against plain strings, so no specific case ever matched and **every** rejection displayed "Could not change the password" — hiding the actual reason (most commonly a wrong current password). The form now reads the nested code, names the wrong-current-password case explicitly (with a hint to use the eye icon), and falls back to the server's own message for anything else. Same bug class as the v1.4.7 admin-create fix; a repo-wide search confirms no other form misreads the error shape
 
+- The change-password form compared the API's nested error object (`{error:{code,message}}`) against plain strings, so no specific case ever matched and **every** rejection displayed "Could not change the password" — hiding the actual reason (most commonly a wrong current password). The form now reads the nested code, names the wrong-current-password case explicitly (with a hint to use the eye icon), and falls back to the server's own message for anything else. Same bug class as the v1.4.7 admin-create fix; a repo-wide search confirms no other form misreads the error shape
 
 ## [1.4.9] — 2026-07-31 — Role/interface separation, MYT attendance display, password UX
 
 ### Fixed — data integrity
+
 - **Staff roles could enter /admin.** The login router's staff list predated v1.4.4 (missing cco, ceo, hr_admin, sales_marketing), so those roles fell through to /admin; the /admin page only turned away customers; and content endpoints were guarded by rank, which rank-1 staff roles satisfied. Now enforced at all three layers: the login router's staff list is complete; /admin redirects every portal role to /portal; and content/dashboard/media/CRUD endpoints require the content team explicitly (super_admin, admin, editor, marketing) via `isContentTeam` instead of rank — staff roles keep their own /portal modules and permissions, and cannot read or write content management data even by calling the API directly
 
 ### Fixed — attendance timezone
+
 - **Clock in/out now displays in Malaysia time (Asia/Kuala_Lumpur).** Timestamps are stored in UTC (correct for storage) but were shown raw — a 10:00am MYT clock-in read 02:00. Portal dashboard and Attendance tab now format in MYT (labelled), and the "Today" grouping uses the Malaysian calendar day. HR's verification table already reported MYT + shift flags (v1.4.4); the staff-facing views now match
 
 ### Added — password UX
+
 - **Eye (show/hide) toggle on every password box**: change-password form (all three fields), admin Add user, admin Reset password — one shared `PasswordInput` component, matching the login page
 - **Customers can change their password** in /account (shared form; Google accounts get a clear explanation)
 - **docs/PASSWORD-GUIDE.md** — who changes what where: staff (portal Profile), admin team (/admin Account), customers (/account), and the admin reset procedure with handover guidance
 
-
 ## [1.4.7] — 2026-07-31 — Fix: false "Email already exists" for new roles
 
 ### Fixed
-- **Creating a user with a v1.4.4 role (cco, ceo, hr_admin, sales_marketing) failed with "Email already exists" even for brand-new emails.** Two bugs stacked: (1) migration 0007 added the new roles to the code but the users table still carried the 0004-era CHECK constraint listing only the old roles, so the insert was rejected by the database; (2) the API's catch-all translated *every* insert failure into an email conflict, so the true cause was hidden. Migration `0008_expand_role_check.sql` rebuilds the users table with the full role list (all data preserved — 0004's own rebuild pattern, plus the 0007 `birthday` column); the API now checks the email conflict explicitly and reports any remaining database rejection as what it is, with the fix in the message; the admin form displays the server's actual error instead of guessing
+
+- **Creating a user with a v1.4.4 role (cco, ceo, hr_admin, sales_marketing) failed with "Email already exists" even for brand-new emails.** Two bugs stacked: (1) migration 0007 added the new roles to the code but the users table still carried the 0004-era CHECK constraint listing only the old roles, so the insert was rejected by the database; (2) the API's catch-all translated _every_ insert failure into an email conflict, so the true cause was hidden. Migration `0008_expand_role_check.sql` rebuilds the users table with the full role list (all data preserved — 0004's own rebuild pattern, plus the 0007 `birthday` column); the API now checks the email conflict explicitly and reports any remaining database rejection as what it is, with the fix in the message; the admin form displays the server's actual error instead of guessing
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0008) → `npx wrangler deploy` → rebuild site. Until 0008 runs, creating users with the new roles keeps failing — now with an honest message saying exactly that
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0008) → `npx wrangler deploy` → rebuild site. Until 0008 runs, creating users with the new roles keeps failing — now with an honest message saying exactly that
 
 ## [1.4.6] — 2026-07-31 — Admin password reset
 
 ### Added
+
 - **Reset password** action per user in /admin → Users, for forgotten passwords. Inline field (10+ characters), uses the existing guarded `PATCH /users/:id` — the server hashes the new password and revokes every session the user had, so the old credential is dead the moment the new one is set. Escalation guards from v1.4.3 apply unchanged: an admin cannot reset a super admin's password
 - Guidance shown in the flow: hand the new password over directly (WhatsApp / in person) and have the user change it themselves in Profile after signing in
-
 
 ## [1.4.5] — 2026-07-31 — Admin matches the website; friendly editing
 
 ### Added
+
 - **Website tab in /admin** — a labelled editor for the live site's text: hero headline and sub-headline, both About paragraphs, Services and Showcase section headings/intros, footer strapline, and the statistics list. Every field names where it appears on the page, saves individually with a visible "Saved ✓", and an empty field simply means the site shows its built-in default — an editor cannot break the page from here. Content flows through the existing CMS (site_content → Editable), so changes appear on the next page load with no rebuild
 - Homepage Services and Showcase section headings/intros are now CMS-backed (previously hardcoded)
 - A plain-language purpose line under the tab bar for every admin tab
 
 ### Changed
+
 - **Products tab removed from /admin** — the site has no /products routes any more, so that tab edited data nothing rendered; this desync is what made the admin feel disconnected from the webpage. The raw key/value editor is retained as the **Advanced** tab for anything the Website tab does not cover
 - Dashboard cards now reflect the real site: the permanent "0 Products" card is replaced by Portfolio items; the summary endpoint counts portfolio_items instead of products
 - Tab order regrouped around daily work: Dashboard, Website, Enquiries, Portfolio, Testimonials, Posts, Media, Users, Account, Advanced
 
 ### Note
-- The screenshot reviewed was v1.4.2 in production — the Account tab (change password), kill switch, and the five staff role modules shipped in v1.4.3/v1.4.4 and appear after this build is deployed
 
+- The screenshot reviewed was v1.4.2 in production — the Account tab (change password), kill switch, and the five staff role modules shipped in v1.4.3/v1.4.4 and appear after this build is deployed
 
 ## [1.4.4] — 2026-07-30 — Company role modules
 
 ### Added
+
 - **Five business roles with their own portal modules**, assignable from /admin → Users and enforced server-side:
   - **HR & Administrative** (`hr_admin`) — HR tab: attendance verification table for all company accounts with every event flagged against the working shift (10:00am–6:00pm MYT, Mon–Fri: ok / late / early out / weekend); daily/weekly/monthly task reports; staff birthdays. Leave administration in the Leave tab (Annual/Medical/Emergency approve/reject); QT/DO/INV creation in the Sales tab
   - **Sales & Marketing** (`sales_marketing`) — Inventory tab: real-time stock with auto status (in_stock/low/out_of_stock), postage tracking records (preparing→shipped→in_transit→delivered/returned), and a marketing-materials request pipeline
@@ -3774,46 +4220,52 @@ This release is mostly an audit. Every role was checked against every interface.
 - Migration `0007_role_modules.sql`: inventory_items, postage_records, material_requests, bd_pipeline, ops_reports, task_reports, users.birthday
 
 ### Changed
+
 - **Document numbering** now `{TYPE}-AZOO{DDMMYY}-{X}` (e.g. `QT-AZOO300726-1`), running number per type per Malaysian business day. Previously issued numbers are untouched — see DOCUMENT-NUMBERING.md history
 - `/attendance/report` annotates each event with Malaysia time and a shift flag so HR verifies at a glance
 - Role lists, portal tab gating, and the admin role dropdown extended accordingly
 
 ### Deploy
-- `npx wrangler d1 migrations apply azoneofficial --remote` (0007) **before** `npx wrangler deploy`, then rebuild the site
 
+- `npx wrangler d1 migrations apply azoneofficial --remote` (0007) **before** `npx wrangler deploy`, then rebuild the site
 
 ## [1.4.3] — 2026-07-30 — Admin control, kill switch, self-service passwords
 
 ### Added
+
 - **Kill switch for suspicious accounts.** Two levels in the admin Users panel:
-  - *Force logout* — revokes every session for the account server-side, instantly, without deactivating it. The first response to "this login looks odd"
-  - *Suspend* — blocks sign-in AND revokes all sessions in one action (with a confirm dialog); a suspended badge shows on the account; *Reinstate* undoes it. Endpoint: `POST /api/v1/users/:id/revoke-sessions`; suspension audit-logged as before, force-logout logged as `user.force_logout` with the session count
-- **Change-password interface** for every signed-in user: an **Account** tab in `/admin` and a section inside the portal **Profile**. Requires the current password, enforces the 10+ character minimum, and on success revokes every *other* session — a stolen session dies the moment the password rotates — while re-issuing the current browser's session so the user isn't logged out by their own change. Google-only accounts get a clear explanation instead of a cryptic failure (they manage credentials with Google; letting a hijacked session ADD a password would hand an attacker a permanent way in). Endpoint: `POST /api/v1/auth/change-password`
+  - _Force logout_ — revokes every session for the account server-side, instantly, without deactivating it. The first response to "this login looks odd"
+  - _Suspend_ — blocks sign-in AND revokes all sessions in one action (with a confirm dialog); a suspended badge shows on the account; _Reinstate_ undoes it. Endpoint: `POST /api/v1/users/:id/revoke-sessions`; suspension audit-logged as before, force-logout logged as `user.force_logout` with the session count
+- **Change-password interface** for every signed-in user: an **Account** tab in `/admin` and a section inside the portal **Profile**. Requires the current password, enforces the 10+ character minimum, and on success revokes every _other_ session — a stolen session dies the moment the password rotates — while re-issuing the current browser's session so the user isn't logged out by their own change. Google-only accounts get a clear explanation instead of a cryptic failure (they manage credentials with Google; letting a hijacked session ADD a password would hand an attacker a permanent way in). Endpoint: `POST /api/v1/auth/change-password`
 
 ### Changed
+
 - **`admin` role now has full user management** (previously super-admin-only): view, create, role changes, suspend/reinstate, force logout, admin-set passwords — with escalation guards enforced server-side: an admin can never modify a super admin, create or grant `super_admin`, or change their own role. The Users tab is now visible to admins; super-admin-only options are hidden from their role menus and the API rejects them regardless
 - Self-deactivation remains blocked; deactivation and admin password resets still revoke the target's sessions
-
 
 ## [1.4.2] — 2026-07-30
 
 ### Fixed
+
 - **`/api/v1/auth/google` 404 in production.** The Worker had no route bound to the domain, so `/api/*` fell through to the static Pages site, which has no such path. `worker/wrangler.toml` now declares `azoneofficial.com/api/*` (and `www.`) routes, so `wrangler deploy` attaches them automatically — the manual dashboard step that was missed can no longer be missed
 
 ### Added
+
 - `docs/AUTH-SETUP.md` — the complete path from 404 to working Google login: deploy checklist (migrations → secrets → vars → deploy), exact Google Console origin/redirect values, what happens on first login for `@azoneofficial.com` staff vs customers, verification commands, and the www cookie caution
 
 ### Notes
-- No application code changed. Staff auto-provisioning already worked as designed: company-domain Google logins create active staff accounts (role `marketing`, admin-elevatable); other emails create customer accounts
 
+- No application code changed. Staff auto-provisioning already worked as designed: company-domain Google logins create active staff accounts (role `marketing`, admin-elevatable); other emails create customer accounts
 
 ## [1.4.1] — 2026-07-29 — Shopee Live added to the live showcase
 
 ### Added
+
 - **Shopee channel panel** in the homepage live showcase, alongside the TikTok embed. Shows the shop handle (`shopee.com.my/azoneoff`), what a Shopee session includes, and a "Watch on Shopee Live" CTA. `LIVE_SHOWCASE.shopeeLiveUrl` set; leaving it `""` hides the panel and the TikTok embed spans the section
 - Section restructured into two equal-height channel panels (`items-stretch` + `h-full`), each carrying its own full-width CTA at the base so the two columns align
 
 ### Notes — why Shopee is a card and not an embed
+
 - Shopee sends `X-Frame-Options` / `frame-ancestors` headers that block its shop and live pages from being framed by another site, and publishes no embed or oEmbed API. An `<iframe>` would render blank or refuse to load, so the panel is a branded card that links straight to the shop, where the live badge appears during a session
 - TikTok's official creator embed is used on its side because TikTok does publish one — the asymmetry is a platform limitation, not a design choice
 - Neither platform exposes a public "live now?" API, so both CTAs are written to read correctly whether or not a session is running. The constraint is documented in `LIVE_SHOWCASE` so it isn't re-litigated later
@@ -3822,47 +4274,56 @@ This release is mostly an audit. Every role was checked against every interface.
 ## [1.4.0] — 2026-07-29 — Live embed, problems section, ELFIA into Portfolio
 
 ### Added
+
 - **TikTok embedded on the homepage.** The live showcase now embeds the official TikTok **creator widget** for @azoneofficialhq — the account with its latest videos, always current, no manual updates. Platform constraint stated in-code: a LIVE stream itself cannot play inside another website (TikTok blocks the /live page in iframes) and no public live-status API exists; the gold "Watch us live on TikTok" CTA carries that job via the self-routing /live URL. `LIVE_SHOWCASE.videoUrl` still overrides the widget with one specific video if ever wanted
 - **"The problems we solve, live"** (`components/home/problems.tsx`) — four equal-weight pain→solution cards between About and Services: nobody bought / no team or time / views without conversion / content dies after the stream. Copy in `PROBLEMS` (`constants/content.ts`)
 - **Client logo strip in the hero** — "Brands we run live for" with a generated temporary ELFIA serif wordmark (`public/clients/elfia-wordmark.svg`, gold underline accent) linking to elfiaofficialstore.com. Swap the SVG for the official logo when supplied; no code change needed
 
 ### Changed
+
 - **Navbar CTA:** "Book a consultation" → **"Get a free live audit"** (`CTA_LABEL`); the matching FAQ answer updated
 - **Hero subheadline** no longer names ELFIA in text — the clause "featured client ELFIA, a premium hijab label" is replaced by the logo strip
 - **ELFIA folded into Portfolio.** The standalone `/portfolio/elfia` page is removed (301 → `/portfolio`); the ELFIA portfolio card is now clickable and opens **elfiaofficialstore.com**. The "ELFIA" navbar item is removed (nav: About, Services, Packages, Portfolio, Blog, Contact). `/products` legacy redirects retargeted to `/portfolio`. The challenge/approach/result write-up remains available on `/case-studies`
 - `PortfolioItem` gained an optional `href`; cards render as external links when set
 
 ### Notes
+
 - Not built in this environment: run `pnpm install && pnpm build` before deploying
 
 ## [1.3.3] — 2026-07-29 — Live showcase section on the homepage
 
 ### Added
+
 - **`components/home/live-showcase.tsx`** — new dark section between the session showcase and the process steps: "See a live session, live". Gold CTA "Watch us live on TikTok" points at `tiktok.com/@azoneofficialhq/live`, which TikTok itself routes to the live room during a session and to the profile otherwise — correct in both states with no status detection. Optional Shopee Live button appears when `LIVE_SHOWCASE.shopeeLiveUrl` is set
 - **Process video slot** using TikTok's official video embed (blockquote + embed.js). Configured by `LIVE_SHOWCASE.videoUrl` in `constants/content.ts`; while it is unset (current state) or while the embed is still loading, a styled preview card renders instead — the section never shows a broken player
 - `LIVE_SHOWCASE` constant block documenting the platform constraint: TikTok/Shopee LIVE streams cannot be embedded on external sites and there is no public live-status API a static export could poll — the /live URL carries that job
 
 ### Action needed
+
 - Set `LIVE_SHOWCASE.videoUrl` to the TikTok video that best shows the AZ ONE process (session highlight / behind-the-scenes); optionally set `shopeeLiveUrl`
 
 ### Notes
+
 - Not built in this environment: run `pnpm install && pnpm build` before deploying
 
 ## [1.3.2] — 2026-07-29 — ELFIA removed from the landing page
 
 ### Changed
-- **Homepage no longer carries the ELFIA showcase section** (dark section with slogan and product gallery). A full brand section with product imagery on the agency's own landing page still read as a house line; a prospective client should meet ELFIA as *proof*, not as a product. The homepage now runs Hero → About → Services → Packages → Showcase → Process → FAQ → CTA
+
+- **Homepage no longer carries the ELFIA showcase section** (dark section with slogan and product gallery). A full brand section with product imagery on the agency's own landing page still read as a house line; a prospective client should meet ELFIA as _proof_, not as a product. The homepage now runs Hero → About → Services → Packages → Showcase → Process → FAQ → CTA
 - ELFIA remains presented as the existing successful client everywhere it counts: the hero subheadline mention, the "Operators, not observers" trust signal, the FAQ answer, the nav item, /portfolio, /case-studies, and the full case study at `/portfolio/elfia` (which keeps the work gallery — showing client work in a case study is the point)
 - **ELFIA's own landing page is elfiaofficialstore.com** — the case-study outbound link and the customer-area "ELFIA drops" card now point there (previously elfia.com.my)
 - `components/home/elfia.tsx` deleted (no longer referenced)
 
 ### Notes
+
 - `/products` 301s and the `ELFIA` nav → `/portfolio/elfia` routing from v1.3.0 are unchanged
 - Not built in this environment: run `pnpm install && pnpm build` before deploying
 
 ## [1.3.1] — 2026-07-29 — ESLint build errors fixed
 
 ### Fixed
+
 Cloudflare Pages runs ESLint as part of `next build`; 14 rule violations caused the build to fail with exit code 1. All fixes are semantically equivalent — no copy, layout, or logic changed.
 
 - `react/no-unescaped-entities`: apostrophes and quotation marks in JSX text replaced with HTML entities (`&apos;`, `&ldquo;`, `&rdquo;`) in `app/careers/page.tsx`, `app/portal/page.tsx`, `app/portfolio/page.tsx`, `app/privacy/page.tsx`, `app/services/page.tsx`, `app/terms/page.tsx`, `components/home/showcase.tsx`
@@ -3878,6 +4339,7 @@ branch attempted the same repositioning with a repo restructure that broke the
 deployed layout; this release supersedes that branch from the v1.2.29 base.)
 
 ### Changed — business positioning
+
 - **ELFIA is a client of AZ ONE OFFICIAL, not a product.** The agency needs to pitch brands that compete with its clients (including other hijab labels), so nothing on this site may read as AZ ONE selling hijabs itself
 - Site description: "Home of ELFIA, our premium hijab brand" → "Featured client: ELFIA"
 - Hero subheadline: "home of ELFIA, our premium hijab brand" → "featured client ELFIA, a premium hijab label" (same length band, no layout shift)
@@ -3888,10 +4350,12 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - `SITE_CONFIG.brand.hijab` → `SITE_CONFIG.featuredClient` (the agency owns no product line)
 
 ### Added
+
 - **`/portfolio/elfia`** — featured case study (the brand, challenge, approach, result, the work, CTA), built entirely from existing design-system pieces: `PageShell`, `Button`, `ButtonGroup`, `ElfiaGallery`
 - **`PORTFOLIO_ITEMS` and `CASE_STUDIES` populated** with the ELFIA engagement — `/portfolio` and `/case-studies` move from "in preparation" empty states to real client work with **zero changes to their page code**
 
 ### Removed
+
 - **`/products` and `/products/[slug]`** — an agency site cannot credibly host a product catalogue in a client's category. All catalogue URLs (including the pre-v1.2.11 slugs, via chained redirects) 301 to `/portfolio/elfia` in `public/_redirects`
 - Catalogue routes removed from the sitemap; `/portfolio/elfia` added
 - Nav item "ELFIA" now points at `/portfolio/elfia` (label and position unchanged)
@@ -3899,39 +4363,47 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - `ELFIA_DROP_STEPS` kept in constants but unused — reserved for hand-off to the standalone ELFIA site
 
 ### Notes
+
 - Case study copy is deliberately qualitative; publish figures only with the client's approval
 - Not built in this environment: run `pnpm install && pnpm build` before deploying
 
 ## [1.2.29] — 2026-07-27
 
 ### Changed
+
 - **Footer strapline now centres under the logo.** The logo and "LIVE . CONNECT . GROW." were separate block elements in a left-aligned column, so the strapline aligned to the column's left edge rather than to the mark above it. They're now wrapped in an `inline-block` lockup that shrinks to the logo's width, with the strapline centred inside it — so it sits centred beneath the logo regardless of either element's width. The rest of the footer column (slogan, address, CTA) stays left-aligned as before
 
 ## [1.2.28] — 2026-07-27
 
 ### Fixed
-- **`/about` "Why brands choose us" left a third of the frame empty.** `PageShell` carried a blanket `[&_section>ul]:max-w-3xl` rule, added in v1.2.13 to keep bullet lists readable — but it also caught *card grids*, capping them at 768px inside the 1152px frame. The rule now excludes lists that are themselves layouts (`:not([class*=grid]):not([class*=flex])`), so prose lists stay readable while grids use the full width. Cards go from ~243px to ~355px each. Same fix applies anywhere a grid list sits directly inside a section
+
+- **`/about` "Why brands choose us" left a third of the frame empty.** `PageShell` carried a blanket `[&_section>ul]:max-w-3xl` rule, added in v1.2.13 to keep bullet lists readable — but it also caught _card grids_, capping them at 768px inside the 1152px frame. The rule now excludes lists that are themselves layouts (`:not([class*=grid]):not([class*=flex])`), so prose lists stay readable while grids use the full width. Cards go from ~243px to ~355px each. Same fix applies anywhere a grid list sits directly inside a section
 
 ### Changed
+
 - **Footer strapline is now clearly subordinate to the logo.** "LIVE . CONNECT . GROW." rendered at `text-xs` with `0.35em` tracking — roughly 256px wide against a logo drawing only ~107px, so the strapline dominated the mark. The logo is now `h-12` (~161px wide) and the strapline `9px` at `0.08em` tracking (~150px), so it sits narrower than the logo above it, matching the lockup used in the OG banner
 
 ## [1.2.27] — 2026-07-26
 
 ### Fixed
-- **Refresh a product page, then press Back → landed on the wrong homepage section.** v1.2.23's scroll memory only restored on in-app `popstate` events. But once a product page has been *reloaded*, the client router cache is gone, so Back becomes a **full document load** (`navigation.type === "back_forward"`), not an in-app navigation — the restore never ran, and the browser's own restoration clamped to a shorter, still-loading document, dropping the visitor at About instead of ELFIA.
-  Both halves now handle that case: the inline script takes over restoration on `back_forward` loads *only when a stored offset exists for that path*, and `ScrollMemory` treats a `back_forward` document load the same as a popstate, applying the offset once the page is genuinely tall enough. Control is handed back to the browser (`scrollRestoration = "auto"`) as soon as the restore completes, so ordinary navigation is unaffected
+
+- **Refresh a product page, then press Back → landed on the wrong homepage section.** v1.2.23's scroll memory only restored on in-app `popstate` events. But once a product page has been _reloaded_, the client router cache is gone, so Back becomes a **full document load** (`navigation.type === "back_forward"`), not an in-app navigation — the restore never ran, and the browser's own restoration clamped to a shorter, still-loading document, dropping the visitor at About instead of ELFIA.
+  Both halves now handle that case: the inline script takes over restoration on `back_forward` loads _only when a stored offset exists for that path_, and `ScrollMemory` treats a `back_forward` document load the same as a popstate, applying the offset once the page is genuinely tall enough. Control is handed back to the browser (`scrollRestoration = "auto"`) as soon as the restore completes, so ordinary navigation is unaffected
 - Layout-settle window widened from ~1s to ~1.5s for slower connections
 
 ### Changed
+
 - **Product breadcrumb given a proper position.** It sat inside the main content block below ~96px of top padding, floating in empty space. It now has its own compact strip directly under the navbar, separated by a hairline rule, using a semantic `<ol>` with a chevron separator, `aria-current="page"`, and truncation so long product names don't wrap on mobile. Content padding reduced accordingly (`py-16/24` → `py-12/16`)
 
 ## [1.2.26] — 2026-07-26
 
 ### Changed
-- **ELFIA English strapline** is now *At First Sight. Forever in Your Heart.* (was "Premium hijabs, born live"). It reads as the meaning of the Malay slogan rather than a competing line, so the two are presented as a pair: *Dekat Di Mata, Menarik Di Hati* leads in gold, with the English beneath it. Restyled from uppercase label to italic sentence case, since it's now a sentence, not a tag
+
+- **ELFIA English strapline** is now _At First Sight. Forever in Your Heart._ (was "Premium hijabs, born live"). It reads as the meaning of the Malay slogan rather than a competing line, so the two are presented as a pair: _Dekat Di Mata, Menarik Di Hati_ leads in gold, with the English beneath it. Restyled from uppercase label to italic sentence case, since it's now a sentence, not a tag
 - `/products` meta description carries both lines
 
 ### Added — ELFIA buying experience
+
 - **"How an ELFIA drop works"** on `/products`: a four-step sequence — drop announced, fabric styled live on camera with comments answered, price revealed in-session, checkout through the pinned link. Buying live is unfamiliar to many shoppers, and not knowing what happens if they show up is what stops them joining a session at all
 - **Drop alerts via WhatsApp** — "Get drop alerts on WhatsApp" replaces the generic "Ask about ELFIA" CTA, capturing interest between drops with no email service required
 - **Product CTAs now prefill context**: `whatsappUrl()` accepts an optional message, so "Ask about this piece" arrives naming the exact product and asking when the next drop is — the enquiry lands qualified instead of as a bare "hi"
@@ -3939,6 +4411,7 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.25] — 2026-07-26
 
 ### Changed
+
 - **Package carousel progress bar now spans the full width of the section** (was capped at 220px and sharing a row with a counter, so it sat oddly to the left)
 - **Counter removed** — the bar alone communicates position
 - The bar now reflects the carousel's **actual scroll position and visible fraction** rather than the snapped card index: the thumb's width equals the proportion of the track on screen (75% of the bar when 3 of 4 cards are visible, 25% on mobile where one shows), and it moves continuously while dragging instead of jumping between steps. Recalculated on resize so it stays correct across breakpoints
@@ -3946,7 +4419,8 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.24] — 2026-07-26
 
 ### Fixed
-- **Product gallery frame no longer mismatches the photo.** `aspect-[4/5]` set the frame ratio, but the `max-h-[62vh]` added alongside it clamped the frame's *height* while its *width* stayed at the column width. The frame stopped being 4:5 and became landscape, so the portrait photo could not fill it — leaving a band of empty navy beside the image.
+
+- **Product gallery frame no longer mismatches the photo.** `aspect-[4/5]` set the frame ratio, but the `max-h-[62vh]` added alongside it clamped the frame's _height_ while its _width_ stayed at the column width. The frame stopped being 4:5 and became landscape, so the portrait photo could not fill it — leaving a band of empty navy beside the image.
   The frame now has a single source of truth: one fixed `aspect-[4/5]` box sized by `max-width` alone (360px mobile / 400px tablet / 420px desktop), with no height cap. Frame ratio and image ratio can no longer diverge, and the gallery is a predictable fixed size at every breakpoint — roughly 48–58% of viewport height across phone, tablet, laptop, and wide desktop
 - Main images given explicit `block` + `object-center` alongside `object-cover` so they always fill the frame regardless of intrinsic dimensions
 - Audited every other `aspect-[…]` box in the codebase for the same width/height conflict — none found
@@ -3954,20 +4428,24 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.23] — 2026-07-26
 
 ### Fixed
+
 - **Back from an ELFIA product no longer lands at the top of `/products`.** Root cause: the App Router restores scroll from its own cache, but it does so before the returning page has finished laying out — the saved offset is taller than the document at that instant, so the scroll silently clamps to 0. New `components/ui/scroll-memory.tsx` records the offset per path and, on popstate navigations only, retries across animation frames until the document is genuinely tall enough to honour it. Forward navigation still starts at the top, and reload still starts at the top (unchanged inline script)
 - **Product gallery was oversized.** The 3:4 main image filled a half-page column, running taller than the viewport on laptops and pushing the price/CTA block below the fold. Now 4:5, capped at `62vh`, with the gallery constrained to 380px (440px at desktop) — roughly half the viewport height on a phone and ~60% on a laptop
 
 ### Changed
+
 - **Package carousel affordance replaced.** The "Swipe or drag to see all 4" sentence was instructional and read awkwardly on desktop, where nobody swipes. Replaced with self-evident cues: a right-edge fade that shows only while more cards remain, a progress bar, and a plain "2 of 4" counter. Card width at desktop widened the peek so a sliver of the next tier is always visible
 - Carousel track is now keyboard-focusable (`tabIndex={0}` with a descriptive label), since removing the arrows left keyboard users without a way to move it
 
 ## [1.2.22] — 2026-07-26
 
 ### Added
-- **ELFIA brand slogan** — *Dekat Di Mata, Menarik Di Hati* — added as `ELFIA.slogan` and displayed on the homepage ELFIA section and `/products`, leading above the English tagline. Also carried into the "What is ELFIA?" FAQ answer and the `/products` meta description
+
+- **ELFIA brand slogan** — _Dekat Di Mata, Menarik Di Hati_ — added as `ELFIA.slogan` and displayed on the homepage ELFIA section and `/products`, leading above the English tagline. Also carried into the "What is ELFIA?" FAQ answer and the `/products` meta description
 - **Professional product gallery** (`components/ui/product-gallery.tsx`) on ELFIA product pages: one large main image with a thumbnail strip, swipe on mobile, image counter, neighbour preloading. Replaces the 2-column grid, which showed every angle at once and left none of them large enough to judge fabric drape
 
 ### Changed
+
 - **ELFIA aligned as a hijab brand everywhere.** Audited every file: "our premium fashion brand" → "our premium hijab brand" (hero + site description), "premium fashion label" → "premium hijab label" (About copy), `SITE_CONFIG.brand.fashion` → `brand.hijab`, keyword "ELFIA fashion" → "ELFIA hijab", `/about` meta description, and README
 - **Package carousel is now scroll-only** — the `< >` arrows are gone. Swipe on touch, and pointer drag-to-scroll on desktop (mice can't swipe, and with no arrows they need a way to move the track), with clickable dots and a "Swipe or drag" hint
 - **Button widths fully standardised.** `Button` now renders a real `<button>` when `href` is omitted, so the contact form submit — the last hand-rolled CTA, at `h-11` with no minimum width — uses the shared metrics. Both ELFIA pages' CTA pairs moved to `ButtonGroup` for equal widths. Audit confirms no hand-rolled button-like elements remain on public pages
@@ -3976,18 +4454,21 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.21] — 2026-07-26
 
 ### Changed
+
 - **Package tiers are now a carousel** (`components/ui/packages-carousel.tsx`) on both the homepage and `/packages` — one card at a time on mobile, two on tablet, three on desktop, with arrows and dots. Replaces the four-across grid, which was a long stack on phones and a dense wall on desktop. Built on native scroll-snap rather than the ELFIA coverflow transform: these cards are text, and scaled/partial neighbours would hurt readability. Deliberately not autoplaying — package details need reading time
 - The `/packages` comparison matrix is unchanged and still desktop-only
 
 ### Fixed
+
 - **Refreshing no longer restores the old scroll position.** Browsers restore scroll on reload, so a refresh mid-page left visitors where they were instead of at the top. A pre-paint script in `app/layout.tsx` now sets `history.scrollRestoration = "manual"` for reloads only, jumps to the top on load, then immediately hands control back to the browser
-- **Back navigation still returns you to where you were** — critically, that means tapping an ELFIA product and pressing back lands on the ELFIA section, not the top of the page. `scrollRestoration` is a property of the history *entry*, so leaving it on `"manual"` would have disabled that; it's reset to `"auto"` straight after the reload jump
+- **Back navigation still returns you to where you were** — critically, that means tapping an ELFIA product and pressing back lands on the ELFIA section, not the top of the page. `scrollRestoration` is a property of the history _entry_, so leaving it on `"manual"` would have disabled that; it's reset to `"auto"` straight after the reload jump
 - URLs with a `#anchor` are left alone, so in-page links (e.g. `#packages`) still work
 - Reload jump is instant rather than animated: `html { scroll-behavior: smooth }` was making the correction visibly scroll. A `data-scroll-reset` attribute disables smooth scrolling for that one moment
 
 ## [1.2.20] — 2026-07-26
 
 ### Changed — information architecture
+
 - **Packages moved to a dedicated `/packages` page.** They were appended to `/services`, which mixed two different questions: "what can you do for me?" (capability) and "what do I get and what does it cost?" (commercial). Separating them means each page answers one question, and a prospect can be sent a direct link to `/packages` from WhatsApp — the primary sales channel
 - **`/services` now ends with a short "How we package this" strip** linking to `/packages`, instead of duplicating the tier cards
 - **Homepage packages section** now leads to `/packages` ("Compare packages") rather than repeating the detail
@@ -3995,6 +4476,7 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - FAQ content split by intent: homepage shows the five general questions, `/packages` shows the six cost/logistics questions, `/faq` still shows all twelve
 
 ### Added
+
 - `PACKAGE_MATRIX` + comparison table on `/packages`: sessions, hours, host, reporting, creative, consultation, on-site, WhatsApp support across all four tiers. Desktop only — the tier cards already carry the same information on mobile, where a five-column table is unusable
 - `FaqList` gained an `offset` prop so a page can render a specific slice of the FAQ set
 - `/packages` added to the sitemap
@@ -4002,6 +4484,7 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.19] — 2026-07-26
 
 ### Changed
+
 - **Carousel photos are now tappable.** Side cards were `pointer-events: none`, so only the centre image responded. Tapping a side photo now brings it to centre; tapping the centre photo opens its product page (with an `aria-label` and pointer cursor so it reads as interactive). Position dots became real buttons that jump straight to a product, instead of decoration
 - **Paired CTAs render at equal width** (`components/ui/button-group.tsx`). `min-w-[180px]` was only a floor, so "Get a free live audit" and "See packages" came out different sizes. `ButtonGroup` lays them out in equal-fraction columns — every button matches the widest in the group. Applied to hero, closing CTA, and the packages section
 - **Floating buttons aligned.** The back-to-top button was 44px and the WhatsApp button 48px at the same right offset, so their centres didn't line up; back-to-top is now 48px and both share the same right offset at every breakpoint, with the WhatsApp button exactly one button + 12px gap above
@@ -4012,18 +4495,23 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 ## [1.2.18] — 2026-07-26
 
 ### Fixed — credibility (highest priority)
+
 - **Homepage no longer renders "0+ / 0 / 0x".** The About counters animated up from 0 toward placeholder targets (500+ sessions, 12 hosts, 3x GMV) that were never real; on the live site they displayed as zeroes, reading as "an agency with zero experience". `STATISTICS` is now an empty array and `About` falls back to `TRUST_SIGNALS` — SSM registration (202603168673 / JM1046169-H), brand owners via ELFIA, Johor Bahru based team, BM/English hosts. All true on day one, no numbers invented. When real figures exist, repopulate `STATISTICS` and the counters return automatically
 
 ### Added
+
 - **Packages published** (`PACKAGES` in `constants/content.ts`, `components/home/packages.tsx`): Starter / Growth / Scale / Enterprise, each with cadence plus hours, live host, reporting, creative, and consultation lines. Shown on the homepage and `/services`. No prices — quotes stay per brand, but visitors can now see scope. ⚠️ Session counts and inclusions are a first draft and need confirming against the real package sheet before launch
 - **Floating WhatsApp button** (`components/ui/whatsapp-fab.tsx`), mounted site-wide. Stacks above the back-to-top button and hides over the footer where contact links already exist
 - **Six cost/logistics FAQs**: how much, session length and time to results, using your own host, studio, on-site sessions, and whether sales are guaranteed (answered honestly — no guarantee, with what is committed instead)
 
 ### Changed
+
 - **Stronger CTAs.** Hero: "Book free consultation" → "Get a free live audit", secondary now "See packages" (anchors to the new section). Closing CTA: single button → "Get a free live audit" + "Book a strategy call", plus an inline "WhatsApp us now" link. `CTA_LABEL` still drives the navbar button
 
 ## [1.2.17] — 2026-07-25
+
 ### Fixed
+
 - **Carousel autoplay never ran on phones.** The v1.2.16 pause logic was written for desktop input and left the carousel permanently paused on touch devices. Four separate causes:
   1. `touchcancel` was not handled — when the browser converts a touch that starts on the carousel into a page scroll (very common, since the carousel is full-width on mobile) it fires `touchcancel`, not `touchend`, so the pause set in `touchstart` was never cleared
   2. `onMouseEnter` fired from the emulated mouse events touch devices send on tap, while `onMouseLeave` frequently never fired — one tap paused playback for good. Hover pause now applies only to `pointerType === "mouse"`
@@ -4032,9 +4520,13 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - Added a 6s watchdog: if paused/swiping somehow persists with no further interaction, playback resumes anyway, so no future event bug can freeze the carousel indefinitely
 
 ## [1.2.16] — 2026-07-25
+
 ### Added
+
 - **ELFIA carousel autoplay** — advances every 3.5s by default (`autoPlay` / `interval` props on `ElfiaGallery`). Manual arrows, dots, swipe, and keyboard all still work exactly as before and reset the timer on use. Autoplay pauses on hover, on keyboard focus, while swiping, when the browser tab is hidden, and when the carousel is scrolled off screen; it is disabled entirely for `prefers-reduced-motion`. The screen-reader live region switches to `off` during autoplay so it doesn't announce a new product every 3.5s
+
 ### Changed
+
 - **Service icons redesigned** for a consistent professional set: 24px grid, 1.5px stroke, round caps, optically centred, geometric — nothing glyph- or emoji-like
   - **TikTok strategy** icon replaced: the target-plus-diagonal-arrow read as a ♂ symbol; it is now concentric rings with a solid centre dot (positioning/targeting, fully symmetric)
   - **Business consultation** changed from a briefcase-with-trend-line to a conversation bubble — the trend line duplicated the bars in the Live commerce management icon
@@ -4042,7 +4534,9 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - Icon chips refined to `rounded-xl` at 48px with 22px icons on both the home services section and `/services`, tuned for the lighter 1.5px stroke
 
 ## [1.2.15] — 2026-07-25
+
 ### Fixed (mobile)
+
 - **iOS input zoom**: contact form fields were `text-sm` (14px); Safari auto-zooms the whole page on focus below 16px. Now `text-base` on mobile, `sm:text-sm` on desktop
 - **Footer email overflow**: `admin@azoneofficial.com` (~150px) did not fit the 2-column footer grid on 320–390px screens. Column gap reduced to `gap-6` on mobile, `min-w-0` added, and the address now wraps via `[overflow-wrap:anywhere]`
 - **Mobile menu could exceed the viewport** with no way to reach the last items — now `max-h-[calc(100svh-4rem)] overflow-y-auto`
@@ -4050,21 +4544,29 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - **Vertical scrolling while swiping the gallery** — added `touch-pan-y` so a vertical drag scrolls the page instead of being captured by the carousel
 - **Buttons sat ~16px from overflowing at 320px** — mobile padding reduced to `px-6` (`sm:px-8` unchanged)
 - **Back-to-top button** now respects the iOS home indicator via `bottom-[max(1.25rem,env(safe-area-inset-bottom))]`
+
 ### Added
+
 - Explicit `viewport` export in `app/layout.tsx`: `viewport-fit=cover` (notched phones) and `theme-color: #1a2946`, so the browser chrome matches the brand on Android/iOS
 - `overflow-x: hidden` on `body` as a safety net against stray horizontal scroll (no sticky positioning in use, so no side effects)
 
 ## [1.2.14] — 2026-07-25
+
 ### Added
+
 - **Back-to-top button** (`components/ui/scroll-to-top.tsx`, mounted site-wide in `app/layout.tsx`) — fades in after ~500px of scroll, hides while the footer is on screen so it never covers footer links, and reappears once the footer scrolls out of view. Footer detection via IntersectionObserver on `#site-footer`; smooth scroll respects `prefers-reduced-motion`; removed from the tab order while hidden
+
 ### Changed
+
 - **FAQ**: the accordion was capped at `max-w-3xl` inside the 6xl frame, leaving a large dead area on the right. It now spans the full container width on both the home section and `/faq`; answer text stays capped at `max-w-3xl` for readability
 - **Footer spacing tightened**: `py-16` → `py-12`, column gap `12` → `8/10`, CTA `mt-6` → `mt-5`, bottom bar `mt-12` → `mt-10`
 - **Footer layout rebalanced**: the brand block and link columns used `md:justify-between`, which pushed them to opposite edges and left a dead centre gap. Now an even 4-column grid (brand spans 2, Explore + Follow us span 2)
 - Footer legal links wrap gracefully (`flex-wrap`) instead of overflowing on narrow screens
 
 ## [1.2.13] — 2026-07-25
+
 ### Changed
+
 - **Page width standardised across the site.** `PageShell` rebuilt on the `/products` frame — `main pt-16` → `mx-auto max-w-6xl px-6 py-16 sm:py-24` → header → content. Every inner page now shares one width and vertical rhythm: /about, /services, /portfolio, /products, /blog (+ posts), /faq, /contact, /careers, /case-studies, /privacy, /terms (was `max-w-3xl` with different top padding)
 - Running text is capped at `max-w-3xl` inside the wide frame, so line length stays readable — wide frame, readable measure
 - `PageShell` gained `intro` (lead paragraph under the h1) and `dark` (navy background) props; header markup is now identical on every page
@@ -4074,131 +4576,197 @@ deployed layout; this release supersedes that branch from the v1.2.29 base.)
 - **/portfolio**: `intro` added
 - **/contact**: message form and location map now sit side by side on large screens instead of stacking
 - Icon chips standardised to navy + gold (`bg-brand text-gold`) on /services and /about, matching the home services section (were `bg-gold-soft` + black icons)
+
 ### Note
+
 - `/products` keeps its bespoke ELFIA header typography; its frame values already match `PageShell` exactly, so the two stay visually in sync
 
 ## [1.2.12] — 2026-07-25
+
 ### Changed
+
 - `public/og.png` rebuilt from the master OG artwork at exactly 1200×630, alpha flattened onto the cream background (transparency can render as black in some scrapers), no horizontal stretching — 37px of empty cream trimmed from the top so the gold/navy curves stay fully intact
+
 ### Diagnosis note
+
 - The small-thumbnail WhatsApp preview was NOT a broken og.png: the live site still runs pre-1.2.9 metadata, which declares both `og.png` and `og-square.png`, and WhatsApp was picking the square — rendering it as a cropped small-thumbnail card. The landscape-only fix from [1.2.9] resolves it and takes effect on deploy.
 
 ## [1.2.11] — 2026-07-25
+
 ### Changed
+
 - ELFIA product names updated in `constants/content.ts`:
   - "The Signature Shawl — Taupe" → **"The Signature Shawl — Mocha"** (slug `signature-shawl-taupe` → `signature-shawl-mocha`)
   - "The Signature Shawl — Grey" → **"The Signature Shawl — Soft Grey"** (slug `signature-shawl-grey` → `signature-shawl-soft-grey`)
   - "Corporate Series — Blush" → **"Corporate Series — Khaki"** (slug `corporate-blush` → `corporate-khaki`)
   - "The Signature Shawl — Beige" unchanged; Active Hijab and Neutral Collection unchanged
 - Alt text and product descriptions reworded to match the new colour names; The Neutral Collection copy now reads "black, mocha, beige, and soft grey"
+
 ### Added
+
 - `public/_redirects` — 301s from the three old product URLs to the new slugs, so any link already shared keeps working
+
 ### Note
+
 - Image filenames in `/public/elfia/` unchanged (`shawl-taupe.jpg`, `corporate.jpg`, …) — internal references only, not visible to visitors. Swap the photos if the new colours are different fabric, not a rename.
 
 ## [1.2.10] — 2026-07-25
+
 ### Changed
+
 - Hero: "We sell live" pill badge replaced with the transparent company logo (`/logo.png`, no pill background, h-16/h-20 responsive) — hero now opens logo → "LIVE . CONNECT . GROW." eyebrow → headline, mirroring the OG banner layout. Logo has no tagline baked in, so the eyebrow is kept (no duplication)
 
 ## [1.2.9] — 2026-07-25
+
 ### Fixed
+
 - WhatsApp link preview inconsistency: openGraph now declares only the landscape `og.png` (1200×630). With both landscape and square variants listed, WhatsApp sometimes picked `og-square.png` and rendered the compact small-thumbnail layout instead of the large banner card. `og-square.png` stays in `/public` (unreferenced) in case it's wanted later.
+
 ### Note
+
 - WhatsApp caches previews per exact URL (with/without trailing slash are separate entries) for up to ~30 days — after deploy, re-scrape via Facebook Sharing Debugger and/or share the link once with `?v=2` to force a fresh fetch
 
 ## [1.2.8] — 2026-07-25
+
 ### Deployed
+
 - azoneofficial.com live — v0.1 under-construction page retired
+
 ### Changed
+
 - `/products`: grid replaced by the coverflow gallery; "Explore the range" link list added beneath it (all six detail pages remain one tap away); "Where to buy" CTAs migrated to shared Button
 
 ## [1.2.7] — 2026-07-25
+
 ### Changed
+
 - Sales document numbering: new format `{TYPE}{YYYYMMDD}-{NN}-AZOO` (e.g. `DO20260725-01-AZOO`) — date-readable, daily sequence (KL time), issuer code. Legacy numbers (`QT202600001`) remain valid, never renumbered. Spec: `DOCUMENT-NUMBERING.md`
+
 ### Added
+
 - Migration `0005_doc_numbering_daily.sql` — `doc_counters_daily` table; old `doc_counters` kept untouched
 - `DOCUMENT-NUMBERING.md` — format spec, rationale, migration rules, future doc types (OR/CN/PO)
 - `FEATURE-SUGGESTIONS.md` — 15 candidate features with sequencing (Live Session module, host commission, ELFIA live-stock, MyInvois e-Invoice readiness, SST, payments/OR, CN, WhatsApp enquiry alerts, D1 backup, 2FA, more)
+
 ### Policy
+
 - Docs are append-only for history: version entries are never removed
 
 ## [1.2.6] — 2026-07-25
+
 ### Changed
+
 - ELFIA gallery: grid replaced by coverflow carousel (`components/ui/elfia-gallery.tsx`) on the home ELFIA section — centre card full size and linked to its detail page, neighbours peek behind, infinite wrap, touch-swipe + keyboard + aria-live, motion-reduce respected, zero dependencies
 - Service icons: all six cards now use one professional icon family (`components/ui/service-icons.tsx`, 1.6px stroke, 24px grid) on navy chips with gold strokes (was mixed lucide icons on gold-soft chips)
 - Buttons standardised via `components/ui/button.tsx` (h-12, rounded-lg, min-w-[180px] on ≥sm, full-width stacked on mobile) — migrated hero, home CTA, ELFIA, /products, product detail, and contact page (which was drifting with rounded-full)
+
 ### Added
+
 - `REVIEW.md` — improvement suggestions for client site, staff portal, customer area, with priority order
 
 ## [1.2.5] — 2026-07-24
+
 ### Added
+
 - Official brand tagline "Live . Connect . Grow." — in constants/site.ts as SITE_CONFIG.brandTagline, displayed as gold uppercase eyebrow above the hero headline and beneath the footer logo; used in OG image alt text
 - OG share images replaced with the official corporate design (cream + navy + gold curves) — landscape 1200×630 (public/og.png) and square 1080×1080 for WhatsApp (public/og-square.png)
+
 ### Note
+
 - The descriptive tagline "Malaysia's Premium Live Commerce Agency" remains as the primary SEO/meta description; the brand tagline is used for identity moments (hero eyebrow, footer, share preview)
 
 ## [1.2.4] — 2026-07-24
+
 ### Changed
+
 - /login: mode switcher moved to a persistent top-of-form Sign in / Create account tab pair (was a text link buried under the submit button). Both modes visible from arrival — clearer wayfinding, no more "New here?" line
 
 ## [1.2.3] — 2026-07-24
+
 ### Added
+
 - `public/og.png` (1200×630) redesigned — logo enlarged, cleaner corporate layout, navy tagline, gold accent band
 - `public/og-square.png` (1080×1080) new — square variant for WhatsApp centre-crop on mobile chat lists
 - `MILESTONES.md` — comprehensive milestone log recording every version, asset, and decision from inception
 - After deploy: use Facebook Sharing Debugger or WhatsApp's link cache reset (add ?v=2 once) to force social platforms to re-fetch
 
 ## [1.2.2] — 2026-07-24
+
 ### Changed
+
 - Configuration discipline: no credentials or IDs in source. `wrangler.toml` now lists only variable names with instructions; all values (including GOOGLE_CLIENT_ID as a plaintext variable) live in the Cloudflare dashboard or as secrets. Added `.dev.vars.example` for local dev; `.dev.vars` is git-ignored.
 
 ## [1.2.1] — 2026-07-24
+
 ### Fixed
+
 - Login/register error handling: 400s now show the API's real reason (was hidden as a misleading "password needs 10+ characters" for every failure); network/route-missing errors now say so plainly, so users can tell "not deployed yet" apart from "check your input"
 - Password minimum harmonised to 10 characters everywhere (setup was inconsistently 12)
+
 ### Added
+
 - Show/hide password eye toggle on login/register + live character counter with progress feedback (X of 10 — Y more needed) when registering
 - Live length feedback on the admin Create User form
 
 ## [1.2.0] — 2026-07-24 — Security audit & hardening
+
 ### Added
+
 - One-time super admin bootstrap: POST /auth/setup guarded by SETUP_TOKEN secret + timing-safe compare; self-disables once a super admin exists (no hardcoded credentials anywhere)
 - Static security headers (public/_headers): nosniff, X-Frame-Options DENY, strict referrer, permissions policy
+
 ### Security
+
 - Sessions stored as SHA-256 hashes (leak-resistant) with opportunistic expiry purge
 - /account/enquiries: unverified accounts limited to post-registration enquiries (email-squatting history leak closed)
 - R2 `private/` prefix requires staff auth
-Full audit report in SECURITY.md.
+  Full audit report in SECURITY.md.
 
 ## [1.1.1] — 2026-07-24
+
 ### Changed
+
 - Official social handles confirmed and applied site-wide: TikTok/Instagram/Facebook → @azoneofficialhq (footer, contact page, ELFIA "Watch the next drop live" buttons)
 
 ## [1.1.0] — 2026-07-24 — General login & role-routed access
+
 ### Added
+
 - General /login (one door for everyone) with role-based routing after sign-in: customer → /account, staff-only roles → /portal, CMS roles → /admin; Google callback routes the same way
 - Customer role (migration 0004) + /account page: own details and enquiry history (matched by email); GET /api/v1/account/enquiries
 - Public registration now creates an ACTIVE customer account and signs the person in immediately (safe: customers see only their own data; staff/admin roles are assigned only by super admins)
+
 ### Changed
+
 - Navbar/footer point to /login; /admin and /portal redirect unauthenticated visitors to /login and customers to /account; customers blocked from all /staff API routes
+
 ### Removed
+
 - Pending-approval registration flow (replaced by customer accounts); embedded login screen inside /admin
 
 ## [1.0.0] — 2026-07-24 — Staff Portal (BMS) v1
+
 ### Added
+
 - Migration 0003: full BMS schema — expanded 10-role users (+staff profile fields), attendance, leave (+balances), announcements (+acks), tasks (+comments), customers, sales_documents with per-year auto numbering (QT/DO/INV 202600001), notifications
 - Staff API (`/api/v1/staff/*`, worker/src/staff.ts) with module-level RBAC: profile, staff directory (HR), attendance clock in/out/break (IP+device captured) + monthly history + team report, leave apply/cancel/approve/reject with notifications and balance tracking, announcements + acknowledgements, tasks assign/progress/comments, CRM customers, QT/DO/INV creation with auto numbering + delivery/payment status, in-app notifications
 - Staff Portal UI at /portal (noindexed, robots-blocked): personalized dashboard (quick actions clock in/out, pending leave, tasks, announcements), Attendance, Leave (balances, apply, approvals), Tasks, Announcements, Sales (customers + document builder with live RM total), Profile; notification bell; light/dark mode
+
 ### Security
+
 - New roles ranked into existing CMS RBAC (live_host lowest — no CMS/finance/admin access); all staff routes require auth; every mutating action audited
 
 ## [0.9.0] — 2026-07-24
+
 ### Added
+
 - No-code content editing is live end-to-end: public `/content-public` endpoint (60s cache) + `<Editable>` component; hero headline/subheadline, About paragraphs, CTA heading, footer slogan, and Contact intro now read D1 overrides with static fallback
 - Visitor analytics: Cloudflare Web Analytics beacon, token-gated in `constants/site.ts` (inert until token set)
 
 ## [0.8.0] — 2026-07-24
+
 ### Changed — UI/UX redesign pass (premium corporate principles)
+
 - WCAG 2.1 AA contrast: new deep-gold token (#7D6027, 5.0:1) for accent text on light backgrounds; footer text raised from 40% to 60% white; navy focus-visible outlines site-wide
 - Consistent radius system: pill buttons replaced with 8px-radius buttons; cards on the same scale; only true dots remain circular
 - 8px spacing grid: all section/page paddings normalized to multiples of 8
@@ -4206,60 +4774,85 @@ Full audit report in SECURITY.md.
 - Every page ends with a clear next step: About and FAQ pages gained consultation CTAs
 
 ## [0.7.0] — 2026-07-24
+
 ### Added
+
 - Google OAuth sign-in for /admin (state-cookie CSRF protection, verified-email requirement); company-domain Google accounts auto-activate
 - Self-registration on /admin (rate-limited): any valid email, created pending until super-admin approval
 - Login screen: Continue with Google, register mode, pending/oauth notices
+
 ### Changed
+
 - Contact email: hello@ → admin@azoneofficial.com
 
 ## [0.6.0] — 2026-07-24
+
 ### Added
+
 - User management: API (super_admin only — create, role change, activate/deactivate with session revocation, password reset) + admin Users tab
 - Admin Media tab: upload to R2, image previews, copy-URL, delete
 - Admin Content tab: key-value site content editor (dot-notation keys, JSON or text values)
 - Dashboard: posts/testimonials counts + recent-activity feed from audit log
 - ELFIA individual product pages (/products/[slug]) with descriptions, galleries (grey shawl: 4 angles), "price announced live" panel, cross-links; added to sitemap
 - Public D1 reads: /portfolio and homepage testimonials render published D1 items at runtime with graceful static fallback
+
 ### Changed
+
 - Product cards on homepage and /products now link to detail pages
 
 ## [0.5.0] — 2026-07-24
+
 ### Added
+
 - Rate limiting (D1 fixed-window): login 10/15min, enquiries 5/hour per IP (migration 0002)
 - Full CRUD API: products, posts, portfolio, testimonials (editor+ write, admin+ delete, public reads filtered to published/visible)
 - Site content API: GET public, PUT editor+ (upsert with audit)
 - Media API: R2 upload (editor+), public cached serving, delete
 - Contact form on /contact posting to /api/v1/enquiries with WhatsApp fallback on failure
 - Admin UI at /admin (noindexed): login, dashboard, enquiry management with status workflow, CRUD panels for products/posts/portfolio/testimonials
+
 ### Security
+
 - /admin disallowed in robots.txt and noindexed; all admin API writes audited
 
 ## [0.4.0] — 2026-07-24
+
 ### Added
+
 - ELFIA product photos (9, web-optimized) wired into homepage + /products; brand copy corrected to premium chiffon hijabs/shawls
 - Phase 3 architecture DECIDED: static site + separate admin/API Worker (`/worker`)
 - Worker scaffold: wrangler.toml with real D1/R2 bindings, migration 0001 (full schema), API v0 — auth (PBKDF2 sessions), public enquiries endpoint, enquiry management, dashboard summary, audit logging
+
 ### Security
+
 - PBKDF2-SHA256 310k iterations + pepper (argon2 deviation documented in SECURITY.md); origin checks on mutations; HttpOnly/Secure/SameSite cookies
 
 ## [0.3.0] — 2026-07-24
+
 ### Added
+
 - Full public website (Phase 2): `/about`, `/services`, `/portfolio`, `/case-studies`, `/products` (ELFIA), `/blog` (+2 starter posts), `/careers`, `/faq`, `/contact`, `/privacy`, `/terms`
 - SEO: sitemap.xml, robots.txt, JSON-LD Organization schema, Open Graph + Twitter card images
 - Brand assets: OG share image (`public/og.png`), favicon/app icon
 - Mandatory documentation set (this file and 11 siblings)
+
 ### Changed
+
 - Navigation switched from homepage anchors to dedicated pages
 - Footer: legal links, Case Studies, Careers added
 
 ## [0.2.0] — 2026-07-24
+
 ### Added
+
 - Full landing page: Hero, About + stats, Services, Showcase, ELFIA, Process, FAQ, CTA, Navbar, Footer
 - Real contact data from Master Project Prompt: WhatsApp +60 12-383 4821, official slogan, Setia Tropika address
 - Services aligned to master list (6 services)
+
 ### Changed
+
 - Hero copy per master prompt ("Grow your sales through live commerce")
 
 ## [0.1.0] — baseline
+
 - Next.js 15 scaffold with design tokens, coming-soon page, Cloudflare static deploy

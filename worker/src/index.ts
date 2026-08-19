@@ -1352,7 +1352,13 @@ export default {
          succeeds immediately afterwards. A READ is safe to repeat, so retry
          it once rather than showing staff a red error for a blip. Writes are
          never retried: repeating a POST could double-punch or double-post. */
-      const transient = /network connection lost|storage operation failed|internal error.*d1|connection reset/i
+      /* v1.26.2 (error_log 19-08 11:01: "/staff/notifications — D1_ERROR: D1
+         DB storage operation exceeded timeout which caused object to be
+         reset."): same family of D1 blip, different wording — the v1.25.2
+         pattern matched "storage operation failed" but not "exceeded
+         timeout … object to be reset", so the retry never fired and staff
+         saw a red error for a self-healing hiccup. */
+      const transient = /network connection lost|storage operation failed|storage operation exceeded|object to be reset|storage caused object to be reset|internal error.*d1|connection reset|d1 db is overloaded/i
         .test(err0 instanceof Error ? err0.message : String(err0));
       let retried: Response | null = null;
       if (transient && (request.method === "GET" || request.method === "HEAD")) {
@@ -2399,7 +2405,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // the UI hide the pointless form instead of showing it with a footnote.
     const ph = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
       .bind(user.id).first<{ password_hash: string }>();
-    return json({ user: { ...user, oauth: ph?.password_hash.startsWith("oauth$") ?? false } });
+    /* v1.26.2 (CEO's screenshot: "CSRF token mismatch or missing" on SAVE,
+       which always sends the header): a browser can end up with a live
+       session but no csrf_token cookie — the session cookie is HttpOnly and
+       survives cookie cleanups that evict script-visible cookies; the csrf
+       one is not. That state used to brick every save until re-login. Now
+       /auth/me — hit on every page load and by the api() retry — re-issues
+       a fresh csrf_token whenever it is missing. Safe: double-submit only
+       requires cookie == header on the SAME request, not persistence. */
+    const csrfHeaders: HeadersInit = getCookie(request, "csrf_token")
+      ? {}
+      : [["Set-Cookie", `csrf_token=${randomHex(16)}; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`]];
+    return json({ user: { ...user, oauth: ph?.password_hash.startsWith("oauth$") ?? false } }, 200, csrfHeaders);
   }
 
   /* ---- staff portal (all routes require auth) ---- */

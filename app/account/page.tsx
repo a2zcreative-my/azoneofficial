@@ -4,7 +4,7 @@
 
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 import { SkelText } from "@/components/ui/skeleton";
-import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -406,9 +406,8 @@ export default function AccountPage() {
           disabled={!ask.trim() || sending}
           onClick={async () => {
             setSending(true);
-            const r = await fetch("/api/v1/account/enquiries", {
+            const r = await csrfFetch("/api/v1/account/enquiries", {
               method: "POST",
-              credentials: "include",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ message: ask, category: askCat }),
             });

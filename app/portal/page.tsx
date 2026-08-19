@@ -8,7 +8,7 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
-import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { properName, firstName } from "@/lib/names";
@@ -3670,8 +3670,8 @@ function CustomerEnquiriesCard() {
   };
   useEffect(() => { void load(); }, []);
   const setStatus = async (id: number, status: string) => {
-    await fetch(`/api/v1/enquiries/${id}`, {
-      method: "PATCH", credentials: "include",
+    await csrfFetch(`/api/v1/enquiries/${id}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
     });
     void load();
@@ -3685,8 +3685,8 @@ function CustomerEnquiriesCard() {
   const sendReply = async (id: number) => {
     const text = (replyDraft[id] ?? "").trim();
     if (!text) return;
-    await fetch(`/api/v1/enquiries/${id}`, {
-      method: "PATCH", credentials: "include",
+    await csrfFetch(`/api/v1/enquiries/${id}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reply: text }),
     });
     setReplyOpen(null); setReplyDraft((d) => ({ ...d, [id]: "" }));
