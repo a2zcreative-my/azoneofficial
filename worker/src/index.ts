@@ -2271,7 +2271,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      in the console. A request from a host we do not serve falls back to the
      primary origin. Start and callback both derive it the same way, so the
      pair always agrees. */
-  const selfOrigin = `${url.protocol}//${url.host}`;
+  const reqUrl = new URL(request.url);
+  const selfOrigin = `${reqUrl.protocol}//${reqUrl.host}`;
   const oauthBase = allowedOrigins(env).includes(selfOrigin) ? selfOrigin : primaryOrigin(env);
   const redirectUri = `${oauthBase}/api/v1/auth/google/callback`;
 
