@@ -2,11 +2,23 @@
 # REVALIDATE on every open (no-cache = cheap 304 when unchanged, fresh HTML
 # the moment a deploy lands), while hashed build files never need rechecking.
 # Without this, phones held old builds long after every DEPLOY.bat.
+#
+# v1.26.3 (CEO: "I still encounter location for the android phone"): the
+# Permissions-Policy below WAS the Android mystery. geolocation=() told
+# browsers to forbid the Geolocation API for the whole site — Android
+# Chrome/Samsung Internet enforce it (instant "denied" no matter what the
+# user allows), while iPhone Safari ignores this directive, which is why
+# only Androids were "blocked". It shipped with this very file in v1.23.5 —
+# exactly when the Android complaints began. geolocation=(self): our own
+# pages may ask; embedded third-party frames still cannot. Camera/mic stay
+# locked (nothing in the system uses them).
+# NOTE: comments live ONLY here at the top — a # line inside a rule block
+# can be misparsed as a header. tests/permissions-policy.mjs guards this.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self)
   Cache-Control: no-cache
 
 /_next/static/*

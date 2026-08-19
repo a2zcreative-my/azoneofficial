@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.26.3] — 2026-08-19 — The Android location mystery: it was our own security header
+
+**"I still encounter location for the android phone" — found it, and it was never the phones.** The site ships a browser security instruction (`Permissions-Policy` in `public/_headers`, added with the v1.23.5 cache fix): `geolocation=()` — which means "forbid location for this whole website". Android Chrome and Samsung Internet obey it to the letter: instant "blocked", no prompt, no matter what the staff member allows in their settings. iPhone Safari ignores that particular directive — which is exactly why every iPhone worked and every Android was "blocked". The timeline matches to the day: the header first deployed with v1.23.5, and the Android complaints began immediately after.
+
+**The fix is one word:** `geolocation=(self)` — our own pages may ask for location; embedded third-party content still cannot. Camera and microphone stay fully locked (nothing in the system uses them). IZZUDIN's and NURFARAH's phones will start giving real distances on their next clock-in after deploy — no phone settings to change, nothing for staff to do.
+
+**Why three releases hunted the wrong suspect:** a policy-blocked build produces the exact same error as a user pressing "Block", so v1.25.2/v1.25.3 read it as a phone problem. That mislabelling is now impossible:
+- The portal checks the build's own policy FIRST. If a build ever forbids location again, staff see *"Location is blocked by the website build itself — NOT your phone"* (EN/BM), the punch records `NO LOCATION (site build blocked it — redeploy)` in red, and you know in one glance it's a deploy problem.
+- A new guard (`tests/permissions-policy.mjs`) fails the build if `geolocation=()` ever reappears on a live header line, or if the self-diagnosis is removed.
+
+**Proven in a real browser:** a simulated policy-blocked build records the punch as `no_location: policy` with the build-blame message; with the fixed header and permission granted, the same tap sends real coordinates (1.4927, 103.7414 → "at office"). The full BM sweep still passes.
+
+**Historical punches:** the "NO LOCATION (blocked)" rows recorded since 17-08 were victims of this header, not staff misbehaviour — worth knowing before anyone is questioned over them.
+
+**Deploy notes:** site-only change; zip cumulative (carries v1.26.2 CSRF self-heal + worker). Run `DEPLOY.bat` IN FULL. Staff need only reopen the portal.
+
 ## [1.26.2] — 2026-08-19 — The CSRF error heals itself · D1 blip wording covered · docs brought current
 
 **Your second screenshot — "CSRF token mismatch or missing" next to SAVE — pointed at a different disease than the photo bug.** Save always sent the token… read from a cookie that was no longer there. A browser can keep your (protected, HttpOnly) session cookie while cleaning out the script-visible `csrf_token` one — and in that state EVERY save on every tab fails until you log out and back in. v1.26.1 could not fix that, because the problem was not a missing header; it was a missing cookie.

@@ -310,7 +310,11 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       /* v1.25.2: this used to say "blocked — check your browser settings" for
          EVERY failure, so staff who had already granted permission were sent
          to fix a setting that was correct. Each cause now gets its own words. */
-      const msg = reason === "denied"
+      const msg = reason === "policy"
+        ? (lang === "ms"
+            ? "Lokasi disekat oleh binaan laman web itu sendiri — bukan telefon anda. Maklumkan CEO/admin: deploy terkini perlu dijalankan (DEPLOY.bat penuh)."
+            : "Location is blocked by the website build itself — NOT your phone. Tell the CEO/admin: the latest deploy needs to run (full DEPLOY.bat).")
+        : reason === "denied"
         ? (lang === "ms"
             ? "Lokasi disekat untuk laman ini — benarkan lokasi dalam tetapan tapak pelayar anda."
             : "Location is blocked for this site — allow it in your browser's site settings (the padlock/⋮ menu), not just in phone Settings.")
@@ -353,10 +357,20 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
      about a second indoors and is accurate to tens of metres — far inside
      the 120 m office fence. A real denial short-circuits immediately; there
      is no point retrying a permission the person refused. */
-  type GpsFail = "denied" | "timeout" | "unavailable" | "unsupported";
+  type GpsFail = "denied" | "timeout" | "unavailable" | "unsupported" | "policy";
   const getGpsFull = () => new Promise<{ gps: string | null; denied: boolean; reason: GpsFail | null }>((resolve) => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
       resolve({ gps: null, denied: false, reason: "unsupported" }); return;
+    }
+    /* v1.26.3: the v1.23.5 _headers shipped Permissions-Policy geolocation=()
+       — the SITE ITSELF forbade location, and Android browsers enforce that
+       as an instant "denied", which we mislabelled as the phone blocking it
+       for three releases. Chromium exposes the policy — check it FIRST, so
+       if a build ever forbids geolocation again it announces itself as a
+       deploy problem instead of sending staff to fix innocent phones. */
+    const fp = (document as unknown as { featurePolicy?: { allowsFeature?: (f: string) => boolean } }).featurePolicy;
+    if (fp?.allowsFeature && !fp.allowsFeature("geolocation")) {
+      resolve({ gps: null, denied: true, reason: "policy" }); return;
     }
     const ok = (p: GeolocationPosition) => resolve({
       gps: `${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)},${Math.round(p.coords.accuracy)}`,
@@ -1136,7 +1150,12 @@ function gpsLabel(
   // v1.25.3: deliberately-unlocated punch — surface it as a failure, not a blank.
   if (gps.startsWith("no_location:")) {
     const why = gps.slice("no_location:".length);
-    return { text: why === "denied" ? L("NO LOCATION (blocked)", "TIADA LOKASI (disekat)") : L(`NO LOCATION (${why})`, `TIADA LOKASI (${why})`), ok: false, dist: null };
+    return {
+      text: why === "denied" ? L("NO LOCATION (blocked)", "TIADA LOKASI (disekat)")
+        : why === "policy" ? L("NO LOCATION (site build blocked it — redeploy)", "TIADA LOKASI (disekat oleh binaan laman — deploy semula)")
+        : L(`NO LOCATION (${why})`, `TIADA LOKASI (${why})`),
+      ok: false, dist: null,
+    };
   }
   const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(gps);
   if (!m) return { text: L("no location", "tiada lokasi"), ok: null, dist: null };

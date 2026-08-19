@@ -46,6 +46,7 @@ These are not style preferences; each one exists because its absence shipped a b
 - `npx tsc --noEmit -p tsconfig.json` — types
 - `node tests/sql-schema-check.mjs` — every worker query vs migrated schema
 - `node tests/csrf-guard.mjs` — no bare mutating fetch()
+- `node tests/permissions-policy.mjs` — _headers allows geolocation=(self); policy self-diagnosis intact
 - `node --experimental-strip-types tests/shift-sales-split.mjs` — shift sales attribution rules
 - Playwright (need `out/` served on :8931): `tests/bm-coverage.mjs` (BM on all tabs), `tests/leaderboard-sales-floor.mjs`, `tests/no-false-attendance.mjs`, `tests/location-scenarios.mjs`
 - `cd worker && npx wrangler deploy --dry-run` — worker compiles
