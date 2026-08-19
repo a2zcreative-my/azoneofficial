@@ -47,7 +47,7 @@ export const SITE_CONFIG = {
     "A2Z Creative Marketing is a Malaysian creative marketing group in Johor Bahru — creative and digital marketing, live commerce, content creation, marketing consultancy, business development, and product development for brands that want to grow.",
   /* The domain does NOT change with the rename. azoneofficial.com stays the
      canonical host until an A2Z domain is registered and redirected. */
-  url: "https://azoneofficial.com",
+  url: "https://a2zcreative.my", // v1.29.0 — the A2Z domain is canonical; azoneofficial.com 301s here
   locale: "en_MY",
   // Cloudflare Web Analytics token — Cloudflare dashboard → Analytics → Web Analytics
   // → Add a site → copy the token here. Leave "" to disable the beacon.

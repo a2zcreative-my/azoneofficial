@@ -9,7 +9,7 @@
    visit after this deploy. The `azone-` prefix is load-bearing (it is not a
    brand string — it is what the eviction filter and our debugging tooling
    look for), so it stays. */
-const SHELL = "azone-shell-v17";
+const SHELL = "azone-shell-v18";
 const SHELL_URLS = ["/portal", "/account", "/login", "/logo.png", "/icon-192.png", "/manifest.json"];
 
 self.addEventListener("install", (e) => {

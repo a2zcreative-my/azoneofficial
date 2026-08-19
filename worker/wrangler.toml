@@ -8,6 +8,11 @@ compatibility_date = "2024-03-20"
 # which is what makes /api/v1/auth/google resolve instead of 404ing against
 # the static site.
 routes = [
+  # v1.29.0 — domain migration: a2zcreative.my is the primary domain; the
+  # old domain STAYS routed forever (customer share links, staff bookmarks,
+  # and the TikTok Partner Center callback still point at it).
+  { pattern = "a2zcreative.my/api/*", zone_name = "a2zcreative.my" },
+  { pattern = "www.a2zcreative.my/api/*", zone_name = "a2zcreative.my" },
   { pattern = "azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
   { pattern = "www.azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
 ]
@@ -29,6 +34,9 @@ bucket_name = "azoneofficial"
 #
 # Non-secret plaintext variables to set:
 ALLOWED_ORIGIN     = "https://azoneofficial.com"
+# v1.29.0: primary FIRST — links we generate use a2zcreative.my; both
+# domains (and their www twins) may sign in and call the API.
+ALLOWED_ORIGINS    = "https://a2zcreative.my,https://azoneofficial.com"
 COMPANY_DOMAIN     = "azoneofficial.com"
 GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com"
 # TikTok Shop Partner Center app (service ID 7668934538403645205). The app key

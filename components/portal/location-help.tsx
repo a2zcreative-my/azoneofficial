@@ -41,37 +41,37 @@ const STEPS: Record<Ctx, { en: string[]; ms: string[] }> = {
          for an entry that no longer exists on their phone. */
       "Open Android Settings → Apps → find A2Z Staff (or Samsung Internet / Chrome, whichever installed it).",
       "Tap Permissions → Location → allow it.",
-      "If Location is already allowed there, open azoneofficial.com in the browser itself, allow location when it asks, then reopen the icon.",
+      "If Location is already allowed there, open a2zcreative.my in the browser itself, allow location when it asks, then reopen the icon.",
     ],
     ms: [
       "Anda buka portal dari ikon skrin utama, jadi tiada bar alamat untuk ditekan.",
       "Buka Tetapan Android → Apl → cari A2Z Staff (atau Samsung Internet / Chrome).",
       "Tekan Kebenaran → Lokasi → benarkan.",
-      "Jika sudah dibenarkan, buka azoneofficial.com dalam pelayar, benarkan lokasi, kemudian buka semula ikon.",
+      "Jika sudah dibenarkan, buka a2zcreative.my dalam pelayar, benarkan lokasi, kemudian buka semula ikon.",
     ],
   },
   samsung: {
     en: [
       "Tap the ⋮ menu (bottom-right) → Settings.",
       "Sites and downloads → Site permissions → Location.",
-      "Find azoneofficial.com under Blocked and move it to Allowed.",
+      "Find a2zcreative.my under Blocked and move it to Allowed.",
       "Come back and tap Check my location.",
     ],
     ms: [
       "Tekan menu ⋮ (bawah kanan) → Tetapan.",
       "Sites and downloads → Site permissions → Location.",
-      "Cari azoneofficial.com di bawah Blocked, pindahkan ke Allowed.",
+      "Cari a2zcreative.my di bawah Blocked, pindahkan ke Allowed.",
       "Kembali dan tekan Semak lokasi saya.",
     ],
   },
   chrome: {
     en: [
-      "Tap the padlock (or ⓘ) beside azoneofficial.com in the address bar.",
+      "Tap the padlock (or ⓘ) beside a2zcreative.my in the address bar.",
       "Tap Permissions → Location → Allow.",
       "Reload the page, then tap Check my location.",
     ],
     ms: [
-      "Tekan ikon mangga (atau ⓘ) di sebelah azoneofficial.com pada bar alamat.",
+      "Tekan ikon mangga (atau ⓘ) di sebelah a2zcreative.my pada bar alamat.",
       "Tekan Permissions → Location → Allow.",
       "Muat semula halaman, kemudian tekan Semak lokasi saya.",
     ],
@@ -89,23 +89,23 @@ const STEPS: Record<Ctx, { en: string[]; ms: string[] }> = {
   ios: {
     en: [
       "iPhone Settings → Privacy & Security → Location Services → Safari Websites → While Using the App, and switch Precise Location ON.",
-      "In Safari on azoneofficial.com: tap AA in the address bar → Website Settings → Location → Allow.",
+      "In Safari on a2zcreative.my: tap AA in the address bar → Website Settings → Location → Allow.",
       "Reload, then tap Check my location.",
     ],
     ms: [
       "Tetapan iPhone → Privacy & Security → Location Services → Safari Websites → While Using the App, hidupkan Precise Location.",
-      "Dalam Safari di azoneofficial.com: tekan AA → Website Settings → Location → Allow.",
+      "Dalam Safari di a2zcreative.my: tekan AA → Website Settings → Location → Allow.",
       "Muat semula, kemudian tekan Semak lokasi saya.",
     ],
   },
   other: {
     en: [
-      "Open your browser's site settings for azoneofficial.com (usually the padlock or ⋮ menu).",
+      "Open your browser's site settings for a2zcreative.my (usually the padlock or ⋮ menu).",
       "Set Location to Allow, reload the page, then tap Check my location.",
       "Also check the phone's own Location switch is on.",
     ],
     ms: [
-      "Buka tetapan tapak untuk azoneofficial.com dalam pelayar anda (ikon mangga atau menu ⋮).",
+      "Buka tetapan tapak untuk a2zcreative.my dalam pelayar anda (ikon mangga atau menu ⋮).",
       "Tetapkan Lokasi kepada Allow, muat semula, kemudian tekan Semak lokasi saya.",
       "Pastikan juga suis Lokasi telefon dihidupkan.",
     ],

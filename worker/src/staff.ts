@@ -7,7 +7,7 @@ import type { Env } from "./index";
 import { handleErp } from "./erp";
 import { logError as sharedLogError, postJournal } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
-import { createPasswordHash } from "./index";
+import { createPasswordHash, primaryOrigin } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
 import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 
@@ -4051,7 +4051,9 @@ export async function handleStaff(
     if (dS.doc_type === "INV" ? !can(user.role, "finance") : !can(user.role, "sales")) {
       return err("forbidden", "Insufficient rights for this document type", 403);
     }
-    const origin = env.ALLOWED_ORIGIN;
+    /* v1.29.0: new share links are minted on the primary (new) domain; links
+       already sent keep working because the old domain stays routed. */
+    const origin = primaryOrigin(env);
     try {
       if (body && body.revoke === true) {
         await env.DB.prepare(`UPDATE sales_documents SET share_token = NULL WHERE id = ?1`).bind(idS).run();

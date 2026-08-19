@@ -13,6 +13,10 @@ export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
   ALLOWED_ORIGIN: string;
+  /** v1.29.0 — comma-separated origin list for the domain transition
+      (primary FIRST). When set it supersedes ALLOWED_ORIGIN; each entry
+      also admits its www./apex twin. */
+  ALLOWED_ORIGINS?: string;
   SESSION_PEPPER: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
@@ -153,15 +157,28 @@ function errorResponse(code: string, message: string, status: number): Response 
   return json({ error: { code, message } }, status);
 }
 
-/** Origins allowed to call the API: the configured origin plus its www./apex
-    twin (the Worker route binds both hosts — v1.5.0 fix for "sign-in fails on
-    www."). */
+/** Origins allowed to call the API. v1.29.0 (domain migration): the base is
+    ALLOWED_ORIGINS (comma list, primary first — a2zcreative.my during the
+    transition) or the legacy single ALLOWED_ORIGIN; every entry also admits
+    its www./apex twin (v1.5.0 fix for "sign-in fails on www."). */
 function allowedOrigins(env: Env): string[] {
-  const base = env.ALLOWED_ORIGIN;
-  const twin = base.includes("://www.")
-    ? base.replace("://www.", "://")
-    : base.replace("://", "://www.");
-  return [base, twin];
+  const bases = (env.ALLOWED_ORIGINS ?? env.ALLOWED_ORIGIN)
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const base of bases) {
+    const twin = base.includes("://www.")
+      ? base.replace("://www.", "://")
+      : base.replace("://", "://www.");
+    for (const o of [base, twin]) if (!out.includes(o)) out.push(o);
+  }
+  return out;
+}
+
+/** The canonical origin for links WE generate (share links, absolute URLs):
+    the first configured origin — https://a2zcreative.my after the switch.
+    Old-domain links keep resolving because the old routes stay bound. */
+export function primaryOrigin(env: Env): string {
+  return (env.ALLOWED_ORIGINS ?? env.ALLOWED_ORIGIN).split(",")[0]!.trim();
 }
 
 function corsHeaders(env: Env, request?: Request): HeadersInit {
@@ -2249,7 +2266,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* ---- Google OAuth ---- */
 
-  const redirectUri = `${env.ALLOWED_ORIGIN}/api/v1/auth/google/callback`;
+  /* v1.29.0: the callback must match the host the sign-in STARTED on —
+     Google verifies it exactly, and both domains' callbacks are registered
+     in the console. A request from a host we do not serve falls back to the
+     primary origin. Start and callback both derive it the same way, so the
+     pair always agrees. */
+  const selfOrigin = `${url.protocol}//${url.host}`;
+  const oauthBase = allowedOrigins(env).includes(selfOrigin) ? selfOrigin : primaryOrigin(env);
+  const redirectUri = `${oauthBase}/api/v1/auth/google/callback`;
 
   if (path === "/api/v1/auth/google" && method === "GET") {
     const state = randomHex(16);

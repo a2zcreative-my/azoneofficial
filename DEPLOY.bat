@@ -92,8 +92,10 @@ echo  DONE - everything is live.
 echo ============================================
 echo.
 echo  Check these before you close this window:
-echo    1. https://azoneofficial.com                 loads
-echo    2. https://azoneofficial.com/api/v1/health   responds
+echo    1. https://a2zcreative.my                   loads
+echo       ^(azoneofficial.com must keep loading too^)
+echo    2. https://a2zcreative.my/api/v1/health     responds
+echo       and https://azoneofficial.com/api/v1/health too
 echo    3. Sign in at /login, open /portal on your
 echo       phone - the bottom bar shows an icon per
 echo       tab and the active one is a navy square

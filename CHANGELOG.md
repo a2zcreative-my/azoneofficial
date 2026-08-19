@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.0] — 2026-08-19 — a2zcreative.my goes live alongside azoneofficial.com
+
+**Stage B: the domain. Zone confirmed in the production Cloudflare account (39fe816a…), Google OAuth entries added, so the cutover ships.** After this deploy plus two dashboard clicks, **a2zcreative.my and www.a2zcreative.my serve the complete system** — site, portal, admin, client area and API — while azoneofficial.com keeps working in full. Nothing is taken away; the new domain is added in front.
+
+- **a2zcreative.my is now the primary domain**: canonical URLs, Open Graph, sitemap and structured data all name it; every NEW customer share link is minted on it. Every share link already sent keeps resolving on the old domain forever.
+- **Google sign-in works on both domains** — the callback now follows whichever domain the sign-in started on (both are registered in your Google console).
+- **Logins, CSRF and the API accept both domains** during the transition; stale tabs on the old domain keep working.
+- **TikTok stays pinned to azoneofficial.com** until you update Partner Center — its callback and webhook URLs live there, which is one of the reasons the old domain is never switched off.
+- The staff location self-help now names a2zcreative.my; DEPLOY.bat's final checklist now checks BOTH domains' health.
+- New guard test (`tests/origins-guard.mjs`): fails the build if either domain's routes are dropped, if the origin order flips, or if the calendar UID domain is ever "modernised" (frozen at azoneofficial.com by design — changing it would duplicate every shift in staff phone calendars).
+
+**AFTER DEPLOY.bat, two clicks by the CEO (60 seconds):** Workers & Pages → `azoneofficial` → Settings → Domains & Routes → Add → Custom Domain → `a2zcreative.my` — and once more for `www.a2zcreative.my`. That attaches the website; the API routes attach themselves during the deploy.
+
+**What staff notice:** nothing, until you tell them the new address. Sessions are per-domain, so each person signs in once on a2zcreative.my when they switch. The installed phone app keeps working on the old domain; re-add the home-screen icon from the new domain whenever convenient.
+
+**Deliberately NOT in this release:** the permanent redirect of azoneofficial.com → a2zcreative.my. That flips ONLY after we verify the new domain end-to-end, and it must exclude `/api/*` (TikTok still calls it). I will hand over the exact rule when we get there.
+
+**Deploy notes:** site AND worker changed (no migration). Run `DEPLOY.bat` IN FULL, then do the two custom-domain clicks, then tell me — I will verify a2zcreative.my from here.
+
 ## [1.28.0] — 2026-08-19 — A2Z issues the documents · every old document stays AZ ONE forever · official logo
 
 **Stage C of the migration: the legal document layer. Your decisions on record: "A2Z invoices, A2Z employs"; registered address 34-02 Jalan Setia Tropika 1/1; Maybank 5511 0086 5300 in A2Z's name; A2Z not SST-registered.**
