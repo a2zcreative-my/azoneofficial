@@ -1,1 +1,0 @@
-UPDATE users SET password_hash = 'pbkdf2$100000$fbc4e19e5ac0f4d71681e3d02da4f70a$1c69e075e3698c66bf04ef679551f1a36410cd83e54c54c419cae9ae148e1159' WHERE email IN ('izzudin@azoneofficial.com', 'admin@azoneofficial.com');
