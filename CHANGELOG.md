@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.2] — 2026-08-19 — one domain · sign-in fits a phone
+
+**CEO's decision, in his words: "No more API under azoneofficial.com."** The API worker now carries exactly two routes — `a2zcreative.my/api/*` and `www.a2zcreative.my/api/*` — and `ALLOWED_ORIGINS` names only the new domain. `wrangler deploy` reconciles the route list, so the old domain's routes are removed from Cloudflare on the next deploy. This costs nothing today: azoneofficial.com has no DNS records at all and already serves nothing.
+
+**The one thing this does cost, and when:** TikTok Partner Center still holds `https://azoneofficial.com/api/v1/integrations/tiktok/callback` and `.../webhook`. Those must be changed to `a2zcreative.my` in Partner Center **before** the next TikTok authorisation, or order sync will not come back. Restoring the old domain, if you ever want it, is two lines in `worker/wrangler.toml` and nothing else.
+
+**Deliberately unchanged: `COMPANY_DOMAIN` stays `azoneofficial.com`.** That is the staff MAILBOX domain (Google Workspace), not the website. It gates who may hold a staff or admin role — moving it before the mailboxes move would block every staff-role edit and lock people out of their own accounts. The guard test now fails the build if anyone "tidies" it. Likewise the calendar UID domain, frozen forever.
+
+**The sign-in page now fits a phone screen.** It was a fixed 96px-from-the-top block: on the CEO's iPhone that spent a seventh of the screen on emptiness and pushed the Sign in button under Safari's bottom bar. It is now a centred column measured in `svh` — the small viewport height, i.e. with the browser chrome showing — so the logo, both tabs, Google, both fields and the button land on one screen with the URL bar visible or hidden. Measured on the real build at 440×700 (iPhone 16 Pro Max) and 375×555 (iPhone SE): everything fits, no scrolling. Desktop is pixel-identical to before.
+
+**The floating WhatsApp button no longer covers the sign-in form.** On a phone it sat directly over the password field and the Sign in button — the two controls the page exists for — and it made no sense there anyway: nobody WhatsApps sales to sign in to their own staff account. It is hidden on `/login`, exactly as it already is on `/portal` and `/admin`.
+
+**Deploy notes:** site AND worker changed, no migration. Run `DEPLOY.bat` IN FULL from the v1.29.2 folder.
+
 ## [1.29.1] — 2026-08-19 — outage fix: "url is not defined" · Mark completed now confirms itself
 
 **This release exists because v1.29.0 broke sign-in on a2zcreative.my, and the fault was mine.** The domain work added host-aware Google OAuth to the API worker and referenced `url.protocol` at the top of the request router — but `url` only exists inside the outer handler; the router is handed `(request, env, path)` and nothing else. So a `ReferenceError` shipped to production, and every request whose handler sits below that line threw it: `/auth/me`, `/staff/*`, `/health`. Sign-in itself SUCCEEDED and then `/auth/me` returned 500, so the portal read "not signed in" and bounced straight back to `/login` — a loop that looked exactly like a wrong password. The error log said it plainly six times: `url is not defined`.

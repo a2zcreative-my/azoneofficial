@@ -164,7 +164,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
+    /* v1.29.2 (CEO, from his phone: "Sign in page I want to fit well for
+       mobile apps view"): the page was a fixed mt-24 block, which on a phone
+       spent 96px of a ~700px viewport on empty space and pushed the Sign in
+       button below the fold — with Safari's bottom bar sitting over it. It is
+       now a centred column measured in svh (the SMALL viewport height, i.e.
+       with the browser chrome showing), so the whole form lands on one screen
+       whether or not the URL bar is expanded, and the safe-area inset keeps
+       the button clear of the home indicator. Desktop is unchanged: from sm:
+       up it is the same top-anchored card at the same width. */
+    <div className="mx-auto flex min-h-[100svh] w-full max-w-sm flex-col justify-center px-6 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:block sm:min-h-0 sm:justify-start sm:pt-24 sm:pb-16">
       <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="A2Z CREATIVE MARKETING" className="h-8 w-auto" />
@@ -208,10 +217,10 @@ export default function LoginPage() {
         </div>
       ) : (
       <>
-      <h1 className="mt-8 text-2xl font-semibold tracking-tight">
+      <h1 className="mt-5 text-2xl font-semibold tracking-tight sm:mt-8">
         {mode === "login" ? L("Sign in", "Log masuk") : L("Create your account", "Buat akaun anda")}
       </h1>
-      <p className="text-muted-foreground mt-2 text-sm">
+      <p className="text-muted-foreground mt-1.5 text-sm sm:mt-2">
         {L(
           "One login for everyone at A2Z CREATIVE MARKETING — you'll be taken to your own area automatically.",
           "Satu log masuk untuk semua di A2Z CREATIVE MARKETING — anda akan dibawa ke ruangan anda sendiri secara automatik.",
@@ -221,7 +230,7 @@ export default function LoginPage() {
       <div
         role="tablist"
         aria-label={L("Sign in or create an account", "Log masuk atau buat akaun")}
-        className="mt-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-secondary p-1"
+        className="mt-5 grid grid-cols-2 gap-1 rounded-lg border border-border bg-secondary p-1 sm:mt-6"
       >
         <button
           role="tab"
@@ -253,7 +262,7 @@ export default function LoginPage() {
 
       <a
         href={`${API}/auth/google`}
-        className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-secondary"
+        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition-colors hover:bg-secondary sm:mt-8"
       >
         <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
           <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.5 13.3l7.9 6.2C12.3 13.6 17.7 9.5 24 9.5z"/>
@@ -264,13 +273,13 @@ export default function LoginPage() {
         {L("Continue with Google", "Teruskan dengan Google")}
       </a>
 
-      <div className="my-6 flex items-center gap-3">
+      <div className="my-4 flex items-center gap-3 sm:my-6">
         <span className="h-px flex-1 bg-border" />
         <span className="text-muted-foreground text-xs">{L("or with email", "atau dengan e-mel")}</span>
         <span className="h-px flex-1 bg-border" />
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         {mode === "register" && (
           <input className={inputClass} placeholder={L("Your name", "Nama anda")} value={name}
             onChange={(e) => setName(e.target.value)} autoComplete="name" />
@@ -344,7 +353,7 @@ export default function LoginPage() {
       )}
       {/* v1.23.4: visible build stamp — one glance answers "is the live
           site on the new version?" */}
-      <p className="text-muted-foreground/60 mt-8 text-center text-[10px] tabular-nums">v{APP_VERSION}</p>
+      <p className="text-muted-foreground/60 mt-4 text-center text-[10px] tabular-nums sm:mt-8">v{APP_VERSION}</p>
     </div>
   );
 }

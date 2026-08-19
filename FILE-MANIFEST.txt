@@ -1,4 +1,4 @@
-a2z-v1.29.1-FULL — 314 files
+a2z-v1.29.2-FULL — 315 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,10 +8,10 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	551554
+CHANGELOG.md	553952
 CONTRIBUTING.md	3920
 DATABASE.md	10175
-DEPLOY.bat	6199
+DEPLOY.bat	5939
 DEPLOYMENT.md	986
 DOCUMENT-NUMBERING.md	4286
 FEATURE-SUGGESTIONS.md	4732
@@ -46,7 +46,7 @@ app/favicon.ico	6072
 app/icon.png	18141
 app/layout.tsx	7234
 app/login/layout.tsx	485
-app/login/page.tsx	16583
+app/login/page.tsx	17469
 app/packages/page.tsx	4940
 app/page.tsx	957
 app/portal/error.tsx	3618
@@ -141,7 +141,7 @@ components/ui/service-icons.tsx	3034
 components/ui/skeleton.tsx	5590
 components/ui/stat-card.tsx	4458
 components/ui/stat-tile.tsx	2566
-components/ui/whatsapp-fab.tsx	3145
+components/ui/whatsapp-fab.tsx	3513
 constants/content.ts	20474
 constants/pages.ts	13907
 constants/site.ts	3417
@@ -206,6 +206,7 @@ public/signatures/coo-sign.png	363474
 public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
+scratch/login-mobile-shot.mjs	2368
 scratch/roster-toast-e2e.mjs	5543
 styles/globals.css	15803
 tests/bm-coverage.mjs	5616
@@ -215,7 +216,7 @@ tests/document-issuer-guard.mjs	9726
 tests/leaderboard-sales-floor.mjs	7145
 tests/location-scenarios.mjs	3965
 tests/no-false-attendance.mjs	3679
-tests/origins-guard.mjs	2483
+tests/origins-guard.mjs	4047
 tests/permissions-policy.mjs	4063
 tests/shift-sales-split.mjs	4770
 tests/sql-schema-check.mjs	3876
@@ -312,5 +313,5 @@ worker/src/shift-sales.ts	4095
 worker/src/staff.ts	399471
 worker/src/webpush.ts	6803
 worker/tsconfig.json	288
-worker/wrangler.toml	2896
+worker/wrangler.toml	3749
 wrangler.toml	573

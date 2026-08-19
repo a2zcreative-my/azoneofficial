@@ -8,13 +8,22 @@ compatibility_date = "2024-03-20"
 # which is what makes /api/v1/auth/google resolve instead of 404ing against
 # the static site.
 routes = [
-  # v1.29.0 — domain migration: a2zcreative.my is the primary domain; the
-  # old domain STAYS routed forever (customer share links, staff bookmarks,
-  # and the TikTok Partner Center callback still point at it).
+  # v1.29.2 — CEO's decision, 19-08-2026: "No more API under
+  # azoneofficial.com". One domain, one API. The old domain's routes are
+  # gone; `wrangler deploy` reconciles this list, so they are removed from
+  # the Worker on the next deploy.
+  #
+  # This costs nothing TODAY because azoneofficial.com has no DNS records at
+  # all — it already serves nothing. What it does cost, whenever TikTok is
+  # reconnected: Partner Center still holds
+  #   https://azoneofficial.com/api/v1/integrations/tiktok/callback
+  #   https://azoneofficial.com/api/v1/integrations/tiktok/webhook
+  # Those URLs must be changed to a2zcreative.my in Partner Center BEFORE
+  # the next TikTok authorisation, or the sync will not come back.
+  #
+  # Restoring the old domain later is these two lines again — nothing else.
   { pattern = "a2zcreative.my/api/*", zone_name = "a2zcreative.my" },
   { pattern = "www.a2zcreative.my/api/*", zone_name = "a2zcreative.my" },
-  { pattern = "azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
-  { pattern = "www.azoneofficial.com/api/*", zone_name = "azoneofficial.com" },
 ]
 account_id = "39fe816a63f159da3b17cc254a89d105"
 
@@ -33,10 +42,16 @@ bucket_name = "azoneofficial"
 # `wrangler secret put` for the sensitive ones below. Nothing here is hardcoded.
 #
 # Non-secret plaintext variables to set:
-ALLOWED_ORIGIN     = "https://azoneofficial.com"
-# v1.29.0: primary FIRST — links we generate use a2zcreative.my; both
-# domains (and their www twins) may sign in and call the API.
-ALLOWED_ORIGINS    = "https://a2zcreative.my,https://azoneofficial.com"
+ALLOWED_ORIGIN     = "https://a2zcreative.my"
+# v1.29.2: one domain. a2zcreative.my (and its www twin) is the only origin
+# that may sign in and call the API, and every link we mint uses it.
+# The legacy single-value ALLOWED_ORIGIN above is kept in step with it so an
+# older Worker build can never fall back to a domain we no longer serve.
+ALLOWED_ORIGINS    = "https://a2zcreative.my"
+# The staff EMAIL domain — deliberately NOT the website domain. Staff sign in
+# as name@azoneofficial.com (Google Workspace), and this gates who may hold a
+# staff/admin role. Changing it before the mailboxes move would lock every
+# existing staff member out of their own role edits.
 COMPANY_DOMAIN     = "azoneofficial.com"
 GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com"
 # TikTok Shop Partner Center app (service ID 7668934538403645205). The app key

@@ -15,9 +15,15 @@ import { whatsappUrl } from "@/constants/content";
 export function WhatsAppFab() {
   const pathname = usePathname() ?? "";
   const [footerVisible, setFooterVisible] = useState(false);
-  // Internal work surfaces are staff-only — a customer-contact button has no
-  // business there. /account (customers) and the public site keep it.
-  const hidden = pathname.startsWith("/portal") || pathname.startsWith("/admin");
+  /* Internal work surfaces are staff-only — a customer-contact button has no
+     business there. /account (customers) and the public site keep it.
+     v1.29.2 (CEO's phone screenshots of a2zcreative.my/login): /login joins
+     that list. On a phone the FAB floats exactly over the password field and
+     the Sign in button — the two controls the page exists for — and it is
+     useless there anyway: nobody WhatsApps sales to sign in to their own
+     staff account. */
+  const hidden =
+    pathname.startsWith("/portal") || pathname.startsWith("/admin") || pathname.startsWith("/login");
 
   useEffect(() => {
     const footer = document.getElementById("site-footer");

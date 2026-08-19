@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  A2Z CREATIVE MARKETING - ONE-CLICK DEPLOY  (v1.29.1)
+REM  A2Z CREATIVE MARKETING - ONE-CLICK DEPLOY  (v1.29.2)
 REM
 REM  New in this version, after the 19-08 login outage:
 REM   * STEP 3 COMPILES THE API CODE BEFORE PUBLISHING IT.
@@ -11,7 +11,7 @@ REM     bundles without resolving types - so a broken build went
 REM     live and every signed-in page returned 500. That check now
 REM     runs here and refuses to deploy code that cannot work.
 REM   * It refuses to run from an old folder (package.json must
-REM     say 1.29.1) - deploying stale code caused the same outage.
+REM     say 1.29.2) - deploying stale code caused the same outage.
 REM   * It CHECKS the live API itself after publishing and prints
 REM     the version, so you see the result without asking anyone.
 REM
@@ -43,12 +43,12 @@ if not exist worker\wrangler.toml (
   exit /b 1
 )
 
-findstr /C:"\"version\": \"1.29.1\"" package.json >nul
+findstr /C:"\"version\": \"1.29.2\"" package.json >nul
 if %errorlevel% neq 0 (
   echo.
-  echo [X] THIS IS NOT THE v1.29.1 FOLDER.
+  echo [X] THIS IS NOT THE v1.29.2 FOLDER.
   echo     Deploying an older folder is what broke the new domain.
-  echo     Unzip a2z-v1.29.1-FULL.zip into a NEW EMPTY folder and
+  echo     Unzip a2z-v1.29.2-FULL.zip into a NEW EMPTY folder and
   echo     run the DEPLOY.bat that is inside it.
   echo.
   pause
@@ -56,7 +56,7 @@ if %errorlevel% neq 0 (
 )
 
 echo ============================================
-echo  A2Z CREATIVE - one-click deploy  v1.29.1
+echo  A2Z CREATIVE - one-click deploy  v1.29.2
 echo  Folder: %CD%
 echo ============================================
 echo.
@@ -119,18 +119,15 @@ if %errorlevel% neq 0 (
 popd
 echo.
 
-echo [6/8] Checking the live API on both domains...
+echo [6/8] Checking the live API on a2zcreative.my...
 echo.
 echo    --- https://a2zcreative.my/api/v1/health
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
 echo.
-echo    --- https://azoneofficial.com/api/v1/health
-curl.exe -s -m 20 https://azoneofficial.com/api/v1/health
 echo.
-echo.
-echo    Expected on BOTH lines: {"ok":true,"db":true,"version":"1.29.1"}
-echo    A line showing 1.29.1 means that domain can sign in NOW.
-echo    A blank line or an error means that domain is not routed to
+echo    Expected: {"ok":true,"db":true,"version":"1.29.2"}
+echo    That line means a2zcreative.my can sign in NOW.
+echo    A blank line or an error means the domain is not routed to
 echo    this worker - copy this window and send it over.
 echo.
 
@@ -168,9 +165,6 @@ echo ============================================
 echo.
 echo    --- https://a2zcreative.my/api/v1/health
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
-echo.
-echo    --- https://azoneofficial.com/api/v1/health
-curl.exe -s -m 20 https://azoneofficial.com/api/v1/health
 echo.
 echo.
 echo  Then check by hand:
