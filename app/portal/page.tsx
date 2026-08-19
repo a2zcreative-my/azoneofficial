@@ -79,6 +79,27 @@ import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 interface User { id: number; email: string; name: string; role: string; photo_key?: string | null; requires_2fa?: boolean }
 
+/* v1.26 BM sweep — display-point translation helper. The EN argument is the
+   exact original string, so EN mode renders byte-identical. NEVER used on
+   strings that feed logic, state keys or API payloads. */
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+/* Display-only maps for API values shown raw (the value itself stays EN). */
+const LEAVE_TYPE_MS: Record<string, string> = { annual: "tahunan", medical: "sakit", emergency: "kecemasan", unpaid: "tanpa gaji", replacement: "gantian" };
+const leaveTypeL = (t: string) => (getLang() === "ms" ? LEAVE_TYPE_MS[t] ?? t : t);
+const PRIORITY_MS: Record<string, string> = { low: "rendah", normal: "biasa", high: "tinggi", urgent: "segera" };
+const priorityL = (p: string) => (getLang() === "ms" ? PRIORITY_MS[p] ?? p : p);
+const ANN_CAT_MS: Record<string, string> = { news: "berita", meeting: "mesyuarat", holiday: "cuti umum", kpi: "kpi", training: "latihan", memo: "memo", event: "acara", class: "kelas" };
+const annCatL = (c: string) => (getLang() === "ms" ? ANN_CAT_MS[c] ?? c : c);
+const SESS_STATUS_MS: Record<string, string> = { scheduled: "dijadualkan", completed: "selesai", cancelled: "dibatalkan" };
+const sessStatusL = (s: string) => (getLang() === "ms" ? SESS_STATUS_MS[s] ?? s : s);
+const PAY_STATUS_MS: Record<string, string> = { unpaid: "belum dibayar", paid: "dibayar", overdue: "tertunggak", pending: "menunggu", delivered: "dihantar" };
+const payStatusL = (s: string) => (getLang() === "ms" ? PAY_STATUS_MS[s] ?? s : s);
+const ENQ_STATUS_MS: Record<string, string> = { new: "baru", contacted: "dihubungi", qualified: "layak", closed: "ditutup" };
+const enqStatusL = (s: string) => (getLang() === "ms" ? ENQ_STATUS_MS[s] ?? s : s);
+/* daysAway() output is compared against "TODAY" for styling — translate a COPY at display only. */
+const daysAwayL = (s: string) => (s === "TODAY" ? L("TODAY", "HARI INI") : s === "Tomorrow" ? L("Tomorrow", "Esok") : getLang() === "ms" ? s.replace(/^in (\d+) days$/, "dalam $1 hari") : s);
+
 
 
 
@@ -382,8 +403,8 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     // clocking in gets an instant popup (and the server refuses it too).
     if (type === "clock_out" && !today.some((r) => r.type === "clock_in")) {
       setPunchToast({
-        title: "Clock in first",
-        sub: "You haven't clocked in today — clock in first, then clock out at the end of your shift.",
+        title: L("Clock in first", "Daftar masuk dahulu"),
+        sub: L("You haven't clocked in today — clock in first, then clock out at the end of your shift.", "Anda belum daftar masuk hari ini — daftar masuk dahulu, kemudian daftar keluar pada hujung syif anda."),
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 3600);
@@ -415,10 +436,10 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       setBusy("");
       if (res0.ok) {
         setPunchToast({
-          title: type === "clock_in" ? "Clocked in — without location" : "Clocked out — without location",
+          title: type === "clock_in" ? L("Clocked in — without location", "Daftar masuk — tanpa lokasi") : L("Clocked out — without location", "Daftar keluar — tanpa lokasi"),
           sub: gpsDenied
-            ? "Recorded and flagged for HR. Your phone is blocking location for this site — fix it with the steps on the Dashboard so tomorrow's punch is clean."
-            : "Recorded and flagged for HR — no GPS signal here. Try near a window next time.",
+            ? L("Recorded and flagged for HR. Your phone is blocking location for this site — fix it with the steps on the Dashboard so tomorrow's punch is clean.", "Direkodkan dan ditandakan untuk HR. Telefon anda menyekat lokasi untuk laman ini — betulkan dengan langkah di Papan Pemuka supaya punch esok bersih.")
+            : L("Recorded and flagged for HR — no GPS signal here. Try near a window next time.", "Direkodkan dan ditandakan untuk HR — tiada isyarat GPS di sini. Cuba berdekatan tingkap lain kali."),
           variant: "notice",
         });
         window.setTimeout(() => setPunchToast(null), 6000);
@@ -426,10 +447,12 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         return;
       }
       setPunchToast({
-        title: "Location needed",
+        title: L("Location needed", "Lokasi diperlukan"),
         sub: gpsDenied
-          ? `Location is blocked for THIS SITE — open the padlock/⋮ menu in your browser, allow Location, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again. (Phone Settings alone is not enough.)`
-          : `No location signal yet — check phone Location is ON, step near a window, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
+          ? L(`Location is blocked for THIS SITE — open the padlock/⋮ menu in your browser, allow Location, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again. (Phone Settings alone is not enough.)`,
+              `Lokasi disekat untuk LAMAN INI — buka menu mangga/⋮ dalam pelayar anda, benarkan Lokasi, kemudian tekan ${type === "clock_in" ? "Daftar masuk" : "Daftar keluar"} semula. (Tetapan telefon sahaja tidak mencukupi.)`)
+          : L(`No location signal yet — check phone Location is ON, step near a window, then tap ${type === "clock_in" ? "Clock in" : "Clock out"} again.`,
+              `Belum ada isyarat lokasi — pastikan Lokasi telefon HIDUP, dekati tingkap, kemudian tekan ${type === "clock_in" ? "Daftar masuk" : "Daftar keluar"} semula.`),
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 4800);
@@ -444,8 +467,8 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       // Already punched today — confirm it with the recorded time rather than
       // leaving the person unsure whether the tap registered.
       setPunchToast({
-        title: type === "clock_in" ? "Already clocked in" : "Already clocked out",
-        sub: res.data?.error?.message?.replace(/^You already clocked (in|out) today at /, "Recorded at ") ?? "Recorded earlier today",
+        title: type === "clock_in" ? L("Already clocked in", "Sudah daftar masuk") : L("Already clocked out", "Sudah daftar keluar"),
+        sub: res.data?.error?.message?.replace(/^You already clocked (in|out) today at /, L("Recorded at ", "Direkodkan pada ")) ?? L("Recorded earlier today", "Direkodkan lebih awal hari ini"),
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 3200);
@@ -454,33 +477,33 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     if (res.ok && res.data?.flag) {
       const label: Record<string, string> = {
-        ok: "On time", late: "Marked late", half_day: "Half day (after 12:00)",
-        early_out: "Early out (before 18:00)", completed: "Shift completed",
+        ok: L("On time", "Tepat masa"), late: L("Marked late", "Ditanda lewat"), half_day: L("Half day (after 12:00)", "Separuh hari (selepas 12:00)"),
+        early_out: L("Early out (before 18:00)", "Keluar awal (sebelum 18:00)"), completed: L("Shift completed", "Syif selesai"),
       };
       const now = new Date(Date.now() + 8 * 3600 * 1000);
       const hhmm = now.toISOString().slice(11, 16);
       setPunchToast({
-        title: type === "clock_in" ? "Clock-in recorded" : "Clock-out recorded",
+        title: type === "clock_in" ? L("Clock-in recorded", "Daftar masuk direkodkan") : L("Clock-out recorded", "Daftar keluar direkodkan"),
         sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT${gps ? "" : gpsDenied
-          ? " · no location — enable location access for this site"
-          : " · no location recorded"}`,
+          ? L(" · no location — enable location access for this site", " · tiada lokasi — benarkan akses lokasi untuk laman ini")
+          : L(" · no location recorded", " · tiada lokasi direkodkan")}`,
         ...(gps ? {} : { variant: "notice" as const }),
       });
       window.setTimeout(() => setPunchToast(null), 2600);
     } else if ((res.data?.error as { code?: string } | undefined)?.code === "no_clock_in") {
-      setPunchToast({ title: "Clock in first", sub: res.data?.error?.message ?? "Clock in before clocking out.", variant: "notice" });
+      setPunchToast({ title: L("Clock in first", "Daftar masuk dahulu"), sub: res.data?.error?.message ?? L("Clock in before clocking out.", "Daftar masuk sebelum daftar keluar."), variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 3600);
     } else if (["too_far", "location_required"].includes((res.data?.error as { code?: string } | undefined)?.code ?? "")) {
       // v1.9.1: geofence refusals get a toast, not the red error line — being
       // outside the fence is expected behaviour, not a system fault.
       setPunchToast({
-        title: (res.data?.error as { code?: string }).code === "too_far" ? "📍 Too far from the office" : "📍 Location needed",
-        sub: res.data?.error?.message ?? "Move closer to the office and try again.",
+        title: (res.data?.error as { code?: string }).code === "too_far" ? L("📍 Too far from the office", "📍 Terlalu jauh dari pejabat") : L("📍 Location needed", "📍 Lokasi diperlukan"),
+        sub: res.data?.error?.message ?? L("Move closer to the office and try again.", "Dekati pejabat dan cuba lagi."),
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 5200);
     } else {
-      setPunchError(res.data?.error?.message ?? "Punch failed — try again.");
+      setPunchError(res.data?.error?.message ?? L("Punch failed — try again.", "Punch gagal — cuba lagi."));
     }
     void load();
   };
@@ -490,12 +513,12 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
   // reminds the staff member of that every time.
   const punchOt = async (type: string) => {
     if (!today.some((r) => r.type === "clock_in")) {
-      setPunchToast({ title: "Clock in first", sub: "No clock-in recorded today — overtime can only follow a worked day.", variant: "notice" });
+      setPunchToast({ title: L("Clock in first", "Daftar masuk dahulu"), sub: L("No clock-in recorded today — overtime can only follow a worked day.", "Tiada daftar masuk direkodkan hari ini — OT hanya boleh selepas hari bekerja."), variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 3600);
       return;
     }
     if (type === "ot_out" && !todayOt.some((r) => r.type === "ot_in")) {
-      setPunchToast({ title: "OT in first", sub: "Tap OT in when overtime starts, then OT out when you finish.", variant: "notice" });
+      setPunchToast({ title: L("OT in first", "OT masuk dahulu"), sub: L("Tap OT in when overtime starts, then OT out when you finish.", "Tekan OT in apabila OT bermula, kemudian OT out apabila selesai."), variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 3600);
       return;
     }
@@ -508,7 +531,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     // v1.21.4: OT punches carry the same location requirement as clock punches.
     if (!otGps) {
       setBusy("");
-      setPunchToast({ title: "Location needed", sub: "OT punches need your location — allow location access and try again.", variant: "notice" });
+      setPunchToast({ title: L("Location needed", "Lokasi diperlukan"), sub: L("OT punches need your location — allow location access and try again.", "Punch OT memerlukan lokasi anda — benarkan akses lokasi dan cuba lagi."), variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 4200);
       return;
     }
@@ -519,8 +542,8 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     setBusy("");
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
       setPunchToast({
-        title: type === "ot_in" ? "OT in already recorded" : "OT out already recorded",
-        sub: res.data?.error?.message?.replace(/^You already recorded OT (in|out) today at /, "Recorded at ") ?? "Recorded earlier today",
+        title: type === "ot_in" ? L("OT in already recorded", "OT masuk sudah direkodkan") : L("OT out already recorded", "OT keluar sudah direkodkan"),
+        sub: res.data?.error?.message?.replace(/^You already recorded OT (in|out) today at /, L("Recorded at ", "Direkodkan pada ")) ?? L("Recorded earlier today", "Direkodkan lebih awal hari ini"),
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 3200);
@@ -529,17 +552,17 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
     }
     if (res.ok && res.data?.at) {
       setPunchToast({
-        title: type === "ot_in" ? "OT in recorded" : "OT out recorded",
+        title: type === "ot_in" ? L("OT in recorded", "OT masuk direkodkan") : L("OT out recorded", "OT keluar direkodkan"),
         sub: type === "ot_in"
-          ? `${res.data.at} MYT — only proceed if your Section HOD approved this overtime.`
-          : `${res.data.at} MYT — overtime completed. Thank you.`,
+          ? L(`${res.data.at} MYT — only proceed if your Section HOD approved this overtime.`, `${res.data.at} MYT — teruskan hanya jika HOD Seksyen anda meluluskan OT ini.`)
+          : L(`${res.data.at} MYT — overtime completed. Thank you.`, `${res.data.at} MYT — OT selesai. Terima kasih.`),
       });
       window.setTimeout(() => setPunchToast(null), 3200);
     } else if (res.data?.error?.message) {
-      setPunchToast({ title: "Overtime", sub: res.data.error.message, variant: "notice" });
+      setPunchToast({ title: L("Overtime", "OT"), sub: res.data.error.message, variant: "notice" });
       window.setTimeout(() => setPunchToast(null), 3600);
     } else {
-      setPunchError("OT punch failed — try again.");
+      setPunchError(L("OT punch failed — try again.", "Punch OT gagal — cuba lagi."));
     }
     void load();
   };
@@ -617,32 +640,32 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             {hasIn ? mytTime(today.filter((r) => r.type === "clock_in").slice(-1)[0]?.created_at ?? "") : "—"}
           </p>
           <p className="text-muted-foreground mt-2 text-[11.5px]">
-            {hasOut ? "Shift completed" : hasIn ? "On shift" : "Not clocked in yet"}
+            {hasOut ? L("Shift completed", "Syif selesai") : hasIn ? L("On shift", "Sedang bertugas") : L("Not clocked in yet", "Belum daftar masuk")}
           </p>
           <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
             <i className={`block h-full rounded-full ${hasOut ? "bg-ring-ontime w-full" : hasIn ? "bg-gold-solid w-1/2" : "w-0"}`} />
           </div>
         </div>
         <div className={card}>
-          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Days present · month</p>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Days present · month", "Hari hadir · bulan")}</p>
           <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{daysPresent}</p>
-          <p className="text-muted-foreground mt-2 text-[11.5px]">attendance recorded</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">{L("attendance recorded", "kehadiran direkodkan")}</p>
           <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
             <i className="bg-bar-high block h-full rounded-full" style={{ width: `${Math.min(100, (daysPresent / 22) * 100)}%` }} />
           </div>
         </div>
         <div className={card}>
-          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Hours · month</p>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Hours · month", "Jam · bulan")}</p>
           <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{monthHours.toFixed(1)}</p>
-          <p className="text-muted-foreground mt-2 text-[11.5px]">first in → last out, per day</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">{L("first in → last out, per day", "masuk pertama → keluar terakhir, setiap hari")}</p>
           <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
             <i className="bg-gold-solid block h-full rounded-full" style={{ width: `${Math.min(100, (monthHours / 176) * 100)}%` }} />
           </div>
         </div>
         <div className={card}>
-          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">Open tasks</p>
+          <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Open tasks", "Tugasan terbuka")}</p>
           <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">{tasks.length}</p>
-          <p className="text-muted-foreground mt-2 text-[11.5px]">{leave.length > 0 ? `+ ${leave.length} leave pending` : "no leave pending"}</p>
+          <p className="text-muted-foreground mt-2 text-[11.5px]">{leave.length > 0 ? L(`+ ${leave.length} leave pending`, `+ ${leave.length} cuti menunggu`) : L("no leave pending", "tiada cuti menunggu")}</p>
           <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
             <i className={`block h-full rounded-full ${tasks.length > 0 ? "bg-bar-mid w-2/3" : "bg-ring-ontime w-full"}`} />
           </div>
@@ -704,7 +727,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         )}
         {showOt && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            Working overtime today? OT in / OT out only with your Section HOD&apos;s approval — tap OT in when it starts and OT out when you finish.{isWeekendMYT ? " Weekend: the whole day counts as overtime — no normal clock-in needed." : ""}
+            {L("Working overtime today? OT in / OT out only with your Section HOD's approval — tap OT in when it starts and OT out when you finish.", "Bekerja OT hari ini? OT in / OT out hanya dengan kelulusan HOD Seksyen anda — tekan OT in apabila bermula dan OT out apabila selesai.")}{isWeekendMYT ? L(" Weekend: the whole day counts as overtime — no normal clock-in needed.", " Hujung minggu: sepanjang hari dikira OT — tiada daftar masuk biasa diperlukan.") : ""}
           </p>
         )}
         {punchError && <p className="text-destructive mt-2 text-xs font-medium">{punchError}</p>}
@@ -713,7 +736,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             from the cron, for the person who has the tab open right now. */}
         {hasIn && !hasOut && nowMins >= 18 * 60 + 30 && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            ⏰ {tr("Don't forget to clock out", lang)}{hasOtIn && !hasOtOut ? " (and OT out when overtime ends)" : ""} — {tr("tap Clock out before you leave.", lang)}
+            ⏰ {tr("Don't forget to clock out", lang)}{hasOtIn && !hasOtOut ? L(" (and OT out when overtime ends)", " (dan OT out apabila OT tamat)") : ""} — {tr("tap Clock out before you leave.", lang)}
           </p>
         )}
         {fence?.configured && (
@@ -756,11 +779,14 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                   : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`)}{" "}
               <button type="button" className="text-gold-deep font-semibold underline-offset-2 hover:underline disabled:opacity-50"
                 onClick={() => void checkLocation()} disabled={gpsCheck.state === "busy"}>
-                {gpsCheck.state === "busy" ? "Checking…" : (lang === "ms" ? "Semak lokasi saya" : "Check my location")}
+                {gpsCheck.state === "busy" ? (lang === "ms" ? "Menyemak…" : "Checking…") : (lang === "ms" ? "Semak lokasi saya" : "Check my location")}
               </button>
               {gpsCheck.state === "done" && (
                 <span className={`ml-1.5 font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}>
-                  {gpsCheck.inside ? `✓ ${fmtDist(gpsCheck.distance_m)} — inside` : `${fmtDist(gpsCheck.distance_m)} — outside${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch will be flagged)"}`}
+                  {gpsCheck.inside
+                    ? L(`✓ ${fmtDist(gpsCheck.distance_m)} — inside`, `✓ ${fmtDist(gpsCheck.distance_m)} — dalam kawasan`)
+                    : L(`${fmtDist(gpsCheck.distance_m)} — outside${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch will be flagged)"}`,
+                        `${fmtDist(gpsCheck.distance_m)} — luar kawasan${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch akan ditandakan)"}`)}
                 </span>
               )}
               {gpsCheck.state === "error" && (
@@ -780,9 +806,11 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
         ) : (
         <p className="text-muted-foreground mt-3 text-xs">
           {today.length === 0 && todayOt.length === 0
-            ? "No attendance recorded today."
-            : `Today: ${[...today.slice().reverse(), ...todayOt.slice().reverse()]
-                .map((r) => `${r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")} ${mytTime(r.created_at)}`)
+            ? L("No attendance recorded today.", "Tiada kehadiran direkodkan hari ini.")
+            : `${L("Today", "Hari ini")}: ${[...today.slice().reverse(), ...todayOt.slice().reverse()]
+                .map((r) => `${getLang() === "ms"
+                  ? ({ clock_in: "masuk", clock_out: "keluar", ot_in: "OT masuk", ot_out: "OT keluar" } as Record<string, string>)[r.type] ?? r.type
+                  : r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")} ${mytTime(r.created_at)}`)
                 .join(" · ")}`}
         </p>
         )}
@@ -812,7 +840,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                     <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{s.platform}</span>
                   </p>
                   <p className="mt-0.5 truncate text-[13px] font-medium">
-                    {s.client_company ?? s.client_name ?? "Live session"}
+                    {s.client_company ?? s.client_name ?? L("Live session", "Sesi LIVE")}
                     {s.notes ? <span className="text-muted-foreground font-normal"> — {s.notes}</span> : null}
                   </p>
                 </div>
@@ -882,8 +910,8 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
       {monthRecs.length > 0 && (
         <div className={`${card} hidden md:block`}>
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">My attendance — {MONTH_NAMES.en[Number(mytToday().slice(5, 7)) - 1]}</p>
-            <p className="text-muted-foreground text-[11.5px]">{daysPresent} days · {monthHours.toFixed(1)} h</p>
+            <p className="text-sm font-semibold">{lang === "ms" ? "Kehadiran saya" : "My attendance"} — {MONTH_NAMES[lang][Number(mytToday().slice(5, 7)) - 1]}</p>
+            <p className="text-muted-foreground text-[11.5px]">{daysPresent} {lang === "ms" ? "hari" : "days"} · {monthHours.toFixed(1)} h</p>
           </div>
           <div className="flex h-28 items-end gap-[3px]">
             {(() => {
@@ -899,7 +927,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
                 const pct = Math.max(hrs > 0 ? 8 : 0, Math.round((hrs / 12) * 100));
                 return (
                   <div key={d} className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1"
-                    role="img" aria-label={`${d}: ${open ? "on shift, in progress" : `${hrs.toFixed(1)} hours`}`}>
+                    role="img" aria-label={`${d}: ${open ? L("on shift, in progress", "sedang bertugas") : `${hrs.toFixed(1)} ${L("hours", "jam")}`}`}>
                     <div
                       className={`w-full rounded-t-[3px] ${d === todayS ? "bg-bar-high" : open ? "bg-gold-solid" : hrs > 0 ? "bg-bar-low group-hover:bg-bar-mid" : "bg-tint-navy"}`}
                       style={{ height: open && hrs === 0 ? "40%" : `${pct}%`, minHeight: "2px" }}
@@ -913,9 +941,9 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             })()}
           </div>
           <div className="text-muted-foreground mt-2 flex gap-4 text-[11px]">
-            <span><i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />Worked</span>
-            <span><i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />In progress</span>
-            <span><i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />Today</span>
+            <span><i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />{L("Worked", "Bekerja")}</span>
+            <span><i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />{L("In progress", "Sedang berlangsung")}</span>
+            <span><i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />{L("Today", "Hari ini")}</span>
           </div>
         </div>
       )}
@@ -941,7 +969,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           ) : (
             leave.map((l) => (
               <p key={l.id} className="mt-2 text-sm">
-                {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
+                {leaveTypeL(l.type)} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
               </p>
             ))
           )}
@@ -963,7 +991,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
           ) : (
             tasks.map((t) => (
               <p key={t.id} className="mt-2 text-sm">
-                {t.title} <span className="text-muted-foreground">· {t.priority}{t.deadline ? ` · due ${t.deadline}` : ""}</span>
+                {t.title} <span className="text-muted-foreground">· {priorityL(t.priority)}{t.deadline ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`) : ""}</span>
               </p>
             ))
           )}
@@ -984,7 +1012,7 @@ function Dashboard({ user, go, lang = "en" }: { user: User; go: (t: TabName) => 
             anns.map((a) => (
               <p key={a.id} className="mt-2 text-sm">
                 <span className="font-medium">{a.title}</span>{" "}
-                <span className="text-muted-foreground">· {a.category}</span>
+                <span className="text-muted-foreground">· {annCatL(a.category)}</span>
               </p>
             ))
           )}
@@ -1076,14 +1104,14 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
     void api<{ stokis: { id: number; name: string; status: string; month_cents: number }[] }>('/staff/stokis')
       .then(r => r.ok && r.data && setData(r.data.stokis.filter(s => s.status === "active")));
   }, []);
-  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">⭐ Active Stokis</p>{node}</div>;
-  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No active stokis.</p>);
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">⭐ {L("Active Stokis", "Stokis aktif")}</p>{node}</div>;
+  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>{L("No active stokis.", "Tiada stokis aktif.")}</p>);
   return wrap(
     <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
       {data.map(s => (
         <div key={s.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "pb-2"}`}>
           <p className="font-bold">{s.name}</p>
-          <p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} this month</p>
+          <p className="text-muted-foreground text-xs">{fmtRM(s.month_cents)} {L("this month", "bulan ini")}</p>
         </div>
       ))}
     </div>
@@ -1104,14 +1132,14 @@ function gpsLabel(
   gps?: string | null,
   fence?: { lat: number; lng: number; radius_m: number; label?: string } | null,
 ): { text: string; ok: boolean | null; dist: number | null } {
-  if (!gps) return { text: "no location", ok: null, dist: null };
+  if (!gps) return { text: L("no location", "tiada lokasi"), ok: null, dist: null };
   // v1.25.3: deliberately-unlocated punch — surface it as a failure, not a blank.
   if (gps.startsWith("no_location:")) {
     const why = gps.slice("no_location:".length);
-    return { text: why === "denied" ? "NO LOCATION (blocked)" : `NO LOCATION (${why})`, ok: false, dist: null };
+    return { text: why === "denied" ? L("NO LOCATION (blocked)", "TIADA LOKASI (disekat)") : L(`NO LOCATION (${why})`, `TIADA LOKASI (${why})`), ok: false, dist: null };
   }
   const m = /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(gps);
-  if (!m) return { text: "no location", ok: null, dist: null };
+  if (!m) return { text: L("no location", "tiada lokasi"), ok: null, dist: null };
   const office = fence ?? { lat: SITE_CONFIG.office.lat, lng: SITE_CONFIG.office.lng, radius_m: SITE_CONFIG.office.radiusM };
   const [lat, lng] = [Number(m[1]), Number(m[2])];
   const acc = m[3] ? Math.min(Number(m[3]), 150) : 0;
@@ -1121,7 +1149,7 @@ function gpsLabel(
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(office.lat * rad) * Math.sin(dLng / 2) ** 2;
   const dist = Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
   const near = dist <= office.radius_m + acc; // same rule as the server gate
-  return { text: dist >= 1000 ? `${(dist / 1000).toFixed(1)} km from HQ` : `${dist} m from HQ`, ok: near, dist };
+  return { text: dist >= 1000 ? L(`${(dist / 1000).toFixed(1)} km from HQ`, `${(dist / 1000).toFixed(1)} km dari HQ`) : L(`${dist} m from HQ`, `${dist} m dari HQ`), ok: near, dist };
 }
 
 function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
@@ -1150,8 +1178,8 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
       Office geofence is NOT active on this deployment — run DEPLOY.bat in full (step 2 seeds it via migration 0072), then punches require location and outside-office flags turn on.
     </p>
   ) : null;
-  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{fenceWarning}{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">In Today</p>{fenceWarning}{node}</div>;
-  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No one checked in today.</p>);
+  const wrap = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{fenceWarning}{node}</div> : <div className={card}><p className="text-sm font-semibold mb-3">{L("In Today", "Hadir hari ini")}</p>{fenceWarning}{node}</div>;
+  if (data.length === 0) return wrap(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>{L("No one checked in today.", "Tiada sesiapa daftar masuk hari ini.")}</p>);
   return wrap(
     <div className={inModal ? "overflow-y-auto" : "space-y-3 max-h-80 overflow-y-auto pr-1"}>
       {data.map(u => (
@@ -1160,7 +1188,7 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
           {/* v1.15.0 fix (audit finding): in_at is a UTC string — slicing it
               showed a 10:00 MYT clock-in as 02:00. mytTime converts. */}
           <p className="text-muted-foreground text-xs">
-            Checked in at {u.in_at ? mytTime(u.in_at) : "unknown"}
+            {L("Checked in at", "Daftar masuk pada")} {u.in_at ? mytTime(u.in_at) : L("unknown", "tidak diketahui")}
             {(() => {
               /* v1.21.0 allow-but-flag: staff outside the fence show RED
                  ("outside office"); CEO/COO/CCO are exempt from the flag —
@@ -1173,8 +1201,8 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
               );
               if (exempt) return <span className="ml-1.5 font-medium opacity-60">· {g.text}</span>;
               return g.ok
-                ? <span className="text-success ml-1.5 font-medium">· at office · {g.text}</span>
-                : <span className="text-danger ml-1.5 font-semibold">· OUTSIDE OFFICE · {g.text}</span>;
+                ? <span className="text-success ml-1.5 font-medium">· {L("at office", "di pejabat")} · {g.text}</span>
+                : <span className="text-danger ml-1.5 font-semibold">· {L("OUTSIDE OFFICE", "LUAR PEJABAT")} · {g.text}</span>;
             })()}
           </p>
         </div>
@@ -1186,29 +1214,29 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
 function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
   const [data, setData] = useState<SalesDoc[]>([]);
   useEffect(() => { void api<{ docs: SalesDoc[] }>('/staff/docs').then(r => r.ok && r.data && setData(r.data.docs.filter(d => d.doc_type === kind && d.payment_status !== "paid"))); }, [kind]);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No {kind === "INV" ? "unpaid invoices" : "open quotations"}.</p>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">{L(`No ${kind === "INV" ? "unpaid invoices" : "open quotations"}.`, kind === "INV" ? "Tiada invois belum dibayar." : "Tiada sebut harga terbuka.")}</p>;
   return <div className="flex flex-col pb-4 sm:pb-0">{data.map(d => <div key={d.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><span className="text-sm font-medium">{d.doc_number} <span className="font-normal text-muted-foreground">({d.company})</span></span><span className="font-bold text-red-600 tabular-nums">{fmtRM(d.total_cents)}</span></div>)}</div>;
 }
 
 function PendingLeaveSummary() {
   const [data, setData] = useState<LeaveReq[]>([]);
   useEffect(() => { void api<{ leave: LeaveReq[] }>('/staff/leave?all=1').then(r => r.ok && r.data && setData(r.data.leave.filter(l => l.status === "pending"))); }, []);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No pending leave requests.</p>;
-  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(l => <div key={l.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{l.user_name || "Unknown"} <span className="font-normal text-muted-foreground">({l.days} days)</span></p><p className="text-muted-foreground text-xs">{l.start_date} to {l.end_date}</p></div>)}</div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">{L("No pending leave requests.", "Tiada permohonan cuti menunggu.")}</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(l => <div key={l.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{l.user_name || L("Unknown", "Tidak diketahui")} <span className="font-normal text-muted-foreground">({l.days} {L("days", "hari")})</span></p><p className="text-muted-foreground text-xs">{l.start_date} {L("to", "hingga")} {l.end_date}</p></div>)}</div>;
 }
 
 function PendingClaimsSummary() {
   const [data, setData] = useState<{ id: number; user_name: string; category: string; amount_cents: number; status: string }[]>([]);
   useEffect(() => { void api<{ claims: { id: number; user_name: string; category: string; amount_cents: number; status: string }[] }>('/staff/claims').then(r => r.ok && r.data && setData(r.data.claims.filter(c => c.status === "pending"))); }, []);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No pending claims.</p>;
-  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(c => <div key={c.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{c.user_name || "Unknown"} <span className="font-normal text-muted-foreground">- {c.category}</span></p><span className="font-bold tabular-nums">{fmtRM(c.amount_cents)}</span></div>)}</div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">{L("No pending claims.", "Tiada tuntutan menunggu.")}</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(c => <div key={c.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{c.user_name || L("Unknown", "Tidak diketahui")} <span className="font-normal text-muted-foreground">- {c.category}</span></p><span className="font-bold tabular-nums">{fmtRM(c.amount_cents)}</span></div>)}</div>;
 }
 
 function LowStockSummary() {
   const [data, setData] = useState<{ id: number; name: string; sku: string; stock: number }[]>([]);
   useEffect(() => { void api<{ items: { id: number; name: string; sku: string; stock: number }[] }>('/staff/inventory').then(r => r.ok && r.data && r.data.items && setData(r.data.items.filter(i => (i.stock || 0) <= 5))); }, []);
-  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">No low stock items.</p>;
-  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(i => <div key={i.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{i.name} <span className="font-normal text-muted-foreground">({i.sku})</span></p><span className="font-bold text-red-600 tabular-nums">{i.stock} left</span></div>)}</div>;
+  if (data.length === 0) return <p className="text-sm text-center py-8 text-muted-foreground">{L("No low stock items.", "Tiada barang stok rendah.")}</p>;
+  return <div className="flex flex-col pb-4 sm:pb-0">{data.map(i => <div key={i.id} className="flex items-center justify-between px-4 py-3 sm:px-5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors"><p className="font-medium text-sm">{i.name} <span className="font-normal text-muted-foreground">({i.sku})</span></p><span className="font-bold text-red-600 tabular-nums">{L(`${i.stock} left`, `baki ${i.stock}`)}</span></div>)}</div>;
 }
 
 function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) => void; lang?: Lang }) {
@@ -1245,9 +1273,9 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
   const saveKpi = async () => {
     const v = Number(kpiDraft);
     if (!rev) return;
-    if (!v || v <= 0) { showKpiToast("No change", "Enter a target amount first", "notice"); return; }
+    if (!v || v <= 0) { showKpiToast(L("No change", "Tiada perubahan"), L("Enter a target amount first", "Masukkan amaun sasaran dahulu"), "notice"); return; }
     const res = await api(`/staff/revenue/target`, { method: "POST", body: JSON.stringify({ month: rev.month, target_cents: Math.round(v * 100) }) });
-    if (res.ok) { showKpiToast("Saved", `Monthly KPI target — ${fmtRM(Math.round(v * 100))}`); setEditingKpi(false); loadRev(); }
+    if (res.ok) { showKpiToast(L("Saved", "Disimpan"), L(`Monthly KPI target — ${fmtRM(Math.round(v * 100))}`, `Sasaran KPI bulanan — ${fmtRM(Math.round(v * 100))}`)); setEditingKpi(false); loadRev(); }
   };
 
   /* ---- shared derived figures ---- */
@@ -1341,9 +1369,9 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
   // pushes "Needs attention" out of the top row.
   if (canRevenue && rev?.outstanding && rev.outstanding.docs > 0) {
     ticker.push(
-      <StatCard key="out" accent="red" label="Unpaid invoices"
+      <StatCard key="out" accent="red" label={L("Unpaid invoices", "Invois belum dibayar")}
         value={fmtRM(rev.outstanding.cents)}
-        sub={`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`} />,
+        sub={L(`${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`, `${rev.outstanding.docs} invois menunggu bayaran — kutip dahulu`)} />,
     );
   }
 
@@ -1365,13 +1393,13 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
     const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
     const needPerDay = Math.max(0, target - monthTotal) / daysLeft;
     if (pct >= 100) {
-      motivation = { emoji: "🏆", text: `TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`, cls: "bg-success-soft text-success" };
+      motivation = { emoji: "🏆", text: L(`TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`, `SASARAN DIPECAHKAN — ${fmtRM(monthTotal)} berbanding ${fmtRM(target)}. Setiap ringgit dari sini adalah rekod baharu. Naikkan lagi sasaran!`), cls: "bg-success-soft text-success" };
     } else if (onPace) {
-      motivation = { emoji: "✅", text: `On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`, cls: "bg-success-soft text-success" };
+      motivation = { emoji: "✅", text: L(`On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`, `Ikut rentak — hari ${dayOfMonth}/${daysInMonth} menjangka ~${expectedPct}%, anda di ${pct}%. Kekalkan rentak ini dan bulan ini milik anda.`), cls: "bg-success-soft text-success" };
     } else if (expectedPct - pct <= 15) {
-      motivation = { emoji: "⚡", text: `Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`, cls: "bg-warning-soft text-warning" };
+      motivation = { emoji: "⚡", text: L(`Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`, `Masa untuk berusaha — ${pct}% dicapai, rentak sepatutnya ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} sehari untuk ${daysLeft} hari seterusnya menutup jurang. Satu LIVE yang baik boleh mengubahnya.`), cls: "bg-warning-soft text-warning" };
     } else {
-      motivation = { emoji: "🚀", text: `Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`, cls: "bg-danger-soft text-danger" };
+      motivation = { emoji: "🚀", text: L(`Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`, `Mod bangkit semula — ${fmtRM(Math.max(0, target - monthTotal))} lagi. Pecahkan: itu ${fmtRM(Math.round(needPerDay))} sehari. Jadualkan LIVE, kejar sebut harga, gerakkan stok.`), cls: "bg-danger-soft text-danger" };
     }
   }
 
@@ -1380,20 +1408,20 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
   if (canRevenue && rev) {
     const peak = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
     if (peak && peak.cents > 0) {
-      tips.push(`Schedule the next LIVE at ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — your best-selling hour this week (${fmtRM(peak.cents)} across ${peak.orders} orders).`);
+      tips.push(L(`Schedule the next LIVE at ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — your best-selling hour this week (${fmtRM(peak.cents)} across ${peak.orders} orders).`, `Jadualkan LIVE seterusnya pada ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00 — jam jualan terbaik anda minggu ini (${fmtRM(peak.cents)} daripada ${peak.orders} pesanan).`));
     }
     if (rev.outstanding && rev.outstanding.docs > 0) {
-      tips.push(`Chase the ${rev.outstanding.docs} unpaid invoice${rev.outstanding.docs === 1 ? "" : "s"} (${fmtRM(rev.outstanding.cents)}) — it's revenue you already earned.`);
+      tips.push(L(`Chase the ${rev.outstanding.docs} unpaid invoice${rev.outstanding.docs === 1 ? "" : "s"} (${fmtRM(rev.outstanding.cents)}) — it's revenue you already earned.`, `Kejar ${rev.outstanding.docs} invois belum dibayar (${fmtRM(rev.outstanding.cents)}) — itu hasil yang anda sudah peroleh.`));
     }
     if ((sum?.open_quotations ?? 0) > 0) {
-      tips.push(`${sum!.open_quotations} quotation${sum!.open_quotations === 1 ? "" : "s"} still open — a follow-up call today converts faster than a new lead.`);
+      tips.push(L(`${sum!.open_quotations} quotation${sum!.open_quotations === 1 ? "" : "s"} still open — a follow-up call today converts faster than a new lead.`, `${sum!.open_quotations} sebut harga masih terbuka — panggilan susulan hari ini lebih cepat bertukar jualan daripada prospek baharu.`));
     }
     if ((sum?.low_stock ?? 0) > 0) {
-      tips.push(`${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low on stock — restock before the next live so a bestseller never sells out mid-stream.`);
+      tips.push(L(`${sum!.low_stock} item${sum!.low_stock === 1 ? "" : "s"} low on stock — restock before the next live so a bestseller never sells out mid-stream.`, `${sum!.low_stock} barang stok rendah — tambah stok sebelum LIVE seterusnya supaya barang laris tidak habis di tengah siaran.`));
     }
     const weakest = markets.filter((m) => m.target && m.now < m.target).sort((a, b) => (a.now / a.target!) - (b.now / b.target!))[0];
     if (weakest?.target) {
-      tips.push(`${weakest.label} is at ${Math.round((weakest.now / weakest.target) * 100)}% of its market target — ${fmtRM(weakest.target - weakest.now)} more takes it home.`);
+      tips.push(L(`${weakest.label} is at ${Math.round((weakest.now / weakest.target) * 100)}% of its market target — ${fmtRM(weakest.target - weakest.now)} more takes it home.`, `${weakest.label} berada pada ${Math.round((weakest.now / weakest.target) * 100)}% daripada sasaran pasarannya — ${fmtRM(weakest.target - weakest.now)} lagi untuk mencapainya.`));
     }
   }
 
@@ -1403,7 +1431,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
   // by-hour data this component already loads.
   const peakBucket = (hours ?? []).reduce<HourBucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
   const nowMY = new Date(Date.now() + 8 * 3600 * 1000);
-  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const WEEKDAYS = DAY_NAMES[lang];
   return (
     <div className="space-y-3 md:space-y-4">
       {kpiToastNode}
@@ -1427,16 +1455,17 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
         const cashIn = sum.cash_in_cents ?? 0;
         const cashOut = sum.cash_out_cents ?? 0;
         const net = cashIn - cashOut;
-        const tiles: { label: string; value: ReactNode; tone?: string; tab?: TabName }[] = [
-          { label: "Clients", value: sum.clients ?? 0, tab: "Sales" },
-          { label: "Active stokis", value: sum.active_stokis ?? 0, tab: "Stokis" },
-          { label: "Lives today", value: sum.lives_today ?? 0, tab: "Attendance" },
-          { label: "In today", value: sum.attendance_today ?? 0, tab: "Attendance" },
-          { label: "Unpaid inv.", value: sum.outstanding_invoices ?? 0, tab: "Sales" },
-          { label: "Cash flow (mo)", value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Finance" },
+        /* label = the EN modal-routing key (NEVER translated); show = display only. */
+        const tiles: { label: string; show?: string; value: ReactNode; tone?: string; tab?: TabName }[] = [
+          { label: "Clients", show: L("Clients", "Pelanggan"), value: sum.clients ?? 0, tab: "Sales" },
+          { label: "Active stokis", show: L("Active stokis", "Stokis aktif"), value: sum.active_stokis ?? 0, tab: "Stokis" },
+          { label: "Lives today", show: L("Lives today", "LIVE hari ini"), value: sum.lives_today ?? 0, tab: "Attendance" },
+          { label: "In today", show: L("In today", "Hadir hari ini"), value: sum.attendance_today ?? 0, tab: "Attendance" },
+          { label: "Unpaid inv.", show: L("Unpaid inv.", "Inv. belum bayar"), value: sum.outstanding_invoices ?? 0, tab: "Sales" },
+          { label: "Cash flow (mo)", show: L("Cash flow (mo)", "Aliran tunai (bln)"), value: <span className={net >= 0 ? "text-bull" : "text-bear"}>{net >= 0 ? "" : "−"}{fmtRM(Math.abs(net))}</span>, tab: "Finance" },
           // v1.8.0 (reference "Peak activity time"): the week's best-selling hour
           ...(peakBucket && peakBucket.cents > 0
-            ? [{ label: "Peak hour (wk)", value: <span className="whitespace-nowrap">{String(peakBucket.hour).padStart(2, "0")}–{String((peakBucket.hour + 1) % 24).padStart(2, "0")}</span>, tab: "Ecommerce" as TabName }]
+            ? [{ label: "Peak hour (wk)", show: L("Peak hour (wk)", "Jam puncak (mgu)"), value: <span className="whitespace-nowrap">{String(peakBucket.hour).padStart(2, "0")}–{String((peakBucket.hour + 1) % 24).padStart(2, "0")}</span>, tab: "Ecommerce" as TabName }]
             : []),
         ];
         return (
@@ -1444,7 +1473,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
             {tiles.map((t) => (
               <button key={t.label} type="button" onClick={() => setDetailModal(t.label)} className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors">
                 <p className="text-lg leading-tight font-bold tabular-nums">{t.value}</p>
-                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.label}</p>
+                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{t.show ?? t.label}</p>
               </button>
             ))}
           </div>
@@ -1455,36 +1484,36 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
       {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
         <div className={card}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-semibold">📊 Sales floor — {ym(rev.month)}</p>
-            <p className="text-muted-foreground text-xs tabular-nums">day {dayOfMonth}/{daysInMonth} · pace {expectedPct}%</p>
+            <p className="text-sm font-semibold">📊 {L("Sales floor", "Lantai jualan")} — {ym(rev.month)}</p>
+            <p className="text-muted-foreground text-xs tabular-nums">{L("day", "hari")} {dayOfMonth}/{daysInMonth} · {L("pace", "rentak")} {expectedPct}%</p>
           </div>
 
           {/* v1.6.1: set/edit the monthly KPI target right here (CEO/COO/super). */}
           {editingKpi ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
-              <span className="text-sm font-medium">Target for {ym(rev.month)}:</span>
+              <span className="text-sm font-medium">{L("Target for", "Sasaran untuk")} {ym(rev.month)}:</span>
               <span className="flex items-center gap-1 text-sm">RM
                 <input type="number" min={0} step="0.01" autoFocus
                   className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
-                  placeholder="e.g. 35000" value={kpiDraft}
+                  placeholder={L("e.g. 35000", "cth. 35000")} value={kpiDraft}
                   onChange={(e) => setKpiDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") void saveKpi(); if (e.key === "Escape") setEditingKpi(false); }} />
               </span>
-              <button type="button" className={btnSmPrimary} onClick={() => void saveKpi()}>Save target</button>
-              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setEditingKpi(false)}>Cancel</button>
+              <button type="button" className={btnSmPrimary} onClick={() => void saveKpi()}>{L("Save target", "Simpan sasaran")}</button>
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setEditingKpi(false)}>{L("Cancel", "Batal")}</button>
             </div>
           ) : (
             <div className="mt-3">
               <div className="flex items-baseline justify-between gap-2 text-xs">
                 <span className="font-semibold tracking-wide uppercase">
-                  🎯 KPI — month target {target ? (targetIsAuto ? "(auto: last month +10%)" : "") : ""}
+                  🎯 {L("KPI — month target", "KPI — sasaran bulan")} {target ? (targetIsAuto ? L("(auto: last month +10%)", "(auto: bulan lepas +10%)") : "") : ""}
                 </span>
                 <span className="flex items-baseline gap-2">
-                  {target ? <span className="tabular-nums font-bold">{fmtRM(monthTotal)} / {fmtRM(target)}</span> : <span className="text-muted-foreground">no target set</span>}
+                  {target ? <span className="tabular-nums font-bold">{fmtRM(monthTotal)} / {fmtRM(target)}</span> : <span className="text-muted-foreground">{L("no target set", "tiada sasaran ditetapkan")}</span>}
                   {canEditKpi && (
                     <button type="button" className="text-gold-deep text-xs font-medium underline"
                       onClick={() => { setKpiDraft(rev.target_cents ? (rev.target_cents / 100).toString() : (target ? (target / 100).toString() : "")); setEditingKpi(true); }}>
-                      {rev.target_cents ? "Edit target" : "Set target"}
+                      {rev.target_cents ? L("Edit target", "Sunting sasaran") : L("Set target", "Tetapkan sasaran")}
                     </button>
                   )}
                 </span>
@@ -1494,7 +1523,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
                   <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-bull" : pct >= 70 ? "bg-gold-solid" : pct >= 40 ? "bg-warning" : "bg-bear"}`}
                     style={{ width: `${Math.min(100, Math.max(pct, 1))}%` }} />
                   {/* pace marker: where the month says you SHOULD be */}
-                  <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.min(99, expectedPct)}%` }} title={`pace: ${expectedPct}%`} />
+                  <div className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${Math.min(99, expectedPct)}%` }} title={L(`pace: ${expectedPct}%`, `rentak: ${expectedPct}%`)} />
                   <span className={`absolute inset-0 flex items-center text-[11px] font-bold ${pct >= 12 ? "justify-start pl-2 text-white" : "justify-start text-foreground"}`}
                     style={pct < 12 ? { paddingLeft: `calc(${Math.max(pct, 1)}% + 6px)` } : undefined}>
                     {pct}%
@@ -1502,7 +1531,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
                 </div>
               )}
               {!target && canEditKpi && (
-                <p className="text-muted-foreground mt-1 text-[11px]">Set this month&apos;s KPI target to turn on the progress bar and the pace tracker.</p>
+                <p className="text-muted-foreground mt-1 text-[11px]">{L("Set this month's KPI target to turn on the progress bar and the pace tracker.", "Tetapkan sasaran KPI bulan ini untuk menghidupkan bar kemajuan dan penjejak rentak.")}</p>
               )}
             </div>
           )}
@@ -1513,7 +1542,7 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
           )}
           {markets.length > 0 && (
             <div className="mt-3">
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Market targets — product · service</p>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Market targets — product · service", "Sasaran pasaran — produk · perkhidmatan")}</p>
               <div className="mt-1.5 space-y-2">
                 {markets.map((m) => {
                   const mPct = m.target ? Math.round((m.now / m.target) * 100) : null;
@@ -1532,12 +1561,12 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
                   );
                 })}
               </div>
-              <p className="text-muted-foreground mt-1 text-[11px]">Each line&apos;s target = its own last month + 10% (auto). Momentum, per business.</p>
+              <p className="text-muted-foreground mt-1 text-[11px]">{L("Each line's target = its own last month + 10% (auto). Momentum, per business.", "Sasaran setiap bidang = bulan lepasnya sendiri + 10% (auto). Momentum, mengikut perniagaan.")}</p>
             </div>
           )}
           {tips.length > 0 && (
             <div className="mt-3">
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">💡 Boost the number</p>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">💡 {L("Boost the number", "Tingkatkan angka")}</p>
               <ul className="mt-1.5 space-y-1">
                 {tips.slice(0, 4).map((t) => (
                   <li key={t} className="flex gap-2 text-xs">
@@ -1580,7 +1609,12 @@ function TradingDesk({ user, go, lang = "en" }: { user: User; go?: (t: TabName) 
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-end sm:justify-center overflow-hidden bg-black/60 sm:p-6 backdrop-blur-sm transition-all animate-in fade-in" onClick={() => setDetailModal(null)}>
           <div className="bg-background w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl relative flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3 sm:px-5 sm:py-4 shrink-0 bg-muted/20 sm:rounded-t-2xl rounded-t-2xl">
-              <h2 className="text-lg font-bold">{detailModal}</h2>
+              <h2 className="text-lg font-bold">{L(detailModal, ({
+                "Clients": "Pelanggan", "Active stokis": "Stokis aktif", "Lives today": "LIVE hari ini", "In today": "Hadir hari ini",
+                "Unpaid inv.": "Inv. belum bayar", "Cash flow (mo)": "Aliran tunai (bln)", "Peak hour (wk)": "Jam puncak (mgu)",
+                "Leave pending": "Cuti menunggu", "Claims pending": "Tuntutan menunggu", "OT pending": "OT menunggu",
+                "Low stock": "Stok rendah", "Quotations open": "Sebut harga terbuka",
+              } as Record<string, string>)[detailModal] ?? detailModal)}</h2>
               <button type="button" className="rounded-full bg-secondary p-2 hover:bg-muted" onClick={() => setDetailModal(null)}>✕</button>
             </div>
             <div className="overflow-y-auto w-full relative">
@@ -1628,13 +1662,10 @@ function SalesRevenueCard() {
   );
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Sales revenue — {rev.month}</p>
+      <p className="text-sm font-semibold">{L("Sales revenue", "Hasil jualan")} — {rev.month}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        TikTok figures from synced order amounts (returned orders excluded).
-        Invoiced figures count PAYMENTS RECEIVED (paid invoices, in the month
-        the payment landed) — comparable with Expenses. The Total also counts
-        non-TikTok shipments (order amount on the postage form) and manual
-        sales (an Out − with a sold price) — every channel, one number.
+        {L("TikTok figures from synced order amounts (returned orders excluded). Invoiced figures count PAYMENTS RECEIVED (paid invoices, in the month the payment landed) — comparable with Expenses. The Total also counts non-TikTok shipments (order amount on the postage form) and manual sales (an Out − with a sold price) — every channel, one number.",
+           "Angka TikTok daripada amaun pesanan yang disegerakkan (pesanan dipulangkan dikecualikan). Angka invois mengira BAYARAN DITERIMA (invois dibayar, dalam bulan bayaran diterima) — setanding dengan Perbelanjaan. Jumlah turut mengira penghantaran bukan TikTok (amaun pesanan pada borang pos) dan jualan manual (Out − dengan harga jualan) — semua saluran, satu angka.")}
         {/* v1.6.1: the KPI target moved to the Dashboard (set by CEO/COO). */}
       </p>
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
@@ -1643,12 +1674,12 @@ function SalesRevenueCard() {
         {/* v1.4.271 audit: the 🔥 Today box moved OUT of this card — the
             hero band above owns "today" now; two cards both saying today's
             number was the audit's first finding. This card is the MONTH view. */}
-        {box("TikTok Shop", rm(rev.tiktok.this_cents), `${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`)}
-        {box("Invoiced (paid)", rm(rev.invoiced.this_cents), `${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`)}
+        {box("TikTok Shop", rm(rev.tiktok.this_cents), L(`${rev.tiktok.this_orders} orders · last month ${rm(rev.tiktok.last_cents)}`, `${rev.tiktok.this_orders} pesanan · bulan lepas ${rm(rev.tiktok.last_cents)}`))}
+        {box(L("Invoiced (paid)", "Invois (dibayar)"), rm(rev.invoiced.this_cents), L(`${rev.invoiced.this_docs} paid · last month ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · outstanding ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`, `${rev.invoiced.this_docs} dibayar · bulan lepas ${rm(rev.invoiced.last_cents)}${rev.outstanding && rev.outstanding.docs > 0 ? ` · tertunggak ${rm(rev.outstanding.cents)} (${rev.outstanding.docs})` : ""}`))}
         {/* v1.4.169: the other two channels, so the Total is ALL sales */}
-        {box("Other shipments", rm(rev.other?.this_cents ?? 0), `${rev.other?.this_orders ?? 0} non-TikTok order${(rev.other?.this_orders ?? 0) === 1 ? "" : "s"} with amount · last month ${rm(rev.other?.last_cents ?? 0)}`)}
-        {box("Manual sales", rm(rev.manual?.this_cents ?? 0), `${rev.manual?.this_units ?? 0} unit${(rev.manual?.this_units ?? 0) === 1 ? "" : "s"} sold via Out − · last month ${rm(rev.manual?.last_cents ?? 0)}`)}
-        {box("Total — all channels", rm(total), delta === null ? `last month ${rm(lastTotal)}` : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`)}
+        {box(L("Other shipments", "Penghantaran lain"), rm(rev.other?.this_cents ?? 0), L(`${rev.other?.this_orders ?? 0} non-TikTok order${(rev.other?.this_orders ?? 0) === 1 ? "" : "s"} with amount · last month ${rm(rev.other?.last_cents ?? 0)}`, `${rev.other?.this_orders ?? 0} pesanan bukan TikTok dengan amaun · bulan lepas ${rm(rev.other?.last_cents ?? 0)}`))}
+        {box(L("Manual sales", "Jualan manual"), rm(rev.manual?.this_cents ?? 0), L(`${rev.manual?.this_units ?? 0} unit${(rev.manual?.this_units ?? 0) === 1 ? "" : "s"} sold via Out − · last month ${rm(rev.manual?.last_cents ?? 0)}`, `${rev.manual?.this_units ?? 0} unit dijual melalui Out − · bulan lepas ${rm(rev.manual?.last_cents ?? 0)}`))}
+        {box(L("Total — all channels", "Jumlah — semua saluran"), rm(total), delta === null ? L(`last month ${rm(lastTotal)}`, `bulan lepas ${rm(lastTotal)}`) : L(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`, `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% berbanding bulan lepas`))}
       </div>
       {/* v1.6.1: last month's KPI result stays as context; the editable KPI
           target itself now lives on the Dashboard's Sales Floor. */}
@@ -1657,8 +1688,8 @@ function SalesRevenueCard() {
         const hit = lastPct >= 100;
         return (
           <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}>
-            {hit ? "🏆" : "📈"} Last month ({ym(rev.last_month)}): {rm(lastTotal)} of {rm(rev.last_target_cents!)} — {lastPct}%{" "}
-            {hit ? "TARGET HIT — keep the streak going!" : "— this month is the comeback."}
+            {hit ? "🏆" : "📈"} {L("Last month", "Bulan lepas")} ({ym(rev.last_month)}): {rm(lastTotal)} {L("of", "daripada")} {rm(rev.last_target_cents!)} — {lastPct}%{" "}
+            {hit ? L("TARGET HIT — keep the streak going!", "SASARAN DICAPAI — teruskan momentum!") : L("— this month is the comeback.", "— bulan ini masa bangkit semula.")}
           </p>
         );
       })() : null}
@@ -1747,16 +1778,16 @@ function UpcomingEventsCard({ role }: { role: string }) {
   };
 
   const createEvent = async () => {
-    if (!draft.title.trim() || !draft.event_date) { setMsg("Title and date are required."); return; }
+    if (!draft.title.trim() || !draft.event_date) { setMsg(L("Title and date are required.", "Tajuk dan tarikh diperlukan.")); return; }
     setMsg("");
     const res = await api<{ error?: { message?: string } }>(`/staff/events`, {
       method: "POST",
       body: JSON.stringify({ ...draft, start_time: draft.start_time || undefined, end_time: draft.end_time || undefined, location: draft.location || undefined, details: draft.details || undefined }),
     });
-    if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not create the event"); return; }
+    if (!res.ok) { setMsg(res.data?.error?.message ?? L("Could not create the event", "Tidak dapat membuat acara")); return; }
     setDraft({ title: "", category: "training", event_date: "", start_time: "", end_time: "", location: "", details: "" });
     setShowForm(false);
-    showToast("Saved", "Event created — all staff notified");
+    showToast(L("Saved", "Disimpan"), L("Event created — all staff notified", "Acara dibuat — semua kakitangan dimaklumkan"));
     void loadEvents();
   };
 
@@ -1771,14 +1802,14 @@ function UpcomingEventsCard({ role }: { role: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">
-            Upcoming events
+            {L("Upcoming events", "Acara akan datang")}
             {upcoming.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
                 {upcoming.length}
               </span>
             )}
           </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">Trainings, classes and important company dates — everyone is notified when one is added.</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{L("Trainings, classes and important company dates — everyone is notified when one is added.", "Latihan, kelas dan tarikh penting syarikat — semua dimaklumkan apabila satu ditambah.")}</p>
         </div>
         <span className="flex items-center gap-2">
           <span className="border-border inline-flex overflow-hidden rounded-lg border text-xs">
@@ -1786,57 +1817,57 @@ function UpcomingEventsCard({ role }: { role: string }) {
               <button key={v} type="button"
                 className={`px-3 py-1.5 font-medium capitalize ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
                 onClick={() => setView(v)}>
-                {v}
+                {v === "calendar" ? L("calendar", "kalendar") : L("list", "senarai")}
               </button>
             ))}
           </span>
           {canManage && (
             <button type="button" className={btnGhost} onClick={() => setShowForm((v) => !v)}>
-              {showForm ? "Close" : "+ Add event"}
+              {showForm ? L("Close", "Tutup") : L("+ Add event", "+ Tambah acara")}
             </button>
           )}
         </span>
       </div>
       {canManage && showForm && (
         <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
-          <Sub t="Event title">
-          <input className={inputClass} placeholder="e.g. TikTok Live hosting training" value={draft.title}
+          <Sub t={L("Event title", "Tajuk acara")}>
+          <input className={inputClass} placeholder={L("e.g. TikTok Live hosting training", "cth. Latihan pengacaraan TikTok Live")} value={draft.title}
             onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} /></Sub>
           {/* v1.4.154: standard widths — 2-up grid on phones, capped row from sm: */}
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-            <Sub t="Category">
+            <Sub t={L("Category", "Kategori")}>
               <select className={`${inputClass} sm:max-w-40`} value={draft.category}
                 onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-                {EVENT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {EVENT_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{L(l, ({ training: "Latihan", class: "Kelas", meeting: "Mesyuarat", event: "Acara" } as Record<string, string>)[v] ?? l)}</option>)}
               </select>
             </Sub>
-            <Sub t="Date">
+            <Sub t={L("Date", "Tarikh")}>
               <input type="date" className={`${inputClass} sm:max-w-44`} value={draft.event_date}
                 onChange={(e) => setDraft((d) => ({ ...d, event_date: e.target.value }))} />
             </Sub>
-            <Sub t="Start (optional)">
+            <Sub t={L("Start (optional)", "Mula (pilihan)")}>
               <input type="time" className={`${inputClass} sm:max-w-32`} value={draft.start_time}
                 onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} />
             </Sub>
-            <Sub t="End (optional)">
+            <Sub t={L("End (optional)", "Tamat (pilihan)")}>
               <input type="time" className={`${inputClass} sm:max-w-32`} value={draft.end_time}
                 onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
             </Sub>
           </div>
-          <Sub t="Location (optional)">
-          <input className={inputClass} placeholder="e.g. HQ meeting room / Google Meet" value={draft.location}
+          <Sub t={L("Location (optional)", "Lokasi (pilihan)")}>
+          <input className={inputClass} placeholder={L("e.g. HQ meeting room / Google Meet", "cth. Bilik mesyuarat HQ / Google Meet")} value={draft.location}
             onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} /></Sub>
-          <Sub t="Details (optional)">
-          <textarea className={`${inputClass} min-h-16`} placeholder="Agenda, links, what to prepare" value={draft.details}
+          <Sub t={L("Details (optional)", "Butiran (pilihan)")}>
+          <textarea className={`${inputClass} min-h-16`} placeholder={L("Agenda, links, what to prepare", "Agenda, pautan, apa yang perlu disediakan")} value={draft.details}
             onChange={(e) => setDraft((d) => ({ ...d, details: e.target.value }))} /></Sub>
           {msg && <p className="text-destructive text-xs font-medium">{msg}</p>}
-          <button type="button" className={btnClass} onClick={() => void createEvent()}>Save event — notifies all staff</button>
+          <button type="button" className={btnClass} onClick={() => void createEvent()}>{L("Save event — notifies all staff", "Simpan acara — memaklumkan semua kakitangan")}</button>
         </div>
       )}
       {upcomingBdays.length > 0 && (
         <p className="mt-2 rounded-lg bg-pink-50 px-3 py-2 text-xs font-medium text-pink-800">
-          🎂 Coming up: {upcomingBdays.slice(0, 4).map((b) => `${firstName(b.name)} (${dmy(b.iso)})`).join(" · ")}
-          {upcomingBdays.length > 4 ? ` +${upcomingBdays.length - 4} more` : ""} — time to plan the celebration!
+          🎂 {L("Coming up:", "Akan tiba:")} {upcomingBdays.slice(0, 4).map((b) => `${firstName(b.name)} (${dmy(b.iso)})`).join(" · ")}
+          {upcomingBdays.length > 4 ? L(` +${upcomingBdays.length - 4} more`, ` +${upcomingBdays.length - 4} lagi`) : ""} — {L("time to plan the celebration!", "masa untuk merancang sambutan!")}
         </p>
       )}
       {view === "calendar" && (
@@ -1850,54 +1881,54 @@ function UpcomingEventsCard({ role }: { role: string }) {
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
-          onAdded={(title, how) => showToast(how === "opened" ? "Calendar opened" : how === "stale" ? "Server needs the update" : "Saved",
+          onAdded={(title, how) => showToast(how === "opened" ? L("Calendar opened", "Kalendar dibuka") : how === "stale" ? L("Server needs the update", "Pelayan perlu dikemas kini") : L("Saved", "Disimpan"),
             how === "opened"
-              ? `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+              ? L(`${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`, `${title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`)
               : how === "stale"
                 ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
                 : how === "shared"
-                  ? `${title} — pick Calendar in the share sheet to finish`
-                  : `${title} — calendar file downloaded; open it to add the event`)}
+                  ? L(`${title} — pick Calendar in the share sheet to finish`, `${title} — pilih Kalendar dalam helaian kongsi untuk selesai`)
+                  : L(`${title} — calendar file downloaded; open it to add the event`, `${title} — fail kalendar dimuat turun; buka untuk menambah acara`))}
         />
       )}
       {view === "list" && (
       <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
-        {upcoming.length === 0 && <p className="text-muted-foreground text-sm">No upcoming events scheduled.</p>}
+        {upcoming.length === 0 && <p className="text-muted-foreground text-sm">{L("No upcoming events scheduled.", "Tiada acara akan datang dijadualkan.")}</p>}
         {upcoming.map((ev) => (
           <div key={ev.id} className="border-border flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2">
             <div className="min-w-0">
               <p className="text-sm">
                 <span className="font-medium">{ev.title}</span>{" "}
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{ev.category}</span>
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{annCatL(ev.category)}</span>
               </p>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {dmy(ev.event_date)}
-                <span className={`ml-1.5 font-semibold ${daysAway(ev.event_date) === "TODAY" ? "text-amber-700" : ""}`}>· {daysAway(ev.event_date)}</span>
+                <span className={`ml-1.5 font-semibold ${daysAway(ev.event_date) === "TODAY" ? "text-amber-700" : ""}`}>· {daysAwayL(daysAway(ev.event_date))}</span>
                 {ev.start_time ? ` · ${ev.start_time}${ev.end_time ? `–${ev.end_time}` : ""}` : ""}
                 {ev.location ? ` · ${ev.location}` : ""}
               </p>
               {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
-              {ev.created_by_name && <p className="text-muted-foreground mt-0.5 text-[11px]">Added by {ev.created_by_name}</p>}
+              {ev.created_by_name && <p className="text-muted-foreground mt-0.5 text-[11px]">{L("Added by", "Ditambah oleh")} {ev.created_by_name}</p>}
             </div>
             <span className={rowActions}>
               {/* v1.4.264: the portal card can only remind people while they
                   are LOOKING at it — the phone's own calendar is what buzzes
                   on the day. Every staff member gets this, not just managers. */}
               <button type="button" className={rowBtn}
-                title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
+                title={L("Save this event into your phone's calendar — it carries a reminder the evening before and at the start", "Simpan acara ini ke dalam kalendar telefon anda — ia membawa peringatan pada malam sebelumnya dan pada waktu mula")}
                 onClick={async () => {
                   const how = await addEventToCalendar(ev);
-                  showToast(how === "opened" ? "Calendar opened" : how === "stale" ? "Server needs the update" : "Saved",
+                  showToast(how === "opened" ? L("Calendar opened", "Kalendar dibuka") : how === "stale" ? L("Server needs the update", "Pelayan perlu dikemas kini") : L("Saved", "Disimpan"),
                     how === "opened"
-                      ? `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`
+                      ? L(`${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`, `${ev.title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`)
                       : how === "stale"
                         ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
                         : how === "shared"
-                          ? `${ev.title} — pick Calendar in the share sheet to finish`
-                          : `${ev.title} — calendar file downloaded; open it to add the event`, how === "stale" ? "notice" : undefined);
-                }}>📅 Add to my calendar</button>
+                          ? L(`${ev.title} — pick Calendar in the share sheet to finish`, `${ev.title} — pilih Kalendar dalam helaian kongsi untuk selesai`)
+                          : L(`${ev.title} — calendar file downloaded; open it to add the event`, `${ev.title} — fail kalendar dimuat turun; buka untuk menambah acara`), how === "stale" ? "notice" : undefined);
+                }}>📅 {L("Add to my calendar", "Tambah ke kalendar saya")}</button>
               {canManage && (
-                <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>Remove</button>
+                <button type="button" className={rowBtnDanger} onClick={() => void removeEvent(ev.id)}>{L("Remove", "Buang")}</button>
               )}
             </span>
           </div>
@@ -1945,7 +1976,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
     onSelect(null);
     onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
   };
-  const monthLabel = first.toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" });
+  const monthLabel = getLang() === "ms" ? `${MONTH_NAMES.ms[m - 1]} ${y}` : first.toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" });
   /* v1.21.1 (CEO: "the cell looks like not full cell border line"): pad the
      TAIL to complete weeks too — the last row used to stop at the final day,
      leaving the grid's bottom-right corner as an open notch with no borders. */
@@ -1956,12 +1987,12 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
   return (
     <div className="mt-3">
       <div className="flex items-center justify-between">
-        <button type="button" aria-label="Previous month" className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(-1)}>‹</button>
+        <button type="button" aria-label={L("Previous month", "Bulan sebelumnya")} className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(-1)}>‹</button>
         <p className="text-sm font-semibold">{monthLabel}</p>
-        <button type="button" aria-label="Next month" className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(1)}>›</button>
+        <button type="button" aria-label={L("Next month", "Bulan seterusnya")} className="border-border inline-flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-secondary" onClick={() => shift(1)}>›</button>
       </div>
       <div className="text-muted-foreground mt-2 grid grid-cols-7 text-center text-[11px] font-semibold tracking-wide uppercase">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <span key={d} className="py-1">{d}</span>)}
+        {(getLang() === "ms" ? ["Ahd", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]).map((d) => <span key={d} className="py-1">{d}</span>)}
       </div>
       {/* v1.21.1: collapse the inner borders cleanly — every 7th cell drops
           border-r (it met the frame and read as a doubled line) and the last
@@ -2011,7 +2042,7 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                         {e.title}
                       </span>
                     ))}
-                    {evs.length > 2 && <span className="text-muted-foreground block text-[10px]">+{evs.length - 2} more</span>}
+                    {evs.length > 2 && <span className="text-muted-foreground block text-[10px]">+{evs.length - 2} {L("more", "lagi")}</span>}
                   </span>
                 </>
               )}
@@ -2021,10 +2052,10 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
       </div>
       <div className="text-muted-foreground mt-2 flex flex-wrap gap-3 text-[11px]">
         {Object.entries(EVENT_COLORS).map(([k, cls]) => (
-          <span key={k} className="inline-flex items-center gap-1 capitalize"><span className={`h-2 w-2 rounded-full ${cls}`} />{k}</span>
+          <span key={k} className="inline-flex items-center gap-1 capitalize"><span className={`h-2 w-2 rounded-full ${cls}`} />{annCatL(k)}</span>
         ))}
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Public holiday</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-pink-500" />🎂 Birthday</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />{L("Public holiday", "Cuti umum")}</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-pink-500" />🎂 {L("Birthday", "Hari lahir")}</span>
       </div>
       {selected && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -2037,12 +2068,12 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
             )}
             {bdaysOf(selected).map((b) => (
               <span key={b.name} className="ml-2 rounded-full bg-pink-50 px-2 py-0.5 text-xs font-medium text-pink-700">
-                🎂 {properName(b.name)}&apos;s birthday
+                🎂 {L(`${properName(b.name)}'s birthday`, `Hari lahir ${properName(b.name)}`)}
               </span>
             ))}
           </p>
           {dayEvents.length === 0 ? (
-            <p className="text-muted-foreground mt-1 text-sm">{holidayOf(selected) ? "Public holiday — no company events." : "No events this day."}</p>
+            <p className="text-muted-foreground mt-1 text-sm">{holidayOf(selected) ? L("Public holiday — no company events.", "Cuti umum — tiada acara syarikat.") : L("No events this day.", "Tiada acara pada hari ini.")}</p>
           ) : (
             dayEvents.map((ev) => (
               <div key={ev.id} className="mt-2 flex flex-wrap items-start justify-between gap-2">
@@ -2050,12 +2081,12 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                   <p className="text-sm">
                     <span className={`mr-1.5 inline-block h-2 w-2 rounded-full align-middle ${EVENT_COLORS[ev.category] ?? "bg-primary"}`} />
                     <span className="font-medium">{ev.title}</span>{" "}
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{ev.category}</span>
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{annCatL(ev.category)}</span>
                   </p>
                   <p className="text-muted-foreground mt-0.5 text-xs">
-                    {ev.start_time ? `${ev.start_time}${ev.end_time ? `–${ev.end_time}` : ""}` : "All day"}
+                    {ev.start_time ? `${ev.start_time}${ev.end_time ? `–${ev.end_time}` : ""}` : L("All day", "Sepanjang hari")}
                     {ev.location ? ` · ${ev.location}` : ""}
-                    {ev.created_by_name ? ` · added by ${ev.created_by_name}` : ""}
+                    {ev.created_by_name ? L(` · added by ${ev.created_by_name}`, ` · ditambah oleh ${ev.created_by_name}`) : ""}
                   </p>
                   {ev.details && <p className="text-muted-foreground mt-0.5 text-xs">{ev.details}</p>}
                 </div>
@@ -2063,13 +2094,13 @@ function EventsCalendar({ events, holidays, birthdays = [], month, onMonth, sele
                   {/* v1.4.264: same button as the list view — one tap into the
                       phone's own calendar, for every staff member. */}
                   <button type="button" className={rowBtn}
-                    title="Save this event into your phone's calendar — it carries a reminder the evening before and at the start"
+                    title={L("Save this event into your phone's calendar — it carries a reminder the evening before and at the start", "Simpan acara ini ke dalam kalendar telefon anda — ia membawa peringatan pada malam sebelumnya dan pada waktu mula")}
                     onClick={async () => {
                       const how = await addEventToCalendar(ev);
                       onAdded(ev.title, how);
-                    }}>📅 Add to my calendar</button>
+                    }}>📅 {L("Add to my calendar", "Tambah ke kalendar saya")}</button>
                   {canManage && (
-                    <button type="button" className={rowBtnDanger} onClick={() => onRemove(ev.id)}>Remove</button>
+                    <button type="button" className={rowBtnDanger} onClick={() => onRemove(ev.id)}>{L("Remove", "Buang")}</button>
                   )}
                 </span>
               </div>
@@ -2131,38 +2162,38 @@ function Attendance({ user }: { user: User }) {
         const stillIn = monitor.staff.filter((s) => s.in_at && !s.out_at);
         return (
           <div className={card}>
-            <p className="text-sm font-semibold">👁 Today&apos;s attendance monitor — {dmy(monitor.date)}</p>
+            <p className="text-sm font-semibold">👁 {L("Today's attendance monitor", "Pemantau kehadiran hari ini")} — {dmy(monitor.date)}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Live snapshot of every active staff member&apos;s punches today (refreshes every 2 minutes).
-              {isWeekend ? " Weekend — missing punches are normal." : ""}
+              {L("Live snapshot of every active staff member's punches today (refreshes every 2 minutes).", "Paparan langsung punch setiap kakitangan aktif hari ini (dimuat semula setiap 2 minit).")}
+              {isWeekend ? L(" Weekend — missing punches are normal.", " Hujung minggu — punch yang tiada adalah normal.") : ""}
             </p>
             {notIn.length > 0 && !isWeekend && (
               <p className="mt-2 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
-                ⚠ Not clocked in: {notIn.map((s) => firstName(s.name)).join(", ")}
+                ⚠ {L("Not clocked in:", "Belum daftar masuk:")} {notIn.map((s) => firstName(s.name)).join(", ")}
               </p>
             )}
             {stillIn.length > 0 && afterShift && (
               <p className="mt-2 rounded-lg border border-blue-300 bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-900">
-                ⏳ Past 18:00 with no clock-out yet: {stillIn.map((s) => firstName(s.name)).join(", ")}
+                ⏳ {L("Past 18:00 with no clock-out yet:", "Melepasi 18:00 tanpa daftar keluar lagi:")} {stillIn.map((s) => firstName(s.name)).join(", ")}
               </p>
             )}
             {/* v1.4.196 (CEO): summary callouts stay; the full per-staff
                 list hides behind one click — minimalist view */}
-            <DetailsToggle label="Staff list">
+            <DetailsToggle label={L("Staff list", "Senarai kakitangan")}>
             <div className="border-border divide-border mt-1 max-h-64 divide-y overflow-y-auto rounded-lg border">
               {[...monitor.staff].sort((a, b) => Number(!!a.in_at) - Number(!!b.in_at) || a.name.localeCompare(b.name)).map((st) => (
                 <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm">
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-medium">{properName(st.name)}</span>
-                    <span className="text-muted-foreground text-xs capitalize"> · {st.role.replace(/_/g, " ")}{st.employment_status === "part_time" ? " (part-time)" : ""}</span>
+                    <span className="text-muted-foreground text-xs capitalize"> · {st.role.replace(/_/g, " ")}{st.employment_status === "part_time" ? L(" (part-time)", " (separuh masa)") : ""}</span>
                   </span>
                   <span className="flex flex-wrap items-center justify-end gap-1">
                     {st.in_at
-                      ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">In {hm(st.in_at)}</span>
-                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">⚠ not clocked in</span>}
+                      ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">{L("In", "Masuk")} {hm(st.in_at)}</span>
+                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">⚠ {L("not clocked in", "belum daftar masuk")}</span>}
                     {st.in_at && (st.out_at
-                      ? <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">Out {hm(st.out_at)}</span>
-                      : <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}`}>{afterShift ? "⏳ no clock-out" : "still in"}</span>)}
+                      ? <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("Out", "Keluar")} {hm(st.out_at)}</span>
+                      : <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}`}>{afterShift ? L("⏳ no clock-out", "⏳ tiada daftar keluar") : L("still in", "belum keluar")}</span>)}
                   </span>
                 </div>
               ))}
@@ -2175,20 +2206,20 @@ function Attendance({ user }: { user: User }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-sm font-semibold">
-              {reportMode && canReport ? "Team attendance report" : "My attendance"}
+              {reportMode && canReport ? L("Team attendance report", "Laporan kehadiran pasukan") : L("My attendance", "Kehadiran saya")}
             </p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {reportMode && canReport
-                ? "Every punch across the team for the chosen month. Times are Malaysia time."
-                : "Your days at work with hours counted — first clock-in to last clock-out. Times are Malaysia time."}
+                ? L("Every punch across the team for the chosen month. Times are Malaysia time.", "Setiap punch seluruh pasukan bagi bulan dipilih. Masa ialah waktu Malaysia.")
+                : L("Your days at work with hours counted — first clock-in to last clock-out. Times are Malaysia time.", "Hari bekerja anda dengan jam dikira — daftar masuk pertama hingga daftar keluar terakhir. Masa ialah waktu Malaysia.")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {reportMode && canReport && records.length > 0 && (
               <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-44" value={filterName}
-                title="Show one staff member only"
+                title={L("Show one staff member only", "Papar seorang kakitangan sahaja")}
                 onChange={(e) => setFilterName(e.target.value)}>
-                <option value="">Find staff: everyone</option>
+                <option value="">{L("Find staff: everyone", "Cari kakitangan: semua")}</option>
                 {[...new Set(records.map((r) => r.name).filter(Boolean))].sort().map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
@@ -2198,13 +2229,13 @@ function Attendance({ user }: { user: User }) {
             <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} />
             {canReport && (
               <button type="button" className={btnGhost} onClick={() => setReportMode((v) => !v)}>
-                {reportMode ? "My attendance" : "Team report"}
+                {reportMode ? L("My attendance", "Kehadiran saya") : L("Team report", "Laporan pasukan")}
               </button>
             )}
           </div>
         </div>
 
-        {records.length === 0 && <p className="text-muted-foreground mt-3 text-sm">No records for this month.</p>}
+        {records.length === 0 && <p className="text-muted-foreground mt-3 text-sm">{L("No records for this month.", "Tiada rekod untuk bulan ini.")}</p>}
 
         {/* Personal view (v1.4.77): grouped by day — Date | In | Out | Hours. */}
         {!reportMode && records.length > 0 && (() => {
@@ -2236,10 +2267,10 @@ function Attendance({ user }: { user: User }) {
               <table className="w-full min-w-[420px] border-collapse text-sm">
                 <thead>
                   <tr className="border-border border-b">
-                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Date</th>
-                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">In</th>
-                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">Out</th>
-                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">Hours</th>
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">{L("Date", "Tarikh")}</th>
+                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">{L("In", "Masuk")}</th>
+                    <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">{L("Out", "Keluar")}</th>
+                    <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">{L("Hours", "Jam")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2254,7 +2285,7 @@ function Attendance({ user }: { user: User }) {
                           {firstIn ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{mytTime(firstIn)}</span> : <span className="text-muted-foreground text-xs">—</span>}
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
-                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : firstIn ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">still in</span> : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">missing</span>}
+                          {lastOut ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">{mytTime(lastOut)}</span> : firstIn ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">{L("still in", "belum keluar")}</span> : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{L("missing", "tiada")}</span>}
                         </td>
                         <td className="px-2 py-1.5 font-medium whitespace-nowrap">{hrs ?? "—"}</td>
                       </tr>
@@ -2263,7 +2294,7 @@ function Attendance({ user }: { user: User }) {
                 </tbody>
                 <tfoot>
                   <tr className="border-border border-t-2 font-semibold">
-                    <td className="px-2 py-2">{days.length} day{days.length === 1 ? "" : "s"}</td>
+                    <td className="px-2 py-2">{L(`${days.length} day${days.length === 1 ? "" : "s"}`, `${days.length} hari`)}</td>
                     <td className="px-2 py-2" colSpan={2}></td>
                     <td className="px-2 py-2 whitespace-nowrap">{totalMs > 0 ? `${Math.floor(totalMs / 3600000)}h ${String(Math.round((totalMs % 3600000) / 60000)).padStart(2, "0")}m` : "—"}</td>
                   </tr>
@@ -2282,9 +2313,9 @@ function Attendance({ user }: { user: User }) {
                   {([["name", "Staff"], ["type", "Type"], ["time", "Time (MYT)"]] as const).map(([k, label]) => (
                     <th key={k}
                       className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none hover:underline"
-                      title="Click to sort — click again to reverse"
+                      title={L("Click to sort — click again to reverse", "Klik untuk isih — klik lagi untuk terbalikkan")}
                       onClick={() => clickSort(k)}>
-                      {label}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
+                      {L(label, k === "name" ? "Kakitangan" : k === "type" ? "Jenis" : "Masa (MYT)")}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
                     </th>
                   ))}
                 </tr>
@@ -2303,7 +2334,7 @@ function Attendance({ user }: { user: User }) {
                     <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.name ?? "—"}</td>
                     <td className="px-2 py-1.5">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.type === "clock_in" ? "bg-green-100 text-green-800" : "bg-secondary"}`}>
-                        {r.type === "clock_in" ? "In" : "Out"}
+                        {r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar")}
                       </span>
                     </td>
                     <td className="px-2 py-1.5 whitespace-nowrap">{mytDateTime(r.created_at)}</td>
@@ -2331,6 +2362,17 @@ const STAGE_LABEL: Record<string, string> = {
   rejected: "Rejected",
   cancelled: "Cancelled",
 };
+/* BM twin of STAGE_LABEL — display only, the stage value itself stays EN. */
+const STAGE_LABEL_MS: Record<string, string> = {
+  applied: "Menunggu semakan HR",
+  hr_reviewed: "Menunggu pra-kelulusan",
+  pre_approved: "Menunggu CEO",
+  pending_final: "Menunggu CEO",
+  approved: "Diluluskan",
+  rejected: "Ditolak",
+  cancelled: "Dibatalkan",
+};
+const stageL = (s: string) => (getLang() === "ms" ? STAGE_LABEL_MS[s] : STAGE_LABEL[s]) ?? s;
 
 // Which stage a reviewer role can act on (mirrors the Worker's chain).
 function canActOnStage(role: string, stage: string, applicantRole: string): boolean {
@@ -2516,13 +2558,13 @@ function Leave({ user }: { user: User }) {
           const availableNow = Math.max(0, (b.accrued ?? b.entitled) - b.used);
           return (
             <div key={t} className={card}>
-              <p className="text-xs font-medium uppercase tracking-wide">{t}</p>
+              <p className="text-xs font-medium uppercase tracking-wide">{leaveTypeL(t)}</p>
               <p className="mt-1 text-lg font-semibold">
                 {availableNow}
-                <span className="text-muted-foreground text-xs font-normal"> eligible now</span>
+                <span className="text-muted-foreground text-xs font-normal"> {L("eligible now", "layak sekarang")}</span>
               </p>
               <p className="text-muted-foreground text-[11px]">
-                {b.entitled}/year · {b.used} used
+                {L(`${b.entitled}/year · ${b.used} used`, `${b.entitled}/tahun · ${b.used} digunakan`)}
               </p>
             </div>
           );
@@ -2531,34 +2573,34 @@ function Leave({ user }: { user: User }) {
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Apply for leave</p>
+          <p className="text-sm font-semibold">{L("Apply for leave", "Mohon cuti")}</p>
           <div className="mt-3 space-y-3">
-            <Sub t="Leave type">
+            <Sub t={L("Leave type", "Jenis cuti")}>
               <select className={inputClass} value={draft.type} onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}>
-                {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {LEAVE_TYPES.map((t) => <option key={t} value={t}>{leaveTypeL(t)}</option>)}
               </select>
             </Sub>
             <div className="grid grid-cols-2 gap-3">
-              <Sub t="Start date">
+              <Sub t={L("Start date", "Tarikh mula")}>
                 <input type="date" className={inputClass} value={draft.start_date} onChange={(e) => setDraft((d) => ({ ...d, start_date: e.target.value }))} />
               </Sub>
-              <Sub t="End date">
+              <Sub t={L("End date", "Tarikh tamat")}>
                 <input type="date" className={inputClass} value={draft.end_date} onChange={(e) => setDraft((d) => ({ ...d, end_date: e.target.value }))} />
               </Sub>
             </div>
-            <Sub t="Days (0.5 = half day)">
+            <Sub t={L("Days (0.5 = half day)", "Hari (0.5 = separuh hari)")}>
               <input type="number" min={0.5} step={0.5} className={inputClass} value={draft.days} onChange={(e) => setDraft((d) => ({ ...d, days: Number(e.target.value) }))} />
             </Sub>
-            <Sub t="Reason (optional)">
-              <textarea className={inputClass} rows={2} placeholder="e.g. Family matters in Melaka" value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} />
+            <Sub t={L("Reason (optional)", "Sebab (pilihan)")}>
+              <textarea className={inputClass} rows={2} placeholder={L("e.g. Family matters in Melaka", "cth. Urusan keluarga di Melaka")} value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} />
             </Sub>
-            <button type="button" className={btnClass} onClick={() => void apply()}>Submit request</button>
+            <button type="button" className={btnClass} onClick={() => void apply()}>{L("Submit request", "Hantar permohonan")}</button>
           </div>
         </div>
 
         <div className={card}>
-          <p className="text-sm font-semibold">My leave history</p>
-          {mine.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No requests yet.</p>}
+          <p className="text-sm font-semibold">{L("My leave history", "Sejarah cuti saya")}</p>
+          {mine.length === 0 && <p className="text-muted-foreground mt-2 text-sm">{L("No requests yet.", "Tiada permohonan lagi.")}</p>}
           <div className="max-h-72 overflow-y-auto">
           {mine.map((l) => (
             <div key={l.id} className="border-border border-b py-2 text-sm last:border-0">
@@ -2566,28 +2608,28 @@ function Leave({ user }: { user: User }) {
               <span className="min-w-0">
                 {/* v1.4.249: the leave number opens the record; type, period,
                     reason and the reviewer's comment moved into the panel. */}
-                <RecordToggle open={openLeave === l.id} title="Type, period, reason and comments"
+                <RecordToggle open={openLeave === l.id} title={L("Type, period, reason and comments", "Jenis, tempoh, sebab dan komen")}
                   onToggle={() => setOpenLeave(openLeave === l.id ? null : l.id)}>{leaveNoOf(l)}</RecordToggle>
                 {" · "}{l.days}d ·{" "}
-                <span className="font-medium">{STAGE_LABEL[(l as LeaveReq).stage ?? l.status] ?? l.status}</span>
+                <span className="font-medium">{stageL((l as LeaveReq).stage ?? l.status)}</span>
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
-                <button type="button" className={rowBtn} title="Print the Leave Application Form (AZOO-HR-LVE-001)" onClick={() => printLeaveForm(l, user.name)}>Print form</button>
+                <button type="button" className={rowBtn} title={L("Print the Leave Application Form (AZOO-HR-LVE-001)", "Cetak Borang Permohonan Cuti (AZOO-HR-LVE-001)")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
                 {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
-                <button type="button" className={rowBtn} title="Send the leave form as a PDF file"
-                  onClick={() => void sendLeavePdf(l)}>Send PDF</button>
+                <button type="button" className={rowBtn} title={L("Send the leave form as a PDF file", "Hantar borang cuti sebagai fail PDF")}
+                  onClick={() => void sendLeavePdf(l)}>{L("Send PDF", "Hantar PDF")}</button>
                 {!["approved", "rejected", "cancelled"].includes((l as LeaveReq).stage ?? "") && (
-                  <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>Cancel</button>
+                  <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>{L("Cancel", "Batal")}</button>
                 )}
               </span>
             </div>
             {openLeave === l.id && (
               <DetailGrid items={[
-                { label: "Type", value: l.type },
-                { label: "Period", value: `${dmy(l.start_date)} → ${dmy(l.end_date)}` },
-                { label: "Days", value: `${l.days}` },
-                { label: "Reason", wide: true, value: l.reason ?? "" },
-                { label: "Reviewer note", wide: true, value: l.review_comment ?? "" },
+                { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
+                { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)} → ${dmy(l.end_date)}` },
+                { label: L("Days", "Hari"), value: `${l.days}` },
+                { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
+                { label: L("Reviewer note", "Catatan penyemak"), wide: true, value: l.review_comment ?? "" },
               ]} />
             )}
             </div>
@@ -2610,28 +2652,28 @@ function Leave({ user }: { user: User }) {
         const who = (l: LeaveReq) => properName(l.user_full || l.user_name || "");
         return (
           <div className={card}>
-            <p className="text-sm font-semibold">Leave applications — whole company</p>
+            <p className="text-sm font-semibold">{L("Leave applications — whole company", "Permohonan cuti — seluruh syarikat")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Every application in progress, and whose approval it is waiting on. Action buttons appear on the ones waiting on you.
+              {L("Every application in progress, and whose approval it is waiting on. Action buttons appear on the ones waiting on you.", "Setiap permohonan yang sedang diproses, dan kelulusan siapa yang ditunggu. Butang tindakan muncul pada yang menunggu anda.")}
             </p>
-            {pending.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing in progress.</p>}
+            {pending.length === 0 && <p className="text-muted-foreground mt-2 text-sm">{L("Nothing in progress.", "Tiada yang sedang diproses.")}</p>}
             <div className="max-h-80 overflow-y-auto">
             {pending.map((l) => {
               const mine = canActOnStage(user.role, l.stage ?? "", l.applicant_role ?? "") && l.user_id !== user.id;
               return (
                 <div key={l.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
                   <span className="min-w-0">
-                    <span className="font-medium">{who(l)}</span> · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
+                    <span className="font-medium">{who(l)}</span> · {leaveTypeL(l.type)} · {dmy(l.start_date)} → {dmy(l.end_date)} ({l.days}d)
                     <span className={`ml-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${mine ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}>
-                      waiting on {waitingOn(l)}
+                      {L("waiting on", "menunggu")} {waitingOn(l)}
                     </span>
                   </span>
                   {mine && (
                     <span className="flex gap-2">
                       <button type="button" className={btnGhost} onClick={() => void act(l.id, "approve")}>
-                        {(l.stage === "applied") ? "Mark reviewed" : (l.stage === "hr_reviewed" ? "Pre-approve" : "Final approve")}
+                        {(l.stage === "applied") ? L("Mark reviewed", "Tanda disemak") : (l.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir"))}
                       </button>
-                      <button type="button" className="text-destructive text-sm underline" onClick={() => void act(l.id, "reject")}>Reject</button>
+                      <button type="button" className="text-destructive text-sm underline" onClick={() => void act(l.id, "reject")}>{L("Reject", "Tolak")}</button>
                     </span>
                   )}
                 </div>
@@ -2640,10 +2682,10 @@ function Leave({ user }: { user: User }) {
             </div>
             {decided.length > 0 && (
               <div className="mt-3">
-                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Recently decided</p>
+                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Recently decided", "Keputusan terkini")}</p>
                 {decided.map((l) => (
                   <p key={l.id} className="text-muted-foreground mt-1 text-xs">
-                    {who(l)} · {l.type} · {dmy(l.start_date)} → {dmy(l.end_date)} · {STAGE_LABEL[l.stage ?? l.status] ?? l.status}
+                    {who(l)} · {leaveTypeL(l.type)} · {dmy(l.start_date)} → {dmy(l.end_date)} · {stageL(l.stage ?? l.status)}
                   </p>
                 ))}
               </div>
@@ -2694,43 +2736,42 @@ function Tasks({ user }: { user: User }) {
   return (
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
-        <p className="text-sm font-semibold">{canManage ? "Create / assign a task" : "Create a task"}</p>
+        <p className="text-sm font-semibold">{canManage ? L("Create / assign a task", "Buat / agih tugasan") : L("Create a task", "Buat tugasan")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          You know your work best — add your own tasks with a deadline and track
-          them as open, pending, or closed.
+          {L("You know your work best — add your own tasks with a deadline and track them as open, pending, or closed.", "Anda paling tahu kerja anda — tambah tugasan sendiri dengan tarikh akhir dan jejak sebagai terbuka, menunggu atau selesai.")}
         </p>
         <div className="mt-3 space-y-3">
-          <Sub t="Title">
-            <input className={inputClass} placeholder="e.g. Prepare LIVE rundown" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
+          <Sub t={L("Title", "Tajuk")}>
+            <input className={inputClass} placeholder={L("e.g. Prepare LIVE rundown", "cth. Sediakan rundown LIVE")} value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
           </Sub>
-          <Sub t="Description">
-            <textarea className={inputClass} rows={2} placeholder="What needs doing?" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+          <Sub t={L("Description", "Keterangan")}>
+            <textarea className={inputClass} rows={2} placeholder={L("What needs doing?", "Apa yang perlu dibuat?")} value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
           </Sub>
           {canManage && (
-            <Sub t="Assign to">
+            <Sub t={L("Assign to", "Agihkan kepada")}>
               <select className={inputClass} value={draft.assigned_to} onChange={(e) => setDraft((d) => ({ ...d, assigned_to: Number(e.target.value) }))}>
-                <option value={0}>Assign to myself</option>
+                <option value={0}>{L("Assign to myself", "Agih kepada diri sendiri")}</option>
                 {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </Sub>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <Sub t="Priority">
+            <Sub t={L("Priority", "Keutamaan")}>
               <select className={inputClass} value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}>
-                {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{p}</option>)}
+                {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{priorityL(p)}</option>)}
               </select>
             </Sub>
-            <Sub t="Deadline (optional)">
+            <Sub t={L("Deadline (optional)", "Tarikh akhir (pilihan)")}>
               <input type="date" className={inputClass} value={draft.deadline} onChange={(e) => setDraft((d) => ({ ...d, deadline: e.target.value }))} />
             </Sub>
           </div>
-          <button type="button" className={btnClass} onClick={() => void create()}>Create task</button>
+          <button type="button" className={btnClass} onClick={() => void create()}>{L("Create task", "Buat tugasan")}</button>
         </div>
       </div>
 
       <div className={card}>
-        <p className="text-sm font-semibold">{canManage ? "All tasks" : "My tasks"}</p>
-        {tasks.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No tasks.</p>}
+        <p className="text-sm font-semibold">{canManage ? L("All tasks", "Semua tugasan") : L("My tasks", "Tugasan saya")}</p>
+        {tasks.length === 0 && <p className="text-muted-foreground mt-2 text-sm">{L("No tasks.", "Tiada tugasan.")}</p>}
         <div className="max-h-96 overflow-y-auto">
         {tasks.map((t) => (
           <div key={t.id} className="border-border border-b py-2 text-sm last:border-0">
@@ -2738,7 +2779,7 @@ function Tasks({ user }: { user: User }) {
               <span>
                 <span className="font-medium">{t.title}</span>
                 {t.assignee ? <span className="text-muted-foreground"> · {t.assignee}</span> : null}
-                <span className="text-muted-foreground"> · {t.priority}{t.deadline ? ` · due ${t.deadline}` : ""}</span>
+                <span className="text-muted-foreground"> · {priorityL(t.priority)}{t.deadline ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`) : ""}</span>
               </span>
               <span className="flex items-center gap-2">
                 <select
@@ -2746,7 +2787,7 @@ function Tasks({ user }: { user: User }) {
                   value={t.status}
                   onChange={(e) => void update(t.id, { status: e.target.value, progress: e.target.value === "completed" ? 100 : t.progress })}
                 >
-                  {[["open", "Open"], ["in_progress", "Pending"], ["completed", "Closed"]].map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+                  {[["open", "Open"], ["in_progress", "Pending"], ["completed", "Closed"]].map(([v, lbl]) => <option key={v} value={v}>{L(lbl!, v === "open" ? "Terbuka" : v === "in_progress" ? "Menunggu" : "Selesai")}</option>)}
                 </select>
                 <span className="text-muted-foreground text-xs">{t.progress}%</span>
               </span>
@@ -2851,31 +2892,30 @@ function Announcements({ user }: { user: User }) {
     <div className="space-y-4 md:space-y-6">
       {canPost && (
         <div className={card}>
-          <p className="text-sm font-semibold">Publish news</p>
+          <p className="text-sm font-semibold">{L("Publish news", "Terbit berita")}</p>
           {/* v1.4.163 (CEO: "head section is not same as Dashboard"): this
               form predated the subhead standard — description + Sub labels
               added so it matches every other card. */}
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Posted to every staff member — it appears on their Dashboard and in
-            this feed until they press Acknowledge.
+            {L("Posted to every staff member — it appears on their Dashboard and in this feed until they press Acknowledge.", "Disiarkan kepada setiap kakitangan — ia muncul di Papan Pemuka mereka dan dalam suapan ini sehingga mereka menekan Perakui.")}
           </p>
           <div className="mt-3 space-y-3">
             {/* v1.4.224 (CEO): order = Category → Subject → To | From → Body. */}
-            <Sub t="Category">
+            <Sub t={L("Category", "Kategori")}>
               <select className={`${inputClass} sm:max-w-44`} value={draft.category} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-                {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{c}</option>)}
+                {["news", "meeting", "holiday", "kpi", "training", "memo"].map((c) => <option key={c} value={c}>{annCatL(c)}</option>)}
               </select>
             </Sub>
-            <Sub t={draft.category === "memo" ? "Subject / Perkara" : "Subject"}>
+            <Sub t={draft.category === "memo" ? L("Subject / Perkara", "Perkara") : L("Subject", "Perkara")}>
               <input className={inputClass} placeholder="e.g. Perubahan waktu balik bekerja" value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </Sub>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {/* v1.4.223: To/From placement boxes on EVERY post; memo mode
                   relabels to Kepada/Daripada and adds Tarikh + Perkara. */}
-              <Sub t={draft.category === "memo" ? "Kepada (To)" : "To"}>
+              <Sub t={draft.category === "memo" ? L("Kepada (To)", "Kepada") : L("To", "Kepada")}>
                 <input className={inputClass} value={toFrom.to} onChange={(e) => setToFrom((m) => ({ ...m, to: e.target.value }))} />
               </Sub>
-              <Sub t={draft.category === "memo" ? "Daripada (From)" : "From"}>
+              <Sub t={draft.category === "memo" ? L("Daripada (From)", "Daripada") : L("From", "Daripada")}>
                 <input className={inputClass} value={toFrom.from} onChange={(e) => setToFrom((m) => ({ ...m, from: e.target.value }))} />
               </Sub>
               {draft.category === "memo" && (
@@ -2884,14 +2924,14 @@ function Announcements({ user }: { user: User }) {
                 </Sub>
               )}
             </div>
-            <Sub t={draft.category === "memo" ? "Kandungan memo" : "Body"}>
+            <Sub t={draft.category === "memo" ? "Kandungan memo" : L("Body", "Kandungan")}>
               <textarea className={inputClass} rows={draft.category === "memo" ? 8 : 3}
                 placeholder={draft.category === "memo"
                   ? "Isi memo — guna * di awal baris untuk senarai bullet, dan 'Label: nilai' untuk baris tebal (cth. Masa: 9:00 pagi)"
-                  : "The full announcement text"}
+                  : L("The full announcement text", "Teks penuh pengumuman")}
                 value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
             </Sub>
-            <button type="button" className={btnClass} onClick={() => void post()}>Publish</button>
+            <button type="button" className={btnClass} onClick={() => void post()}>{L("Publish", "Terbitkan")}</button>
           </div>
         </div>
       )}
@@ -2909,21 +2949,21 @@ function Announcements({ user }: { user: User }) {
             <p className="text-sm font-semibold">
               {!a.acked && (
                 <span className="mr-2 inline-flex -translate-y-px animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 align-middle text-[10px] font-bold tracking-wide text-white uppercase">
-                  New
+                  {L("New", "Baru")}
                 </span>
               )}
-              {a.title} <span className="text-muted-foreground font-normal">· {a.category} · {dmy(a.created_at)}</span></p>
+              {a.title} <span className="text-muted-foreground font-normal">· {annCatL(a.category)} · {dmy(a.created_at)}</span></p>
             {a.acked ? (
-              <span className="text-muted-foreground text-xs">Acknowledged ✓</span>
+              <span className="text-muted-foreground text-xs">{L("Acknowledged ✓", "Diperakui ✓")}</span>
             ) : (
-              <button type="button" className={btnGhost} onClick={() => void ack(a.id)}>Acknowledge</button>
+              <button type="button" className={btnGhost} onClick={() => void ack(a.id)}>{L("Acknowledge", "Perakui")}</button>
             )}
           </div>
           <MemoBody body={a.body} />
         </article>
       ))}
       </div>
-      {anns.length === 0 && <p className="text-muted-foreground text-sm">No announcements yet.</p>}
+      {anns.length === 0 && <p className="text-muted-foreground text-sm">{L("No announcements yet.", "Tiada pengumuman lagi.")}</p>}
     </div>
   );
 }
@@ -3060,9 +3100,9 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
   useEffect(() => { void load(); }, []);
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
     if (decision === "rejected" && !(await otConfirm({
-      title: "Reject this overtime?",
-      message: `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`,
-      confirmLabel: "Reject OT", variant: "danger",
+      title: L("Reject this overtime?", "Tolak OT ini?"),
+      message: L(`${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. The staff member is notified either way.`, `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}. Kakitangan akan dimaklumkan apa pun keputusannya.`),
+      confirmLabel: L("Reject OT", "Tolak OT"), variant: "danger",
     }))) return;
     await api(`/staff/attendance/ot/decide`, {
       method: "POST",
@@ -3080,8 +3120,8 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
 
   const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : (
     <div className={card}>
-      <p className="text-sm font-semibold">⏱ Overtime approvals</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">Completed OT day-pairs awaiting a decision. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.</p>
+      <p className="text-sm font-semibold">⏱ {L("Overtime approvals", "Kelulusan OT")}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">{L("Completed OT day-pairs awaiting a decision. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.", "Pasangan hari OT yang selesai dan menunggu keputusan. Hanya OT yang DILULUSKAN dikira apabila OT masuk ke gaji. Kakitangan dimaklumkan bagi setiap keputusan.")}</p>
       <div className="mt-3 space-y-0">{node}</div>
     </div>
   );
@@ -3098,13 +3138,13 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
             <span className="text-muted-foreground text-xs">{dmy(p.d)} · {p.ot_in}–{p.ot_out}{dur(p)}</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder="Note (optional)"
+            <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" placeholder={L("Note (optional)", "Catatan (pilihan)")}
               value={note[`${p.user_id}:${p.d}`] ?? ""}
               onChange={(e) => setNote((n) => ({ ...n, [`${p.user_id}:${p.d}`]: e.target.value }))} />
             <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
-              onClick={() => void decide(p, "approved")}>Approve</button>
+              onClick={() => void decide(p, "approved")}>{L("Approve", "Luluskan")}</button>
             <button type="button" className="text-destructive rounded border border-border px-2 py-0.5 text-xs"
-              onClick={() => void decide(p, "rejected")}>Reject</button>
+              onClick={() => void decide(p, "rejected")}>{L("Reject", "Tolak")}</button>
           </span>
         </div>
           ))}
@@ -3170,11 +3210,11 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
      dialog edges. It now carries the dialog's standard inner padding. */
   const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col px-4 pt-1 pb-4 sm:px-5 sm:pb-5">{node}</div> : (
     <div className={card}>
-      <p className="text-sm font-semibold">📺 Live session schedule</p>
+      <p className="text-sm font-semibold">📺 {L("Live session schedule", "Jadual sesi LIVE")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {manager
-          ? "The roster: which host goes live for which client, on which platform, at what slot. Hosts are bell-notified when assigned."
-          : "Your upcoming live sessions — you are notified when a new one is assigned to you."}
+          ? L("The roster: which host goes live for which client, on which platform, at what slot. Hosts are bell-notified when assigned.", "Roster: hos mana yang LIVE untuk pelanggan mana, di platform mana, pada slot apa. Hos dimaklumkan melalui loceng apabila ditugaskan.")
+          : L("Your upcoming live sessions — you are notified when a new one is assigned to you.", "Sesi LIVE anda yang akan datang — anda dimaklumkan apabila yang baharu ditugaskan kepada anda.")}
       </p>
       {node}
     </div>
@@ -3190,7 +3230,7 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
     );
   }
   if (!manager && sessions.length === 0) {
-    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No live sessions scheduled.</p>);
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>{L("No live sessions scheduled.", "Tiada sesi LIVE dijadualkan.")}</p>);
   }
 
   return wrapCard(
@@ -3200,34 +3240,34 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
            free-flowing sm:flex row was built for the full-width card and
            squeezed four fields into the dialog's 576px. */
         <div className={`mt-3 grid grid-cols-2 items-end gap-2 ${inModal ? "" : "sm:flex sm:flex-wrap"}`}>
-          <Sub t="Date"><input type="date" className={inputClass} value={draft.session_date} onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} /></Sub>
-          <Sub t="Start"><input type="time" className={inputClass} value={draft.start_time} onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} /></Sub>
-          <Sub t="End (optional)"><input type="time" className={inputClass} value={draft.end_time} onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} /></Sub>
-          <Sub t="Platform">
+          <Sub t={L("Date", "Tarikh")}><input type="date" className={inputClass} value={draft.session_date} onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} /></Sub>
+          <Sub t={L("Start", "Mula")}><input type="time" className={inputClass} value={draft.start_time} onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} /></Sub>
+          <Sub t={L("End (optional)", "Tamat (pilihan)")}><input type="time" className={inputClass} value={draft.end_time} onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} /></Sub>
+          <Sub t={L("Platform", "Platform")}>
             <select className={inputClass} value={draft.platform} onChange={(e) => setDraft((d) => ({ ...d, platform: e.target.value }))}>
-              {["tiktok", "shopee", "other"].map((pf) => <option key={pf} value={pf}>{pf}</option>)}
+              {["tiktok", "shopee", "other"].map((pf) => <option key={pf} value={pf}>{pf === "other" ? L("other", "lain-lain") : pf}</option>)}
             </select>
           </Sub>
-          <Sub t="Host">
+          <Sub t={L("Host", "Hos")}>
             <select className={inputClass} value={draft.host_user_id} onChange={(e) => setDraft((d) => ({ ...d, host_user_id: e.target.value }))}>
-              <option value="">Select host…</option>
+              <option value="">{L("Select host…", "Pilih hos…")}</option>
               {hosts.map((h) => <option key={h.id} value={h.id}>{properName(h.name ?? "")}</option>)}
             </select>
           </Sub>
-          <Sub t="Client">
+          <Sub t={L("Client", "Pelanggan")}>
             <select className={inputClass} value={draft.client_id} onChange={(e) => setDraft((d) => ({ ...d, client_id: e.target.value }))}>
-              <option value="">— unregistered / see note —</option>
+              <option value="">{L("— unregistered / see note —", "— tidak berdaftar / lihat catatan —")}</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
             </select>
           </Sub>
-          <Sub t="Notes (optional)" className="col-span-2 sm:max-w-64 sm:flex-1">
-            <input className={inputClass} placeholder="e.g. Raya campaign, product focus" value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+          <Sub t={L("Notes (optional)", "Catatan (pilihan)")} className="col-span-2 sm:max-w-64 sm:flex-1">
+            <input className={inputClass} placeholder={L("e.g. Raya campaign, product focus", "cth. Kempen Raya, fokus produk")} value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
           </Sub>
-          <button type="button" className={`${btnClass} col-span-2 sm:col-span-1`} onClick={() => void create()}>Schedule</button>
+          <button type="button" className={`${btnClass} col-span-2 sm:col-span-1`} onClick={() => void create()}>{L("Schedule", "Jadualkan")}</button>
         </div>
       )}
       {sessions.length === 0 ? (
-        <p className="text-muted-foreground mt-3 text-sm">No sessions scheduled.</p>
+        <p className="text-muted-foreground mt-3 text-sm">{L("No sessions scheduled.", "Tiada sesi dijadualkan.")}</p>
       ) : (
         <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
           {sessions.map((sn) => (
@@ -3243,10 +3283,10 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
               {manager ? (
                 <select className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]" value={sn.status}
                   onChange={(e) => void setStatus(sn.id, e.target.value)}>
-                  {["scheduled", "completed", "cancelled"].map((st) => <option key={st} value={st}>{st}</option>)}
+                  {["scheduled", "completed", "cancelled"].map((st) => <option key={st} value={st}>{sessStatusL(st)}</option>)}
                 </select>
               ) : (
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sn.status === "cancelled" ? "bg-red-100 text-red-900" : sn.status === "completed" ? "bg-secondary" : "bg-green-100 text-green-900"}`}>{sn.status}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sn.status === "cancelled" ? "bg-red-100 text-red-900" : sn.status === "completed" ? "bg-secondary" : "bg-green-100 text-green-900"}`}>{sessStatusL(sn.status)}</span>
               )}
             </div>
           ))}
@@ -3273,16 +3313,15 @@ function LiveEconomicsCard() {
   const perHour = (cents: number, mins: number) => (mins > 0 ? fmtRM(Math.round((cents * 60) / mins)) : "—");
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">⏱💰 Live-hour economics — {ym(econ.month)}</p>
+      <p className="text-sm font-semibold">⏱💰 {L("Live-hour economics", "Ekonomi jam LIVE")} — {ym(econ.month)}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        RM per hour of live this month. Clients: paid invoices ÷ completed session hours.
-        Hosts: TikTok GMV landing during their sessions (motivation, not payroll).
+        {L("RM per hour of live this month. Clients: paid invoices ÷ completed session hours. Hosts: TikTok GMV landing during their sessions (motivation, not payroll).", "RM sejam LIVE bulan ini. Pelanggan: invois dibayar ÷ jam sesi selesai. Hos: GMV TikTok yang masuk semasa sesi mereka (motivasi, bukan gaji).")}
       </p>
       {econ.clients.length > 0 && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead><tr className="border-border border-b">
-              <th className={th}>CLIENT</th><th className={thR2}>HOURS</th><th className={thR2}>PAID</th><th className={thR2}>RM / HOUR</th>
+              <th className={th}>{L("CLIENT", "PELANGGAN")}</th><th className={thR2}>{L("HOURS", "JAM")}</th><th className={thR2}>{L("PAID", "DIBAYAR")}</th><th className={thR2}>{L("RM / HOUR", "RM / JAM")}</th>
             </tr></thead>
             <tbody>
               {econ.clients.map((c) => (
@@ -3299,10 +3338,10 @@ function LiveEconomicsCard() {
       )}
       {econ.hosts.length > 0 && (
         <div className="mt-3 overflow-x-auto">
-          <p className="text-muted-foreground text-xs font-semibold">Hosts</p>
+          <p className="text-muted-foreground text-xs font-semibold">{L("Hosts", "Hos")}</p>
           <table className="w-full border-collapse text-sm">
             <thead><tr className="border-border border-b">
-              <th className={th}>HOST</th><th className={thR2}>HOURS</th><th className={thR2}>GMV IN-LIVE</th><th className={thR2}>RM / HOUR</th>
+              <th className={th}>{L("HOST", "HOS")}</th><th className={thR2}>{L("HOURS", "JAM")}</th><th className={thR2}>{L("GMV IN-LIVE", "GMV SEMASA LIVE")}</th><th className={thR2}>{L("RM / HOUR", "RM / JAM")}</th>
             </tr></thead>
             <tbody>
               {econ.hosts.map((h) => (
@@ -3340,37 +3379,36 @@ function PackagesEditorCard({ role }: { role: string }) {
   const upd = (i: number, patch: Partial<Tier>) => setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">📦 Packages — public rate card</p>
+      <p className="text-sm font-semibold">📦 {L("Packages — public rate card", "Pakej — kadar harga awam")}</p>
       {toastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Shown on azoneofficial.com/packages with a WhatsApp button. The page
-        stays a contact-us page until you save at least one tier here.
+        {L("Shown on azoneofficial.com/packages with a WhatsApp button. The page stays a contact-us page until you save at least one tier here.", "Dipaparkan di azoneofficial.com/packages dengan butang WhatsApp. Halaman itu kekal sebagai halaman hubungi-kami sehingga anda menyimpan sekurang-kurangnya satu pakej di sini.")}
       </p>
       <div className="mt-2 space-y-3">
         {tiers.map((t, i) => (
           <div key={i} className="border-border rounded-lg border p-3">
             <div className={fieldRow}>
-              <label className="text-sm"><span className="text-muted-foreground text-xs">Tier name</span>
-                <input className={inputClass} placeholder="e.g. Starter" value={t.name} onChange={(e) => upd(i, { name: e.target.value })} /></label>
-              <label className="text-sm"><span className="text-muted-foreground text-xs">Price label</span>
-                <input className={inputClass} placeholder="e.g. from RM 1,500/month" value={t.price_label} onChange={(e) => upd(i, { price_label: e.target.value })} /></label>
-              <button type="button" className="text-xs underline" onClick={() => setTiers((ts) => ts.filter((_, j) => j !== i))}>Remove tier</button>
+              <label className="text-sm"><span className="text-muted-foreground text-xs">{L("Tier name", "Nama pakej")}</span>
+                <input className={inputClass} placeholder={L("e.g. Starter", "cth. Starter")} value={t.name} onChange={(e) => upd(i, { name: e.target.value })} /></label>
+              <label className="text-sm"><span className="text-muted-foreground text-xs">{L("Price label", "Label harga")}</span>
+                <input className={inputClass} placeholder={L("e.g. from RM 1,500/month", "cth. dari RM 1,500/bulan")} value={t.price_label} onChange={(e) => upd(i, { price_label: e.target.value })} /></label>
+              <button type="button" className="text-xs underline" onClick={() => setTiers((ts) => ts.filter((_, j) => j !== i))}>{L("Remove tier", "Buang pakej")}</button>
             </div>
-            <label className="mt-2 block text-sm"><span className="text-muted-foreground text-xs">What&apos;s included — one point per line</span>
+            <label className="mt-2 block text-sm"><span className="text-muted-foreground text-xs">{L("What's included — one point per line", "Apa yang termasuk — satu poin setiap baris")}</span>
               <textarea className={`${inputClass} min-h-20`} value={t.points.join("\n")}
                 onChange={(e) => upd(i, { points: e.target.value.split("\n") })} /></label>
           </div>
         ))}
         <div className="flex flex-wrap gap-2">
           {tiers.length < 6 && (
-            <button type="button" className={btnClass} onClick={() => setTiers((ts) => [...ts, { name: "", price_label: "", points: [] }])}>+ Add tier</button>
+            <button type="button" className={btnClass} onClick={() => setTiers((ts) => [...ts, { name: "", price_label: "", points: [] }])}>{L("+ Add tier", "+ Tambah pakej")}</button>
           )}
           <button type="button" className={btnClass} onClick={async () => {
             const clean = tiers.map((t) => ({ ...t, points: t.points.map((p) => p.trim()).filter(Boolean) })).filter((t) => t.name.trim());
             const r = await api(`/staff/sales/packages`, { method: "POST", body: JSON.stringify({ packages: clean }) });
-            if (r.ok) { setTiers(clean); showToast("Saved", clean.length ? `${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages` : "Rate card cleared — the public page is back to contact-us"); }
-            else showToast("Not saved", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server first", "notice");
-          }}>Save rate card</button>
+            if (r.ok) { setTiers(clean); showToast(L("Saved", "Disimpan"), clean.length ? L(`${clean.length} tier${clean.length === 1 ? "" : "s"} live on /packages`, `${clean.length} pakej disiarkan di /packages`) : L("Rate card cleared — the public page is back to contact-us", "Kadar harga dikosongkan — halaman awam kembali kepada hubungi-kami")); }
+            else showToast(L("Not saved", "Tidak disimpan"), (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server first", "notice");
+          }}>{L("Save rate card", "Simpan kadar harga")}</button>
         </div>
       </div>
     </div>
@@ -3400,9 +3438,9 @@ function BusinessLinesCard() {
   const TONE: Record<string, "navy" | "gold" | "muted"> = { product: "navy", service: "gold" };
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">🧩 Business lines — product vs service</p>
+      <p className="text-sm font-semibold">🧩 {L("Business lines — product vs service", "Bidang perniagaan — produk vs perkhidmatan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Your two businesses, reported separately. Product = TikTok, Shopee, walk-in and product invoices; service = paid service invoices. Same arithmetic as every other revenue figure.
+        {L("Your two businesses, reported separately. Product = TikTok, Shopee, walk-in and product invoices; service = paid service invoices. Same arithmetic as every other revenue figure.", "Dua perniagaan anda, dilaporkan berasingan. Produk = TikTok, Shopee, walk-in dan invois produk; perkhidmatan = invois perkhidmatan dibayar. Kiraan sama seperti setiap angka hasil yang lain.")}
       </p>
       <div className="mt-2 space-y-1.5">
         {lines.map((l) => (
@@ -3418,9 +3456,9 @@ function BusinessLinesCard() {
       <div className="mt-3 overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead><tr className="border-border border-b">
-            <th className={th}>MONTH</th>
+            <th className={th}>{L("MONTH", "BULAN")}</th>
             {lines.map((l) => <th key={l.key} className={thR2}>{(l.label.split(" ")[0] || "").toUpperCase()}</th>)}
-            <th className={thR2}>TOTAL</th>
+            <th className={thR2}>{L("TOTAL", "JUMLAH")}</th>
           </tr></thead>
           <tbody>
             {monthsDesc.map((m) => {
@@ -3438,7 +3476,7 @@ function BusinessLinesCard() {
             })}
           </tbody>
           <tfoot><tr>
-            <th className={th}>TOTAL</th>
+            <th className={th}>{L("TOTAL", "JUMLAH")}</th>
             {lines.map((l) => <th key={l.key} className={thR2}>{fmtRM(l.total_cents)}</th>)}
             <th className={thR2}>{fmtRM(grand)}</th>
           </tr></tfoot>
@@ -3464,14 +3502,14 @@ function SalesHistoryCard() {
   const rows = [...months].reverse(); // newest first
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">📊 Sales history — month by month</p>
+      <p className="text-sm font-semibold">📊 {L("Sales history — month by month", "Sejarah jualan — bulan demi bulan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        All four channels, since day one. The bar measures each month against your best.
+        {L("All four channels, since day one. The bar measures each month against your best.", "Kesemua empat saluran, sejak hari pertama. Bar mengukur setiap bulan berbanding bulan terbaik anda.")}
       </p>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead><tr className="border-border border-b">
-            <th className={th}>MONTH</th><th className={thR2}>SALES</th><th className={thR2}>VS PREV</th><th className={`${th} w-28`}></th>
+            <th className={th}>{L("MONTH", "BULAN")}</th><th className={thR2}>{L("SALES", "JUALAN")}</th><th className={thR2}>{L("VS PREV", "VS SEBELUM")}</th><th className={`${th} w-28`}></th>
           </tr></thead>
           <tbody>
             {rows.map((m, i) => {
@@ -3490,7 +3528,7 @@ function SalesHistoryCard() {
             })}
           </tbody>
           <tfoot><tr>
-            <th className={th}>TOTAL</th><th className={thR2}>{fmtRM(total)}</th><th className={thR2}></th><th className={th}></th>
+            <th className={th}>{L("TOTAL", "JUMLAH")}</th><th className={thR2}>{fmtRM(total)}</th><th className={thR2}></th><th className={th}></th>
           </tr></tfoot>
         </table>
       </div>
@@ -3509,10 +3547,9 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
   }, []);
   const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0 overflow-x-auto w-full">{node}</div> : (
     <div className={card}>
-      <p className="text-sm font-semibold">💹 Profit &amp; loss — month by month</p>
+      <p className="text-sm font-semibold">💹 {L("Profit & loss — month by month", "Untung & rugi — bulan demi bulan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps.
-        Payroll uses the same net figures as the M2E salary file.
+        {L("Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps. Payroll uses the same net figures as the M2E salary file.", "Hasil (semua saluran) tolak perbelanjaan, gaji dan tuntutan diluluskan — apa yang perniagaan simpan. Gaji menggunakan angka bersih yang sama seperti fail gaji M2E.")}
       </p>
       <div className="mt-2 overflow-x-auto">{node}</div>
     </div>
@@ -3527,15 +3564,15 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
     );
   }
   if (months.length === 0) {
-    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No financial data available yet.</p>);
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>{L("No financial data available yet.", "Tiada data kewangan lagi.")}</p>);
   }
   const rows = [...months].reverse(); // newest first
 
   return wrapCard(
     <table className="w-full border-collapse text-sm">
       <thead><tr className="border-border border-b">
-        <th className={th}>MONTH</th><th className={thR2}>REVENUE</th><th className={thR2}>EXPENSES</th>
-        <th className={thR2}>PAYROLL</th><th className={thR2}>CLAIMS</th><th className={thR2}>NET</th>
+        <th className={th}>{L("MONTH", "BULAN")}</th><th className={thR2}>{L("REVENUE", "HASIL")}</th><th className={thR2}>{L("EXPENSES", "PERBELANJAAN")}</th>
+        <th className={thR2}>{L("PAYROLL", "GAJI")}</th><th className={thR2}>{L("CLAIMS", "TUNTUTAN")}</th><th className={thR2}>{L("NET", "BERSIH")}</th>
       </tr></thead>
       <tbody>
         {rows.map((m) => (
@@ -3568,7 +3605,7 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
     });
   }, []);
 
-  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold">💎 Clients</p><div className="mt-3">{node}</div></div>;
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col pb-4 sm:pb-0">{node}</div> : <div className={card}><p className="text-sm font-semibold">💎 {L("Clients", "Pelanggan")}</p><div className="mt-3">{node}</div></div>;
 
   if (!loaded) {
     return wrapCard(
@@ -3580,35 +3617,34 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
     );
   }
   if (clients.length === 0) {
-    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>No active clients.</p>);
+    return wrapCard(<p className={inModal ? "px-4 py-8 text-center text-sm text-muted-foreground" : "mt-2 text-sm text-muted-foreground"}>{L("No active clients.", "Tiada pelanggan aktif.")}</p>);
   }
   const rm2 = fmtRM; // v1.4.272 global (this one even lacked thousand separators)
   return wrapCard(
     <>
       {rlToastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Per-client view from your sales documents and the live roster —
-        invoiced, collected, quotations in play and sessions scheduled.
+        {L("Per-client view from your sales documents and the live roster — invoiced, collected, quotations in play and sessions scheduled.", "Paparan setiap pelanggan daripada dokumen jualan anda dan roster LIVE — diinvois, dikutip, sebut harga aktif dan sesi dijadualkan.")}
       </p>
       <div className={inModal ? "overflow-y-auto" : "mt-3 max-h-80 overflow-y-auto pr-1"}>
         {clients.map((c) => (
           <div key={c.id} className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "px-4 py-3 sm:px-5 hover:bg-muted/50 transition-colors" : "py-2"}`}>
             <span className="min-w-0 font-medium">{c.company}</span>
             <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
-              <span title="Invoiced total (all INV)">{rm2(c.invoiced_cents)} invoiced</span>
-              <span className="font-medium text-green-700" title="Collected (paid invoices)">{rm2(c.paid_cents)} paid</span>
-              <span title="Quotations issued">{c.quotations} QT</span>
-              <span title="Live sessions scheduled (not cancelled)">{sessions[String(c.id)] ?? 0} live</span>
+              <span title={L("Invoiced total (all INV)", "Jumlah diinvois (semua INV)")}>{rm2(c.invoiced_cents)} {L("invoiced", "diinvois")}</span>
+              <span className="font-medium text-green-700" title={L("Collected (paid invoices)", "Dikutip (invois dibayar)")}>{rm2(c.paid_cents)} {L("paid", "dibayar")}</span>
+              <span title={L("Quotations issued", "Sebut harga dikeluarkan")}>{c.quotations} QT</span>
+              <span title={L("Live sessions scheduled (not cancelled)", "Sesi LIVE dijadualkan (tidak dibatalkan)")}>{sessions[String(c.id)] ?? 0} live</span>
               {/* v1.4.273 idea 1: the client report link — a public monthly
                   performance page they can forward to their boss. Retention
                   weapon + our best brochure. */}
-              <button type="button" className="underline" title="Copy this client's monthly report link" onClick={async () => {
+              <button type="button" className="underline" title={L("Copy this client's monthly report link", "Salin pautan laporan bulanan pelanggan ini")} onClick={async () => {
                 const r = await api<{ token?: string }>(`/staff/clients/${c.id}/report-link`, { method: "POST" });
-                if (!r.ok || !r.data?.token) { showRlToast("Not available", (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
+                if (!r.ok || !r.data?.token) { showRlToast(L("Not available", "Tidak tersedia"), (r.data as { error?: { message?: string } })?.error?.message ?? "Deploy the latest server + run migration 0067 first", "notice"); return; }
                 const url = `${location.origin}/report?t=${r.data.token}`;
-                try { await navigator.clipboard.writeText(url); showRlToast("Report link copied", `${c.company} — paste it into WhatsApp`); }
-                catch { showRlToast("Report link", url, "notice"); }
-              }}>🔗 Report link</button>
+                try { await navigator.clipboard.writeText(url); showRlToast(L("Report link copied", "Pautan laporan disalin"), L(`${c.company} — paste it into WhatsApp`, `${c.company} — tampal ke WhatsApp`)); }
+                catch { showRlToast(L("Report link", "Pautan laporan"), url, "notice"); }
+              }}>🔗 {L("Report link", "Pautan laporan")}</button>
             </span>
           </div>
         ))}
@@ -3622,8 +3658,8 @@ function CustomerEnquiriesCard() {
   const [enqs, setEnqs] = useState<Enq[]>([]);
   const [loaded, setLoaded] = useState(false);
   const CAT: Record<string, string> = {
-    general: "General", package_pricing: "Package & pricing", live_commerce: "Live commerce",
-    order_delivery: "Order & delivery", collaboration: "Collaboration",
+    general: L("General", "Umum"), package_pricing: L("Package & pricing", "Pakej & harga"), live_commerce: L("Live commerce", "Jualan LIVE"),
+    order_delivery: L("Order & delivery", "Pesanan & penghantaran"), collaboration: L("Collaboration", "Kerjasama"),
   };
   const load = async () => {
     try {
@@ -3659,13 +3695,12 @@ function CustomerEnquiriesCard() {
   if (!loaded) return null;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Customer enquiries</p>
+      <p className="text-sm font-semibold">{L("Customer enquiries", "Pertanyaan pelanggan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Questions from /account customers — you are bell-notified when one
-        lands. Answer directly on WhatsApp or email, then set the status.
+        {L("Questions from /account customers — you are bell-notified when one lands. Answer directly on WhatsApp or email, then set the status.", "Soalan daripada pelanggan /account — anda dimaklumkan melalui loceng apabila satu diterima. Jawab terus melalui WhatsApp atau e-mel, kemudian tetapkan status.")}
       </p>
       {enqs.length === 0 ? (
-        <p className="text-muted-foreground mt-3 text-sm">No enquiries yet.</p>
+        <p className="text-muted-foreground mt-3 text-sm">{L("No enquiries yet.", "Tiada pertanyaan lagi.")}</p>
       ) : (
         <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
           {enqs.map((e) => (
@@ -3681,32 +3716,32 @@ function CustomerEnquiriesCard() {
                     <a className="underline" target="_blank" rel="noopener noreferrer"
                       href={`https://wa.me/${e.phone.replace(/[^0-9]/g, "")}`}>WhatsApp</a>
                   )}
-                  <a className="underline" href={`mailto:${e.email}`}>Email</a>
+                  <a className="underline" href={`mailto:${e.email}`}>{L("Email", "E-mel")}</a>
                   <select className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]" value={e.status}
                     onChange={(ev) => void setStatus(e.id, ev.target.value)}>
-                    {["new", "contacted", "qualified", "closed"].map((st) => <option key={st} value={st}>{st}</option>)}
+                    {["new", "contacted", "qualified", "closed"].map((st) => <option key={st} value={st}>{enqStatusL(st)}</option>)}
                   </select>
                 </span>
               </div>
               <p className="text-muted-foreground mt-1 text-xs">{e.message}</p>
               {e.reply && (
                 <p className="mt-1 rounded border border-green-300 bg-green-100 px-2 py-1 text-xs text-green-900">
-                  Replied{e.replied_at ? ` ${mytDateTime(e.replied_at)} MYT` : ""}: {e.reply}
+                  {L("Replied", "Dibalas")}{e.replied_at ? ` ${mytDateTime(e.replied_at)} MYT` : ""}: {e.reply}
                 </p>
               )}
               {replyOpen === e.id ? (
                 <span className="mt-1 flex items-center gap-1.5">
                   <input className="border-input bg-background min-w-0 flex-1 rounded border px-2 py-1 text-xs"
-                    placeholder="Write the reply the customer will see on /account…"
+                    placeholder={L("Write the reply the customer will see on /account…", "Tulis balasan yang akan dilihat pelanggan di /account…")}
                     value={replyDraft[e.id] ?? ""}
                     onChange={(ev) => setReplyDraft((d) => ({ ...d, [e.id]: ev.target.value }))} />
                   <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-1 text-xs font-medium"
-                    onClick={() => void sendReply(e.id)}>Send</button>
-                  <button type="button" className="text-xs underline" onClick={() => setReplyOpen(null)}>Cancel</button>
+                    onClick={() => void sendReply(e.id)}>{L("Send", "Hantar")}</button>
+                  <button type="button" className="text-xs underline" onClick={() => setReplyOpen(null)}>{L("Cancel", "Batal")}</button>
                 </span>
               ) : (
                 <button type="button" className="mt-1 text-xs underline"
-                  onClick={() => setReplyOpen(e.id)}>{e.reply ? "Update reply" : "Reply in-app"}</button>
+                  onClick={() => setReplyOpen(e.id)}>{e.reply ? L("Update reply", "Kemas kini balasan") : L("Reply in-app", "Balas dalam aplikasi")}</button>
               )}
               <p className="text-muted-foreground mt-0.5 text-[10px]">{e.email} · {mytDateTime(e.created_at)} MYT</p>
             </div>
@@ -3723,9 +3758,9 @@ function CustomerEnquiriesCard() {
 function stockToastLine(s: { deducted: { sku: string; qty: number; stock: number }[]; unmatched: string[]; short: string[] } | null | undefined): string {
   if (!s) return "";
   const parts: string[] = [];
-  if (s.deducted.length) parts.push(`stock deducted: ${s.deducted.map((d) => `${d.sku} −${d.qty} (now ${d.stock})`).join(", ")}`);
-  if (s.unmatched.length) parts.push(`⚠ NOT in inventory, not deducted: ${s.unmatched.join(", ")}`);
-  if (s.short.length) parts.push(`⚠ short: ${s.short.join("; ")}`);
+  if (s.deducted.length) parts.push(L(`stock deducted: ${s.deducted.map((d) => `${d.sku} −${d.qty} (now ${d.stock})`).join(", ")}`, `stok ditolak: ${s.deducted.map((d) => `${d.sku} −${d.qty} (kini ${d.stock})`).join(", ")}`));
+  if (s.unmatched.length) parts.push(L(`⚠ NOT in inventory, not deducted: ${s.unmatched.join(", ")}`, `⚠ TIADA dalam inventori, tidak ditolak: ${s.unmatched.join(", ")}`));
+  if (s.short.length) parts.push(L(`⚠ short: ${s.short.join("; ")}`, `⚠ kurang: ${s.short.join("; ")}`));
   return parts.length ? ` — ${parts.join(" · ")}` : "";
 }
 
@@ -3762,9 +3797,9 @@ function Sales({ user }: { user: User }) {
       const existing = customers.find((c) => c.company.trim().toLowerCase() === (pf.company ?? "").trim().toLowerCase());
       setDoc((d) => ({ ...d, doc_type: "QT", reference: pf.reference ?? d.reference, customer_id: existing ? existing.id : d.customer_id }));
       if (!existing) setCust((c) => ({ ...c, company: pf.company ?? "", contact_person: pf.contact_person ?? "", phone: pf.phone ?? "" }));
-      showToast("Prefilled from prospect", existing
-        ? `${existing.company} selected — add the package lines and save the quotation`
-        : `Add ${pf.company ?? "the client"} as a customer first, then the quotation form is ready`);
+      showToast(L("Prefilled from prospect", "Diisi awal daripada prospek"), existing
+        ? L(`${existing.company} selected — add the package lines and save the quotation`, `${existing.company} dipilih — tambah baris pakej dan simpan sebut harga`)
+        : L(`Add ${pf.company ?? "the client"} as a customer first, then the quotation form is ready`, `Tambah ${pf.company ?? "pelanggan itu"} sebagai pelanggan dahulu, kemudian borang sebut harga sedia`));
     } catch { /* malformed handoff — ignore */ }
     // customers in deps: on a cold open the list arrives after mount and the
     // company match must run against the LOADED list.
@@ -3801,7 +3836,7 @@ function Sales({ user }: { user: User }) {
     setCustomers(c.data?.customers ?? []);
     const d = await api<{ docs: SalesDoc[]; error?: { message?: string } }>(`/staff/docs`);
     setDocs(d.data?.docs ?? []);
-    setDocsError(d.ok ? null : (d.data?.error?.message ?? "Could not load documents — press Refresh to retry"));
+    setDocsError(d.ok ? null : (d.data?.error?.message ?? L("Could not load documents — press Refresh to retry", "Tidak dapat memuatkan dokumen — tekan Muat semula untuk cuba lagi")));
     const sl = await api<{ staff: { id: number; name: string; role: string }[] }>(`/staff/staff-list`);
     setStaffList(sl.data?.staff ?? []);
     // v1.4.101: item descriptions suggest from Inventory (manual entry still fine).
@@ -3817,11 +3852,11 @@ function Sales({ user }: { user: User }) {
        (PUT sends every field; empty boxes clear the stored value). */
     if (editingCust) {
       const res = await api<{ error?: { message?: string } }>(`/staff/customers/${editingCust.id}`, { method: "PUT", body: JSON.stringify(cust) });
-      if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Update failed", "notice"); return; }
-      showToast("Saved", `${cust.company} updated`);
+      if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+      showToast(L("Saved", "Disimpan"), L(`${cust.company} updated`, `${cust.company} dikemas kini`));
     } else {
       await api(`/staff/customers`, { method: "POST", body: JSON.stringify(cust) });
-      showToast("Saved", `${cust.company} added`);
+      showToast(L("Saved", "Disimpan"), L(`${cust.company} added`, `${cust.company} ditambah`));
     }
     setCust({ company: "", contact_person: "", phone: "", email: "", address: "" });
     setEditingCust(null);
@@ -3835,9 +3870,9 @@ function Sales({ user }: { user: User }) {
 
   const createDoc = async () => {
     // v1.4.94: silent returns were why "nothing saved" — every stop now says why.
-    if (doc.customer_id === -1) { showToast("No changes", "Choose a customer first (Walk-in counts)", "notice"); return; }
-    if (doc.items.some((i) => !i.name.trim())) { showToast("No changes", "Every line needs an item description", "notice"); return; }
-    if (doc.items.every((i) => !i.unit_price_cents)) { showToast("No changes", "Enter a unit price (RM)", "notice"); return; }
+    if (doc.customer_id === -1) { showToast(L("No changes", "Tiada perubahan"), L("Choose a customer first (Walk-in counts)", "Pilih pelanggan dahulu (Walk-in pun dikira)"), "notice"); return; }
+    if (doc.items.some((i) => !i.name.trim())) { showToast(L("No changes", "Tiada perubahan"), L("Every line needs an item description", "Setiap baris memerlukan keterangan barang"), "notice"); return; }
+    if (doc.items.every((i) => !i.unit_price_cents)) { showToast(L("No changes", "Tiada perubahan"), L("Enter a unit price (RM)", "Masukkan harga seunit (RM)"), "notice"); return; }
     const payload = {
       ...doc,
       salesperson_id: doc.salesperson_id || undefined,
@@ -3846,9 +3881,9 @@ function Sales({ user }: { user: User }) {
     };
     if (editingDoc) {
       const res = await api<{ stock?: Parameters<typeof stockToastLine>[0]; error?: { message?: string } }>(`/staff/docs/${editingDoc.id}/edit`, { method: "POST", body: JSON.stringify(payload) });
-      if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Update failed — check access", "notice"); return; }
+      if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Update failed — check access", "Kemas kini gagal — semak akses"), "notice"); return; }
       // v1.4.265: an edited product invoice re-balances stock — say what moved.
-      showToast("Saved", `${editingDoc.doc_number} updated${stockToastLine(res.data?.stock)}`);
+      showToast(L("Saved", "Disimpan"), L(`${editingDoc.doc_number} updated`, `${editingDoc.doc_number} dikemas kini`) + stockToastLine(res.data?.stock));
       const idP = editingDoc.id;
       resetDocForm(); void load();
       void printDoc(idP); // fresh PDF straight after the fix
@@ -3856,8 +3891,8 @@ function Sales({ user }: { user: User }) {
     }
     type StockMove = { deducted: { sku: string; qty: number; stock: number }[]; unmatched: string[]; short: string[] } | null;
     const res = await api<{ id?: number; doc_number?: string; stock?: StockMove; error?: { message?: string } }>(`/staff/docs`, { method: "POST", body: JSON.stringify(payload) });
-    if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Create failed — check access", "notice"); return; }
-    showToast("Saved", `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}${stockToastLine(res.data.stock)}`);
+    if (!res.ok || !res.data?.id) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Create failed — check access", "Gagal dibuat — semak akses"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), L(`${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}`, `${res.data.doc_number ?? "Dokumen"} dibuat${doc.paid_received ? " — DIBAYAR" : ""}`) + stockToastLine(res.data.stock));
     const newId = res.data.id;
     resetDocForm();
     await load(); // v1.4.97: awaited so the new document is visible in the list at once
@@ -3876,7 +3911,7 @@ function Sales({ user }: { user: User }) {
        2. download the file       (desktop, older phones)
        3. share the v1.4.244 link (if the PDF could not be built at all) */
   const shareDoc = async (d: SalesDoc) => {
-    const kind = { QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[d.doc_type] ?? "Document";
+    const kind = { QT: L("Quotation", "Sebut Harga"), INV: L("Invoice", "Invois"), DO: L("Delivery Order", "Pesanan Penghantaran") }[d.doc_type] ?? L("Document", "Dokumen");
     const filename = `${d.doc_number}.pdf`;
     let blob: Blob | null = null;
     try {
@@ -3903,13 +3938,13 @@ function Sales({ user }: { user: User }) {
       const a = document.createElement("a");
       a.href = url; a.download = filename; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-      showToast("PDF ready", `${filename} saved — attach it from your files`);
+      showToast(L("PDF ready", "PDF sedia"), L(`${filename} saved — attach it from your files`, `${filename} disimpan — lampirkan daripada fail anda`));
       return;
     }
 
     const res = await api<{ url?: string; error?: { message?: string } }>(`/staff/docs/${d.id}/share`, { method: "POST", body: JSON.stringify({}) });
     if (!res.ok || !res.data?.url) {
-      showToast("No changes", res.data?.error?.message ?? "Could not prepare the document", "notice");
+      showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Could not prepare the document", "Tidak dapat menyediakan dokumen"), "notice");
       return;
     }
     const url = res.data.url;
@@ -3918,8 +3953,8 @@ function Sales({ user }: { user: User }) {
     }
     try {
       await navigator.clipboard.writeText(url);
-      showToast("Link ready", `${d.doc_number} — link copied, paste it to your customer`);
-    } catch { showToast("Link ready", url); }
+      showToast(L("Link ready", "Pautan sedia"), L(`${d.doc_number} — link copied, paste it to your customer`, `${d.doc_number} — pautan disalin, tampal kepada pelanggan anda`));
+    } catch { showToast(L("Link ready", "Pautan sedia"), url); }
   };
   const setStatus = async (d: SalesDoc, value: string, paymentRef?: string, paidOn?: string) => {
     const body = d.doc_type === "INV"
@@ -3942,32 +3977,32 @@ function Sales({ user }: { user: User }) {
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">
-            {editingCust ? <>Editing {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); }}>cancel</button></> : "Add customer"}
+            {editingCust ? <>{L("Editing", "Menyunting")} {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); }}>{L("cancel", "batal")}</button></> : L("Add customer", "Tambah pelanggan")}
           </p>
           <div className="mt-3 space-y-3">
-            <Sub t="Company *">
-              <input className={inputClass} placeholder="e.g. ELFIA Official Store" value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
+            <Sub t={L("Company *", "Syarikat *")}>
+              <input className={inputClass} placeholder={L("e.g. ELFIA Official Store", "cth. ELFIA Official Store")} value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
             </Sub>
             <div className="grid grid-cols-2 gap-3">
-              <Sub t="Contact person">
-                <input className={inputClass} placeholder="Full name" value={cust.contact_person} onChange={(e) => setCust((c) => ({ ...c, contact_person: e.target.value }))} />
+              <Sub t={L("Contact person", "Orang hubungan")}>
+                <input className={inputClass} placeholder={L("Full name", "Nama penuh")} value={cust.contact_person} onChange={(e) => setCust((c) => ({ ...c, contact_person: e.target.value }))} />
               </Sub>
-              <Sub t="Phone">
+              <Sub t={L("Phone", "Telefon")}>
                 <input className={inputClass} placeholder="+60 12-345 6789" value={cust.phone} onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))} />
               </Sub>
             </div>
-            <Sub t="Email">
+            <Sub t={L("Email", "E-mel")}>
               <input className={inputClass} placeholder="name@company.com" value={cust.email} onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))} />
             </Sub>
-            <Sub t="Address">
+            <Sub t={L("Address", "Alamat")}>
               {/* v1.4.235: prints on the customer's documents. */}
               <textarea className={`${inputClass} min-h-16`} placeholder={"No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"} value={cust.address} onChange={(e) => setCust((c) => ({ ...c, address: e.target.value }))} />
             </Sub>
-            <button type="button" className={btnClass} onClick={() => void addCustomer()}>{editingCust ? "Update customer" : "Save customer"}</button>
+            <button type="button" className={btnClass} onClick={() => void addCustomer()}>{editingCust ? L("Update customer", "Kemas kini pelanggan") : L("Save customer", "Simpan pelanggan")}</button>
           </div>
           <div className="mt-3 max-h-56 overflow-y-auto">
             {customers.length === 0 && (
-              <p className="text-muted-foreground text-sm">No customers yet.</p>
+              <p className="text-muted-foreground text-sm">{L("No customers yet.", "Tiada pelanggan lagi.")}</p>
             )}
             {customers.map((c) => (
               <div key={c.id} className="border-border border-b py-1.5 text-sm last:border-0">
@@ -3975,7 +4010,7 @@ function Sales({ user }: { user: User }) {
                 <span className="min-w-0">
                   {/* v1.4.249: the company name opens the record — contact
                       details and both addresses were invisible in this list. */}
-                  <RecordToggle open={openCust === c.id} title="Contact and addresses"
+                  <RecordToggle open={openCust === c.id} title={L("Contact and addresses", "Hubungan dan alamat")}
                     onToggle={() => setOpenCust(openCust === c.id ? null : c.id)}>{c.company}</RecordToggle>
                   {c.contact_person && (
                     <span className="text-muted-foreground"> · {c.contact_person}</span>
@@ -3984,7 +4019,7 @@ function Sales({ user }: { user: User }) {
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {docs.some((d) => d.doc_type === "INV" && d.company === c.company) && (
                     <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
-                      title="Statement of Account — all invoices, paid + outstanding, printable"
+                      title={L("Statement of Account — all invoices, paid + outstanding, printable", "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak")}
                       onClick={() => printSOA(c.company, docs)}>SOA</button>
                   )}
                   {/* v1.4.235: edit loads the record into the form above;
@@ -3994,28 +4029,28 @@ function Sales({ user }: { user: User }) {
                       setEditingCust({ id: c.id, company: c.company });
                       setCust({ company: c.company, contact_person: c.contact_person ?? "", phone: c.phone ?? "", email: c.email ?? "", address: (c as { address?: string | null }).address ?? "" });
                       window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}>✎ Edit</button>
+                    }}>✎ {L("Edit", "Sunting")}</button>
                   <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
                     onClick={async () => {
                       if (!(await askConfirm({
-                        title: `Delete ${c.company}?`,
-                        message: "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
-                        confirmLabel: "Delete customer",
+                        title: L(`Delete ${c.company}?`, `Padam ${c.company}?`),
+                        message: L("Only possible when they have no documents — quotations and invoices must keep their customer for records.", "Hanya boleh apabila mereka tiada dokumen — sebut harga dan invois mesti mengekalkan pelanggannya untuk rekod."),
+                        confirmLabel: L("Delete customer", "Padam pelanggan"),
                         variant: "danger",
                       }))) return;
                       const res = await api<{ error?: { message?: string } }>(`/staff/customers/${c.id}`, { method: "DELETE" });
-                      if (res.ok) { showToast("Deleted", `${c.company} removed`); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); } void load(); }
-                      else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");
-                    }}>Delete</button>
+                      if (res.ok) { showToast(L("Deleted", "Dipadam"), L(`${c.company} removed`, `${c.company} dibuang`)); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); } void load(); }
+                      else showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Delete refused", "Padam ditolak"), "notice");
+                    }}>{L("Delete", "Padam")}</button>
                 </span>
               </div>
               {openCust === c.id && (
                 <DetailGrid items={[
-                  { label: "Contact", value: c.contact_person ?? "" },
-                  { label: "Phone", value: c.phone ?? "" },
-                  { label: "Email", value: c.email ?? "" },
-                  { label: "Billing address", wide: true, value: (c as { address?: string | null }).address ?? "" },
-                  { label: "Delivery address", wide: true, value: (c as { delivery_address?: string | null }).delivery_address ?? "" },
+                  { label: L("Contact", "Hubungan"), value: c.contact_person ?? "" },
+                  { label: L("Phone", "Telefon"), value: c.phone ?? "" },
+                  { label: L("Email", "E-mel"), value: c.email ?? "" },
+                  { label: L("Billing address", "Alamat bil"), wide: true, value: (c as { address?: string | null }).address ?? "" },
+                  { label: L("Delivery address", "Alamat penghantaran"), wide: true, value: (c as { delivery_address?: string | null }).delivery_address ?? "" },
                 ]} />
               )}
               </div>
@@ -4028,31 +4063,31 @@ function Sales({ user }: { user: User }) {
           {confirmNode}
           {promptNode}
           <p className="text-sm font-semibold">
-            {editingDoc ? <>Editing {editingDoc.doc_number} <button type="button" className="ml-1 text-xs font-normal underline" onClick={resetDocForm}>cancel</button></> : "Create document"}
+            {editingDoc ? <>{L("Editing", "Menyunting")} {editingDoc.doc_number} <button type="button" className="ml-1 text-xs font-normal underline" onClick={resetDocForm}>{L("cancel", "batal")}</button></> : L("Create document", "Buat dokumen")}
           </p>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Document type</span>
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Document type", "Jenis dokumen")}</span>
                 <select className={inputClass} value={doc.doc_type} onChange={(e) => setDoc((d) => ({ ...d, doc_type: e.target.value }))}>
-                  <option value="QT">Quotation</option>
+                  <option value="QT">{L("Quotation", "Sebut harga")}</option>
                   {/* v1.4.234: a Delivery Order is product-only — nothing
                       physical ships for a service, so the option hides. */}
-                  {doc.kind !== "service" && <option value="DO">Delivery Order</option>}
-                  {canInvoice && <option value="INV">Invoice</option>}
+                  {doc.kind !== "service" && <option value="DO">{L("Delivery Order", "Pesanan Penghantaran")}</option>}
+                  {canInvoice && <option value="INV">{L("Invoice", "Invois")}</option>}
                 </select>
               </label>
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Customer</span>
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Customer", "Pelanggan")}</span>
                 <select className={inputClass} value={doc.customer_id} onChange={(e) => setDoc((d) => ({ ...d, customer_id: Number(e.target.value) }))}>
-                  <option value={-1}>Choose customer…</option>
-                  <option value={0}>🚶 Walk-in / general buyer</option>
+                  <option value={-1}>{L("Choose customer…", "Pilih pelanggan…")}</option>
+                  <option value={0}>{L("🚶 Walk-in / general buyer", "🚶 Walk-in / pembeli umum")}</option>
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
                 </select>
               </label>
             </div>
             <label className="block">
-              <span className="text-muted-foreground mb-1 block text-xs">This document is for</span>
+              <span className="text-muted-foreground mb-1 block text-xs">{L("This document is for", "Dokumen ini untuk")}</span>
               {/* v1.4.234 (CEO: 2 business lines — product vs service; "details
                   just filled by one details"): ONE line per document. The
                   choice tags the document, steers the item placeholder, and
@@ -4065,21 +4100,21 @@ function Sales({ user }: { user: User }) {
                       (doc.kind === k ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary")
                     }
                     onClick={() => setDoc((d) => ({ ...d, kind: k, doc_type: k === "service" && d.doc_type === "DO" ? "QT" : d.doc_type, delivery_cents: k === "service" ? 0 : d.delivery_cents }))}>
-                    {label}
+                    {L(label, k === "product" ? "📦 Produk — barangan ELFIA" : "🛠 Perkhidmatan — kerja agensi")}
                   </button>
                 ))}
               </div>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Document date (backdate allowed)</span>
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Document date (backdate allowed)", "Tarikh dokumen (tarikh lampau dibenarkan)")}</span>
                 <input type="date" className={inputClass} value={docDate}
                   max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)}
                   onChange={(e) => setDocDate(e.target.value)} />
               </label>
               {doc.doc_type === "INV" && doc.paid_received ? (
                 <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">Payment received date</span>
+                  <span className="text-muted-foreground mb-1 block text-xs">{L("Payment received date", "Tarikh bayaran diterima")}</span>
                   <input type="date" className={inputClass} value={paidDate}
                     max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)}
                     onChange={(e) => setPaidDate(e.target.value)} />
@@ -4087,10 +4122,10 @@ function Sales({ user }: { user: User }) {
               ) : <span />}
             </div>
             <label className="block">
-              <span className="text-muted-foreground mb-1 block text-xs">Sales person (who made this sale)</span>
+              <span className="text-muted-foreground mb-1 block text-xs">{L("Sales person (who made this sale)", "Jurujual (siapa yang membuat jualan ini)")}</span>
               <select className={inputClass} value={doc.salesperson_id} onChange={(e) => setDoc((d) => ({ ...d, salesperson_id: Number(e.target.value) }))}
-                title="Captured from your login automatically — change it only when creating on someone else's behalf">
-                <option value={0}>{firstName(user.name)} — me (auto from login)</option>
+                title={L("Captured from your login automatically — change it only when creating on someone else's behalf", "Diambil daripada log masuk anda secara automatik — tukar hanya apabila membuat bagi pihak orang lain")}>
+                <option value={0}>{L(`${firstName(user.name)} — me (auto from login)`, `${firstName(user.name)} — saya (auto dari log masuk)`)}</option>
                 {staffList.filter((u) => u.name !== user.name).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)} — {u.role.replace(/_/g, " ")}</option>)}
               </select>
             </label>
@@ -4101,20 +4136,20 @@ function Sales({ user }: { user: User }) {
                 (same rule as Delivery / postage since v1.4.238). */}
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Their reference / PO no. (optional)</span>
-                <input className={inputClass} placeholder="e.g. PO-2608" maxLength={60} value={doc.reference}
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Their reference / PO no. (optional)", "Rujukan mereka / No. PO (pilihan)")}</span>
+                <input className={inputClass} placeholder={L("e.g. PO-2608", "cth. PO-2608")} maxLength={60} value={doc.reference}
                   onChange={(e) => setDoc((d) => ({ ...d, reference: e.target.value }))} />
               </label>
               {doc.kind === "product" ? (
                 <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">Delivery address (only if different)</span>
-                  <input className={inputClass} placeholder="Leave blank — same as billing" maxLength={300} value={doc.delivery_address}
+                  <span className="text-muted-foreground mb-1 block text-xs">{L("Delivery address (only if different)", "Alamat penghantaran (hanya jika berbeza)")}</span>
+                  <input className={inputClass} placeholder={L("Leave blank — same as billing", "Biarkan kosong — sama seperti bil")} maxLength={300} value={doc.delivery_address}
                     onChange={(e) => setDoc((d) => ({ ...d, delivery_address: e.target.value }))} />
                 </label>
               ) : <span />}
             </div>
             <div className="text-muted-foreground hidden gap-2 text-xs sm:grid sm:grid-cols-[1fr_66px_66px_100px_100px_auto]">
-              <span>Item / service description</span><span>UOM</span><span>Qty</span><span>Unit price (RM)</span><span>Discount (RM)</span><span />
+              <span>{L("Item / service description", "Keterangan barang / perkhidmatan")}</span><span>UOM</span><span>{L("Qty", "Kuantiti")}</span><span>{L("Unit price (RM)", "Harga seunit (RM)")}</span><span>{L("Discount (RM)", "Diskaun (RM)")}</span><span />
             </div>
             {doc.items.map((item, i) => {
               // one helper so every field on the line edits the same way
@@ -4122,7 +4157,7 @@ function Sales({ user }: { user: User }) {
                 setDoc((d) => ({ ...d, items: d.items.map((x, xi) => (xi === i ? { ...x, ...p } : x)) }));
               return (
               <div key={i} className="border-border grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_66px_66px_100px_100px_auto] sm:border-0 sm:p-0">
-                <input className={`${inputClass} col-span-2 sm:col-span-1`} placeholder={doc.kind === "service" ? "e.g. TikTok LIVE hosting — 8 sessions" : "e.g. Tudung Bawal Premium"} value={item.name} list={doc.kind === "service" ? undefined : "inv-item-suggestions"}
+                <input className={`${inputClass} col-span-2 sm:col-span-1`} placeholder={doc.kind === "service" ? L("e.g. TikTok LIVE hosting — 8 sessions", "cth. Pengacaraan TikTok LIVE — 8 sesi") : L("e.g. Tudung Bawal Premium", "cth. Tudung Bawal Premium")} value={item.name} list={doc.kind === "service" ? undefined : "inv-item-suggestions"}
                   onChange={(e) => {
                     const v = e.target.value;
                     const hit = invItems.find((it) => it.name === v);
@@ -4130,7 +4165,7 @@ function Sales({ user }: { user: User }) {
                       unit_price_cents: hit?.unit_price_cents && !item.unit_price_cents ? hit.unit_price_cents : item.unit_price_cents });
                   }} />
                 <input className={inputClass} placeholder="UOM" maxLength={12} value={item.uom ?? ""}
-                  title="Unit of measure — PCS, UNIT, SET, VIDEO, SESSION…"
+                  title={L("Unit of measure — PCS, UNIT, SET, VIDEO, SESSION…", "Unit ukuran — PCS, UNIT, SET, VIDEO, SESSION…")}
                   onChange={(e) => patch({ uom: e.target.value.toUpperCase() })} />
                 <input type="number" min={1} className={inputClass} value={item.qty}
                   onChange={(e) => patch({ qty: Number(e.target.value) })} />
@@ -4138,17 +4173,17 @@ function Sales({ user }: { user: User }) {
                   value={item.unit_price_cents ? (item.unit_price_cents / 100).toString() : ""}
                   onChange={(e) => patch({ unit_price_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} />
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
-                  title="Discount on THIS line — the document-level discount stays separate"
+                  title={L("Discount on THIS line — the document-level discount stays separate", "Diskaun pada baris INI — diskaun peringkat dokumen kekal berasingan")}
                   value={item.disc_cents ? (item.disc_cents / 100).toString() : ""}
                   onChange={(e) => patch({ disc_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} />
                 {doc.items.length > 1
-                  ? <button type="button" className="text-destructive text-xs underline" title="Remove this line"
+                  ? <button type="button" className="text-destructive text-xs underline" title={L("Remove this line", "Buang baris ini")}
                       onClick={() => setDoc((d) => ({ ...d, items: d.items.filter((_, xi) => xi !== i) }))}>✕</button>
                   : <span className="w-4" />}
                 {/* v1.4.243: inclusions belong UNDER their line, not as extra
                     RM 0.00 rows — they print as bullets beneath the item. */}
                 <textarea className={`${inputClass} col-span-2 min-h-[4rem] sm:col-span-6`}
-                  placeholder="Detail lines — one inclusion per line (optional). e.g. Storyboard"
+                  placeholder={L("Detail lines — one inclusion per line (optional). e.g. Storyboard", "Baris butiran — satu perkara setiap baris (pilihan). cth. Storyboard")}
                   value={(item.sub ?? []).join("\n")}
                   onChange={(e) => patch({ sub: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 10) })} />
               </div>
@@ -4158,11 +4193,11 @@ function Sales({ user }: { user: User }) {
               {invItems.map((it) => <option key={it.sku} value={it.name}>{`SKU ${it.sku}${it.unit_price_cents ? ` · ${fmtRM(it.unit_price_cents)}` : ""}`}</option>)}
             </datalist>
             <button type="button" className="text-xs underline" onClick={() => setDoc((d) => ({ ...d, items: [...d.items, { name: "", qty: 1, unit_price_cents: 0 }] }))}>
-              + Add line
+              {L("+ Add line", "+ Tambah baris")}
             </button>
             <div className={`grid grid-cols-2 gap-3 ${doc.doc_type !== "DO" ? "sm:grid-cols-3" : ""}`}>
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Discount (RM, optional)</span>
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Discount (RM, optional)", "Diskaun (RM, pilihan)")}</span>
                 <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
                   value={doc.discount_cents ? (doc.discount_cents / 100).toString() : ""}
                   onChange={(e) => setDoc((d) => ({ ...d, discount_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) }))} />
@@ -4175,27 +4210,27 @@ function Sales({ user }: { user: User }) {
                   the server forces 0 regardless. */}
               {doc.doc_type !== "DO" && doc.kind !== "service" && (
                 <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">Delivery / postage (RM, optional)</span>
+                  <span className="text-muted-foreground mb-1 block text-xs">{L("Delivery / postage (RM, optional)", "Penghantaran / pos (RM, pilihan)")}</span>
                   <input type="number" min={0} step="0.01" className={inputClass} placeholder="0.00"
                     value={doc.delivery_cents ? (doc.delivery_cents / 100).toString() : ""}
                     onChange={(e) => setDoc((d) => ({ ...d, delivery_cents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) }))} />
                 </label>
               )}
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">Tax % (optional)</span>
+                <span className="text-muted-foreground mb-1 block text-xs">{L("Tax % (optional)", "Cukai % (pilihan)")}</span>
                 <input type="number" min={0} step={0.5} className={inputClass} placeholder="0"
                   value={doc.tax_percent || ""}
                   onChange={(e) => setDoc((d) => ({ ...d, tax_percent: Number(e.target.value || 0) }))} />
               </label>
             </div>
             {doc.doc_type === "INV" && (
-              <label className="flex items-center gap-1.5 text-sm" title="Payment already in hand (e.g. bank transfer received) — the invoice is created as PAID and counts in revenue immediately">
+              <label className="flex items-center gap-1.5 text-sm" title={L("Payment already in hand (e.g. bank transfer received) — the invoice is created as PAID and counts in revenue immediately", "Bayaran sudah diterima (cth. pindahan bank) — invois dibuat sebagai DIBAYAR dan terus dikira dalam hasil")}>
                 <input type="checkbox" checked={doc.paid_received} onChange={(e) => setDoc((d) => ({ ...d, paid_received: e.target.checked }))} />
-                Payment already received (bank transfer)
+                {L("Payment already received (bank transfer)", "Bayaran sudah diterima (pindahan bank)")}
               </label>
             )}
-            <p className="text-sm font-medium">Total: {fmtRM(total)}</p>
-            <button type="button" className={btnClass} onClick={() => void createDoc()}>{editingDoc ? `Update ${editingDoc.doc_number}` : "Create with auto number"}</button>
+            <p className="text-sm font-medium">{L("Total", "Jumlah")}: {fmtRM(total)}</p>
+            <button type="button" className={btnClass} onClick={() => void createDoc()}>{editingDoc ? L(`Update ${editingDoc.doc_number}`, `Kemas kini ${editingDoc.doc_number}`) : L("Create with auto number", "Buat dengan nombor auto")}</button>
           </div>
         </div>
       </div>
@@ -4206,11 +4241,11 @@ function Sales({ user }: { user: User }) {
         const unpaid = docs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
         if (unpaid.length === 0) return null;
         const age = (d: SalesDoc) => Math.floor((todayMs - new Date(d.created_at.slice(0, 10) + "T00:00:00Z").getTime()) / 86400000);
-        const bucket = (n: number) => n <= 30 ? ["1–30 days", "bg-amber-100 text-amber-800"] : n <= 60 ? ["31–60 days", "bg-orange-100 text-orange-800"] : n <= 90 ? ["61–90 days", "bg-red-100 text-red-700"] : ["90+ days", "bg-red-200 text-red-800"];
+        const bucket = (n: number) => n <= 30 ? [L("1–30 days", "1–30 hari"), "bg-amber-100 text-amber-800"] : n <= 60 ? [L("31–60 days", "31–60 hari"), "bg-orange-100 text-orange-800"] : n <= 90 ? [L("61–90 days", "61–90 hari"), "bg-red-100 text-red-700"] : [L("90+ days", "90+ hari"), "bg-red-200 text-red-800"];
         return (
           <div className={card}>
-            <p className="text-sm font-semibold">⏳ Outstanding invoices — aging</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.</p>
+            <p className="text-sm font-semibold">⏳ {L("Outstanding invoices — aging", "Invois tertunggak — usia")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">{L("Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.", "Invois belum dibayar mengikut usia. WhatsApp membuka peringatan sedia tulis dengan nombor invois, amaun dan butiran bank.")}</p>
             <div className="mt-2 space-y-1.5">
               {unpaid.sort((a, b) => age(b) - age(a)).map((d) => {
                 const n = age(d);
@@ -4220,15 +4255,15 @@ function Sales({ user }: { user: User }) {
                 return (
                   <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0">
                     <span className="min-w-0 flex-1 basis-56">
-                      <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
-                      <span className="text-muted-foreground"> · {n} days</span>
+                      <span className="font-medium">{d.doc_number}</span>{d.kind && <span title={d.kind === "service" ? L("Service document", "Dokumen perkhidmatan") : L("Product document", "Dokumen produk")}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
+                      <span className="text-muted-foreground"> · {n} {L("days", "hari")}</span>
                     </span>
                     <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                       <span className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}>{label}</span>
                       {phone
                         ? <a className="inline-flex h-7 items-center rounded-lg bg-green-600 px-2.5 text-xs font-medium text-white" target="_blank" rel="noreferrer"
-                            href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}>WhatsApp reminder</a>
-                        : <span className="text-muted-foreground inline-flex h-7 items-center text-xs" title="Add a phone number on the customer record to enable one-tap reminders">no phone</span>}
+                            href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}>{L("WhatsApp reminder", "Peringatan WhatsApp")}</a>
+                        : <span className="text-muted-foreground inline-flex h-7 items-center text-xs" title={L("Add a phone number on the customer record to enable one-tap reminders", "Tambah nombor telefon pada rekod pelanggan untuk membolehkan peringatan satu sentuhan")}>{L("no phone", "tiada telefon")}</span>}
                     </span>
                   </div>
                 );
@@ -4240,11 +4275,11 @@ function Sales({ user }: { user: User }) {
 
       <div className={card}>
         <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold">Documents</p>
-          <button type="button" className="text-xs underline" onClick={() => void load()}>Refresh</button>
+          <p className="text-sm font-semibold">{L("Documents", "Dokumen")}</p>
+          <button type="button" className="text-xs underline" onClick={() => void load()}>{L("Refresh", "Muat semula")}</button>
         </div>
         {docsError && <p className="mt-2 text-sm font-medium text-amber-700">{docsError}</p>}
-        {!docsError && docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">No documents yet.</p>}
+        {!docsError && docs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">{L("No documents yet.", "Tiada dokumen lagi.")}</p>}
         <div className="max-h-96 overflow-y-auto">
         {docs.map((d) => (
           <div key={d.id} className="border-border border-b py-2 text-sm last:border-0">
@@ -4256,14 +4291,14 @@ function Sales({ user }: { user: User }) {
                 panel below, opened by clicking the number. Actions stay on
                 the row so nothing needs opening to be done. */}
             <span className="min-w-0 flex-1 basis-64">
-              <RecordToggle open={openDoc === d.id} title="Payment, dates and reference"
+              <RecordToggle open={openDoc === d.id} title={L("Payment, dates and reference", "Bayaran, tarikh dan rujukan")}
                 onToggle={() => setOpenDoc(openDoc === d.id ? null : d.id)}>{d.doc_number}</RecordToggle>
-              {d.kind && <span title={d.kind === "service" ? "Service document" : "Product document"}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
+              {d.kind && <span title={d.kind === "service" ? L("Service document", "Dokumen perkhidmatan") : L("Product document", "Dokumen produk")}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
             </span>
             <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             {d.doc_type === "INV" && canInvoice && (
               <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.payment_status ?? "unpaid"}
-                title="Mark paid when the bank transfer lands — revenue counts payments received"
+                title={L("Mark paid when the bank transfer lands — revenue counts payments received", "Tanda dibayar apabila pindahan bank diterima — hasil mengira bayaran diterima")}
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === "paid") {
@@ -4275,12 +4310,12 @@ function Sales({ user }: { user: User }) {
                           the wrong month. Defaults to today, capped at today. */
                       const today = mytToday();
                       const got = await askText({
-                        title: "Payment received",
+                        title: L("Payment received", "Bayaran diterima"),
                         message: `${d.doc_number} — ${fmtRM(d.total_cents)}`,
-                        label: "Bank transfer reference (optional)",
-                        placeholder: "e.g. MBB240726-8891",
-                        confirmLabel: "Mark paid",
-                        date: { label: "Date the payment was received", initial: today, max: today },
+                        label: L("Bank transfer reference (optional)", "Rujukan pindahan bank (pilihan)"),
+                        placeholder: L("e.g. MBB240726-8891", "cth. MBB240726-8891"),
+                        confirmLabel: L("Mark paid", "Tanda dibayar"),
+                        date: { label: L("Date the payment was received", "Tarikh bayaran diterima"), initial: today, max: today },
                       });
                       if (got === null) return;          // cancelled — status unchanged
                       await setStatus(d, "paid", got.value || undefined, got.date || undefined);
@@ -4289,12 +4324,12 @@ function Sales({ user }: { user: User }) {
                     void setStatus(d, v);
                   }
                 }}>
-                {["unpaid", "paid", "overdue"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
+                {["unpaid", "paid", "overdue"].map((sx) => <option key={sx} value={sx}>{payStatusL(sx)}</option>)}
               </select>
             )}
             {d.doc_type === "DO" && (
               <select className="border-input bg-background h-7 rounded-lg border px-2 text-xs" value={d.delivery_status ?? "pending"} onChange={(e) => void setStatus(d, e.target.value)}>
-                {["pending", "delivered"].map((sx) => <option key={sx} value={sx}>{sx}</option>)}
+                {["pending", "delivered"].map((sx) => <option key={sx} value={sx}>{payStatusL(sx)}</option>)}
               </select>
             )}
             {/* v1.4.233 (CEO: "reversal button … if accidentally click
@@ -4303,33 +4338,33 @@ function Sales({ user }: { user: User }) {
                 accidental invoice; the quotation stands untouched. */}
             {d.doc_type === "INV" && d.converted_from != null && d.payment_status !== "paid" && canInvoice && (
               <button type="button" className="inline-flex h-7 items-center rounded-lg border border-amber-700 px-2.5 text-xs font-medium text-amber-800"
-                title="Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched"
+                title={L("Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched", "Batalkan klik Sebut harga → Invois: memadam invois belum dibayar ini; sebut harga tidak disentuh")}
                 onClick={async () => {
                   if (!(await askConfirm({
-                    title: `Reverse ${d.doc_number}?`,
-                    message: "This deletes the invoice (it was created from a quotation and is still unpaid).\nThe quotation itself is not touched.",
-                    confirmLabel: "Reverse invoice",
+                    title: L(`Reverse ${d.doc_number}?`, `Terbalikkan ${d.doc_number}?`),
+                    message: L("This deletes the invoice (it was created from a quotation and is still unpaid).\nThe quotation itself is not touched.", "Ini memadam invois (ia dibuat daripada sebut harga dan masih belum dibayar).\nSebut harga itu sendiri tidak disentuh."),
+                    confirmLabel: L("Reverse invoice", "Terbalikkan invois"),
                     variant: "danger",
                   }))) return;
                   const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}/unconvert`, { method: "POST", body: JSON.stringify({}) });
-                  if (res.ok) { showToast("Reversed", `${d.doc_number} deleted — the quotation stands`); await load(); }
-                  else showToast("No changes", res.data?.error?.message ?? "Reversal failed", "notice");
-                }}>↩ Undo</button>
+                  if (res.ok) { showToast(L("Reversed", "Diterbalikkan"), L(`${d.doc_number} deleted — the quotation stands`, `${d.doc_number} dipadam — sebut harga kekal`)); await load(); }
+                  else showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Reversal failed", "Pembalikan gagal"), "notice");
+                }}>↩ {L("Undo", "Batalkan")}</button>
             )}
             {d.doc_type === "QT" && canInvoice && (
               <button type="button" className="inline-flex h-7 items-center rounded-lg bg-[#1A2946] px-2.5 text-xs font-medium text-white"
-                title="One click Quotation → Invoice: same items, customer and sales person, fresh INV number"
+                title={L("One click Quotation → Invoice: same items, customer and sales person, fresh INV number", "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu")}
                 onClick={async () => {
                   const res = await api<{ id?: number; doc_number?: string; stock?: Parameters<typeof stockToastLine>[0]; error?: { message?: string } }>(`/staff/docs/${d.id}/convert`, { method: "POST", body: JSON.stringify({}) });
-                  if (!res.ok || !res.data?.id) { showToast("No changes", res.data?.error?.message ?? "Conversion failed — check access", "notice"); return; }
-                  showToast("Saved", `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`);
+                  if (!res.ok || !res.data?.id) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Conversion failed — check access", "Penukaran gagal — semak akses"), "notice"); return; }
+                  showToast(L("Saved", "Disimpan"), `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`);
                   await load();
                   void printDoc(res.data.id);
-                }}>→ Invoice</button>
+                }}>→ {L("Invoice", "Invois")}</button>
             )}
-            {d.doc_type === "QT" && !canInvoice && <span className="text-muted-foreground inline-flex h-7 items-center text-xs">Quotation</span>}
+            {d.doc_type === "QT" && !canInvoice && <span className="text-muted-foreground inline-flex h-7 items-center text-xs">{L("Quotation", "Sebut harga")}</span>}
             <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
-              title="Fix a typo — loads the document into the form; the number never changes"
+              title={L("Fix a typo — loads the document into the form; the number never changes", "Betulkan silap taip — memuatkan dokumen ke dalam borang; nombor tidak berubah")}
               onClick={async () => {
                 const r = await fetch(`/api/v1/staff/docs/${d.id}`, { credentials: "include" });
                 if (!r.ok) return;
@@ -4349,15 +4384,15 @@ function Sales({ user }: { user: User }) {
                 setDocDate(full.created_at.slice(0, 10));
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });
                 window.scrollTo({ top: 0, behavior: "smooth" });
-              }}>Edit</button>
+              }}>{L("Edit", "Sunting")}</button>
             <button type="button" className={rowBtn}
               onClick={() => void printDoc(d.id)}>PDF</button>
             {/* v1.4.258: NOT primary. A quotation row already has → Invoice
                 filled, and v1.4.253's own rule is at most ONE fill per row —
                 two dark blocks and neither reads as the main action. */}
             <button type="button" className={rowBtn}
-              title="Send the PDF to the customer — opens your phone's share sheet with the file attached"
-              onClick={() => void shareDoc(d)}>Send PDF</button>
+              title={L("Send the PDF to the customer — opens your phone's share sheet with the file attached", "Hantar PDF kepada pelanggan — membuka helaian kongsi telefon anda dengan fail dilampirkan")}
+              onClick={() => void shareDoc(d)}>{L("Send PDF", "Hantar PDF")}</button>
             {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is
                 refused by the server. Aging recomputes from this list, so
                 a deleted unpaid invoice drops out of it immediately. */}
@@ -4365,50 +4400,50 @@ function Sales({ user }: { user: User }) {
               <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
                 onClick={async () => {
                   if (!(await askConfirm({
-                    title: `Delete ${d.doc_number}?`,
-                    message: `${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging." : "It will disappear from Documents."}\nThis cannot be undone.`,
-                    confirmLabel: "Delete document",
+                    title: L(`Delete ${d.doc_number}?`, `Padam ${d.doc_number}?`),
+                    message: L(`${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging." : "It will disappear from Documents."}\nThis cannot be undone.`, `${d.doc_type === "INV" ? "Ia akan hilang daripada Dokumen dan daripada Invois tertunggak — usia." : "Ia akan hilang daripada Dokumen."}\nIni tidak boleh dibatalkan.`),
+                    confirmLabel: L("Delete document", "Padam dokumen"),
                     variant: "danger",
                   }))) return;
                   const res = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}`, { method: "DELETE" });
-                  if (res.ok) { showToast("Deleted", `${d.doc_number} removed`); await load(); }
-                  else showToast("No changes", res.data?.error?.message ?? "Delete refused", "notice");
-                }}>Delete</button>
+                  if (res.ok) { showToast(L("Deleted", "Dipadam"), L(`${d.doc_number} removed`, `${d.doc_number} dibuang`)); await load(); }
+                  else showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Delete refused", "Padam ditolak"), "notice");
+                }}>{L("Delete", "Padam")}</button>
             )}
             </span>
           </div>
           {openDoc === d.id && (
             <DetailGrid items={[
-              { label: "Type", value: `${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[d.doc_type] ?? d.doc_type}${d.kind ? ` · ${d.kind === "service" ? "Service" : "Product"}` : ""}` },
-              { label: "Date", value: dmy(d.created_at.slice(0, 10)) },
-              { label: "Sales person", value: d.salesperson_name ? firstName(d.salesperson_name) : "" },
-              { label: "Customer phone", value: d.customer_phone ?? "" },
-              { label: "Payment", wide: true, value: d.doc_type !== "INV" ? "" : d.payment_status === "paid" ? (
+              { label: L("Type", "Jenis"), value: `${{ QT: L("Quotation", "Sebut harga"), INV: L("Invoice", "Invois"), DO: L("Delivery Order", "Pesanan Penghantaran") }[d.doc_type] ?? d.doc_type}${d.kind ? ` · ${d.kind === "service" ? L("Service", "Perkhidmatan") : L("Product", "Produk")}` : ""}` },
+              { label: L("Date", "Tarikh"), value: dmy(d.created_at.slice(0, 10)) },
+              { label: L("Sales person", "Jurujual"), value: d.salesperson_name ? firstName(d.salesperson_name) : "" },
+              { label: L("Customer phone", "Telefon pelanggan"), value: d.customer_phone ?? "" },
+              { label: L("Payment", "Bayaran"), wide: true, value: d.doc_type !== "INV" ? "" : d.payment_status === "paid" ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-green-700">PAID · bank transfer</span>
+                  <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-green-700">{L("PAID · bank transfer", "DIBAYAR · pindahan bank")}</span>
                   {d.paid_at && <span className="text-muted-foreground">{dmy(d.paid_at.slice(0, 10))}</span>}
-                  {d.payment_ref && <span className="text-muted-foreground">Ref {d.payment_ref}</span>}
+                  {d.payment_ref && <span className="text-muted-foreground">{L("Ref", "Ruj")} {d.payment_ref}</span>}
                   {/* v1.4.250: the date is correctable without unmarking the
                       invoice — unmarking would clear the reference too. */}
                   {canInvoice && (
-                    <button type="button" className="underline" title="Correct the date the payment was received"
+                    <button type="button" className="underline" title={L("Correct the date the payment was received", "Betulkan tarikh bayaran diterima")}
                       onClick={async () => {
                         const today = mytToday();
                         const got = await askText({
-                          title: "Correct the payment date",
+                          title: L("Correct the payment date", "Betulkan tarikh bayaran"),
                           message: `${d.doc_number} — ${fmtRM(d.total_cents)}`,
-                          label: "Bank transfer reference (optional)",
+                          label: L("Bank transfer reference (optional)", "Rujukan pindahan bank (pilihan)"),
                           initial: d.payment_ref ?? "",
-                          confirmLabel: "Save",
-                          date: { label: "Date the payment was received", initial: d.paid_at ? d.paid_at.slice(0, 10) : today, max: today },
+                          confirmLabel: L("Save", "Simpan"),
+                          date: { label: L("Date the payment was received", "Tarikh bayaran diterima"), initial: d.paid_at ? d.paid_at.slice(0, 10) : today, max: today },
                         });
                         if (got === null) return;
                         await setStatus(d, "paid", got.value || undefined, got.date || undefined);
-                      }}>✎ change date</button>
+                      }}>✎ {L("change date", "tukar tarikh")}</button>
                   )}
                 </span>
-              ) : <span className="text-amber-700">{d.payment_status ?? "unpaid"}</span> },
-              { label: "Origin", wide: true, value: d.converted_from != null ? "Converted from a quotation" : "" },
+              ) : <span className="text-amber-700">{payStatusL(d.payment_status ?? "unpaid")}</span> },
+              { label: L("Origin", "Asal"), wide: true, value: d.converted_from != null ? L("Converted from a quotation", "Ditukar daripada sebut harga") : "" },
             ]} />
           )}
           </div>
@@ -4438,7 +4473,7 @@ function Profile() {
   }, []);
   const save = async () => {
     if (phone === (profile.phone ?? "")) {
-      showToast("No changes", "Phone number unchanged", "notice");
+      showToast(L("No changes", "Tiada perubahan"), L("Phone number unchanged", "Nombor telefon tidak berubah"), "notice");
       return;
     }
     setSaving(true);
@@ -4448,39 +4483,39 @@ function Profile() {
       setSaved(true);
       setProfile((pr) => ({ ...pr, phone }));
       setTimeout(() => setSaved(false), 2000);
-      showToast("Saved", "Phone number updated");
+      showToast(L("Saved", "Disimpan"), L("Phone number updated", "Nombor telefon dikemas kini"));
     } else {
-      alert("Failed to save phone number");
+      alert(L("Failed to save phone number", "Gagal menyimpan nombor telefon"));
     }
   };
   return (
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
-        <p className="text-sm font-semibold">My profile</p>
+        <p className="text-sm font-semibold">{L("My profile", "Profil saya")}</p>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           {["name", "email", "role", "employee_id", "position", "department", "employment_status"].map((k) => (
             <div key={k}>
-              <dt className="text-muted-foreground text-[11px] capitalize">{k.replace("_", " ")}</dt>
+              <dt className="text-muted-foreground text-[11px] capitalize">{getLang() === "ms"
+                ? ({ name: "nama", email: "e-mel", role: "peranan", employee_id: "id pekerja", position: "jawatan", department: "jabatan", employment_status: "status pekerjaan" } as Record<string, string>)[k] ?? k.replace("_", " ")
+                : k.replace("_", " ")}</dt>
               <dd className="font-medium break-words">{profile[k] ?? "—"}</dd>
             </div>
           ))}
         </dl>
         {toastNode}
         <label className="mt-4 block">
-          <span className="text-muted-foreground mb-1 block text-xs">Phone (you can update this)</span>
+          <span className="text-muted-foreground mb-1 block text-xs">{L("Phone (you can update this)", "Telefon (anda boleh kemas kini)")}</span>
           <input className={inputClass} placeholder="+60 12-345 6789" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </label>
         <button type="button" disabled={saving} className={`${btnClass} mt-3`} onClick={() => void save()}>
-        {saving ? "Saving..." : saved ? "Saved!" : "Save"}
+        {saving ? L("Saving...", "Menyimpan...") : saved ? L("Saved!", "Disimpan!") : L("Save", "Simpan")}
       </button>
       </div>
 
       <div className={card}>
-        <p className="text-sm font-semibold">Change password</p>
+        <p className="text-sm font-semibold">{L("Change password", "Tukar kata laluan")}</p>
         <p className="text-muted-foreground mt-1 mb-3 text-xs">
-          Changing your password signs you out on every other device
-          immediately. Google sign-in accounts manage their password with
-          Google instead.
+          {L("Changing your password signs you out on every other device immediately. Google sign-in accounts manage their password with Google instead.", "Menukar kata laluan anda akan melog keluar semua peranti lain serta-merta. Akaun log masuk Google mengurus kata laluan mereka dengan Google.")}
         </p>
         <ChangePasswordForm />
       </div>
@@ -4518,7 +4553,7 @@ function UsersPanel({ role }: { role: string }) {
   const load = useCallback(() => {
     void api<{ users?: typeof rows; staff?: typeof rows }>(`/staff/users`).then((r) => {
       if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => !["super_admin", "admin"].includes(u.role)));
-      else setMsg("Could not load user accounts — check access.");
+      else setMsg(L("Could not load user accounts — check access.", "Tidak dapat memuatkan akaun pengguna — semak akses."));
     });
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
@@ -4532,35 +4567,35 @@ function UsersPanel({ role }: { role: string }) {
       body: JSON.stringify({ role: draft.role, employment_status: draft.employment_status }),
     });
     if (res.ok) {
-      showToast("Saved", `${firstName(u.name)} → ${draft.role.replace(/_/g, " ")} (${(res.data?.employment_status ?? draft.employment_status).replace(/_/g, " ")})`);
+      showToast(L("Saved", "Disimpan"), `${firstName(u.name)} → ${draft.role.replace(/_/g, " ")} (${(res.data?.employment_status ?? draft.employment_status).replace(/_/g, " ")})`);
       setEditId(null);
       load();
     } else {
-      showToast("Not saved", res.data?.error?.message ?? "Role change failed", "notice");
+      showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Role change failed", "Penukaran peranan gagal"), "notice");
     }
   };
   const roleEditor = (u: { id: number; name: string; email: string; role: string; employment_status?: string | null }) => (
     <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 rounded-lg bg-secondary/40 p-2 sm:flex sm:flex-wrap">
       <label className="block">
-        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Role</span>
+        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Role", "Peranan")}</span>
         <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto"
           value={draft.role} onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
           {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
         </select>
       </label>
       <label className="block">
-        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Employment status</span>
+        <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Employment status", "Status pekerjaan")}</span>
         <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto"
           value={draft.employment_status} onChange={(e) => setDraft((d) => ({ ...d, employment_status: e.target.value }))}>
           {EMP_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </label>
       <button type="button" className="bg-primary text-primary-foreground col-span-1 inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium"
-        onClick={() => void saveRole(u)}>Save</button>
-      <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>Cancel</button>
+        onClick={() => void saveRole(u)}>{L("Save", "Simpan")}</button>
+      <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>{L("Cancel", "Batal")}</button>
       {!u.email.toLowerCase().endsWith("@azoneofficial.com") && draft.role !== "customer" && (
         <p className="text-muted-foreground col-span-2 w-full text-[11px]">
-          Personal-email (Google) account — staff roles are saved as <span className="font-medium">part time</span>; permanent staff need an @azoneofficial.com account.
+          {L("Personal-email (Google) account — staff roles are saved as", "Akaun e-mel peribadi (Google) — peranan kakitangan disimpan sebagai")} <span className="font-medium">{L("part time", "separuh masa")}</span>{L("; permanent staff need an @azoneofficial.com account.", "; kakitangan tetap memerlukan akaun @azoneofficial.com.")}
         </p>
       )}
     </div>
@@ -4570,11 +4605,11 @@ function UsersPanel({ role }: { role: string }) {
   return (
     <div className={card}>
       {toastNode}
-      <p className="text-sm font-semibold">User accounts</p>
+      <p className="text-sm font-semibold">{L("User accounts", "Akaun pengguna")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {canEdit
-          ? "Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin."
-          : "Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role."}
+          ? L("Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin.", "Tukar peranan menetapkan peranan dan status pekerjaan akaun — kakitangan separuh masa tidak layak OT. Kata laluan dan penyahaktifan kekal di /admin.")
+          : L("Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role.", "Baca sahaja di sini — penukaran peranan dibuat oleh super admin sistem sahaja, jadi tiada akaun perniagaan yang log masuk (atau log masuk Google yang dicerobohi) boleh menaikkan peranan.")}
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       {/* v1.4.161: staff + customer lists sit side-by-side on desktop to cut
@@ -4584,9 +4619,9 @@ function UsersPanel({ role }: { role: string }) {
       {/* v1.4.167: both columns carry the same heading + one-line description
           structure so the two list boxes top-align (the CEO's screenshot
           showed the customer box starting lower). */}
-      <p className="mt-4 text-sm font-semibold lg:mt-0">Staff accounts</p>
+      <p className="mt-4 text-sm font-semibold lg:mt-0">{L("Staff accounts", "Akaun kakitangan")}</p>
       <p className="text-muted-foreground mt-0.5 truncate text-xs">
-        Role always shows — chips flag exceptions only (part-time, disabled, missing 2FA).
+        {L("Role always shows — chips flag exceptions only (part-time, disabled, missing 2FA).", "Peranan sentiasa dipaparkan — cip menanda pengecualian sahaja (separuh masa, dinyahaktif, tiada 2FA).")}
       </p>
       {/* v1.4.161 (CEO: "minimalist the card box — too long to scroll"):
           one bordered box with hairline-divided single-line rows instead of
@@ -4604,11 +4639,11 @@ function UsersPanel({ role }: { role: string }) {
               <span className="bg-secondary rounded-full px-1.5 py-px text-[10px] capitalize">{u.role.replace(/_/g, " ")}</span>
               {(u.employment_status ?? "permanent") !== "permanent" && (
                 <span className={`rounded-full px-1.5 py-px text-[10px] capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}
-                  title={`${u.left_on ? `until ${dmy(u.left_on)}` : ""}${u.rejoined_on ? ` · rejoined ${dmy(u.rejoined_on)}` : ""}`}>
+                  title={`${u.left_on ? L(`until ${dmy(u.left_on)}`, `sehingga ${dmy(u.left_on)}`) : ""}${u.rejoined_on ? L(` · rejoined ${dmy(u.rejoined_on)}`, ` · kembali ${dmy(u.rejoined_on)}`) : ""}`}>
                   {(u.employment_status ?? "").replace(/_/g, " ")}
                 </span>
               )}
-              {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">disabled</span>}
+              {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">{L("disabled", "dinyahaktif")}</span>}
               {!u.totp_enabled && <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800">2FA ✗</span>}
               {canEdit && editId !== u.id && (
                 <button type="button" className="text-[11px] underline"
@@ -4623,7 +4658,7 @@ function UsersPanel({ role }: { role: string }) {
       </div>
       {staffRows.some((u) => !u.totp_enabled && u.is_active) && (
         <p className="mt-2 text-xs font-medium text-amber-700">
-          ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length} active account(s) without 2FA — worth chasing: {staffRows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
+          ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length} {L("active account(s) without 2FA — worth chasing:", "akaun aktif tanpa 2FA — perlu dikejar:")} {staffRows.filter((u) => !u.totp_enabled && u.is_active).map((u) => firstName(u.name)).join(", ")}
         </p>
       )}
       </div>
@@ -4631,17 +4666,17 @@ function UsersPanel({ role }: { role: string }) {
       {/* v1.4.156: Google sign-ups land here as customers — the CEO promotes
           them into part-time roles (e.g. part-time live host) from this list. */}
       <div className="border-border mt-4 border-t pt-3 lg:mt-0 lg:border-t-0 lg:pt-0">
-        <p className="text-sm font-semibold">Customer accounts — Google &amp; self sign-ups</p>
+        <p className="text-sm font-semibold">{L("Customer accounts — Google & self sign-ups", "Akaun pelanggan — Google & daftar sendiri")}</p>
         <p className="text-muted-foreground mt-0.5 truncate text-xs"
           title={canEdit
-            ? "Personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account."
-            : "Google and self sign-ups always land here as customers with zero staff access."}>
+            ? L("Personal emails can hold part-time roles only (e.g. part-time live host); permanent staff need an @azoneofficial.com account.", "E-mel peribadi hanya boleh memegang peranan separuh masa (cth. hos LIVE separuh masa); kakitangan tetap memerlukan akaun @azoneofficial.com.")
+            : L("Google and self sign-ups always land here as customers with zero staff access.", "Pendaftaran Google dan sendiri sentiasa mendarat di sini sebagai pelanggan tanpa akses kakitangan.")}>
           {canEdit
-            ? "Promote here when someone joins — personal emails hold part-time roles only."
-            : "Sign-ups land here with zero staff access — promotions by the super admin only."}
+            ? L("Promote here when someone joins — personal emails hold part-time roles only.", "Naik taraf di sini apabila seseorang menyertai — e-mel peribadi memegang peranan separuh masa sahaja.")
+            : L("Sign-ups land here with zero staff access — promotions by the super admin only.", "Pendaftaran mendarat di sini tanpa akses kakitangan — naik taraf oleh super admin sahaja.")}
         </p>
         <div className="border-border divide-border mt-2 max-h-80 divide-y overflow-y-auto rounded-lg border">
-          {customerRows.length === 0 && <p className="text-muted-foreground px-3 py-2 text-sm">No customer accounts yet.</p>}
+          {customerRows.length === 0 && <p className="text-muted-foreground px-3 py-2 text-sm">{L("No customer accounts yet.", "Tiada akaun pelanggan lagi.")}</p>}
           {customerRows.map((u) => (
             <div key={u.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm">
               <span className="min-w-0 flex-1 truncate">
@@ -4649,11 +4684,11 @@ function UsersPanel({ role }: { role: string }) {
                 <span className="text-muted-foreground text-xs"> · {u.email}</span>
               </span>
               <span className="flex flex-wrap items-center justify-end gap-1">
-                {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">disabled</span>}
+                {!u.is_active && <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">{L("disabled", "dinyahaktif")}</span>}
                 {canEdit && editId !== u.id && (
                   <button type="button" className="text-[11px] underline"
                     onClick={() => { setEditId(u.id); setDraft({ role: "live_host", employment_status: "part_time" }); }}>
-                    ✎ Promote
+                    ✎ {L("Promote", "Naik taraf")}
                   </button>
                 )}
               </span>
@@ -4666,10 +4701,10 @@ function UsersPanel({ role }: { role: string }) {
       </div>
 
       <div className="border-border mt-4 border-t pt-3">
-        <p className="text-sm font-semibold">User log — recent sign-ins &amp; account events</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.</p>
+        <p className="text-sm font-semibold">{L("User log — recent sign-ins & account events", "Log pengguna — log masuk & peristiwa akaun terkini")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">{L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.", "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA. Audit penuh berada di /admin.")}</p>
         <div className="mt-2 max-h-56 space-y-0 overflow-y-auto pr-1">
-          {events.length === 0 && <p className="text-muted-foreground text-sm">No events recorded yet.</p>}
+          {events.length === 0 && <p className="text-muted-foreground text-sm">{L("No events recorded yet.", "Tiada peristiwa direkodkan lagi.")}</p>}
           {events.map((e, i) => (
             <div key={i} className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1 text-[11px] last:border-0">
               <span className="min-w-0 flex-1 truncate">
@@ -4751,14 +4786,13 @@ function LeaderboardCard({ user }: { user: User }) {
   const top = rows[0]?.sales_cents ?? 0;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Sales leaderboard — this month</p>
+      <p className="text-sm font-semibold">{L("Sales leaderboard — this month", "Papan pendahulu jualan — bulan ini")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Attributed sales per person: paid invoices they closed, TikTok GMV during their live sessions, walk-in sales they recorded — and for
-        sales marketing, TikTok orders that land while they are clocked in (split when several are on shift). Sales, live and CCO are always
-        listed, even at RM 0.00.
+        {L("Attributed sales per person: paid invoices they closed, TikTok GMV during their live sessions, walk-in sales they recorded — and for sales marketing, TikTok orders that land while they are clocked in (split when several are on shift). Sales, live and CCO are always listed, even at RM 0.00.",
+           "Jualan yang dikaitkan bagi setiap orang: invois dibayar yang mereka tutup, GMV TikTok semasa sesi LIVE mereka, jualan walk-in yang mereka rekodkan — dan bagi sales marketing, pesanan TikTok yang masuk semasa mereka daftar masuk (dibahagi apabila beberapa orang bertugas). Jualan, LIVE dan CCO sentiasa disenaraikan, walaupun RM 0.00.")}
       </p>
       {rows.length === 0 ? (
-        <p className="text-muted-foreground mt-3 text-sm">No sales staff on the board yet — assign a sales or live-host role and the board fills as orders land and lives run.</p>
+        <p className="text-muted-foreground mt-3 text-sm">{L("No sales staff on the board yet — assign a sales or live-host role and the board fills as orders land and lives run.", "Belum ada kakitangan jualan di papan — tetapkan peranan jualan atau hos LIVE dan papan akan terisi apabila pesanan masuk dan LIVE berjalan.")}</p>
       ) : (
         <div className="mt-3 space-y-1.5">
           {rows.map((r) => {
@@ -4769,7 +4803,7 @@ function LeaderboardCard({ user }: { user: User }) {
                 {rankBadge(r.rank)}
                 <span className="min-w-0 flex-1 truncate">
                   <span className={`font-medium ${r.rank === null ? "text-muted-foreground" : ""}`}>{r.name}</span>
-                  {isMe && <span className="text-gold-deep ml-1 text-[11px] font-semibold">you</span>}
+                  {isMe && <span className="text-gold-deep ml-1 text-[11px] font-semibold">{L("you", "anda")}</span>}
                   <span className="text-muted-foreground ml-1.5 text-[11px] capitalize">{r.role.replace(/_/g, " ")}</span>
                 </span>
                 <span className="hidden w-28 shrink-0 sm:block">
@@ -4780,7 +4814,7 @@ function LeaderboardCard({ user }: { user: User }) {
                   <span className={`hidden w-12 shrink-0 text-right text-xs tabular-nums sm:block ${r.pct >= 100 ? "text-bull font-semibold" : "text-muted-foreground"}`}>{r.pct}%</span>
                 )}
                 {canSeeCommission && r.commission_cents > 0 && (
-                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-gold-deep" title="commission the active rules would pay">+{fmtRM(r.commission_cents)}</span>
+                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-gold-deep" title={L("commission the active rules would pay", "komisen yang akan dibayar oleh peraturan aktif")}>+{fmtRM(r.commission_cents)}</span>
                 )}
               </div>
             );
@@ -4788,7 +4822,7 @@ function LeaderboardCard({ user }: { user: User }) {
         </div>
       )}
       {canSeeCommission && !hasRules && rows.length > 0 && (
-        <p className="text-muted-foreground mt-2 text-[11px]">Add a commission rule below to show each person&apos;s payout here.</p>
+        <p className="text-muted-foreground mt-2 text-[11px]">{L("Add a commission rule below to show each person's payout here.", "Tambah peraturan komisen di bawah untuk memaparkan bayaran setiap orang di sini.")}</p>
       )}
     </div>
   );
@@ -4822,21 +4856,21 @@ function TargetsCommissionCard() {
 
   const saveTarget = async (scope: "user" | "team", id: number | string, rm: string) => {
     const cents = Math.round(Number(rm) * 100);
-    if (!Number.isFinite(cents) || cents < 0) { showToast("No change", "Enter an amount first", "notice"); return; }
+    if (!Number.isFinite(cents) || cents < 0) { showToast(L("No change", "Tiada perubahan"), L("Enter an amount first", "Masukkan amaun dahulu"), "notice"); return; }
     const res = await api(`/staff/targets`, { method: "POST", body: JSON.stringify({ scope, id, month, target_cents: cents }) });
-    if (res.ok) { showToast("Saved", `Target set for ${ym(month)}`); loadTargets(); }
+    if (res.ok) { showToast(L("Saved", "Disimpan"), L(`Target set for ${ym(month)}`, `Sasaran ditetapkan untuk ${ym(month)}`)); loadTargets(); }
   };
 
   return (
     <div className={card}>
       {toastNode}
-      <p className="text-sm font-semibold">Targets &amp; commission — {ym(month)}</p>
+      <p className="text-sm font-semibold">{L("Targets & commission", "Sasaran & komisen")} — {ym(month)}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Set each person&apos;s and each team&apos;s monthly goal, and the commission rules that pay them. Feeds the leaderboard and the dashboard.
+        {L("Set each person's and each team's monthly goal, and the commission rules that pay them. Feeds the leaderboard and the dashboard.", "Tetapkan matlamat bulanan setiap orang dan setiap pasukan, serta peraturan komisen yang membayar mereka. Menyalur ke papan pendahulu dan papan pemuka.")}
       </p>
 
       <div className="mt-3">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Per-person targets (RM)</p>
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Per-person targets (RM)", "Sasaran individu (RM)")}</p>
         {/* v1.21.1 (CEO: "should not so much row like this"): a labelled
             grid — the whole floor fits in two or three short rows instead
             of one full-width input per person. */}
@@ -4848,23 +4882,23 @@ function TargetsCommissionCard() {
               </span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 text-xs`}
                 defaultValue={userTargets[s.id] != null ? (userTargets[s.id]! / 100).toString() : ""}
-                placeholder="e.g. 8000"
+                placeholder={L("e.g. 8000", "cth. 8000")}
                 onBlur={(e) => { if (e.target.value) void saveTarget("user", s.id, e.target.value); }} />
             </label>
           ))}
-          {staff.length === 0 && <p className="text-muted-foreground text-xs">No staff to target yet.</p>}
+          {staff.length === 0 && <p className="text-muted-foreground text-xs">{L("No staff to target yet.", "Belum ada kakitangan untuk disasarkan.")}</p>}
         </div>
       </div>
 
       <div className="mt-3">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Team targets (RM)</p>
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Team targets (RM)", "Sasaran pasukan (RM)")}</p>
         <div className="mt-1.5 flex flex-wrap gap-3">
           {["sales", "live"].map((team) => (
             <label key={team} className="flex items-center gap-2 text-sm">
-              <span className="capitalize">{team}</span>
+              <span className="capitalize">{team === "sales" ? L("sales", "jualan") : team}</span>
               <input type="number" min={0} step="100" className={`${inputClass} h-8 w-32 text-xs`}
                 defaultValue={teamTargets[team] != null ? (teamTargets[team]! / 100).toString() : ""}
-                placeholder="team goal"
+                placeholder={L("team goal", "sasaran pasukan")}
                 onBlur={(e) => { if (e.target.value) void saveTarget("team", team, e.target.value); }} />
             </label>
           ))}
@@ -4872,37 +4906,37 @@ function TargetsCommissionCard() {
       </div>
 
       <div className="mt-4 border-t border-border pt-3">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Commission rules</p>
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Commission rules", "Peraturan komisen")}</p>
         <div className="mt-1.5 space-y-1">
           {(rules ?? []).map((r) => (
             <div key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="flex-1 min-w-0 truncate">
                 <span className="font-medium">{r.name}</span>
-                <span className="text-muted-foreground ml-1.5 text-xs">{r.base_pct}% base{r.bonus_pct ? ` + ${r.bonus_pct}% over target` : ""} · {r.applies_to === "all" ? "everyone" : r.applies_to.replace(/_/g, " ")}</span>
+                <span className="text-muted-foreground ml-1.5 text-xs">{L(`${r.base_pct}% base`, `${r.base_pct}% asas`)}{r.bonus_pct ? L(` + ${r.bonus_pct}% over target`, ` + ${r.bonus_pct}% melebihi sasaran`) : ""} · {r.applies_to === "all" ? L("everyone", "semua") : r.applies_to.replace(/_/g, " ")}</span>
               </span>
               <button type="button" className={btnSm}
                 onClick={async () => { await api(`/staff/commission/rules/${r.id}`, { method: "PATCH", body: JSON.stringify({ active: r.active ? 0 : 1 }) }); loadRules(); }}>
-                {r.active ? "On" : "Off"}
+                {r.active ? L("On", "Hidup") : L("Off", "Mati")}
               </button>
               <button type="button" className={`${btnSm} text-destructive`}
                 onClick={async () => { await api(`/staff/commission/rules/${r.id}`, { method: "DELETE" }); loadRules(); }}>
-                Remove
+                {L("Remove", "Buang")}
               </button>
             </div>
           ))}
-          {rules && rules.length === 0 && <p className="text-muted-foreground text-xs">No rules yet — add one below (e.g. 1.5% base + 3% over target).</p>}
+          {rules && rules.length === 0 && <p className="text-muted-foreground text-xs">{L("No rules yet — add one below (e.g. 1.5% base + 3% over target).", "Tiada peraturan lagi — tambah satu di bawah (cth. 1.5% asas + 3% melebihi sasaran).")}</p>}
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input className={`${inputClass} h-8 w-40 text-xs`} placeholder="Rule name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-          <label className="text-xs">base %<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.base_pct} onChange={(e) => setDraft({ ...draft, base_pct: e.target.value })} /></label>
-          <label className="text-xs">bonus %<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.bonus_pct} onChange={(e) => setDraft({ ...draft, bonus_pct: e.target.value })} /></label>
+          <input className={`${inputClass} h-8 w-40 text-xs`} placeholder={L("Rule name", "Nama peraturan")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <label className="text-xs">{L("base %", "% asas")}<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.base_pct} onChange={(e) => setDraft({ ...draft, base_pct: e.target.value })} /></label>
+          <label className="text-xs">{L("bonus %", "% bonus")}<input type="number" min={0} max={100} step="0.1" className={`${inputClass} ml-1 h-8 w-16 text-xs`} value={draft.bonus_pct} onChange={(e) => setDraft({ ...draft, bonus_pct: e.target.value })} /></label>
           <button type="button" className={btnSmPrimary}
             disabled={!draft.name || !draft.base_pct}
             onClick={async () => {
               const res = await api(`/staff/commission/rules`, { method: "POST", body: JSON.stringify({ name: draft.name, base_pct: Number(draft.base_pct), bonus_pct: Number(draft.bonus_pct || 0), applies_to: draft.applies_to }) });
-              if (res.ok) { setDraft({ name: "", base_pct: "", bonus_pct: "", applies_to: "all" }); showToast("Saved", "Commission rule added"); loadRules(); }
+              if (res.ok) { setDraft({ name: "", base_pct: "", bonus_pct: "", applies_to: "all" }); showToast(L("Saved", "Disimpan"), L("Commission rule added", "Peraturan komisen ditambah")); loadRules(); }
             }}>
-            Add rule
+            {L("Add rule", "Tambah peraturan")}
           </button>
         </div>
       </div>
@@ -5297,12 +5331,12 @@ export default function PortalPage() {
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
-        <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">Staff Portal</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in required</h1>
+        <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">{L("Staff Portal", "Portal Kakitangan")}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{L("Sign in required", "Log masuk diperlukan")}</h1>
         <p className="text-muted-foreground mt-3 text-sm">
-          The Staff Portal is for AZ ONE OFFICIAL employees only.
+          {L("The Staff Portal is for AZ ONE OFFICIAL employees only.", "Portal Kakitangan hanya untuk pekerja AZ ONE OFFICIAL.")}
         </p>
-        <a href="/login" className={`${btnClass} mt-6`}>Go to login</a>
+        <a href="/login" className={`${btnClass} mt-6`}>{L("Go to login", "Pergi ke log masuk")}</a>
       </div>
     );
   }
@@ -5312,10 +5346,10 @@ export default function PortalPage() {
       <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
-            Two-Factor Authentication Required
+            {L("Two-Factor Authentication Required", "Pengesahan Dua Faktor Diperlukan")}
           </h1>
           <p className="mb-8 text-sm text-muted-foreground">
-            Your role requires two-factor authentication to be enabled before you can access the staff portal. Please set it up now.
+            {L("Your role requires two-factor authentication to be enabled before you can access the staff portal. Please set it up now.", "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses portal kakitangan. Sila sediakannya sekarang.")}
           </p>
           <TwoFactorPanel />
           <div className="mt-8 flex justify-end border-t border-border pt-6">
@@ -5329,7 +5363,7 @@ export default function PortalPage() {
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
-              Sign out
+              {L("Sign out", "Log keluar")}
             </button>
           </div>
         </div>
@@ -5373,9 +5407,9 @@ export default function PortalPage() {
         canSeeClients={REVENUE_ROLES.includes(user.role)}
         onTab={(t) => setTab(t as TabName)}
         extraActions={[
-          { label: "Apply leave", hint: "action", run: () => { setTab("Leave"); setPaletteOpen(false); } },
-          ...(SALES_ROLES.includes(user.role) ? [{ label: "Create quotation", hint: "action", run: () => { setTab("Sales"); setPaletteOpen(false); } }] : []),
-          { label: "Toggle dark mode", hint: "action", run: () => { setDark((v) => !v); setPaletteOpen(false); } },
+          { label: tr("Apply leave", lang), hint: L("action", "tindakan"), run: () => { setTab("Leave"); setPaletteOpen(false); } },
+          ...(SALES_ROLES.includes(user.role) ? [{ label: tr("Create quotation", lang), hint: L("action", "tindakan"), run: () => { setTab("Sales"); setPaletteOpen(false); } }] : []),
+          { label: L("Toggle dark mode", "Tukar mod gelap"), hint: L("action", "tindakan"), run: () => { setDark((v) => !v); setPaletteOpen(false); } },
         ]}
       />
     {/* v1.10.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset,
@@ -5427,7 +5461,7 @@ export default function PortalPage() {
             type="button"
             onClick={() => setPaletteOpen(true)}
             className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-40 min-w-24 shrink items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
-            aria-label="Search the portal"
+            aria-label={L("Search the portal", "Cari dalam portal")}
           >
             <span className="flex items-center gap-2"><Search aria-hidden className="h-4 w-4" strokeWidth={1.75} /> {tr("Search…", lang)}</span>
             <kbd className="bg-secondary rounded px-1.5 py-0.5 text-[10px] font-medium">Ctrl K</kbd>
@@ -5436,7 +5470,7 @@ export default function PortalPage() {
             type="button"
             className={`${btnHdr} md:hidden`}
             onClick={() => setPaletteOpen(true)}
-            aria-label="Search the portal"
+            aria-label={L("Search the portal", "Cari dalam portal")}
           >
             <Search aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
@@ -5446,8 +5480,8 @@ export default function PortalPage() {
           <button
             type="button"
             className={btnHdrDesktop}
-            title={sound ? "Notification sound ON — tap to mute" : "Notification sound OFF — tap to unmute"}
-            aria-label={sound ? "Mute notification sound" : "Unmute notification sound"}
+            title={sound ? L("Notification sound ON — tap to mute", "Bunyi pemberitahuan HIDUP — tekan untuk senyapkan") : L("Notification sound OFF — tap to unmute", "Bunyi pemberitahuan MATI — tekan untuk hidupkan")}
+            aria-label={sound ? L("Mute notification sound", "Senyapkan bunyi pemberitahuan") : L("Unmute notification sound", "Hidupkan bunyi pemberitahuan")}
             onClick={() => {
               const next = !sound;
               setSound(next);
@@ -5463,8 +5497,8 @@ export default function PortalPage() {
             <button
               type="button"
               className={btnHdrDesktop}
-              title={pushState === "granted" ? "Push alerts ON for this device — tap to turn off" : "Get push alerts on this device"}
-              aria-label="Toggle push alerts"
+              title={pushState === "granted" ? L("Push alerts ON for this device — tap to turn off", "Makluman push HIDUP untuk peranti ini — tekan untuk matikan") : L("Get push alerts on this device", "Dapatkan makluman push pada peranti ini")}
+              aria-label={L("Toggle push alerts", "Togol makluman push")}
               onClick={async () => {
                 if (pushState === "granted") {
                   await disablePush();
@@ -5472,8 +5506,8 @@ export default function PortalPage() {
                 } else {
                   const r = await enablePush();
                   if (r === "ok") { setPushState("granted"); }
-                  else if (r === "unconfigured") window.alert("Push isn't set up on the server yet — ask your admin to add the VAPID keys.");
-                  else if (r === "denied") window.alert("Notifications are blocked for this site in your browser settings.");
+                  else if (r === "unconfigured") window.alert(L("Push isn't set up on the server yet — ask your admin to add the VAPID keys.", "Push belum disediakan di pelayan — minta admin anda menambah kunci VAPID."));
+                  else if (r === "denied") window.alert(L("Notifications are blocked for this site in your browser settings.", "Pemberitahuan disekat untuk laman ini dalam tetapan pelayar anda."));
                 }
               }}
             >
@@ -5483,7 +5517,7 @@ export default function PortalPage() {
           <button
             type="button"
             className={`${btnHdr} relative`}
-            aria-label={unread > 0 ? `Notifications — ${unread} unread` : "Notifications"}
+            aria-label={unread > 0 ? L(`Notifications — ${unread} unread`, `Pemberitahuan — ${unread} belum dibaca`) : tr("Notifications", lang)}
             onClick={() => {
               setShowNotifs((v) => !v);
               if (unread) void api("/staff/notifications/read", { method: "POST", body: JSON.stringify({}) });
@@ -5497,15 +5531,15 @@ export default function PortalPage() {
             )}
           </button>
           {/* v1.9.0: theme preset + chrome language */}
-          <button type="button" className={btnHdrDesktop} title={theme === "plum" ? "Theme: Plum & Rose — switch to Navy & Gold" : "Theme: Navy & Gold — switch to Plum & Rose"}
-            aria-label="Switch colour theme" onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}>
+          <button type="button" className={btnHdrDesktop} title={theme === "plum" ? L("Theme: Plum & Rose — switch to Navy & Gold", "Tema: Plum & Rose — tukar ke Navy & Gold") : L("Theme: Navy & Gold — switch to Plum & Rose", "Tema: Navy & Gold — tukar ke Plum & Rose")}
+            aria-label={L("Switch colour theme", "Tukar tema warna")} onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}>
             <Palette aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
           <button type="button" className={`${btnHdrDesktop} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
-            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
+            aria-label={L("Toggle language", "Togol bahasa")} onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
             {lang === "ms" ? "BM" : "EN"}
           </button>
-          <button type="button" className={btnHdr} onClick={() => setDark((v) => !v)} aria-label="Toggle dark mode">
+          <button type="button" className={btnHdr} onClick={() => setDark((v) => !v)} aria-label={L("Toggle dark mode", "Togol mod gelap")}>
             {dark ? <Sun aria-hidden className="h-4 w-4" strokeWidth={1.75} /> : <Moon aria-hidden className="h-4 w-4" strokeWidth={1.75} />}
           </button>
           {/* v1.16.0 (CEO): icon-only — the text label cost ~70px in a row
@@ -5531,9 +5565,9 @@ export default function PortalPage() {
 
       {showNotifs && (
         <div className={`${card} mt-4`}>
-          <p className="text-sm font-semibold">Notifications</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">Last 7 days. Older notifications clear automatically.</p>
-          {notifs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">Nothing yet.</p>}
+          <p className="text-sm font-semibold">{tr("Notifications", lang)}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{L("Last 7 days. Older notifications clear automatically.", "7 hari terakhir. Pemberitahuan lama dipadam secara automatik.")}</p>
+          {notifs.length === 0 && <p className="text-muted-foreground mt-2 text-sm">{L("Nothing yet.", "Tiada apa-apa lagi.")}</p>}
           <div className="mt-1 max-h-44 overflow-y-auto pr-1">
           {notifs.map((n) => (
             <p key={n.id} className="mt-2 text-sm">
@@ -5567,7 +5601,7 @@ export default function PortalPage() {
            its floating toolbar is shown, which removed ALL breathing room under
            the labels. max() guarantees a floor either way. */
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
-        aria-label="Portal sections (mobile)"
+        aria-label={L("Portal sections (mobile)", "Bahagian portal (mudah alih)")}
       >
         {/* v1.10.0 (reference design): each tab shows its sidebar icon; the
             active one sits in a filled navy rounded square — same visual
@@ -5625,7 +5659,7 @@ export default function PortalPage() {
         <div className="fixed inset-0 z-30 md:hidden">
           <button
             type="button"
-            aria-label="Close menu"
+            aria-label={L("Close menu", "Tutup menu")}
             className="absolute inset-0 cursor-pointer bg-black/40"
             onClick={() => setMoreOpen(false)}
           />
@@ -5637,13 +5671,13 @@ export default function PortalPage() {
               <span className="w-9" />
               <button
                 type="button"
-                aria-label="Close menu"
+                aria-label={L("Close menu", "Tutup menu")}
                 className="bg-border mx-auto h-1.5 w-12 rounded-full"
                 onClick={() => setMoreOpen(false)}
               />
               <button
                 type="button"
-                aria-label="Close"
+                aria-label={L("Close", "Tutup")}
                 className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
                 onClick={() => setMoreOpen(false)}
               >
@@ -5696,8 +5730,8 @@ export default function PortalPage() {
                     } else {
                       const r = await enablePush();
                       if (r === "ok") { setPushState("granted"); }
-                      else if (r === "unconfigured") window.alert("Push isn't set up on the server yet — ask your admin to add the VAPID keys.");
-                      else if (r === "denied") window.alert("Notifications are blocked for this site in your browser settings.");
+                      else if (r === "unconfigured") window.alert(L("Push isn't set up on the server yet — ask your admin to add the VAPID keys.", "Push belum disediakan di pelayan — minta admin anda menambah kunci VAPID."));
+                      else if (r === "denied") window.alert(L("Notifications are blocked for this site in your browser settings.", "Pemberitahuan disekat untuk laman ini dalam tetapan pelayar anda."));
                     }
                   }}
                 >
@@ -5753,8 +5787,8 @@ export default function PortalPage() {
               canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
             />
             <Attendance user={user} />
-            {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title="OT Approvals" />}
-            {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title="Attendance Admin" />}
+            {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? <OtApprovalsCard /> : <PermissionPlaceholder title={L("OT Approvals", "Kelulusan OT")} />}
+            {["ceo", "super_admin", "admin"].includes(user.role) ? <AttendanceAdminPanel /> : <PermissionPlaceholder title={L("Attendance Admin", "Admin Kehadiran")} />}
           </div>
         )}
         {activeTab === "Reconciliation" && <ReconciliationPanel />}
@@ -5795,7 +5829,7 @@ export default function PortalPage() {
         {activeTab === "HR" && (
           <div className="space-y-4 md:space-y-6">
             <HrPanel />
-            {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) ? <HrAdminPanel /> : <PermissionPlaceholder title="HR Administration" />}
+            {["hr_admin", "ceo", "super_admin", "admin"].includes(user.role) ? <HrAdminPanel /> : <PermissionPlaceholder title={L("HR Administration", "Pentadbiran HR")} />}
           </div>
         )}
         {activeTab === "Payroll" && <PayrollPanel />}
@@ -5856,7 +5890,7 @@ export default function PortalPage() {
             {/* v1.4.191: staff read how their personal data (NRIC, bank,
                 photos, payroll) is handled — PDPA notice */}
             <p className="text-muted-foreground text-center text-xs">
-              <a className="underline" href="/privacy" target="_blank" rel="noopener noreferrer">How your personal data is handled — Privacy Notice (PDPA)</a>
+              <a className="underline" href="/privacy" target="_blank" rel="noopener noreferrer">{L("How your personal data is handled — Privacy Notice (PDPA)", "Bagaimana data peribadi anda diurus — Notis Privasi (PDPA)")}</a>
             </p>
           </div>
         )}

@@ -24,6 +24,8 @@ import { card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
 
@@ -131,7 +133,7 @@ function BadgePreview({ s }: { s: Staff }) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
     <iframe
-      title="Badge preview"
+      title={L("Badge preview", "Pratonton lencana")}
       srcDoc={badgeDocHtml(s, origin)}
       style={{ width: "54mm", height: "85.6mm", border: "none", pointerEvents: "none", display: "block" }}
     />
@@ -200,7 +202,7 @@ function badgeDocHtml(s: Staff, origin: string): string {
 function printBadge(s: Staff) {
   const w = window.open("", "_blank", "width=300,height=520");
   if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badge — ${s.full_name || s.name}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badge", "Lencana")} — ${s.full_name || s.name}</title>
   <style>@page { size: 54mm 85.6mm; margin: 0; }${BADGE_CSS}</style></head>
   <body onload="setTimeout(function(){window.print()},250)">
   ${badgeCardHtml(s, window.location.origin)}
@@ -215,7 +217,7 @@ function printBadges(list: Staff[]) {
   const w = window.open("", "_blank", "width=900,height=1000");
   if (!w) return;
   const origin = window.location.origin;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Badges — ${list.length} staff</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badges", "Lencana")} — ${list.length} ${L("staff", "kakitangan")}</title>
   <style>
     @page { size: A4; margin: 8mm; }
     ${BADGE_CSS}
@@ -313,6 +315,70 @@ const FIELD_TITLES: Partial<Record<keyof Staff, string>> = {
   bank_account: "Digits only, no dashes or spaces — prints on the payslip",
 };
 
+/* Display-only BM lookups — the keys, API values and EN sources above never
+   change; these are read at render time so the language toggle applies live. */
+const SECTION_TITLE_MS: Record<string, string> = {
+  "👤 Personal": "👤 Peribadi",
+  "💼 Employment": "💼 Pekerjaan",
+  "🏦 Bank & statutory": "🏦 Bank & statutori",
+};
+const FIELD_LABEL_MS: Partial<Record<keyof Staff, string>> = {
+  full_name: "Nama penuh (seperti dalam IC)",
+  ic_number: "Nombor IC (NRIC)",
+  birthday: "Tarikh lahir",
+  blood_type: "Jenis darah (tiada pada lencana)",
+  phone: "Nombor telefon",
+  address: "Alamat rumah",
+  emergency_name: "Hubungan kecemasan — nama",
+  emergency_phone: "Hubungan kecemasan — telefon",
+  emergency_relation: "Hubungan kecemasan — pertalian",
+  employee_id: "ID pekerja",
+  position: "Jawatan",
+  department: "Jabatan",
+  employment_status: "Status pekerjaan",
+  joined_on: "Mula bekerja pada",
+  id_issued_on: "ID dikeluarkan",
+  left_on: "Tarikh tamat (letak jawatan/tamat khidmat)",
+  rejoined_on: "Kembali bekerja pada",
+  bank_name: "Bank (Malaysia)",
+  bank_account: "No. akaun bank",
+  epf_no: "No. EPF (KWSP)",
+  socso_no: "No. SOCSO (PERKESO)",
+  tax_no: "No. cukai pendapatan (LHDN)",
+};
+const FIELD_PLACEHOLDERS_MS: Partial<Record<keyof Staff, string>> = {
+  address: "cth. 12, Jalan Mawar 3, 81100 Johor Bahru",
+  emergency_name: "cth. SITI BINTI AHMAD",
+  emergency_relation: "cth. ibu / pasangan",
+  epf_no: "No. ahli KWSP",
+  socso_no: "No. PERKESO (biasanya = IC)",
+  tax_no: "cth. SG 12345678090",
+  full_name: "cth. MOHD ALIF FARHAN BIN NAZARUDIN",
+  employee_id: "cth. AZOOM001",
+  position: "cth. Ketua Pegawai Eksekutif",
+  department: "cth. Pengurusan",
+  birthday: "DD-MM-YYYY · cth. 09-02-1997",
+  blood_type: "cth. O / A+ / B−",
+  left_on: "DD-MM-YYYY (hari terakhir dibayar)",
+  rejoined_on: "DD-MM-YYYY (gaji bersambung semula)",
+  joined_on: "DD-MM-YYYY · cth. 20-07-2026",
+  bank_account: "nombor sahaja · cth. 551100338444",
+};
+const FIELD_TITLES_MS: Partial<Record<keyof Staff, string>> = {
+  ic_number: "NRIC Malaysia dalam format XXXXXX-XX-XXXX",
+  left_on: "Tarikh berkuat kuasa letak jawatan/tamat khidmat — gaji berjalan sehingga dan termasuk tarikh ini",
+  rejoined_on: "Tarikh kembali bekerja — gaji bersambung semula dari bulan ini",
+  bank_account: "Digit sahaja, tiada sengkang atau ruang — dicetak pada slip gaji",
+};
+const STATUS_MS: Record<string, string> = {
+  permanent: "tetap", contract: "kontrak", part_time: "separuh masa",
+  resigned: "letak jawatan", terminated: "ditamatkan",
+};
+const ROLE_MS: Record<string, string> = {
+  editor: "editor", marketing: "pemasaran", live_host: "hos siaran langsung",
+  hr_admin: "admin HR", sales_marketing: "jualan & pemasaran",
+};
+
 export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
@@ -351,7 +417,10 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     /* v1.4.218: a failed load previously rendered a silently EMPTY
        directory — which read as "all staff details was gone!". Say why. */
     if (!res.ok) {
-      setLoadError("Couldn't load the staff list from the server — the data is safe. Usually this means the worker and database are out of step: run the pending migrations + deploy, then refresh.");
+      setLoadError(L(
+        "Couldn't load the staff list from the server — the data is safe. Usually this means the worker and database are out of step: run the pending migrations + deploy, then refresh.",
+        "Tidak dapat memuatkan senarai kakitangan daripada pelayan — data selamat. Biasanya ini bermakna worker dan pangkalan data tidak selari: jalankan migrasi tertunda + deploy, kemudian muat semula.",
+      ));
       return;
     }
     setLoadError("");
@@ -378,7 +447,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const save = async (id: number, name?: string) => {
     const d = draft[id];
     if (!d || Object.keys(d).length === 0) {
-      showToast("No changes", name ? `${name} — nothing to save` : "Nothing to save", "notice");
+      showToast(L("No changes", "Tiada perubahan"), name ? `${name} — ${L("nothing to save", "tiada apa untuk disimpan")}` : L("Nothing to save", "Tiada apa untuk disimpan"), "notice");
       return;
     }
     setRowMsg((m) => ({ ...m, [id]: "" }));
@@ -392,10 +461,10 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       setSaved(id);
       setDraft((s) => ({ ...s, [id]: {} }));
       window.setTimeout(() => setSaved(null), 3000);
-      showToast("Saved", name ?? "Staff record updated");
+      showToast(L("Saved", "Disimpan"), name ?? L("Staff record updated", "Rekod kakitangan dikemas kini"));
       void load();
     } else {
-      setRowMsg((m) => ({ ...m, [id]: res.data?.error?.message ?? "Save failed — check access" }));
+      setRowMsg((m) => ({ ...m, [id]: res.data?.error?.message ?? L("Save failed — check access", "Simpan gagal — semak akses") }));
     }
   };
 
@@ -413,11 +482,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     <div className="space-y-3">
       {toastNode}{confirmNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
-        <p className="text-sm font-medium">Staff directory &amp; ID badges</p>
+        <p className="text-sm font-medium">{L("Staff directory & ID badges", "Direktori kakitangan & lencana ID")}</p>
         <p className="text-muted-foreground text-xs">
-          Fill each record (dates as DD-MM-YYYY), preview the badge live, then
-          print the portrait card (54 × 85.6 mm). Saved fields lock — amendments
-          are made by an admin in /admin → Staff.
+          {L(
+            "Fill each record (dates as DD-MM-YYYY), preview the badge live, then print the portrait card (54 × 85.6 mm). Saved fields lock — amendments are made by an admin in /admin → Staff.",
+            "Isi setiap rekod (tarikh sebagai DD-MM-YYYY), pratonton lencana secara langsung, kemudian cetak kad potret (54 × 85.6 mm). Medan yang disimpan akan dikunci — pindaan dibuat oleh admin di /admin → Staff.",
+          )}
         </p>
       </div>
 
@@ -425,94 +495,95 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         <div className={card}>
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
             onClick={() => setShowCreate(true)}>
-            + New staff record — show details
+            {L("+ New staff record — show details", "+ Rekod kakitangan baharu — tunjukkan butiran")}
           </button>
-          <p className="text-muted-foreground mt-1 text-xs">The creation form stays hidden until needed — minimalist by request.</p>
+          <p className="text-muted-foreground mt-1 text-xs">{L("The creation form stays hidden until needed — minimalist by request.", "Borang penciptaan kekal tersembunyi sehingga diperlukan — minimalis atas permintaan.")}</p>
         </div>
       )}
       {!readOnly && showCreate && (
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">Add a staff member</p>
+          <p className="text-sm font-semibold">{L("Add a staff member", "Tambah kakitangan")}</p>
           <button type="button"
             className="border-border hover:bg-secondary inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium"
             onClick={() => setShowCreate(false)}>
-            Hide form <span aria-hidden="true">▲</span>
+            {L("Hide form", "Sembunyikan borang")} <span aria-hidden="true">▲</span>
           </button>
         </div>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Company emails (@azoneofficial.com) aren&apos;t Google accounts, so
-          staff can&apos;t self-register — create the account here with a
-          temporary password and hand it over. They change it on first sign-in.
+          {L(
+            "Company emails (@azoneofficial.com) aren't Google accounts, so staff can't self-register — create the account here with a temporary password and hand it over. They change it on first sign-in.",
+            "E-mel syarikat (@azoneofficial.com) bukan akaun Google, jadi kakitangan tidak boleh mendaftar sendiri — cipta akaun di sini dengan kata laluan sementara dan serahkan kepada mereka. Mereka menukarnya pada log masuk pertama.",
+          )}
         </p>
         {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
             so the field's purpose stays visible after typing. */}
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Sub t="Company email">
+          <Sub t={L("Company email", "E-mel syarikat")}>
             <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
               onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
           </Sub>
-          <Sub t="Full name (as per NRIC)">
-            <input className={input} placeholder="Full name" value={newStaff.name}
+          <Sub t={L("Full name (as per NRIC)", "Nama penuh (seperti dalam NRIC)")}>
+            <input className={input} placeholder={L("Full name", "Nama penuh")} value={newStaff.name}
               onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
           </Sub>
-          <Sub t="Role">
+          <Sub t={L("Role", "Peranan")}>
             <select className={input} value={newStaff.role}
               onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
               {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
-                <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+                <option key={r} value={r}>{L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "))}</option>
               ))}
             </select>
           </Sub>
-          <Sub t="Employee ID (optional)">
-            <input className={input} placeholder="e.g. AZOOM001" value={newStaff.employee_id}
+          <Sub t={L("Employee ID (optional)", "ID pekerja (pilihan)")}>
+            <input className={input} placeholder={L("e.g. AZOOM001", "cth. AZOOM001")} value={newStaff.employee_id}
               onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
           </Sub>
-          <Sub t="Position (optional)">
-            <input className={input} placeholder="e.g. Marketing Executive" value={newStaff.position}
+          <Sub t={L("Position (optional)", "Jawatan (pilihan)")}>
+            <input className={input} placeholder={L("e.g. Marketing Executive", "cth. Eksekutif Pemasaran")} value={newStaff.position}
               onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
           </Sub>
-          <Sub t="Department (optional)">
-            <input className={input} placeholder="e.g. Management" value={newStaff.department}
+          <Sub t={L("Department (optional)", "Jabatan (pilihan)")}>
+            <input className={input} placeholder={L("e.g. Management", "cth. Pengurusan")} value={newStaff.department}
               onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
           </Sub>
-          <Sub t="Birth date (optional)">
+          <Sub t={L("Birth date (optional)", "Tarikh lahir (pilihan)")}>
             <input className={input} placeholder="DD-MM-YYYY" value={newStaff.birthday}
               onChange={(e) => setNewStaff((d) => ({ ...d, birthday: e.target.value }))} />
           </Sub>
-          <Sub t="ID issued on (optional)">
+          <Sub t={L("ID issued on (optional)", "ID dikeluarkan pada (pilihan)")}>
             <input className={input} placeholder="DD-MM-YYYY" value={newStaff.id_issued_on}
               onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
           </Sub>
-          <Sub t="Blood type (optional)">
-            <input className={input} placeholder="e.g. O+" value={newStaff.blood_type}
+          <Sub t={L("Blood type (optional)", "Jenis darah (pilihan)")}>
+            <input className={input} placeholder={L("e.g. O+", "cth. O+")} value={newStaff.blood_type}
               onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
           </Sub>
-          <Sub t="NRIC (optional)">
+          <Sub t={L("NRIC (optional)", "NRIC (pilihan)")}>
             <input className={input} placeholder="XXXXXX-XX-XXXX" value={newStaff.ic_number}
               onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
           </Sub>
-          <Sub t="Bank (optional)">
+          <Sub t={L("Bank (optional)", "Bank (pilihan)")}>
             <select className={input} value={newStaff.bank_name}
               onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
-              <option value="">— Maybank is company primary —</option>
+              <option value="">{L("— Maybank is company primary —", "— Maybank ialah bank utama syarikat —")}</option>
               {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </Sub>
-          <Sub t="Bank account no. (optional)">
-            <input className={input} placeholder="numbers only" value={newStaff.bank_account}
+          <Sub t={L("Bank account no. (optional)", "No. akaun bank (pilihan)")}>
+            <input className={input} placeholder={L("numbers only", "nombor sahaja")} value={newStaff.bank_account}
               onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
           </Sub>
-          <Sub t="Temp password (10+ chars)">
-            <PasswordInput className={input} placeholder="They change it on first sign-in" value={newStaff.password}
+          <Sub t={L("Temp password (10+ chars)", "Kata laluan sementara (10+ aksara)")}>
+            <PasswordInput className={input} placeholder={L("They change it on first sign-in", "Mereka menukarnya pada log masuk pertama")} value={newStaff.password}
               onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
           </Sub>
-          <Sub t="Staff photo (optional)">
+          <Sub t={L("Staff photo (optional)", "Foto kakitangan (pilihan)")}>
             <label className={`${input} flex cursor-pointer items-center justify-between`}>
               <span className={newPhoto ? "" : "text-muted-foreground"}>
-                {newPhoto ? newPhoto.name : "Choose an image"}
+                {newPhoto ? newPhoto.name : L("Choose an image", "Pilih imej")}
               </span>
-              <span className="text-muted-foreground text-xs underline">Browse</span>
+              <span className="text-muted-foreground text-xs underline">{L("Browse", "Semak imbas")}</span>
               <input type="file" accept="image/*" className="hidden"
                 onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
             </label>
@@ -529,21 +600,21 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               if (newStaff.position.trim()) patch.position = newStaff.position.trim();
               if (newStaff.department.trim()) patch.department = newStaff.department.trim();
               if (Object.keys(patch).length === 0) {
-                setCreateMsg({ ok: false, text: "Fill in employee ID, position or department to update the record." });
+                setCreateMsg({ ok: false, text: L("Fill in employee ID, position or department to update the record.", "Isi ID pekerja, jawatan atau jabatan untuk mengemas kini rekod.") });
                 return;
               }
               const res = await api<ErrShape>(`/users/${existing.id}`, { method: "PATCH", body: JSON.stringify(patch) });
               if (res.ok) {
-                setCreateMsg({ ok: true, text: `${existing.name}'s record updated.` });
+                setCreateMsg({ ok: true, text: L(`${existing.name}'s record updated.`, `Rekod ${existing.name} dikemas kini.`) });
                 setExisting(null);
                 setNewStaff(emptyNewStaff);
                 void load();
               } else {
-                setCreateMsg({ ok: false, text: res.data?.error?.message ?? "Update failed — check access." });
+                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Update failed — check access.", "Kemas kini gagal — semak akses.") });
               }
             }}
           >
-            Update {existing.name}&apos;s record instead
+            {L(`Update ${existing.name}'s record instead`, `Kemas kini rekod ${existing.name} sebaliknya`)}
           </button>
         )}
         <div>
@@ -570,9 +641,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     headers: { "Content-Type": compressed.type || "image/jpeg" },
                     body: compressed,
                   });
-                  photoNote = up.ok ? " Photo uploaded." : " (Photo upload failed — use Upload photo on the row.)";
+                  photoNote = up.ok ? ` ${L("Photo uploaded.", "Foto dimuat naik.")}` : ` ${L("(Photo upload failed — use Upload photo on the row.)", "(Muat naik foto gagal — guna Muat naik foto pada baris.)")}`;
                 }
-                setCreateMsg({ ok: true, text: `${newStaff.name} added.${photoNote}` });
+                setCreateMsg({ ok: true, text: `${newStaff.name} ${L("added.", "ditambah.")}${photoNote}` });
                 setNewStaff(emptyNewStaff);
                 setNewPhoto(null);
                 setExisting(null);
@@ -583,20 +654,20 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 );
                 if (match && match.role !== "customer") {
                   setExisting(match);
-                  setCreateMsg({ ok: false, text: `${match.name} already has an account (${match.role.replace(/_/g, " ")}).` });
+                  setCreateMsg({ ok: false, text: `${match.name} ${L("already has an account", "sudah mempunyai akaun")} (${match.role.replace(/_/g, " ")}).` });
                 } else if (match) {
                   setExisting(null);
-                  setCreateMsg({ ok: false, text: "This email belongs to a customer account — an admin can adjust it in /admin → Users." });
+                  setCreateMsg({ ok: false, text: L("This email belongs to a customer account — an admin can adjust it in /admin → Users.", "E-mel ini milik akaun pelanggan — admin boleh melaraskannya di /admin → Users.") });
                 } else {
                   setExisting(null);
-                  setCreateMsg({ ok: false, text: "A user with this email already exists." });
+                  setCreateMsg({ ok: false, text: L("A user with this email already exists.", "Pengguna dengan e-mel ini sudah wujud.") });
                 }
               } else {
                 setExisting(null);
-                setCreateMsg({ ok: false, text: res.data?.error?.message ?? "Could not add — check the fields." });
+                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Could not add — check the fields.", "Tidak dapat menambah — semak medan.") });
               }
             }}>
-            Create staff account
+            {L("Create staff account", "Cipta akaun kakitangan")}
           </button>
         </div>
       </div>
@@ -610,25 +681,25 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           disabled={selected.size === 0}
           onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
         >
-          Print selected badges ({selected.size}) — up to 9 per A4
+          {L("Print selected badges", "Cetak lencana dipilih")} ({selected.size}) — {L("up to 9 per A4", "sehingga 9 setiap A4")}
         </button>
         <button
           type="button"
           className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs hover:bg-secondary"
           onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
         >
-          {selected.size === staff.length && staff.length > 0 ? "Clear selection" : "Select all"}
+          {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}
         </button>
-        <span className="text-muted-foreground text-xs">Individual printing stays on each record.</span>
+        <span className="text-muted-foreground text-xs">{L("Individual printing stays on each record.", "Cetakan individu kekal pada setiap rekod.")}</span>
         <select
           className="border-input bg-background ml-auto h-8 rounded-lg border px-2 text-xs"
           value={sortBy}
-          title="Sort staff records"
+          title={L("Sort staff records", "Susun rekod kakitangan")}
           onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
         >
-          <option value="rank">Sort: Rank (default)</option>
-          <option value="az">Sort: Name A–Z</option>
-          <option value="za">Sort: Name Z–A</option>
+          <option value="rank">{L("Sort: Rank (default)", "Susun: Pangkat (lalai)")}</option>
+          <option value="az">{L("Sort: Name A–Z", "Susun: Nama A–Z")}</option>
+          <option value="za">{L("Sort: Name Z–A", "Susun: Nama Z–A")}</option>
         </select>
       </div>
 
@@ -649,13 +720,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   className="h-4 w-4 accent-[#1a2946]"
                   checked={selected.has(u.id)}
                   onChange={() => toggleSelect(u.id)}
-                  title="Select for multi-badge printing"
+                  title={L("Select for multi-badge printing", "Pilih untuk cetakan berbilang lencana")}
                 />
                 {/* v1.4.256: the staff member's name opens the record — the
                     same affordance as every other list. That also frees a slot
                     in this row, which v1.4.209 had to teach to wrap because it
                     held five buttons with a record open. */}
-                <RecordToggle open={open.has(u.id)} title="Full staff record"
+                <RecordToggle open={open.has(u.id)} title={L("Full staff record", "Rekod kakitangan penuh")}
                   onToggle={() => setOpen((o) => {
                     const next = new Set(o);
                     if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
@@ -670,21 +741,24 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 </RecordToggle>
                 {!u.full_name?.trim() && (
                   <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                    title="No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account">
-                    ⚠ no full name
+                    title={L(
+                      "No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account",
+                      "Tiada nama penuh dalam rekod — slip gaji, borang tuntutan, borang cuti, lencana ID dan fail gaji Maybank2E semuanya kembali kepada nama pendek, dan bank boleh menolak pindahan yang namanya tidak sepadan dengan akaun",
+                    )}>
+                    ⚠ {L("no full name", "tiada nama penuh")}
                   </span>
                 )}
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
-                    {u.employment_status}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
+                    {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
                   </span>
                 )}
                 {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    re-joined {dmy(u.rejoined_on)}
+                    {L("re-joined", "kembali bekerja")} {dmy(u.rejoined_on)}
                   </span>
                 )}
-                {" "}<span className="text-muted-foreground">· {u.role.replace(/_/g, " ")}</span>
+                {" "}<span className="text-muted-foreground">· {L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}</span>
                 {!open.has(u.id) && (u.employee_id || u.position) && (
                   <span className="text-muted-foreground hidden text-xs sm:inline">
                     · {[u.employee_id, u.position].filter(Boolean).join(" · ")}
@@ -698,7 +772,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   right edge of the phone screen (Hide details clipped).
                   flex-wrap + justify-end = v1.4.154 phone standard. */}
               <span className="flex flex-wrap items-center justify-end gap-2">
-                {saved === u.id && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
+                {saved === u.id && <span className="text-xs font-medium text-green-700">{L("Saved ✓", "Disimpan ✓")}</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
                 {open.has(u.id) && !readOnly && (
                   <button
@@ -706,7 +780,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                     className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85`}
                     onClick={() => void save(u.id, u.name)}
                   >
-                    Save
+                    {L("Save", "Simpan")}
                   </button>
                 )}
                 {open.has(u.id) && (
@@ -715,7 +789,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   className={`${btn} border-border border hover:bg-secondary`}
                   onClick={() => setPreview((p) => (p === u.id ? null : u.id))}
                 >
-                  {preview === u.id ? "Hide badge" : "Preview badge"}
+                  {preview === u.id ? L("Hide badge", "Sembunyikan lencana") : L("Preview badge", "Pratonton lencana")}
                 </button>
                 )}
                 {open.has(u.id) && (
@@ -724,7 +798,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   className={`${btn} border-border border hover:bg-secondary`}
                   onClick={() => printBadge(merged)}
                 >
-                  Print badge
+                  {L("Print badge", "Cetak lencana")}
                 </button>
                 )}
                 {/* v1.4.282 (auditor pick 3): the WHOLE exit in one tap —
@@ -735,26 +809,29 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   <button type="button" className={rowBtnDanger}
                     onClick={() => {
                       void confirm({
-                        title: `Offboard ${displayName(u)}?`,
-                        message: "One tap does the whole exit: marks resigned with today as the final day, signs them out everywhere, and removes their two-factor setup. Everything is audited. You can edit the date or change to terminated in the fields afterwards.",
-                        confirmLabel: "Offboard", variant: "danger",
+                        title: L(`Offboard ${displayName(u)}?`, `Tamatkan khidmat ${displayName(u)}?`),
+                        message: L(
+                          "One tap does the whole exit: marks resigned with today as the final day, signs them out everywhere, and removes their two-factor setup. Everything is audited. You can edit the date or change to terminated in the fields afterwards.",
+                          "Satu ketukan melakukan keseluruhan proses keluar: menandakan letak jawatan dengan hari ini sebagai hari terakhir, melog keluar mereka di semua peranti, dan membuang persediaan dua faktor mereka. Semuanya diaudit. Anda boleh menyunting tarikh atau menukar kepada ditamatkan dalam medan selepas itu.",
+                        ),
+                        confirmLabel: L("Offboard", "Tamatkan khidmat"), variant: "danger",
                       }).then(async (ok) => {
                         if (!ok) return;
                         const res = await api<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({}) });
                         if (res.ok) {
-                          showToast("Offboarded", `${displayName(u)} — resigned, signed out everywhere, 2FA cleared`);
+                          showToast(L("Offboarded", "Khidmat ditamatkan"), `${displayName(u)} — ${L("resigned, signed out everywhere, 2FA cleared", "letak jawatan, dilog keluar di semua peranti, 2FA dibuang")}`);
                           void load();
                         } else {
-                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? "Offboard failed" }));
+                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? L("Offboard failed", "Tamat khidmat gagal") }));
                         }
                       });
                     }}>
-                    🚪 Offboard
+                    🚪 {L("Offboard", "Tamatkan khidmat")}
                   </button>
                 )}
                 {open.has(u.id) && !readOnly && (
                 <label className={`${btn} border-border cursor-pointer border hover:bg-secondary`}>
-                  {u.photo_key ? (canAmend ? "Replace photo" : "Photo set 🔒") : "Upload photo"}
+                  {u.photo_key ? (canAmend ? L("Replace photo", "Ganti foto") : L("Photo set 🔒", "Foto ditetapkan 🔒")) : L("Upload photo", "Muat naik foto")}
                   <input
                     type="file"
                     accept="image/*"
@@ -777,12 +854,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                         window.setTimeout(() => setSaved(null), 3000);
                         // v1.4.184 (CEO: "no popup successful when upload staff
                         // Photo"): same save-popup family as every other save.
-                        showToast("Photo uploaded", `${displayName(u)} — badge photo saved`);
+                        showToast(L("Photo uploaded", "Foto dimuat naik"), `${displayName(u)} — ${L("badge photo saved", "foto lencana disimpan")}`);
                         void load();
                       } else {
                         const j = (await res.json().catch(() => null)) as ErrShape | null;
-                        setRowMsg((m) => ({ ...m, [u.id]: j?.error?.message ?? "Photo upload failed" }));
-                        showToast("Photo upload failed", j?.error?.message ?? `${displayName(u)} — try again`, "notice");
+                        setRowMsg((m) => ({ ...m, [u.id]: j?.error?.message ?? L("Photo upload failed", "Muat naik foto gagal") }));
+                        showToast(L("Photo upload failed", "Muat naik foto gagal"), j?.error?.message ?? `${displayName(u)} — ${L("try again", "cuba lagi")}`, "notice");
                       }
                     }}
                   />
@@ -792,12 +869,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             </div>
             {open.has(u.id) && RECORD_SECTIONS.map((sec) => (
             <div key={sec.title}>
-            <p className="text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide">{sec.title}</p>
+            <p className="text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide">{L(sec.title, SECTION_TITLE_MS[sec.title] ?? sec.title)}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {sec.fields.map(([key, label]) => (
                 <label key={key} className="block">
                   <span className="text-muted-foreground mb-0.5 block text-[11px]">
-                    {label}
+                    {L(label, FIELD_LABEL_MS[key] ?? label)}
                     {isLocked(u, key) && <span className="ml-1">🔒</span>}
                   </span>
                   {SELECT_FIELDS[key as string] ? (
@@ -805,21 +882,23 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                       className={input}
                       value={val(u, key)}
                       disabled={isLocked(u, key)}
-                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : undefined}
+                      title={isLocked(u, key) ? L("Locked — amendments are made by an admin", "Dikunci — pindaan dibuat oleh admin") : undefined}
                       onChange={(e) => set(u.id, key, e.target.value)}
                     >
-                      <option value="">— select —</option>
+                      <option value="">{L("— select —", "— pilih —")}</option>
                       {SELECT_FIELDS[key as string]!.map((o) => (
-                        <option key={o} value={o}>{o.replace("_", " ")}</option>
+                        <option key={o} value={o}>{L(o.replace("_", " "), STATUS_MS[o] ?? o.replace("_", " "))}</option>
                       ))}
                     </select>
                   ) : (
                     <input
                       className={input}
                       value={val(u, key)}
-                      placeholder={FIELD_PLACEHOLDERS[key]}
+                      placeholder={FIELD_PLACEHOLDERS[key] ? L(FIELD_PLACEHOLDERS[key]!, FIELD_PLACEHOLDERS_MS[key] ?? FIELD_PLACEHOLDERS[key]!) : undefined}
                       disabled={isLocked(u, key)}
-                      title={isLocked(u, key) ? "Locked — amendments are made by an admin" : FIELD_TITLES[key]}
+                      title={isLocked(u, key)
+                        ? L("Locked — amendments are made by an admin", "Dikunci — pindaan dibuat oleh admin")
+                        : (FIELD_TITLES[key] ? L(FIELD_TITLES[key]!, FIELD_TITLES_MS[key] ?? FIELD_TITLES[key]!) : undefined)}
                       onChange={(e) => set(u.id, key, e.target.value)}
                     />
                   )}
@@ -832,7 +911,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">
                 <p className="text-muted-foreground mb-2 text-xs">
-                  Live preview — updates as you type. Print uses exactly this layout.
+                  {L("Live preview — updates as you type. Print uses exactly this layout.", "Pratonton langsung — dikemas kini semasa anda menaip. Cetakan menggunakan susun atur ini secara tepat.")}
                 </p>
                 <BadgePreview s={merged} />
               </div>
@@ -858,6 +937,15 @@ const ONBOARDING_ITEMS: [string, string][] = [
   ["badge", "ID badge printed"],
   ["groups", "Added to team WhatsApp group"],
 ];
+// Display-only BM labels for the checklist (keyed by item key).
+const ONBOARDING_MS: Record<string, string> = {
+  offer_letter: "Surat tawaran ditandatangani",
+  contract: "Kontrak pekerjaan ditandatangani",
+  bank: "Butiran bank dikumpul",
+  twofa: "2FA diaktifkan",
+  badge: "Lencana ID dicetak",
+  groups: "Ditambah ke kumpulan WhatsApp pasukan",
+};
 function StaffVault({ userId, name }: { userId: number; name: string }) {
   interface Doc { id: number; kind: string; label?: string | null; filename?: string | null; size?: number | null; created_at: string; uploaded_by_name?: string | null }
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -888,16 +976,16 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
     await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
   };
   if (!loaded) return null;
-  const KIND_LABEL: Record<string, string> = { contract: "Contract", offer_letter: "Offer letter", resignation: "Resignation", other: "Other" };
+  const KIND_LABEL: Record<string, string> = { contract: L("Contract", "Kontrak"), offer_letter: L("Offer letter", "Surat tawaran"), resignation: L("Resignation", "Peletakan jawatan"), other: L("Other", "Lain-lain") };
   return (
     <div className="border-border mt-3 rounded-lg border p-3">
-      <p className="text-xs font-semibold">📁 Documents &amp; onboarding — {name}</p>
+      <p className="text-xs font-semibold">📁 {L("Documents & onboarding", "Dokumen & onboarding")} — {name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select className="border-input bg-background rounded border px-2 py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
           {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-secondary"
-          onClick={() => fileRef.current?.click()}>⬆ Upload document</button>
+          onClick={() => fileRef.current?.click()}>⬆ {L("Upload document", "Muat naik dokumen")}</button>
         <input ref={fileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ""; }} />
       </div>
@@ -907,24 +995,24 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
             <div key={d.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-1.5 text-xs last:border-0">
               <span className="min-w-0">
                 <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{KIND_LABEL[d.kind] ?? d.kind}</span>
-                <span className="font-medium">{d.filename ?? d.label ?? "document"}</span>
-                <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.uploaded_by_name ? ` · by ${properName(d.uploaded_by_name)}` : ""}</span>
+                <span className="font-medium">{d.filename ?? d.label ?? L("document", "dokumen")}</span>
+                <span className="text-muted-foreground"> · {dmy(d.created_at.slice(0, 10))}{d.uploaded_by_name ? ` · ${L("by", "oleh")} ${properName(d.uploaded_by_name)}` : ""}</span>
               </span>
               <span className="flex items-center gap-2">
-                <a className={rowBtn} href={`${API}/staff-documents/${d.id}`}>Download</a>
+                <a className={rowBtn} href={`${API}/staff-documents/${d.id}`}>{L("Download", "Muat turun")}</a>
                 <button type="button" className="text-destructive underline"
-                  onClick={async () => { await api(`/staff-documents/${d.id}`, { method: "DELETE" }); void load(); }}>Delete</button>
+                  onClick={async () => { await api(`/staff-documents/${d.id}`, { method: "DELETE" }); void load(); }}>{L("Delete", "Padam")}</button>
               </span>
             </div>
           ))}
         </div>
       )}
-      <p className="text-muted-foreground mt-3 text-[11px] font-semibold tracking-wide uppercase">Onboarding checklist</p>
+      <p className="text-muted-foreground mt-3 text-[11px] font-semibold tracking-wide uppercase">{L("Onboarding checklist", "Senarai semak onboarding")}</p>
       <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
         {ONBOARDING_ITEMS.map(([k, l]) => (
           <label key={k} className="flex items-center gap-1.5 text-xs">
             <input type="checkbox" checked={!!onb[k]} onChange={() => void toggle(k)} />
-            <span className={onb[k] ? "text-muted-foreground line-through" : ""}>{l}</span>
+            <span className={onb[k] ? "text-muted-foreground line-through" : ""}>{L(l, ONBOARDING_MS[k] ?? l)}</span>
           </label>
         ))}
       </div>

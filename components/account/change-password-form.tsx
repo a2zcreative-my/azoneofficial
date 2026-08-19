@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { PasswordInput } from "@/components/ui/password-input";
 import { inputClass } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 /**
@@ -45,11 +47,11 @@ export function ChangePasswordForm() {
       setNext("");
       setConfirm("");
       setState({ kind: "done" });
-      showToast("Saved", "Password changed — use the new one next time you sign in");
+      showToast(L("Saved", "Disimpan"), L("Password changed — use the new one next time you sign in", "Kata laluan ditukar — guna yang baharu pada log masuk seterusnya"));
       return;
     }
     if (res.status === 0) {
-      setState({ kind: "error", message: "Network error — try again." });
+      setState({ kind: "error", message: L("Network error — try again.", "Ralat rangkaian — cuba lagi.") });
       return;
     }
     const code = res.data?.error?.code;
@@ -57,11 +59,11 @@ export function ChangePasswordForm() {
       kind: "error",
       message:
         code === "google_account"
-          ? "This account signs in with Google — manage your password in your Google account instead."
+          ? L("This account signs in with Google — manage your password in your Google account instead.", "Akaun ini log masuk dengan Google — urus kata laluan anda dalam akaun Google anda.")
           : code === "invalid_credentials"
-            ? "Current password is incorrect — use the eye icon to check what you typed."
+            ? L("Current password is incorrect — use the eye icon to check what you typed.", "Kata laluan semasa salah — guna ikon mata untuk menyemak apa yang anda taip.")
             : (res.data?.error?.message ??
-              "Could not change the password. Check the fields and try again."),
+              L("Could not change the password. Check the fields and try again.", "Tidak dapat menukar kata laluan. Semak medan dan cuba lagi.")),
     });
   };
 
@@ -70,7 +72,7 @@ export function ChangePasswordForm() {
       {toastNode}
       <label className="block">
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
-          Current password
+          {L("Current password", "Kata laluan semasa")}
         </span>
         <PasswordInput
           
@@ -83,7 +85,7 @@ export function ChangePasswordForm() {
 
       <label className="block">
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
-          New password
+          {L("New password", "Kata laluan baharu")}
         </span>
         <PasswordInput
           
@@ -93,13 +95,13 @@ export function ChangePasswordForm() {
           onChange={(e) => setNext(e.target.value)}
         />
         {tooShort && (
-          <p className="text-destructive mt-1 text-xs">{next.length} of 10 characters minimum</p>
+          <p className="text-destructive mt-1 text-xs">{next.length} {L("of 10 characters minimum", "daripada minimum 10 aksara")}</p>
         )}
       </label>
 
       <label className="block">
         <span className="text-muted-foreground mb-1 block text-xs font-medium">
-          Confirm new password
+          {L("Confirm new password", "Sahkan kata laluan baharu")}
         </span>
         <PasswordInput
           
@@ -108,7 +110,7 @@ export function ChangePasswordForm() {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
-        {mismatch && <p className="text-destructive mt-1 text-xs">Passwords do not match.</p>}
+        {mismatch && <p className="text-destructive mt-1 text-xs">{L("Passwords do not match.", "Kata laluan tidak sepadan.")}</p>}
       </label>
 
       {state.kind === "error" && (
@@ -116,7 +118,7 @@ export function ChangePasswordForm() {
       )}
       {state.kind === "done" && (
         <p className="text-sm font-medium text-green-700">
-          Password changed. Any other signed-in devices have been logged out.
+          {L("Password changed. Any other signed-in devices have been logged out.", "Kata laluan ditukar. Peranti lain yang sedang log masuk telah dilog keluar.")}
         </p>
       )}
 
@@ -126,7 +128,7 @@ export function ChangePasswordForm() {
         onClick={() => void submit()}
         className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium transition-colors disabled:opacity-50"
       >
-        {state.kind === "busy" ? "Changing…" : "Change password"}
+        {state.kind === "busy" ? L("Changing…", "Menukar…") : L("Change password", "Tukar kata laluan")}
       </button>
     </div>
   );

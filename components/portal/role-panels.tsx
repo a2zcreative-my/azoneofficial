@@ -33,6 +33,43 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
+
+/* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
+   and compared strings stay English. */
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+/* Status/category/reason values live in the DB in English — these maps swap
+   the DISPLAYED word only; the underlying value never changes. */
+const STATUS_MS: Record<string, string> = {
+  late: "Lewat", early_out: "Keluar awal", out_of_stock: "Habis stok",
+  closed_lost: "Tutup — kalah", rejected: "Ditolak", returned: "Dipulangkan",
+  ok: "OK", delivered: "Terhantar", closed_won: "Tutup — menang", done: "Selesai",
+  in_stock: "Ada stok", low_stock: "Stok rendah", approved: "Diluluskan",
+  preparing: "Sedang disediakan", shipped: "Dihantar", in_transit: "Dalam penghantaran",
+  requested: "Diminta", in_progress: "Dalam proses", pending: "Menunggu",
+};
+const statusLabel = (v: string) => (getLang() === "ms" ? (STATUS_MS[v] ?? v.replace(/_/g, " ")) : v.replace(/_/g, " "));
+const CAT_MS: Record<string, string> = {
+  travel: "Perjalanan", meal: "Makan", "client meeting": "Mesyuarat pelanggan",
+  stationery: "Alat tulis", accommodation: "Penginapan", equipment: "Peralatan",
+  medical: "Perubatan", other: "Lain-lain", rent: "Sewa", utilities: "Utiliti",
+  software: "Perisian", marketing: "Pemasaran", logistics: "Logistik", supplies: "Bekalan",
+};
+const catLabel = (c: string) => (getLang() === "ms" ? (CAT_MS[c] ?? c) : c);
+const REASON_MS: Record<string, string> = {
+  "Stock count variance — missing": "Varians kiraan stok — hilang",
+  "Damaged / defective": "Rosak / cacat",
+  "Sample or giveaway": "Sampel atau hadiah",
+  "Internal use": "Kegunaan dalaman",
+  "Sold offline": "Dijual luar talian",
+  "Data entry correction": "Pembetulan kemasukan data",
+  "Other": "Lain-lain",
+  "Stock count variance — found extra": "Varians kiraan stok — jumpa lebih",
+  "Restock from supplier": "Stok semula daripada pembekal",
+  "Customer return": "Pemulangan pelanggan",
+  "Returned from sample / event": "Dipulangkan daripada sampel / acara",
+};
+const reasonLabel = (r: string) => (getLang() === "ms" ? (REASON_MS[r] ?? r) : r);
 
 
 
@@ -67,7 +104,7 @@ function Badge({ value }: { value: string }) {
         : "bg-secondary text-muted-foreground";
   return (
     <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>
-      {value.replace(/_/g, " ")}
+      {statusLabel(value)}
     </span>
   );
 }
@@ -127,9 +164,9 @@ export function HrPanel() {
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold">Attendance verification</p>
+            <p className="text-sm font-semibold">{L("Attendance verification", "Pengesahan kehadiran")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Company accounts · shift {shift || "10:00–18:00 MYT, Monday–Friday"} · CSV export for payroll
+              {L("Company accounts · shift", "Akaun syarikat · syif")} {shift || L("10:00–18:00 MYT, Monday–Friday", "10:00–18:00 MYT, Isnin–Jumaat")} {L("· CSV export for payroll", "· eksport CSV untuk gaji")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -143,7 +180,7 @@ export function HrPanel() {
               href={`/api/v1/staff/attendance/export?month=${month}`}
               className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium"
             >
-              Export CSV
+              {L("Export CSV", "Eksport CSV")}
             </a>
           </div>
         </div>
@@ -153,18 +190,18 @@ export function HrPanel() {
           <table className="tbl-sticky w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-border border-b">
-                <th className={th}>Staff</th>
-                <th className={th}>Email</th>
-                <th className={th}>Event</th>
-                <th className={th}>Time (MYT)</th>
-                <th className={th}>Shift check</th>
+                <th className={th}>{L("Staff", "Kakitangan")}</th>
+                <th className={th}>{L("Email", "E-mel")}</th>
+                <th className={th}>{L("Event", "Acara")}</th>
+                <th className={th}>{L("Time (MYT)", "Masa (MYT)")}</th>
+                <th className={th}>{L("Shift check", "Semakan syif")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
                   <td className={`${td} text-muted-foreground`} colSpan={5}>
-                    No attendance records for this month yet.
+                    {L("No attendance records for this month yet.", "Tiada rekod kehadiran untuk bulan ini lagi.")}
                   </td>
                 </tr>
               )}
@@ -172,7 +209,7 @@ export function HrPanel() {
                 <tr key={i} className="border-border border-b last:border-0">
                   <td className={`${td} font-medium`}>{properName(r.name)}</td>
                   <td className={`${td} text-muted-foreground`}>{r.email}</td>
-                  <td className={td}>{r.type.replace(/_/g, " ")}</td>
+                  <td className={td}>{r.type === "clock_in" ? L("clock in", "daftar masuk") : r.type === "clock_out" ? L("clock out", "daftar keluar") : r.type.replace(/_/g, " ")}</td>
                   <td className={td}>{dmy(r.myt_time ?? "")}</td>
                   <td className={td}>
                     <Badge value={r.flag} />
@@ -186,9 +223,9 @@ export function HrPanel() {
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Task report</p>
+          <p className="text-sm font-semibold">{L("Task report", "Laporan tugasan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Daily, weekly, or monthly — visible to management.
+            {L("Daily, weekly, or monthly — visible to management.", "Harian, mingguan atau bulanan — dilihat oleh pengurusan.")}
           </p>
           <div className="mt-3 flex gap-2">
             <select
@@ -196,9 +233,9 @@ export function HrPanel() {
               value={draft.period}
               onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))}
             >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="daily">{L("Daily", "Harian")}</option>
+              <option value="weekly">{L("Weekly", "Mingguan")}</option>
+              <option value="monthly">{L("Monthly", "Bulanan")}</option>
             </select>
             <input
               type="date"
@@ -209,17 +246,17 @@ export function HrPanel() {
           </div>
           <textarea
             className={`${inputClass} mt-2 min-h-24`}
-            placeholder="What was completed, what is pending, what needs attention…"
+            placeholder={L("What was completed, what is pending, what needs attention…", "Apa yang telah siap, apa yang tertunda, apa yang perlu perhatian…")}
             value={draft.content}
             onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
           />
           <button type="button" className={`${btnClass} mt-2`} onClick={() => void submitReport()}>
-            Submit report
+            {L("Submit report", "Hantar laporan")}
           </button>
           <ul className="mt-4 space-y-2">
             {reports.slice(0, 5).map((r) => (
               <li key={r.id} className="border-border rounded-lg border px-3 py-2 text-sm">
-                <span className="font-medium capitalize">{r.period}</span>{" "}
+                <span className="font-medium capitalize">{r.period === "daily" ? L("daily", "harian") : r.period === "weekly" ? L("weekly", "mingguan") : r.period === "monthly" ? L("monthly", "bulanan") : r.period}</span>{" "}
                 <span className="text-muted-foreground">· {dmy(r.report_date)} · {r.author}</span>
                 <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">{r.content}</p>
               </li>
@@ -228,14 +265,14 @@ export function HrPanel() {
         </div>
 
         <div className={card}>
-          <p className="text-sm font-semibold">Staff birthdays</p>
+          <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Maintained in the staff directory (birthday field). Sorted by month and day.
+            {L("Maintained in the staff directory (birthday field). Sorted by month and day.", "Diselenggara dalam direktori kakitangan (medan hari lahir). Disusun mengikut bulan dan hari.")}
           </p>
           <ul className="mt-3 space-y-1.5">
             {birthdays.length === 0 && (
               <li className="text-muted-foreground text-sm">
-                No birthdays recorded yet — add them via the staff directory.
+                {L("No birthdays recorded yet — add them via the staff directory.", "Tiada hari lahir direkodkan lagi — tambah melalui direktori kakitangan.")}
               </li>
             )}
             {birthdays.map((b) => (
@@ -246,10 +283,9 @@ export function HrPanel() {
             ))}
           </ul>
           <p className="text-muted-foreground mt-4 text-xs">
-            Leave administration (annual / medical / emergency) is in the{" "}
-            <span className="font-medium">Leave</span> tab — HR sees every request there and can
-            approve or reject. Quotations, DO and invoices are in the{" "}
-            <span className="font-medium">Sales</span> tab with the QT-AZOODDMMYY-X numbering.
+            {L("Leave administration (annual / medical / emergency) is in the", "Pentadbiran cuti (tahunan / sakit / kecemasan) berada dalam tab")}{" "}
+            <span className="font-medium">{L("Leave", "Cuti")}</span>{L(" tab — HR sees every request there and can approve or reject. Quotations, DO and invoices are in the", " — HR melihat setiap permohonan di sana dan boleh meluluskan atau menolaknya. Sebut harga, DO dan invois berada dalam tab")}{" "}
+            <span className="font-medium">{L("Sales", "Jualan")}</span>{L(" tab with the QT-AZOODDMMYY-X numbering.", " dengan penomboran QT-AZOODDMMYY-X.")}
           </p>
         </div>
       </div>
@@ -363,13 +399,13 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
   useEffect(() => { void loadTikTok(); }, [loadTikTok]);
 
   const syncTikTok = async () => {
-    setTtMsg("Syncing from TikTok…");
+    setTtMsg(L("Syncing from TikTok…", "Menyegerak dari TikTok…"));
     const res = await tiktokApi<{ imported: number; skipped: number; problems: string[]; error?: { message?: string } }>(
       `/sync`, { method: "POST", body: JSON.stringify({}) },
     );
     if (res.ok && res.data) {
       const probs = res.data.problems?.length ? ` · ${res.data.problems.join(" · ")}` : "";
-      setTtMsg(`Imported ${res.data.imported} (${res.data.skipped} already in)${probs}`);
+      setTtMsg(`${L("Imported", "Diimport")} ${res.data.imported} (${res.data.skipped} ${L("already in", "sudah ada")})${probs}`);
       void loadTikTok();
       onChanged();
       /* v1.24.1 (CEO: "Operations map — orders by state should be updated
@@ -377,7 +413,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
          listening card fresh order data just landed. */
       try { window.dispatchEvent(new CustomEvent("azone:tiktok-synced")); } catch { /* SSR-safe */ }
     } else {
-      setTtMsg(res.data?.error?.message ?? "Sync failed — check the TikTok setup");
+      setTtMsg(res.data?.error?.message ?? L("Sync failed — check the TikTok setup", "Segerakan gagal — semak tetapan TikTok"));
     }
   };
 
@@ -385,15 +421,15 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
     <div className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">TikTok Orders</p>
+          <p className="text-sm font-semibold">{L("TikTok Orders", "Pesanan TikTok")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {!ttStatus?.configured
-              ? "Not configured — set the app secret and deploy the worker."
+              ? L("Not configured — set the app secret and deploy the worker.", "Belum dikonfigurasi — tetapkan app secret dan deploy worker.")
               : !ttStatus?.authorized
-                ? "Not authorized yet — activate the shop/order scopes, publish the app in Partner Center, then authorize the shop. Sync pulls existing orders once live."
+                ? L("Not authorized yet — activate the shop/order scopes, publish the app in Partner Center, then authorize the shop. Sync pulls existing orders once live.", "Belum diberi kebenaran — aktifkan skop shop/order, terbitkan aplikasi dalam Partner Center, kemudian benarkan kedai. Segerak menarik pesanan sedia ada setelah aktif.")
                 : ttStatus.last_event_at
-                  ? `Connected · last webhook ${dmyMYT(ttStatus.last_event_at)} MYT${ttStatus.last_event_verified === false ? " (signature FAILED — check app secret)" : ""}`
-                  : "Connected · auto-sync runs every 30 minutes; Sync pulls now."}
+                  ? `${L("Connected · last webhook", "Bersambung · webhook terakhir")} ${dmyMYT(ttStatus.last_event_at)} MYT${ttStatus.last_event_verified === false ? L(" (signature FAILED — check app secret)", " (tandatangan GAGAL — semak app secret)") : ""}`
+                  : L("Connected · auto-sync runs every 30 minutes; Sync pulls now.", "Bersambung · auto-segerak berjalan setiap 30 minit; Segerak menarik sekarang.")}
           </p>
         </div>
         {canSync && (
@@ -402,13 +438,13 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
             className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary"
             onClick={() => void syncTikTok()}
           >
-            Sync from TikTok
+            {L("Sync from TikTok", "Segerak dari TikTok")}
           </button>
         )}
       </div>
       {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {([["all", "All"], ["preparing", "New"], ["shipped", "Shipped"], ["delivered", "Delivered"]] as const).map(([v, label]) => {
+        {([["all", L("All", "Semua")], ["preparing", L("New", "Baru")], ["shipped", L("Shipped", "Dihantar")], ["delivered", L("Delivered", "Sampai")]] as const).map(([v, label]) => {
           const n = v === "all" ? ttOrders.length : ttOrders.filter((o) => o.status === v).length;
           return (
             <button
@@ -425,11 +461,11 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
         })}
       </div>
       {/* v1.4.196 (CEO): order rows hide behind one click — minimalist view */}
-      <DetailsToggle label="Show orders">
+      <DetailsToggle label={L("Show orders", "Tunjuk pesanan")}>
       <div className="mt-1 max-h-72 overflow-y-auto">
-        {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">No TikTok orders yet.</p>}
+        {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">{L("No TikTok orders yet.", "Tiada pesanan TikTok lagi.")}</p>}
         {ttOrders.length > 0 && ttOrders.every((o) => ttFilter !== "all" && o.status !== ttFilter) && (
-          <p className="text-muted-foreground text-sm">No orders with this status.</p>
+          <p className="text-muted-foreground text-sm">{L("No orders with this status.", "Tiada pesanan dengan status ini.")}</p>
         )}
         {ttOrders.filter((o) => ttFilter === "all" || o.status === ttFilter).map((o) => (
           <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
@@ -440,19 +476,19 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
               {o.items_label ? (
                 <span className="block text-xs font-medium">{o.items_label}</span>
               ) : (
-                <span className="text-muted-foreground block text-xs">No stock movement recorded</span>
+                <span className="text-muted-foreground block text-xs">{L("No stock movement recorded", "Tiada pergerakan stok direkodkan")}</span>
               )}
               {o.tracking_no ? (
                 <span className="block text-xs">
-                  Tracking: <span className="font-semibold tracking-wide">{o.tracking_no}</span>
+                  {L("Tracking:", "Penjejakan:")} <span className="font-semibold tracking-wide">{o.tracking_no}</span>
                   {o.courier ? <span className="text-muted-foreground"> · {o.courier}</span> : null}
                 </span>
               ) : (
-                <span className="text-muted-foreground block text-xs">No tracking number yet</span>
+                <span className="text-muted-foreground block text-xs">{L("No tracking number yet", "Tiada nombor penjejakan lagi")}</span>
               )}
               {o.note && <span className="text-muted-foreground block text-xs">{o.note}</span>}
             </span>
-            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{o.status}</span>
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{statusLabel(o.status)}</span>
           </div>
         ))}
       </div>
@@ -540,19 +576,19 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const adjust = async (id: number, delta: number, salePrice?: string, remark?: string) => {
     setInvMsg("");
     const sale = delta < 0 && salePrice !== undefined && salePrice.trim() !== "" ? Number(salePrice) : undefined;
-    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast(L("Not saved", "Tidak disimpan"), L("Sold @ must be a valid RM amount", "Dijual @ mesti amaun RM yang sah"), "notice"); return false; }
     const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
       method: "POST",
       body: JSON.stringify({ delta, ...(sale !== undefined ? { sale_price: sale } : {}), ...(remark ? { remark } : {}) }),
     });
-    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
+    if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Adjustment failed", "Pelarasan gagal"), "notice"); void load(); return false; }
     /* v1.4.251: an IN used to save in silence — no toast at all — so there was
        no way to know the stock had actually moved. Every movement now says so,
        and quotes the NEW stock level the server came back with. */
-    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${-delta} × RM ${rmBare(Math.round(sale! * 100))} — counted in total sales${level}`);
-    else if (delta < 0) invToast("Stock out recorded", `${-delta} pcs${level} — logged with your remark`);
-    else invToast("Stock in recorded", `${delta} pcs${level} — logged with your remark`);
+    const level = typeof res.data?.stock === "number" ? ` ${L("— now", "— kini")} ${res.data.stock} ${L("in stock", "dalam stok")}` : "";
+    if (res.data?.sale_recorded) invToast(L("Sale recorded", "Jualan direkodkan"), `${-delta} × RM ${rmBare(Math.round(sale! * 100))} ${L("— counted in total sales", "— dikira dalam jumlah jualan")}${level}`);
+    else if (delta < 0) invToast(L("Stock out recorded", "Stok keluar direkodkan"), `${-delta} pcs${level} ${L("— logged with your remark", "— dilog dengan catatan anda")}`);
+    else invToast(L("Stock in recorded", "Stok masuk direkodkan"), `${delta} pcs${level} ${L("— logged with your remark", "— dilog dengan catatan anda")}`);
     void load();
     return true;
   };
@@ -561,15 +597,15 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
     setInvMsg("");
     const sale = dir === "out" && price.trim() !== "" ? Number(price) : undefined;
-    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast("Not saved", "Sold @ must be a valid RM amount", "notice"); return false; }
+    if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast(L("Not saved", "Tidak disimpan"), L("Sold @ must be a valid RM amount", "Dijual @ mesti amaun RM yang sah"), "notice"); return false; }
     const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
       method: "POST",
       body: JSON.stringify({ delta: dir === "out" ? -qty : qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(outDate ? { out_date: outDate } : {}) }),
     });
-    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Adjustment failed", "notice"); void load(); return false; }
-    const level = typeof res.data?.stock === "number" ? ` — now ${res.data.stock} in stock` : "";
-    if (res.data?.sale_recorded) invToast("Sale recorded", `${qty} × RM ${rmBare(Math.round(sale! * 100))} — counted in total sales${level}`);
-    else invToast(dir === "in" ? "Stock in recorded" : "Stock out recorded", `${qty} pcs${level} — logged with your remark`);
+    if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Adjustment failed", "Pelarasan gagal"), "notice"); void load(); return false; }
+    const level = typeof res.data?.stock === "number" ? ` ${L("— now", "— kini")} ${res.data.stock} ${L("in stock", "dalam stok")}` : "";
+    if (res.data?.sale_recorded) invToast(L("Sale recorded", "Jualan direkodkan"), `${qty} × RM ${rmBare(Math.round(sale! * 100))} ${L("— counted in total sales", "— dikira dalam jumlah jualan")}${level}`);
+    else invToast(dir === "in" ? L("Stock in recorded", "Stok masuk direkodkan") : L("Stock out recorded", "Stok keluar direkodkan"), `${qty} pcs${level} ${L("— logged with your remark", "— dilog dengan catatan anda")}`);
     void load();
     return true;
   };
@@ -646,33 +682,32 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOutModal(null)}>
           <div className="bg-background w-full max-w-md rounded-xl border p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-semibold">
-              {outModal.edit_id ? "Edit manual stock movement" : outModal.dir === "in" ? "Manual stock in" : "Manual stock out"}
+              {outModal.edit_id ? L("Edit manual stock movement", "Sunting pergerakan stok manual") : outModal.dir === "in" ? L("Manual stock in", "Stok masuk manual") : L("Manual stock out", "Stok keluar manual")}
             </p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              The reason is required — every manual movement is logged with who,
-              when and why.{outModal.dir === "out" ? " Fill Sold @ only when this out is a sale" : ""}
-              {outModal.edit_id ? "; clearing it removes the sale from the totals. A qty change moves stock by the difference." : "."}
+              {L("The reason is required — every manual movement is logged with who, when and why.", "Sebab diperlukan — setiap pergerakan manual dilog dengan siapa, bila dan mengapa.")}{outModal.dir === "out" ? L(" Fill Sold @ only when this out is a sale", " Isi Dijual @ hanya apabila keluaran ini adalah jualan") : ""}
+              {outModal.edit_id ? L("; clearing it removes the sale from the totals. A qty change moves stock by the difference.", "; mengosongkannya membuang jualan itu daripada jumlah. Perubahan kuantiti menggerakkan stok mengikut perbezaannya.") : "."}
             </p>
             <div className="mt-3 space-y-2">
-              <SubR t="SKU · Item">
+              <SubR t={L("SKU · Item", "SKU · Barang")}>
                 <select className={inputClass} value={outModal.item_id} disabled={!!outModal.edit_id}
-                  title={outModal.edit_id ? "The item can't change on an existing record — delete and re-record instead" : undefined}
+                  title={outModal.edit_id ? L("The item can't change on an existing record — delete and re-record instead", "Barang tidak boleh ditukar pada rekod sedia ada — padam dan rekod semula") : undefined}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, item_id: Number(e.target.value) }))}>
                   {[...items].sort(bySku).map((it) => (
-                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
+                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} {L("in stock", "dalam stok")})</option>
                   ))}
                 </select>
               </SubR>
               <div className="grid grid-cols-2 gap-2">
-                <SubR t={outModal.dir === "in" ? "Quantity in" : "Quantity out"}>
+                <SubR t={outModal.dir === "in" ? L("Quantity in", "Kuantiti masuk") : L("Quantity out", "Kuantiti keluar")}>
                   <input type="number" min={1} className={inputClass} value={outModal.qty}
                     onChange={(e) => setOutModal((m) => m && ({ ...m, qty: e.target.value }))} />
                 </SubR>
                 {/* nothing is sold on the way IN, so the price box only exists
                     on an out (v1.4.169: a price is what makes an out a sale). */}
                 {outModal.dir === "out" ? (
-                  <SubR t="Sold @ (RM/unit, optional)">
-                    <input type="number" min={0} step="0.01" className={inputClass} placeholder="empty = correction"
+                  <SubR t={L("Sold @ (RM/unit, optional)", "Dijual @ (RM/unit, pilihan)")}>
+                    <input type="number" min={0} step="0.01" className={inputClass} placeholder={L("empty = correction", "kosong = pembetulan")}
                       value={outModal.price}
                       onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
                   </SubR>
@@ -680,7 +715,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               </div>
               {/* v1.4.172 (CEO): the DATE the stock went out — backdatable;
                   sales totals follow this date. */}
-              <SubR t={outModal.dir === "in" ? "Date of stock in" : "Date of stock out"}>
+              <SubR t={outModal.dir === "in" ? L("Date of stock in", "Tarikh stok masuk") : L("Date of stock out", "Tarikh stok keluar")}>
                 <input type="date" className={`${inputClass} sm:max-w-44`} value={outModal.out_date}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, out_date: e.target.value }))} />
               </SubR>
@@ -688,19 +723,19 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   always worded the same way and can be reported on later;
                   the note underneath carries the specifics. */}
               {!outModal.edit_id && (
-                <SubR t="Reason *">
+                <SubR t={L("Reason *", "Sebab *")}>
                   <select className={inputClass} value={outModal.reason}
                     onChange={(e) => setOutModal((m) => m && ({ ...m, reason: e.target.value }))}>
-                    <option value="">— pick a reason —</option>
-                    {REASONS[outModal.dir].map((r) => <option key={r} value={r}>{r}</option>)}
+                    <option value="">{L("— pick a reason —", "— pilih sebab —")}</option>
+                    {REASONS[outModal.dir].map((r) => <option key={r} value={r}>{reasonLabel(r)}</option>)}
                   </select>
                 </SubR>
               )}
-              <SubR t={outModal.edit_id ? "Remark *" : "Note — the specifics (optional)"}>
+              <SubR t={outModal.edit_id ? L("Remark *", "Catatan *") : L("Note — the specifics (optional)", "Nota — butiran (pilihan)")}>
                 <textarea className={inputClass} rows={2}
-                  placeholder={outModal.edit_id ? "Reason for this movement"
-                    : outModal.dir === "in" ? "e.g. counted 21, system said 20 — 1 found on the top shelf"
-                    : "e.g. counted 19, system said 21 — 2 missing after the JB event"}
+                  placeholder={outModal.edit_id ? L("Reason for this movement", "Sebab pergerakan ini")
+                    : outModal.dir === "in" ? L("e.g. counted 21, system said 20 — 1 found on the top shelf", "cth. kira 21, sistem kata 20 — 1 dijumpai di rak atas")
+                    : L("e.g. counted 19, system said 21 — 2 missing after the JB event", "cth. kira 19, sistem kata 21 — 2 hilang selepas acara JB")}
                   value={outModal.remark}
                   onChange={(e) => setOutModal((m) => m && ({ ...m, remark: e.target.value }))} />
               </SubR>
@@ -708,9 +743,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
                   onClick={async () => {
                     const qtyN = Math.floor(Number(outModal.qty));
-                    if (!qtyN || qtyN <= 0) { invToast("Not saved", "Quantity must be at least 1", "notice"); return; }
-                    if (!outModal.edit_id && !outModal.reason) { invToast("Not saved", "Pick a reason — it is what makes the movement traceable", "notice"); return; }
-                    if (outModal.edit_id && !outModal.remark.trim()) { invToast("Not saved", "The remark (reason) is required for traceability", "notice"); return; }
+                    if (!qtyN || qtyN <= 0) { invToast(L("Not saved", "Tidak disimpan"), L("Quantity must be at least 1", "Kuantiti mesti sekurang-kurangnya 1"), "notice"); return; }
+                    if (!outModal.edit_id && !outModal.reason) { invToast(L("Not saved", "Tidak disimpan"), L("Pick a reason — it is what makes the movement traceable", "Pilih sebab — itulah yang menjadikan pergerakan boleh dijejak"), "notice"); return; }
+                    if (outModal.edit_id && !outModal.remark.trim()) { invToast(L("Not saved", "Tidak disimpan"), L("The remark (reason) is required for traceability", "Catatan (sebab) diperlukan untuk kebolehjejakan"), "notice"); return; }
                     // reason first, specifics after — one readable line in the trail
                     const note = outModal.remark.trim();
                     const full = outModal.edit_id ? note : note ? `${outModal.reason} — ${note}` : outModal.reason;
@@ -728,14 +763,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                         remark: full, out_date: outModal.out_date || undefined,
                       }),
                     });
-                    if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
-                    invToast("Saved", "Stock-out record updated — stock and sales totals adjusted");
+                    if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Edit failed", "Suntingan gagal"), "notice"); return; }
+                    invToast(L("Saved", "Disimpan"), L("Stock-out record updated — stock and sales totals adjusted", "Rekod stok keluar dikemas kini — stok dan jumlah jualan dilaraskan"));
                     setOutModal(null);
                     void load();
                   }}>
-                  {outModal.edit_id ? "Save changes" : outModal.dir === "in" ? "Record stock in" : "Record stock out"}
+                  {outModal.edit_id ? L("Save changes", "Simpan perubahan") : outModal.dir === "in" ? L("Record stock in", "Rekod stok masuk") : L("Record stock out", "Rekod stok keluar")}
                 </button>
-                <button type="button" className="text-xs underline" onClick={() => setOutModal(null)}>Cancel</button>
+                <button type="button" className="text-xs underline" onClick={() => setOutModal(null)}>{L("Cancel", "Batal")}</button>
               </div>
             </div>
           </div>
@@ -746,7 +781,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           views; the tracker follows the channel. */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">Inventory — live status &amp; stock</p>
+          <p className="text-sm font-semibold">{L("Inventory — live status & stock", "Inventori — status semasa & stok")}</p>
           {/* v1.4.229 (CEO: "csv button to download the inventory list for
               me to perform Stock Count"): client-side CSV of the current
               list in its on-screen sort, PLUS the three columns a physical
@@ -761,9 +796,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               const now = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
               const stamp = `${now.slice(8, 10)}-${now.slice(5, 7)}-${now.slice(0, 4)} ${now.slice(11, 16)} MYT`;
               const lines: string[] = [
-                `# AZ ONE OFFICIAL — Inventory stock count sheet`,
-                `# Generated ${stamp} — system stock as of this moment; count, write Counted qty, note variances`,
-                ["SKU", "Item", "Price/unit (RM)", "Live rebate (RM)", "Net (RM)", "System stock", "Status", "Counted qty", "Variance", "Note"].join(","),
+                `# AZ ONE OFFICIAL — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`,
+                `# ${L("Generated", "Dijana")} ${stamp} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`,
+                ["SKU", L("Item", "Barang"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")].join(","),
               ];
               let units = 0;
               for (const it of sortedItems) {
@@ -777,7 +812,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   rmBare(net), it.stock, it.status ?? "", "", "", "",
                 ].join(","));
               }
-              lines.push(["TOTAL", "", "", "", "", units, "", "", "", ""].join(","));
+              lines.push([L("TOTAL", "JUMLAH"), "", "", "", "", units, "", "", "", ""].join(","));
               const url = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" }));
               const a = document.createElement("a");
               a.href = url;
@@ -785,31 +820,29 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               a.click();
               URL.revokeObjectURL(url);
             }}>
-            ⬇ CSV — stock count
+            {L("⬇ CSV — stock count", "⬇ CSV — kiraan stok")}
           </button>
         </div>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Stock moves automatically: a postage record with an item deducts it;
-          a returned shipment adds it back. Use In/Out for manual corrections.
-          Status recomputes on every movement (0 = out of stock · ≤5 = low).
+          {L("Stock moves automatically: a postage record with an item deducts it; a returned shipment adds it back. Use In/Out for manual corrections. Status recomputes on every movement (0 = out of stock · ≤5 = low).", "Stok bergerak secara automatik: rekod pos dengan barang menolaknya; penghantaran yang dipulangkan menambahnya semula. Guna In/Out untuk pembetulan manual. Status dikira semula pada setiap pergerakan (0 = habis stok · ≤5 = rendah).")}
         </p>
         {invMsg && <p className="text-destructive mt-1 text-xs font-medium">{invMsg}</p>}
         {/* v1.4.150: app-standard widths — a 2-up grid on phones (full-width
             fields, full-width button), the tidy inline row from sm: up. */}
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
           <SubR t="SKU">
-            <input className={`${inputClass} sm:max-w-40`} placeholder="must match TikTok" value={invDraft.sku}
+            <input className={`${inputClass} sm:max-w-40`} placeholder={L("must match TikTok", "mesti sepadan dengan TikTok")} value={invDraft.sku}
               onChange={(e) => setInvDraft((d) => ({ ...d, sku: e.target.value }))} />
           </SubR>
-          <SubR t="Item name">
-            <input className={`${inputClass} sm:max-w-56`} placeholder="e.g. Tudung Sarah XL" value={invDraft.name}
+          <SubR t={L("Item name", "Nama barang")}>
+            <input className={`${inputClass} sm:max-w-56`} placeholder={L("e.g. Tudung Sarah XL", "cth. Tudung Sarah XL")} value={invDraft.name}
               onChange={(e) => setInvDraft((d) => ({ ...d, name: e.target.value }))} />
           </SubR>
-          <SubR t="Opening stock">
-            <input type="number" min={0} className={`${inputClass} sm:max-w-24`} title="Opening stock" value={invDraft.stock}
+          <SubR t={L("Opening stock", "Stok permulaan")}>
+            <input type="number" min={0} className={`${inputClass} sm:max-w-24`} title={L("Opening stock", "Stok permulaan")} value={invDraft.stock}
               onChange={(e) => setInvDraft((d) => ({ ...d, stock: Number(e.target.value) }))} />
           </SubR>
-          <SubR t="Price/unit (RM)">
+          <SubR t={L("Price/unit (RM)", "Harga/unit (RM)")}>
             <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00" value={invDraft.unit_price}
               onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
           </SubR>
@@ -819,11 +852,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               setInvDraft({ sku: "", name: "", stock: 0, unit_price: "" });
               void load();
             }}>
-            Add item
+            {L("Add item", "Tambah barang")}
           </button>
         </div>
         {items.length === 0 && (
-          <p className="text-muted-foreground mt-3 text-sm">No items yet — add your first above; TikTok orders will start moving its stock automatically.</p>
+          <p className="text-muted-foreground mt-3 text-sm">{L("No items yet — add your first above; TikTok orders will start moving its stock automatically.", "Tiada barang lagi — tambah yang pertama di atas; pesanan TikTok akan mula menggerakkan stoknya secara automatik.")}</p>
         )}
         {items.length > 0 && (
         <>
@@ -836,35 +869,35 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 {/* v1.4.281: all columns are sortable — click to asc, click again to desc */}
                 {([
                   ["sku",  "SKU",               th],
-                  ["name", "Item",              th],
+                  ["name", L("Item", "Barang"),              th],
                 ] as [string, string, string][]).map(([col, label, cls]) => (
                   <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
-                    title={`Sort by ${label} — click again to reverse`}
+                    title={`${L("Sort by", "Susun ikut")} ${label} ${L("— click again to reverse", "— klik lagi untuk terbalik")}`}
                     onClick={() => cycleInv(col as "sku" | "name")}>
                     {label}{invSort.col === col ? (invSort.asc ? " ▲" : " ▼") : ""}
                   </th>
                 ))}
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
-                  title="Sort by price — click again to reverse"
+                  title={L("Sort by price — click again to reverse", "Susun ikut harga — klik lagi untuk terbalik")}
                   onClick={() => cycleInv("price")}>
-                  Price/unit{invSort.col === "price" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                  {L("Price/unit", "Harga/unit")}{invSort.col === "price" ? (invSort.asc ? " ▲" : " ▼") : ""}
                 </th>
                 {/* v1.4.166: rebate is AUTO — list price − the actual sold
                     price from the latest TikTok firm order (never typed in) */}
-                <th className={thR2}>Live rebate (auto)</th>
+                <th className={thR2}>{L("Live rebate (auto)", "Rebat live (auto)")}</th>
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
-                  title="Sort by net (live) price — click again to reverse"
+                  title={L("Sort by net (live) price — click again to reverse", "Susun ikut harga bersih (live) — klik lagi untuk terbalik")}
                   onClick={() => cycleInv("net")}>
-                  Net (live){invSort.col === "net" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                  {L("Net (live)", "Bersih (live)")}{invSort.col === "net" ? (invSort.asc ? " ▲" : " ▼") : ""}
                 </th>
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
-                  title="Sort by stock qty — click again to reverse"
+                  title={L("Sort by stock qty — click again to reverse", "Susun ikut kuantiti stok — klik lagi untuk terbalik")}
                   onClick={() => cycleInv("stock")}>
-                  Stock{invSort.col === "stock" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                  {L("Stock", "Stok")}{invSort.col === "stock" ? (invSort.asc ? " ▲" : " ▼") : ""}
                 </th>
                 <th className={th}>Status</th>
                 {/* v1.4.162: these two columns had no subheads (CEO spotted it) */}
-                <th className={th}>Manual in / out</th><th className={th}>Actions</th>
+                <th className={th}>{L("Manual in / out", "Masuk / keluar manual")}</th><th className={th}>{L("Actions", "Tindakan")}</th>
               </tr>
             </thead>
             <tbody>
@@ -875,7 +908,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   <td className={`${td} font-mono text-xs ${it.stock <= 5 ? accentCellDanger : ""}`}>
                     {invEditId === it.id
                       ? <input className="border-input bg-background w-24 rounded border px-1.5 py-0.5 font-mono text-xs" value={invEditDraft.sku}
-                          title="SKU — must match TikTok (or the item name will be used to match)"
+                          title={L("SKU — must match TikTok (or the item name will be used to match)", "SKU — mesti sepadan dengan TikTok (atau nama barang akan digunakan untuk padanan)")}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, sku: e.target.value }))} />
                       : it.sku}
                   </td>
@@ -887,7 +920,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   </td>
                   <td className={tdR2}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
-                      title="Price per unit (RM) — saves on change"
+                      title={L("Price per unit (RM) — saves on change", "Harga seunit (RM) — disimpan apabila diubah")}
                       defaultValue={it.unit_price_cents ? rmBare(it.unit_price_cents) : ""}
                       onBlur={async (e) => {
                         const v = Number(e.target.value);
@@ -897,13 +930,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       }} />
                   </td>
                   <td className={tdR2}
-                    title="AUTO — computed from the latest TikTok firm order: list price − actual sold price. Updates itself as orders sync; not manually editable (per the CEO, v1.4.166).">
+                    title={L("AUTO — computed from the latest TikTok firm order: list price − actual sold price. Updates itself as orders sync; not manually editable (per the CEO, v1.4.166).", "AUTO — dikira daripada pesanan TikTok muktamad terkini: harga senarai − harga jualan sebenar. Dikemas kini sendiri apabila pesanan disegerak; tidak boleh disunting secara manual (arahan CEO, v1.4.166).")}>
                     {it.live_rebate_cents
                       ? <span className="font-medium text-amber-700 dark:text-amber-400">− {rmBare(it.live_rebate_cents)}</span>
                       : <span className="text-muted-foreground text-xs">auto</span>}
                   </td>
                   <td className={`${tdR2} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
-                    title="Effective price during TikTok Live = price/unit − live rebate">
+                    title={L("Effective price during TikTok Live = price/unit − live rebate", "Harga efektif semasa TikTok Live = harga/unit − rebat live")}>
                     {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return rmBare(n); })()}
                   </td>
                   {/* v1.4.270: the stock figure becomes comparable at a
@@ -925,12 +958,12 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       {/* v1.4.251: an IN is a movement like any other — same
                           form, same mandatory reason, same confirmation. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
-                        title="Stock in — opens the form (reason required for traceability)"
+                        title={L("Stock in — opens the form (reason required for traceability)", "Stok masuk — buka borang (sebab diperlukan untuk kebolehjejakan)")}
                         onClick={() => setOutModal({ dir: "in", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>In +</button>
                       {/* v1.4.170 (CEO): Out goes through the modal — item,
                           qty, optional Sold @, MANDATORY remark. */}
                       <button type="button" className="rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary"
-                        title="Stock out — opens the form (remark required for traceability)"
+                        title={L("Stock out — opens the form (remark required for traceability)", "Stok keluar — buka borang (catatan diperlukan untuk kebolehjejakan)")}
                         onClick={() => setOutModal({ dir: "out", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>Out −</button>
                     </span>
                   </td>
@@ -943,34 +976,34 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           <button type="button" className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
                             onClick={async () => {
                               const sku = invEditDraft.sku.trim(); const name = invEditDraft.name.trim();
-                              if (!sku || !name) { invToast("No changes", "SKU and item name are both required", "notice"); return; }
-                              if (sku === it.sku && name === it.name) { invToast("No changes", "Nothing was edited", "notice"); setInvEditId(null); return; }
+                              if (!sku || !name) { invToast(L("No changes", "Tiada perubahan"), L("SKU and item name are both required", "SKU dan nama barang kedua-duanya diperlukan"), "notice"); return; }
+                              if (sku === it.sku && name === it.name) { invToast(L("No changes", "Tiada perubahan"), L("Nothing was edited", "Tiada apa yang disunting"), "notice"); setInvEditId(null); return; }
                               const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/edit`, {
                                 method: "POST", body: JSON.stringify({ sku, name }),
                               });
-                              if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
-                              invToast("Saved", `${sku} — ${name} updated`);
+                              if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Edit failed", "Suntingan gagal"), "notice"); return; }
+                              invToast(L("Saved", "Disimpan"), `${sku} — ${name} ${L("updated", "dikemas kini")}`);
                               setInvEditId(null);
                               void load();
-                            }}>Save</button>
-                          <button type="button" className="text-xs underline" onClick={() => setInvEditId(null)}>Cancel</button>
+                            }}>{L("Save", "Simpan")}</button>
+                          <button type="button" className="text-xs underline" onClick={() => setInvEditId(null)}>{L("Cancel", "Batal")}</button>
                         </>
                       ) : (
                         <>
-                          <button type="button" className={rowBtn} title="Edit SKU / item name"
-                            onClick={() => { setInvEditId(it.id); setInvEditDraft({ sku: it.sku, name: it.name }); }}>Edit</button>
-                          <button type="button" className={rowBtnDanger} title="Delete a wrongly inserted item"
+                          <button type="button" className={rowBtn} title={L("Edit SKU / item name", "Sunting SKU / nama barang")}
+                            onClick={() => { setInvEditId(it.id); setInvEditDraft({ sku: it.sku, name: it.name }); }}>{L("Edit", "Sunting")}</button>
+                          <button type="button" className={rowBtnDanger} title={L("Delete a wrongly inserted item", "Padam barang yang tersalah masuk")}
                             onClick={async () => {
                               if (!(await invConfirm({
-                                title: "Delete this item?",
-                                message: `${it.sku} — ${it.name} (${it.stock} in stock) will be removed from the stock list. Items with shipment or supplier-return history can't be deleted — edit those instead.`,
-                                confirmLabel: "Delete item", variant: "danger",
+                                title: L("Delete this item?", "Padam barang ini?"),
+                                message: `${it.sku} — ${it.name} (${it.stock} ${L("in stock", "dalam stok")}) ${L("will be removed from the stock list. Items with shipment or supplier-return history can't be deleted — edit those instead.", "akan dibuang daripada senarai stok. Barang dengan sejarah penghantaran atau pemulangan pembekal tidak boleh dipadam — sunting sahaja.")}`,
+                                confirmLabel: L("Delete item", "Padam barang"), variant: "danger",
                               }))) return;
                               const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                              if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
-                              invToast("Deleted", `${it.sku} — ${it.name} removed`);
+                              if (!res.ok) { invToast(L("Not deleted", "Tidak dipadam"), res.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice"); return; }
+                              invToast(L("Deleted", "Dipadam"), `${it.sku} — ${it.name} ${L("removed", "dibuang")}`);
                               void load();
-                            }}>Delete</button>
+                            }}>{L("Delete", "Padam")}</button>
                         </>
                       )}
                     </span>
@@ -999,13 +1032,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 );
                 return (
                   <tr className="border-border border-t-2 font-semibold">
-                    <td className={td} colSpan={2}>TOTAL — stock on hand</td>
-                    <td className={tdR2} title="Σ stock × price/unit — the value sitting in stock at list price">
+                    <td className={td} colSpan={2}>{L("TOTAL — stock on hand", "JUMLAH — stok dalam tangan")}</td>
+                    <td className={tdR2} title={L("Σ stock × price/unit — the value sitting in stock at list price", "Σ stok × harga/unit — nilai stok pada harga senarai")}>
                       RM {rmBare(tot.value)}
                     </td>
                     <td className={td}></td>
                     <td className={`${tdR2} text-green-700 dark:text-green-400`}
-                      title="Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates">
+                      title={L("Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates", "Σ stok × bersih (live) — hasil jika semuanya dijual habis di TikTok Live selepas rebat auto")}>
                       RM {rmBare(tot.net)}
                     </td>
                     <td className={tdR2}>{tot.units}</td>
@@ -1024,18 +1057,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           straight from the stock deductions the sync/webhook recorded on
           TT- orders (returned orders excluded). Times are MYT. */}
       <div className={card}>
-        <p className="text-sm font-semibold">📉 TikTok Live — stock out</p>
+        <p className="text-sm font-semibold">{L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Units deducted by TikTok orders, per item — so you can see what
-          moved during today&apos;s live and across the month. Counted from the
-          actual stock movements (returned orders excluded). &quot;Avg sold @&quot;
-          is the real price buyers paid (TikTok sale price) — the amber figure
-          beside it is the auto-computed rebate vs your list price.
+          {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
         </p>
         {ttOut.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">
-            No TikTok stock movements yet — they appear here as soon as an
-            order deducts stock (SKU or item-name match).
+            {L("No TikTok stock movements yet — they appear here as soon as an order deducts stock (SKU or item-name match).", "Tiada pergerakan stok TikTok lagi — ia muncul di sini sebaik sahaja pesanan menolak stok (padanan SKU atau nama barang).")}
           </p>
         ) : (
           <>
@@ -1047,17 +1075,17 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 <tr className="border-border border-b">
                   {([
                     ["sku",   "SKU",       th],
-                    ["name",  "Item",      th],
-                    ["hot",   "Out today", thR2],
-                    ["month", "This month", thR2],
-                    ["total", "All time",  thR2],
-                    ["price", "Avg sold @", thR2],
-                    ["value", "Sold value (month)", thR2],
-                    ["stock", "Left in stock", thR2],
-                    ["last",  "Last order", thR2],
+                    ["name",  L("Item", "Barang"),      th],
+                    ["hot",   L("Out today", "Keluar hari ini"), thR2],
+                    ["month", L("This month", "Bulan ini"), thR2],
+                    ["total", L("All time", "Sepanjang masa"),  thR2],
+                    ["price", L("Avg sold @", "Purata dijual @"), thR2],
+                    ["value", L("Sold value (month)", "Nilai jualan (bulan)"), thR2],
+                    ["stock", L("Left in stock", "Baki stok"), thR2],
+                    ["last",  L("Last order", "Pesanan terakhir"), thR2],
                   ] as [TtCol, string, string][]).map(([col, label, cls]) => (
                     <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
-                      title={`Sort by ${label} — click again to reverse`}
+                      title={`${L("Sort by", "Susun ikut")} ${label} ${L("— click again to reverse", "— klik lagi untuk terbalik")}`}
                       onClick={() => cycleTt(col)}>
                       {label}{ttSort.col === col ? (ttSort.asc ? " ▲" : " ▼") : ""}
                     </th>
@@ -1077,7 +1105,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                     <td className={tdR2}>{t.month_qty}</td>
                     <td className={tdR2}>{t.total_qty}</td>
                     <td className={tdR2}
-                      title={t.avg_sale_cents != null && t.unit_price_cents ? `List RM ${rmBare(t.unit_price_cents)} − sold RM ${rmBare(t.avg_sale_cents)} = rebate RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : "No sold price captured yet — arrives with the next synced order"}>
+                      title={t.avg_sale_cents != null && t.unit_price_cents ? `${L("List", "Senarai")} RM ${rmBare(t.unit_price_cents)} − ${L("sold", "dijual")} RM ${rmBare(t.avg_sale_cents)} = ${L("rebate", "rebat")} RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : L("No sold price captured yet — arrives with the next synced order", "Tiada harga jualan direkod lagi — tiba dengan pesanan segerak seterusnya")}>
                       {t.avg_sale_cents != null
                         ? <>RM {rmBare(t.avg_sale_cents)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
                             ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
@@ -1108,11 +1136,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   const wAvg = pricedUnits > 0 ? pricedValue / pricedUnits : null;
                   return (
                     <tr className="border-border border-t-2 font-semibold">
-                      <td className={td} colSpan={2}>TOTAL</td>
+                      <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
                       <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
-                      <td className={tdR2} title="Weighted by units sold (Σ price × qty ÷ Σ qty)">{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
+                      <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
                       <td className={tdR2}>RM {rmBare(monthVal)}</td>
                       <td className={tdR2}>{stock}</td>
                       <td className={td}></td>
@@ -1129,20 +1157,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
       {/* v1.4.170 (CEO): the traceability card — every manual stock out with
           the mandatory remark, who and when. Scrollable like the rest. */}
       <div className={card}>
-        <p className="text-sm font-semibold">🛠 Manual stock movements — traceability</p>
+        <p className="text-sm font-semibold">{L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Every manual In + and Out − with its reason, recorded by whom and
-          when. Rows with a sold price also count in Total sales (Manual sales
-          channel); rows without are corrections — excluded from sales by
-          design. To settle a stock count, record the difference here: pick
-          <span className="font-medium"> Stock count variance</span> and write
-          what you counted against what the system said.
+          {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
+          <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
         </p>
         {manualOuts.length === 0 ? (
-          <p className="text-muted-foreground mt-3 text-sm">No manual stock outs yet — they appear here the moment one is recorded.</p>
+          <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
         ) : (
           /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
-          <DetailsToggle label={`Show records (${manualOuts.length})`}>
+          <DetailsToggle label={`${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
           <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
             {manualOuts.map((o) => (
               <div key={o.id} className={`border-border border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
@@ -1152,7 +1176,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       the SKU, is what identifies the row — v1.4.252 makes the
                       pair the toggle so the item, reason and who recorded it
                       open underneath instead of being truncated away. */}
-                  <RecordToggle open={openMove === o.id} title="Item, reason, and who recorded it"
+                  <RecordToggle open={openMove === o.id} title={L("Item, reason, and who recorded it", "Barang, sebab, dan siapa yang merekodkannya")}
                     onToggle={() => setOpenMove(openMove === o.id ? null : o.id)}>
                     {o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)} · {o.sku}
                   </RecordToggle>
@@ -1161,35 +1185,35 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">↩ reverted — stock restored</span>
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">{L("↩ reverted — stock restored", "↩ dikembalikan — stok dipulihkan")}</span>
                   ) : o.unit_sale_cents != null
-                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">Sold @ RM {rmBare(o.unit_sale_cents)}</span>
-                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">correction</span>}
-                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">by {o.created_by_name.split(" ")[0]}</span>}
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">{L("Sold @ RM", "Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
+                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("correction", "pembetulan")}</span>}
+                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
                       the audit trail) / Delete (wrong record: stock back +
                       sale removed + row gone). */}
                   {!o.reverted && (
                     <>
-                      <button type="button" className={rowBtn} title="Edit qty / Sold @ / remark / date — stock and sales totals follow"
+                      <button type="button" className={rowBtn} title={L("Edit qty / Sold @ / remark / date — stock and sales totals follow", "Sunting kuantiti / Dijual @ / catatan / tarikh — stok dan jumlah jualan mengikut")}
                         onClick={() => setOutModal({
                           dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
                           edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
                           price: o.unit_sale_cents != null ? rmBare(o.unit_sale_cents) : "",
                           reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
-                        })}>Edit</button>
-                      <button type="button" className={rowBtn} title="Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail"
+                        })}>{L("Edit", "Sunting")}</button>
+                      <button type="button" className={rowBtn} title={L("Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail", "Kembalikan stok ke rak; jualan dibuang daripada jumlah; baris kekal untuk jejak audit")}
                         onClick={async () => {
                           if (!(await invConfirm({
-                            title: "Revert this stock out?",
-                            message: `${o.qty} × ${o.sku} goes back into stock${o.unit_sale_cents != null ? ` and the RM ${rmBare(o.unit_sale_cents * o.qty)} sale is removed from the totals` : ""}. The record stays here marked ↩ reverted.`,
-                            confirmLabel: "Revert",
+                            title: L("Revert this stock out?", "Kembalikan stok keluar ini?"),
+                            message: `${o.qty} × ${o.sku} ${L("goes back into stock", "kembali ke dalam stok")}${o.unit_sale_cents != null ? ` ${L("and the", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)} ${L("sale is removed from the totals", "dibuang daripada jumlah")}` : ""}${L(". The record stays here marked ↩ reverted.", ". Rekod kekal di sini bertanda ↩ dikembalikan.")}`,
+                            confirmLabel: L("Revert", "Kembalikan"),
                           }))) return;
                           const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/revert`, { method: "POST", body: JSON.stringify({}) });
-                          if (!res.ok) { invToast("Not reverted", res.data?.error?.message ?? "Revert failed", "notice"); return; }
-                          invToast("Reverted", `${o.qty} × ${o.sku} back in stock`);
+                          if (!res.ok) { invToast(L("Not reverted", "Tidak dikembalikan"), res.data?.error?.message ?? L("Revert failed", "Pengembalian gagal"), "notice"); return; }
+                          invToast(L("Reverted", "Dikembalikan"), `${o.qty} × ${o.sku} ${L("back in stock", "kembali dalam stok")}`);
                           void load();
-                        }}>↩ Revert</button>
+                        }}>{L("↩ Revert", "↩ Kembalikan")}</button>
                     </>
                   )}
                   {/* v1.21.7 (CEO: "I want to have access to delete it from my
@@ -1199,31 +1223,31 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       quantity is NEVER touched (the v1.21.4 rule stands:
                       ↩ Revert is the only way stock moves back). */}
                   {canDeleteMovements && (
-                    <button type="button" className={rowBtnDanger} title="CEO/COO only: remove this record from the database — stock quantity is NOT changed"
+                    <button type="button" className={rowBtnDanger} title={L("CEO/COO only: remove this record from the database — stock quantity is NOT changed", "CEO/COO sahaja: buang rekod ini daripada pangkalan data — kuantiti stok TIDAK diubah")}
                       onClick={async () => {
                         if (!(await invConfirm({
-                          title: "Delete this movement record?",
-                          message: `The record (${o.qty} × ${o.sku}${o.unit_sale_cents != null ? ` and its RM ${rmBare(o.unit_sale_cents * o.qty)} sale` : ""}) is removed from the database permanently. Stock stays exactly as it is — nothing goes back on the shelf. This is logged under your name.`,
-                          confirmLabel: "Delete record", variant: "danger",
+                          title: L("Delete this movement record?", "Padam rekod pergerakan ini?"),
+                          message: `${L("The record", "Rekod")} (${o.qty} × ${o.sku}${o.unit_sale_cents != null ? ` ${L("and its", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)}${L(" sale", "")}` : ""}) ${L("is removed from the database permanently. Stock stays exactly as it is — nothing goes back on the shelf. This is logged under your name.", "dibuang daripada pangkalan data secara kekal. Stok kekal seperti sedia ada — tiada apa kembali ke rak. Ini dilog atas nama anda.")}`,
+                          confirmLabel: L("Delete record", "Padam rekod"), variant: "danger",
                         }))) return;
                         const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                        if (!res.ok) { invToast("Not deleted", res.data?.error?.message ?? "Delete failed", "notice"); return; }
-                        invToast("Deleted", "Record removed — stock untouched");
+                        if (!res.ok) { invToast(L("Not deleted", "Tidak dipadam"), res.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice"); return; }
+                        invToast(L("Deleted", "Dipadam"), L("Record removed — stock untouched", "Rekod dibuang — stok tidak disentuh"));
                         void load();
-                      }}>Delete</button>
+                      }}>{L("Delete", "Padam")}</button>
                   )}
                 </span>
               </div>
               {openMove === o.id && (
                 <DetailGrid items={[
-                  { label: "Item", wide: true, value: `${o.sku} — ${o.item_name}` },
-                  { label: "Movement", value: `${o.direction === "in" ? "Stock in" : "Stock out"} · ${o.qty} pcs` },
-                  { label: "Date", value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
-                  { label: "Sold @", value: o.unit_sale_cents != null ? `RM ${rmBare(o.unit_sale_cents)} — counts as a sale` : "— correction, not a sale" },
-                  { label: "Recorded by", value: o.created_by_name ?? "" },
-                  { label: "Recorded at", value: dmyMYT(o.created_at) },
-                  { label: "Reason", wide: true, value: o.remark },
-                  { label: "State", wide: true, value: o.reverted ? "↩ Reverted — the stock was put back" : "" },
+                  { label: L("Item", "Barang"), wide: true, value: `${o.sku} — ${o.item_name}` },
+                  { label: L("Movement", "Pergerakan"), value: `${o.direction === "in" ? L("Stock in", "Stok masuk") : L("Stock out", "Stok keluar")} · ${o.qty} pcs` },
+                  { label: L("Date", "Tarikh"), value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
+                  { label: L("Sold @", "Dijual @"), value: o.unit_sale_cents != null ? `RM ${rmBare(o.unit_sale_cents)} ${L("— counts as a sale", "— dikira sebagai jualan")}` : L("— correction, not a sale", "— pembetulan, bukan jualan") },
+                  { label: L("Recorded by", "Direkod oleh"), value: o.created_by_name ?? "" },
+                  { label: L("Recorded at", "Direkod pada"), value: dmyMYT(o.created_at) },
+                  { label: L("Reason", "Sebab"), wide: true, value: o.remark },
+                  { label: L("State", "Keadaan"), wide: true, value: o.reverted ? L("↩ Reverted — the stock was put back", "↩ Dikembalikan — stok telah dipulangkan") : "" },
                 ]} />
               )}
               </div>
@@ -1236,55 +1260,51 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
       {/* v1.4.148: rejected stock back to the supplier, costing tracked for
           the claim-back. Recording a return deducts stock immediately. */}
       <div className={card}>
-        <p className="text-sm font-semibold">Supplier returns — rejects to claim back</p>
+        <p className="text-sm font-semibold">{L("Supplier returns — rejects to claim back", "Pemulangan pembekal — barang ditolak untuk dituntut semula")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Record rejected/defective items sent back to the supplier. Stock is
-          deducted on record. The supplier settles either way: mark the row
-          credited when money comes back, or replaced when replacement goods
-          arrive (stock returns automatically) — the outstanding figure is what
-          the supplier still owes the company.
+          {L("Record rejected/defective items sent back to the supplier. Stock is deducted on record. The supplier settles either way: mark the row credited when money comes back, or replaced when replacement goods arrive (stock returns automatically) — the outstanding figure is what the supplier still owes the company.", "Rekod barang ditolak/cacat yang dihantar semula kepada pembekal. Stok ditolak semasa direkod. Pembekal menyelesaikan sama ada cara: tanda baris sebagai dikredit apabila wang kembali, atau diganti apabila barang gantian tiba (stok kembali secara automatik) — angka tertunggak ialah apa yang pembekal masih berhutang kepada syarikat.")}
         </p>
         {retTotals && retTotals.total_cents > 0 && (
           <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
-            <span className="font-semibold">Returned {rmR(retTotals.total_cents)}</span>
-            <span className="text-green-800">Credited back {rmR(retTotals.credited_cents)}</span>
-            {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-blue-800">Replaced in goods {rmR(retTotals.replaced_cents ?? 0)}</span>}
+            <span className="font-semibold">{L("Returned", "Dipulangkan")} {rmR(retTotals.total_cents)}</span>
+            <span className="text-green-800">{L("Credited back", "Dikredit semula")} {rmR(retTotals.credited_cents)}</span>
+            {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-blue-800">{L("Replaced in goods", "Diganti dalam barangan")} {rmR(retTotals.replaced_cents ?? 0)}</span>}
             <span className={retTotals.outstanding_cents > 0 ? "font-medium text-amber-700" : "text-muted-foreground"}>
-              Outstanding {rmR(retTotals.outstanding_cents)}
+              {L("Outstanding", "Tertunggak")} {rmR(retTotals.outstanding_cents)}
             </span>
           </div>
         )}
         {retMsg && <p className="text-destructive mt-1.5 text-xs font-medium">{retMsg}</p>}
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
-          <SubR t="Item" className="col-span-2 sm:col-span-1">
+          <SubR t={L("Item", "Barang")} className="col-span-2 sm:col-span-1">
             <select className={`${inputClass} sm:max-w-64`} value={retDraft.item_id}
               onChange={(e) => {
                 const id = Number(e.target.value);
                 const it = items.find((x) => x.id === id);
                 setRetDraft((d) => ({ ...d, item_id: id, unit_cost: it?.unit_price_cents ? rmBare(it.unit_price_cents) : d.unit_cost }));
               }}>
-              <option value={0}>Select item…</option>
-              {items.map((it) => <option key={it.id} value={it.id}>{it.sku} — {it.name} ({it.stock} in stock)</option>)}
+              <option value={0}>{L("Select item…", "Pilih barang…")}</option>
+              {items.map((it) => <option key={it.id} value={it.id}>{it.sku} — {it.name} ({it.stock} {L("in stock", "dalam stok")})</option>)}
             </select>
           </SubR>
-          <SubR t="Qty rejected">
+          <SubR t={L("Qty rejected", "Kuantiti ditolak")}>
             <input type="number" min={1} className={`${inputClass} sm:max-w-24`} value={retDraft.qty}
               onChange={(e) => setRetDraft((d) => ({ ...d, qty: Number(e.target.value) }))} />
           </SubR>
-          <SubR t="Unit cost (RM)">
+          <SubR t={L("Unit cost (RM)", "Kos seunit (RM)")}>
             <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-28`} placeholder="0.00" value={retDraft.unit_cost}
               onChange={(e) => setRetDraft((d) => ({ ...d, unit_cost: e.target.value }))} />
           </SubR>
-          <SubR t="Supplier">
-            <input className={`${inputClass} sm:max-w-44`} placeholder="e.g. Tekstil Maju Sdn Bhd" value={retDraft.supplier}
+          <SubR t={L("Supplier", "Pembekal")}>
+            <input className={`${inputClass} sm:max-w-44`} placeholder={L("e.g. Tekstil Maju Sdn Bhd", "cth. Tekstil Maju Sdn Bhd")} value={retDraft.supplier}
               onChange={(e) => setRetDraft((d) => ({ ...d, supplier: e.target.value }))} />
           </SubR>
-          <SubR t="Return date">
+          <SubR t={L("Return date", "Tarikh pemulangan")}>
             <input type="date" className={`${inputClass} sm:max-w-40`} value={retDraft.return_date}
               onChange={(e) => setRetDraft((d) => ({ ...d, return_date: e.target.value }))} />
           </SubR>
-          <SubR t="Reason (defect etc.)" className="col-span-2 sm:col-span-1">
-            <input className={`${inputClass} sm:max-w-52`} placeholder="e.g. stitching defect, wrong colour" value={retDraft.reason}
+          <SubR t={L("Reason (defect etc.)", "Sebab (kecacatan dll.)")} className="col-span-2 sm:col-span-1">
+            <input className={`${inputClass} sm:max-w-52`} placeholder={L("e.g. stitching defect, wrong colour", "cth. kecacatan jahitan, warna salah")} value={retDraft.reason}
               onChange={(e) => setRetDraft((d) => ({ ...d, reason: e.target.value }))} />
           </SubR>
           <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:h-[38px] sm:justify-start`}
@@ -1298,24 +1318,24 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   supplier: retDraft.supplier, reason: retDraft.reason, return_date: retDraft.return_date,
                 }),
               });
-              if (!res.ok) { setRetMsg(res.data?.error?.message ?? "Could not record the return"); return; }
+              if (!res.ok) { setRetMsg(res.data?.error?.message ?? L("Could not record the return", "Tidak dapat merekodkan pemulangan")); return; }
               setRetDraft({ item_id: 0, qty: 1, unit_cost: "", supplier: "", reason: "", return_date: "" });
               void load();
             }}>
-            Record return
+            {L("Record return", "Rekod pemulangan")}
           </button>
         </div>
         {/* v1.4.196 (CEO): the history list hides behind one click — minimalist view */}
-        <DetailsToggle label="Returns history">
+        <DetailsToggle label={L("Returns history", "Sejarah pemulangan")}>
         <div className="mt-1 max-h-72 space-y-1.5 overflow-y-auto pr-1">
-          {returns.length === 0 && <p className="text-muted-foreground text-sm">No supplier returns recorded.</p>}
+          {returns.length === 0 && <p className="text-muted-foreground text-sm">{L("No supplier returns recorded.", "Tiada pemulangan pembekal direkodkan.")}</p>}
           {returns.map((r) => (
             <div key={r.id} className="border-border border-b py-1.5 text-sm last:border-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="min-w-0">
                 {/* v1.4.252: date + SKU identify the return; the item, supplier
                     and defect reason open underneath. */}
-                <RecordToggle open={openRet === r.id} title="Item, supplier and the defect reason"
+                <RecordToggle open={openRet === r.id} title={L("Item, supplier and the defect reason", "Barang, pembekal dan sebab kecacatan")}
                   onToggle={() => setOpenRet(openRet === r.id ? null : r.id)}>
                   {dmy(r.return_date)} · {r.sku}
                 </RecordToggle>
@@ -1324,16 +1344,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               <span className="flex flex-wrap items-center justify-end gap-2">
                 {r.status === "credited" ? (
                   <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                    Credited {rmR(r.credited_cents ?? r.total_cents)}
+                    {L("Credited", "Dikredit")} {rmR(r.credited_cents ?? r.total_cents)}
                   </span>
                 ) : r.status === "replaced" ? (
                   <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
-                    Replaced {r.qty} pcs
+                    {L("Replaced", "Diganti")} {r.qty} pcs
                   </span>
                 ) : (
                   <>
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                      Outstanding{(r.replaced_qty ?? 0) > 0 ? ` (${r.replaced_qty}/${r.qty} replaced)` : ""}
+                      {L("Outstanding", "Tertunggak")}{(r.replaced_qty ?? 0) > 0 ? ` (${r.replaced_qty}/${r.qty} ${L("replaced", "diganti")})` : ""}
                     </span>
                     {creditingId === r.id ? (
                       <span className="flex items-center gap-1">
@@ -1348,9 +1368,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                             setCreditingId(null); setCreditAmt("");
                             void load();
                           }}>
-                          Save
+                          {L("Save", "Simpan")}
                         </button>
-                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setCreditingId(null); setCreditAmt(""); }}>cancel</button>
+                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setCreditingId(null); setCreditAmt(""); }}>{L("cancel", "batal")}</button>
                       </span>
                     ) : replacingId === r.id ? (
                       <span className="flex items-center gap-1">
@@ -1365,43 +1385,43 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                             setReplacingId(null); setReplaceQty("");
                             void load();
                           }}>
-                          Save
+                          {L("Save", "Simpan")}
                         </button>
-                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setReplacingId(null); setReplaceQty(""); }}>cancel</button>
+                        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setReplacingId(null); setReplaceQty(""); }}>{L("cancel", "batal")}</button>
                       </span>
                     ) : (
                       <>
-                        <button type="button" className={rowBtn} title="Enter the amount the supplier refunded (blank = full amount)"
+                        <button type="button" className={rowBtn} title={L("Enter the amount the supplier refunded (blank = full amount)", "Masukkan amaun yang dipulangkan pembekal (kosong = amaun penuh)")}
                           onClick={() => { setCreditingId(r.id); setCreditAmt(""); }}>
-                          Mark credited
+                          {L("Mark credited", "Tanda dikredit")}
                         </button>
-                        <button type="button" className={rowBtn} title="Replacement goods arrived — qty goes back into stock (blank = all remaining)"
+                        <button type="button" className={rowBtn} title={L("Replacement goods arrived — qty goes back into stock (blank = all remaining)", "Barang gantian tiba — kuantiti kembali ke dalam stok (kosong = semua baki)")}
                           onClick={() => { setReplacingId(r.id); setReplaceQty(""); }}>
-                          Replaced
+                          {L("Replaced", "Diganti")}
                         </button>
                       </>
                     )}
                     {(r.replaced_qty ?? 0) === 0 && retEditId !== r.id && (
-                      <button type="button" className={rowBtn} title="Fix a wrongly entered return — qty change moves stock by the difference"
+                      <button type="button" className={rowBtn} title={L("Fix a wrongly entered return — qty change moves stock by the difference", "Betulkan pemulangan yang tersalah masuk — perubahan kuantiti menggerakkan stok mengikut perbezaan")}
                         onClick={() => {
                           setRetEditId(r.id);
                           setRetEditDraft({
                             qty: String(r.qty), unit_cost: rmBare(r.unit_cost_cents),
                             supplier: r.supplier, return_date: r.return_date.slice(0, 10), reason: r.reason ?? "",
                           });
-                        }}>Edit</button>
+                        }}>{L("Edit", "Sunting")}</button>
                     )}
                     {(r.replaced_qty ?? 0) === 0 && <button type="button" className={rowBtnDanger}
                       onClick={async () => {
                         if (!(await invConfirm({
-                          title: "Delete this supplier return?",
-                          message: `${r.qty} × ${r.sku} goes back into stock and the ${rmR(r.total_cents)} claim record is removed.`,
-                          confirmLabel: "Delete return", variant: "danger",
+                          title: L("Delete this supplier return?", "Padam pemulangan pembekal ini?"),
+                          message: `${r.qty} × ${r.sku} ${L("goes back into stock and the", "kembali ke dalam stok dan rekod tuntutan")} ${rmR(r.total_cents)} ${L("claim record is removed.", "dibuang.")}`,
+                          confirmLabel: L("Delete return", "Padam pemulangan"), variant: "danger",
                         }))) return;
                         await api(`/inventory/returns/${r.id}/delete`, { method: "POST", body: JSON.stringify({}) });
                         void load();
                       }}>
-                      Delete
+                      {L("Delete", "Padam")}
                     </button>}
                   </>
                 )}
@@ -1411,23 +1431,23 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   difference (server-enforced). */}
               {retEditId === r.id && (
                 <div className="grid w-full grid-cols-2 items-end gap-2 rounded-lg bg-secondary/40 p-2 sm:flex sm:flex-wrap">
-                  <SubR t="Qty rejected">
+                  <SubR t={L("Qty rejected", "Kuantiti ditolak")}>
                     <input type="number" min={1} className={`${inputClass} sm:max-w-24`} value={retEditDraft.qty}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, qty: e.target.value }))} />
                   </SubR>
-                  <SubR t="Unit cost (RM)">
+                  <SubR t={L("Unit cost (RM)", "Kos seunit (RM)")}>
                     <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-28`} value={retEditDraft.unit_cost}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, unit_cost: e.target.value }))} />
                   </SubR>
-                  <SubR t="Supplier">
+                  <SubR t={L("Supplier", "Pembekal")}>
                     <input className={`${inputClass} sm:max-w-44`} value={retEditDraft.supplier}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, supplier: e.target.value }))} />
                   </SubR>
-                  <SubR t="Return date">
+                  <SubR t={L("Return date", "Tarikh pemulangan")}>
                     <input type="date" className={`${inputClass} sm:max-w-40`} value={retEditDraft.return_date}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, return_date: e.target.value }))} />
                   </SubR>
-                  <SubR t="Reason" className="col-span-2 sm:max-w-52">
+                  <SubR t={L("Reason", "Sebab")} className="col-span-2 sm:max-w-52">
                     <input className={inputClass} value={retEditDraft.reason}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, reason: e.target.value }))} />
                   </SubR>
@@ -1436,7 +1456,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       const qtyN = Math.floor(Number(retEditDraft.qty));
                       const costN = Number(retEditDraft.unit_cost);
                       if (!qtyN || qtyN <= 0 || !Number.isFinite(costN) || costN < 0 || !retEditDraft.supplier.trim() || !retEditDraft.return_date) {
-                        invToast("No changes", "Qty (>0), unit cost, supplier and date are required", "notice"); return;
+                        invToast(L("No changes", "Tiada perubahan"), L("Qty (>0), unit cost, supplier and date are required", "Kuantiti (>0), kos seunit, pembekal dan tarikh diperlukan"), "notice"); return;
                       }
                       const res = await api<{ error?: { message?: string } }>(`/inventory/returns/${r.id}/edit`, {
                         method: "POST",
@@ -1445,26 +1465,26 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           return_date: retEditDraft.return_date, reason: retEditDraft.reason.trim() || undefined,
                         }),
                       });
-                      if (!res.ok) { invToast("Not saved", res.data?.error?.message ?? "Edit failed", "notice"); return; }
-                      invToast("Saved", `Return updated — ${qtyN} × RM ${rmBare(Math.round(costN * 100))}${qtyN !== r.qty ? " (stock adjusted by the difference)" : ""}`);
+                      if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Edit failed", "Suntingan gagal"), "notice"); return; }
+                      invToast(L("Saved", "Disimpan"), `${L("Return updated —", "Pemulangan dikemas kini —")} ${qtyN} × RM ${rmBare(Math.round(costN * 100))}${qtyN !== r.qty ? L(" (stock adjusted by the difference)", " (stok dilaraskan mengikut perbezaan)") : ""}`);
                       setRetEditId(null);
                       void load();
-                    }}>Save</button>
-                  <button type="button" className="text-xs underline" onClick={() => setRetEditId(null)}>Cancel</button>
+                    }}>{L("Save", "Simpan")}</button>
+                  <button type="button" className="text-xs underline" onClick={() => setRetEditId(null)}>{L("Cancel", "Batal")}</button>
                 </div>
               )}
             </div>
             {openRet === r.id && (
               <DetailGrid items={[
-                { label: "Item", wide: true, value: `${r.sku} — ${r.item_name}` },
-                { label: "Quantity", value: `${r.qty} pcs` },
-                { label: "Unit cost", value: rmR(r.unit_cost_cents) },
-                { label: "Total claim", value: rmR(r.total_cents) },
-                { label: "Supplier", value: r.supplier },
-                { label: "Returned on", value: dmy(r.return_date) },
-                { label: "Replaced", value: (r.replaced_qty ?? 0) > 0 ? `${r.replaced_qty} of ${r.qty} pcs` : "" },
-                { label: "Credited", value: r.credited_cents != null ? rmR(r.credited_cents) : "" },
-                { label: "Reason", wide: true, value: r.reason ?? "" },
+                { label: L("Item", "Barang"), wide: true, value: `${r.sku} — ${r.item_name}` },
+                { label: L("Quantity", "Kuantiti"), value: `${r.qty} pcs` },
+                { label: L("Unit cost", "Kos seunit"), value: rmR(r.unit_cost_cents) },
+                { label: L("Total claim", "Jumlah tuntutan"), value: rmR(r.total_cents) },
+                { label: L("Supplier", "Pembekal"), value: r.supplier },
+                { label: L("Returned on", "Dipulangkan pada"), value: dmy(r.return_date) },
+                { label: L("Replaced", "Diganti"), value: (r.replaced_qty ?? 0) > 0 ? `${r.replaced_qty} ${L("of", "daripada")} ${r.qty} pcs` : "" },
+                { label: L("Credited", "Dikredit"), value: r.credited_cents != null ? rmR(r.credited_cents) : "" },
+                { label: L("Reason", "Sebab"), wide: true, value: r.reason ?? "" },
               ]} />
             )}
             </div>
@@ -1475,29 +1495,27 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
 
       <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">Postage tracking — non-TikTok orders</p>
+          <p className="text-sm font-semibold">{L("Postage tracking — non-TikTok orders", "Penjejakan pos — pesanan bukan TikTok")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            TikTok orders arrive automatically (webhook + 30-minute sync) with
-            their items and tracking. Use this form only for other channels —
-            Shopee, WhatsApp/direct sales, replacements.
+            {L("TikTok orders arrive automatically (webhook + 30-minute sync) with their items and tracking. Use this form only for other channels — Shopee, WhatsApp/direct sales, replacements.", "Pesanan TikTok tiba secara automatik (webhook + segerak 30 minit) dengan barang dan penjejakannya. Guna borang ini hanya untuk saluran lain — Shopee, jualan WhatsApp/terus, penggantian.")}
           </p>
           <div className="mt-3 space-y-2">
-            <SubR t="Order reference">
-            <input className={inputClass} placeholder="e.g. SHP-10023 / WA order" value={postDraft.order_ref}
+            <SubR t={L("Order reference", "Rujukan pesanan")}>
+            <input className={inputClass} placeholder={L("e.g. SHP-10023 / WA order", "cth. SHP-10023 / pesanan WA")} value={postDraft.order_ref}
               onChange={(e) => setPostDraft((d) => ({ ...d, order_ref: e.target.value }))} /></SubR>
             <div className={fieldRow}>
-              <SubR t="Courier">
-              <input className={inputClass} placeholder="e.g. J&T, Pos Laju" value={postDraft.courier}
+              <SubR t={L("Courier", "Kurier")}>
+              <input className={inputClass} placeholder={L("e.g. J&T, Pos Laju", "cth. J&T, Pos Laju")} value={postDraft.courier}
                 onChange={(e) => setPostDraft((d) => ({ ...d, courier: e.target.value }))} /></SubR>
-              <SubR t="Tracking no.">
-              <input className={inputClass} placeholder="e.g. MY123456789" value={postDraft.tracking_no}
+              <SubR t={L("Tracking no.", "No. penjejakan")}>
+              <input className={inputClass} placeholder={L("e.g. MY123456789", "cth. MY123456789")} value={postDraft.tracking_no}
                 onChange={(e) => setPostDraft((d) => ({ ...d, tracking_no: e.target.value }))} /></SubR>
               {/* v1.4.169: sales value of the non-TikTok order — counts in
                   Total sales + KPI (leave empty for RM 0 shipments like
                   replacements, which stay out of the totals) */}
-              <SubR t="Order amount (RM)" className="col-span-2 sm:col-span-1">
+              <SubR t={L("Order amount (RM)", "Amaun pesanan (RM)")} className="col-span-2 sm:col-span-1">
               <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00"
-                title="What the customer paid for this order — counted in Total sales. Leave empty for replacements / non-sales shipments."
+                title={L("What the customer paid for this order — counted in Total sales. Leave empty for replacements / non-sales shipments.", "Apa yang pelanggan bayar untuk pesanan ini — dikira dalam Jumlah jualan. Biarkan kosong untuk penggantian / penghantaran bukan jualan.")}
                 value={postDraft.order_amount}
                 onChange={(e) => setPostDraft((d) => ({ ...d, order_amount: e.target.value }))} /></SubR>
             </div>
@@ -1505,16 +1523,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               <div key={idx} className={fieldRow}>
                 <select className={`${inputClass} col-span-2 sm:col-span-1 sm:flex-1`} value={line.inventory_item_id}
                   onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, inventory_item_id: Number(e.target.value) } : l))}>
-                  <option value={0}>Select item…</option>
+                  <option value={0}>{L("Select item…", "Pilih barang…")}</option>
                   {items.map((it) => (
-                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} in stock)</option>
+                    <option key={it.id} value={it.id}>{it.sku} · {it.name} ({it.stock} {L("in stock", "dalam stok")})</option>
                   ))}
                 </select>
                 <input type="number" min={1} className={`${inputClass} sm:max-w-20`} value={line.qty}
-                  title="Quantity shipped"
+                  title={L("Quantity shipped", "Kuantiti dihantar")}
                   onChange={(e) => setPostLines((ls) => ls.map((l, i) => i === idx ? { ...l, qty: Math.max(1, Number(e.target.value)) } : l))} />
                 <button type="button" className="text-destructive text-xs underline"
-                  onClick={() => setPostLines((ls) => ls.filter((_, i) => i !== idx))}>Remove</button>
+                  onClick={() => setPostLines((ls) => ls.filter((_, i) => i !== idx))}>{L("Remove", "Buang")}</button>
               </div>
             ))}
             {/* v1.4.155: block, not inline — as an inline button it shared its
@@ -1522,7 +1540,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 link and the button rendered jammed together on one line. */}
             <button type="button" className="block text-left text-xs underline"
               onClick={() => setPostLines((ls) => [...ls, { inventory_item_id: 0, qty: 1 }])}>
-              + Add item line {postLines.length === 0 ? "(deducts stock automatically)" : ""}
+              {L("+ Add item line", "+ Tambah baris barang")} {postLines.length === 0 ? L("(deducts stock automatically)", "(menolak stok secara automatik)") : ""}
             </button>
             {postMsg && <p className="text-destructive text-xs font-medium">{postMsg}</p>}
             <button type="button" className={btnClass}
@@ -1530,7 +1548,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 if (!postDraft.order_ref.trim()) return;
                 const lines = postLines.filter((l) => l.inventory_item_id > 0);
                 if (postLines.length > 0 && lines.length !== postLines.length) {
-                  setPostMsg("Pick an item for every line, or remove empty lines.");
+                  setPostMsg(L("Pick an item for every line, or remove empty lines.", "Pilih barang untuk setiap baris, atau buang baris kosong."));
                   return;
                 }
                 setPostMsg("");
@@ -1543,26 +1561,26 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   }),
                 });
                 if (!res.ok) {
-                  setPostMsg(res.data?.error?.message ?? "Could not add record");
+                  setPostMsg(res.data?.error?.message ?? L("Could not add record", "Tidak dapat menambah rekod"));
                 } else {
                   setPostDraft({ order_ref: "", courier: "", tracking_no: "", order_amount: "" });
                   setPostLines([]);
                 }
                 void load();
               }}>
-              Add record
+              {L("Add record", "Tambah rekod")}
             </button>
           </div>
           <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
             {postage.filter((r) => !r.order_ref?.startsWith("TT-")).length === 0 && (
-              <li className="text-muted-foreground text-sm">No non-TikTok postage records yet.</li>
+              <li className="text-muted-foreground text-sm">{L("No non-TikTok postage records yet.", "Tiada rekod pos bukan TikTok lagi.")}</li>
             )}
             {postage.filter((r) => !r.order_ref?.startsWith("TT-")).map((r) => (
               <li key={r.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span>
                   <span className="font-medium">{r.order_ref}</span>{" "}
                   <span className="text-muted-foreground text-xs">
-                    {r.courier ?? "—"} · {r.tracking_no ?? "no tracking yet"}
+                    {r.courier ?? "—"} · {r.tracking_no ?? L("no tracking yet", "tiada penjejakan lagi")}
                     {(r as PostRec & { items_label?: string }).items_label
                       ? ` · ${(r as PostRec & { items_label?: string }).items_label}`
                       : (r as PostRec & { item_name?: string; qty?: number }).item_name
@@ -1579,7 +1597,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   }}
                 >
                   {["preparing", "shipped", "in_transit", "delivered", "returned"].map((st) => (
-                    <option key={st} value={st}>{st.replace(/_/g, " ")}</option>
+                    <option key={st} value={st}>{statusLabel(st)}</option>
                   ))}
                 </select>
               </li>
@@ -1588,17 +1606,17 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         </div>
 
         <div className={card}>
-          <p className="text-sm font-semibold">Marketing materials</p>
+          <p className="text-sm font-semibold">{L("Marketing materials", "Bahan pemasaran")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Track what sales needs — request new material, mark it done when produced.
+            {L("Track what sales needs — request new material, mark it done when produced.", "Jejak apa yang jualan perlukan — minta bahan baharu, tanda selesai apabila dihasilkan.")}
           </p>
           {/* v1.4.155: items-end + matched button height (38px input vs 36px
               btn) so Request sits flush beside the field instead of floating
               at label height; the input takes the remaining width so its
               placeholder isn't clipped. */}
           <div className="mt-3 flex items-end gap-2">
-            <SubR t="Material needed" className="min-w-0 flex-1">
-            <input className={inputClass} placeholder="e.g. Raya campaign product cards" value={matDraft}
+            <SubR t={L("Material needed", "Bahan diperlukan")} className="min-w-0 flex-1">
+            <input className={inputClass} placeholder={L("e.g. Raya campaign product cards", "cth. kad produk kempen Raya")} value={matDraft}
               onChange={(e) => setMatDraft(e.target.value)} /></SubR>
             <button type="button" className={`${btnClass} h-[38px] whitespace-nowrap`}
               onClick={async () => {
@@ -1607,7 +1625,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 setMatDraft("");
                 void load();
               }}>
-              Request
+              {L("Request", "Minta")}
             </button>
           </div>
           <ul className="mt-4 space-y-2">
@@ -1623,7 +1641,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   }}
                 >
                   {["requested", "in_progress", "done", "rejected"].map((st) => (
-                    <option key={st} value={st}>{st.replace(/_/g, " ")}</option>
+                    <option key={st} value={st}>{statusLabel(st)}</option>
                   ))}
                 </select>
               </li>
@@ -1681,7 +1699,7 @@ export function BirthdaysPanel() {
       void load();
     } else {
       // A set birthday is locked — amendments happen in /admin (v1.4.22 policy).
-      setBirthdayMsg(res.data?.error?.message ?? "Save failed — check access");
+      setBirthdayMsg(res.data?.error?.message ?? L("Save failed — check access", "Simpanan gagal — semak akses"));
     }
   };
 
@@ -1691,10 +1709,9 @@ export function BirthdaysPanel() {
 
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Staff birthdays</p>
+      <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Set each person&apos;s birthday (YYYY-MM-DD). Sorted by month and day.
-        Once saved, a birthday locks — corrections are made by an admin.
+        {L("Set each person's birthday (YYYY-MM-DD). Sorted by month and day. Once saved, a birthday locks — corrections are made by an admin.", "Tetapkan hari lahir setiap orang (YYYY-MM-DD). Disusun mengikut bulan dan hari. Setelah disimpan, hari lahir dikunci — pembetulan dibuat oleh admin.")}
       </p>
       {birthdayMsg && <p className="text-destructive mt-2 text-xs font-medium">{birthdayMsg}</p>}
       <ul className="mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">
@@ -1718,7 +1735,7 @@ export function BirthdaysPanel() {
                 className="bg-primary text-primary-foreground rounded-lg px-2.5 py-1 text-xs font-medium"
                 onClick={() => void save(u.id)}
               >
-                Save
+                {L("Save", "Simpan")}
               </button>
               {saved === u.id && <span className="text-xs font-medium text-green-700">✓</span>}
             </span>
@@ -1756,13 +1773,13 @@ function attLoc(r: AttRecord): { text: string; tone: "ok" | "flag" | "muted" } |
      muted blank of records that predate the GPS requirement. */
   if (r.gps?.startsWith("no_location:")) {
     const why = r.gps.slice("no_location:".length);
-    return { text: why === "denied" ? "NO LOCATION — phone blocked it" : `NO LOCATION — ${why}`, tone: "flag" };
+    return { text: why === "denied" ? L("NO LOCATION — phone blocked it", "TIADA LOKASI — telefon menyekatnya") : `${L("NO LOCATION —", "TIADA LOKASI —")} ${why}`, tone: "flag" };
   }
   const m = r.gps ? /^(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/.exec(r.gps) : null;
   const exempt = ["ceo", "coo", "cco"].includes(r.role ?? "");
   // No stored location: history predates the GPS requirement (v1.18.1) —
   // muted, not red, or July would read as a wall of violations.
-  if (!m) return r.gps === undefined ? null : { text: "no location", tone: "muted" };
+  if (!m) return r.gps === undefined ? null : { text: L("no location", "tiada lokasi"), tone: "muted" };
   const o = SITE_CONFIG.office;
   const [lat, lng] = [Number(m[1]), Number(m[2])];
   const acc = m[3] ? Math.min(Number(m[3]), 150) : 0;
@@ -1773,7 +1790,7 @@ function attLoc(r: AttRecord): { text: string; tone: "ok" | "flag" | "muted" } |
   const near = dist <= o.radiusM + acc;
   const shown = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${dist} m`;
   if (exempt) return { text: shown, tone: "muted" };
-  return near ? { text: `at office (${shown})`, tone: "ok" } : { text: `OUTSIDE (${shown})`, tone: "flag" };
+  return near ? { text: `${L("at office", "di pejabat")} (${shown})`, tone: "ok" } : { text: `${L("OUTSIDE", "DI LUAR")} (${shown})`, tone: "flag" };
 }
 
 /** UTC "YYYY-MM-DD HH:MM:SS" → MYT "YYYY-MM-DDTHH:MM" for datetime-local. */
@@ -1824,21 +1841,19 @@ export function AttendanceAdminPanel() {
     setMsg("");
     const res = await api<{ error?: { message?: string } }>(path, init);
     if (res.ok) {
-      showToast("Saved", okMsg);
+      showToast(L("Saved", "Disimpan"), okMsg);
       void load();
     } else {
-      setMsg(res.data?.error?.message ?? "Action failed — check access");
+      setMsg(res.data?.error?.message ?? L("Action failed — check access", "Tindakan gagal — semak akses"));
     }
   };
 
   return (
     <div className={`${card} mt-4 md:mt-6`}>
       {toastNode}
-      <p className="text-sm font-semibold">Staff attendance — corrections &amp; back-entry</p>
+      <p className="text-sm font-semibold">{L("Staff attendance — corrections & back-entry", "Kehadiran kakitangan — pembetulan & kemasukan lampau")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Amend a wrong punch or add clock in/out for days worked before this
-        system existed. Times are Malaysia time. Manual and amended records are
-        marked and audit-logged.
+        {L("Amend a wrong punch or add clock in/out for days worked before this system existed. Times are Malaysia time. Manual and amended records are marked and audit-logged.", "Pinda ketukan yang salah atau tambah daftar masuk/keluar untuk hari bekerja sebelum sistem ini wujud. Masa ialah waktu Malaysia. Rekod manual dan pindaan ditanda dan dilog audit.")}
       </p>
 
       {/* v1.4.186 mobile audit: this row predated the v1.4.154 width
@@ -1846,17 +1861,17 @@ export function AttendanceAdminPanel() {
           wrapped raggedly on phones. Phones now use the standard 2-up
           full-width grid — staff select spanning, type|date, time|Add,
           then the filter row; desktop keeps the capped inline row. */}
-      <span className="text-muted-foreground mt-3 block text-[11px] font-semibold tracking-wide uppercase">Add record</span>
+      <span className="text-muted-foreground mt-3 block text-[11px] font-semibold tracking-wide uppercase">{L("Add record", "Tambah rekod")}</span>
       <div className="mt-1 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
         <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={add.user_id}
           onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
-          <option value={0}>Select staff…</option>
+          <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
         </select>
         <select className={`${inputClass} w-full sm:max-w-32`} value={add.type}
           onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
-          <option value="clock_in">Clock in</option>
-          <option value="clock_out">Clock out</option>
+          <option value="clock_in">{L("Clock in", "Daftar masuk")}</option>
+          <option value="clock_out">{L("Clock out", "Daftar keluar")}</option>
         </select>
         <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={add.date}
           onChange={(e) => setAdd((d) => ({ ...d, date: e.target.value }))} />
@@ -1868,13 +1883,13 @@ export function AttendanceAdminPanel() {
           onClick={() => void act(`/attendance/manual`, {
             method: "POST",
             body: JSON.stringify({ user_id: add.user_id, type: add.type, myt: `${add.date} ${add.time}` }),
-          }, "Record added.")}>
-          Add
+          }, L("Record added.", "Rekod ditambah."))}>
+          {L("Add", "Tambah")}
         </button>
         <select className={`${inputClass} col-span-2 w-full sm:ml-auto sm:max-w-52`} value={filterId}
-          title="Show one staff member's records only"
+          title={L("Show one staff member's records only", "Tunjuk rekod seorang kakitangan sahaja")}
           onChange={(e) => setFilterId(Number(e.target.value))}>
-          <option value={0}>Find staff: everyone</option>
+          <option value={0}>{L("Find staff: everyone", "Cari kakitangan: semua")}</option>
           {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
         </select>
         <input type="month" className={`${inputClass} col-span-2 w-full min-w-0 sm:max-w-40`} value={month}
@@ -1886,9 +1901,9 @@ export function AttendanceAdminPanel() {
         <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
-              {([["name", "Staff"], ["type", "Type"], ["time", "Time (MYT)"], ["mark", "Mark"]] as const).map(([k, label]) => (
+              {([["name", L("Staff", "Kakitangan")], ["type", L("Type", "Jenis")], ["time", L("Time (MYT)", "Masa (MYT)")], ["mark", L("Mark", "Tanda")]] as const).map(([k, label]) => (
                 <th key={k} className={`${th} cursor-pointer select-none hover:underline`}
-                  title="Click to sort — click again to reverse"
+                  title={L("Click to sort — click again to reverse", "Klik untuk susun — klik lagi untuk terbalik")}
                   onClick={() => clickSort(k)}>
                   {label}{sortKey === k ? (sortDir === 1 ? " ▲" : " ▼") : ""}
                 </th>
@@ -1898,10 +1913,10 @@ export function AttendanceAdminPanel() {
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records this month.</td></tr>
+              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records this month.", "Tiada rekod bulan ini.")}</td></tr>
             )}
             {rows.length > 0 && filterId !== 0 && rows.filter((r) => r.user_id === filterId).length === 0 && (
-              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>No records for this staff member this month.</td></tr>
+              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records for this staff member this month.", "Tiada rekod untuk kakitangan ini bulan ini.")}</td></tr>
             )}
             {(() => {
               const visible = filterId === 0 ? rows : rows.filter((r) => r.user_id === filterId);
@@ -1916,7 +1931,7 @@ export function AttendanceAdminPanel() {
             })().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{properName(r.name)}</td>
-                <td className={td}>{r.type === "clock_in" ? "In" : "Out"}</td>
+                <td className={td}>{r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar")}</td>
                 <td className={td}>
                   <input
                     type="datetime-local"
@@ -1926,7 +1941,7 @@ export function AttendanceAdminPanel() {
                   />
                 </td>
                 <td className={`${td} text-xs`}>
-                  <span className="text-muted-foreground">{r.manual_by ? "manual" : r.amended_by ? "amended" : "punch"}</span>
+                  <span className="text-muted-foreground">{r.manual_by ? L("manual", "manual") : r.amended_by ? L("amended", "dipinda") : L("punch", "ketuk")}</span>
                   {(() => {
                     const loc = attLoc(r);
                     if (!loc) return null;
@@ -1939,19 +1954,19 @@ export function AttendanceAdminPanel() {
                     onClick={() => {
                       const current = edit[r.id] ?? utcToMytLocal(r.created_at);
                       if (current === utcToMytLocal(r.created_at)) {
-                        showToast("No changes", `${r.name} — time unchanged`, "notice");
+                        showToast(L("No changes", "Tiada perubahan"), `${r.name} ${L("— time unchanged", "— masa tidak berubah")}`, "notice");
                         return;
                       }
                       void act(`/attendance/${r.id}`, {
                         method: "PATCH",
                         body: JSON.stringify({ myt: current.replace("T", " ") }),
-                      }, `${r.name} — record updated`);
+                      }, `${r.name} ${L("— record updated", "— rekod dikemas kini")}`);
                     }}>
-                    Save
+                    {L("Save", "Simpan")}
                   </button>
                   <button type="button" className="text-destructive ml-2 text-xs underline"
-                    onClick={() => void act(`/attendance/${r.id}`, { method: "DELETE" }, "Record removed.")}>
-                    Remove
+                    onClick={() => void act(`/attendance/${r.id}`, { method: "DELETE" }, L("Record removed.", "Rekod dibuang."))}>
+                    {L("Remove", "Buang")}
                   </button>
                 </td>
               </tr>
@@ -2014,7 +2029,7 @@ const claimNoOf = (c: Claim) => {
    send the photo to yourself (or any chat), save it back from the chat —
    WhatsApp compresses hard — then upload that copy. */
 const MAX_RECEIPT_MB = 8;
-const RECEIPT_TOO_BIG = `Receipt too large — the maximum is ${MAX_RECEIPT_MB} MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy.`;
+const receiptTooBig = () => L(`Receipt too large — the maximum is ${MAX_RECEIPT_MB} MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy.`, `Resit terlalu besar — maksimum ${MAX_RECEIPT_MB} MB. Cara mudah: hantar foto itu kepada diri sendiri di WhatsApp, simpan semula dari sembang ke galeri (WhatsApp memampatkannya banyak), kemudian muat naik salinan itu.`);
 
 /* v1.4.106: which chain a claimant's role follows (mirrors the leave chain). */
 const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
@@ -2032,7 +2047,7 @@ const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
 async function sendClaimPdf(c: Claim) {
   const no = claimNoOf(c);
   const blob = await buildClaimPdf(c, no);
-  await sharePdfFile(blob, `${no}.pdf`, `Claim form ${no}`);
+  await sharePdfFile(blob, `${no}.pdf`, `${L("Claim form", "Borang tuntutan")} ${no}`);
 }
 
 async function printClaimForm(c: Claim) {
@@ -2066,7 +2081,7 @@ async function printClaimForm(c: Claim) {
   // The window opens FIRST (inside the click) so popup blockers stay quiet.
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
-  w.document.write("<p style=\"font-family:Arial;padding:20px;color:#5b6472\">Preparing claim form…</p>");
+  w.document.write(`<p style="font-family:Arial;padding:20px;color:#5b6472">${L("Preparing claim form…", "Menyediakan borang tuntutan…")}</p>`);
   let receiptImg = "";
   let receiptNote = "";
   if (c.receipt_key) {
@@ -2236,8 +2251,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
 
   const submit = async () => {
     const filled = items.filter((i) => i.claim_date || Number(i.amount) || i.description.trim());
-    if (filled.length === 0) { setMsg("Add at least one item (date + amount)."); return; }
-    if (filled.some((i) => !i.claim_date || !Number(i.amount))) { setMsg("Every item needs a date and an amount."); return; }
+    if (filled.length === 0) { setMsg(L("Add at least one item (date + amount).", "Tambah sekurang-kurangnya satu item (tarikh + amaun).")); return; }
+    if (filled.some((i) => !i.claim_date || !Number(i.amount))) { setMsg(L("Every item needs a date and an amount.", "Setiap item perlukan tarikh dan amaun.")); return; }
     setMsg("");
     const payloadC = {
       purpose: purpose || undefined,
@@ -2249,21 +2264,21 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       const resE = await api<{ ok?: boolean; resubmitted?: boolean; error?: { message?: string } }>(`/claims/${editingClaim.id}/edit`, {
         method: "POST", body: JSON.stringify(payloadC),
       });
-      if (!resE.ok) { setMsg(resE.data?.error?.message ?? "Could not update the claim"); return; }
+      if (!resE.ok) { setMsg(resE.data?.error?.message ?? L("Could not update the claim", "Tidak dapat mengemas kini tuntutan")); return; }
       if (receipt) {
         const compressedE = await compressImage(receipt);
         if (compressedE.size > MAX_RECEIPT_MB * 1024 * 1024) {
-          showToast("No changes", `Claim updated WITHOUT the receipt. ${RECEIPT_TOO_BIG}`, "notice");
+          showToast(L("No changes", "Tiada perubahan"), `${L("Claim updated WITHOUT the receipt.", "Tuntutan dikemas kini TANPA resit.")} ${receiptTooBig()}`, "notice");
         } else {
           const up = await fetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
             method: "POST", credentials: "include",
             headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
             body: compressedE,
           });
-          if (!up.ok) showToast("No changes", `Claim updated, but the receipt failed to upload. ${RECEIPT_TOO_BIG}`, "notice");
+          if (!up.ok) showToast(L("No changes", "Tiada perubahan"), `${L("Claim updated, but the receipt failed to upload.", "Tuntutan dikemas kini, tetapi resit gagal dimuat naik.")} ${receiptTooBig()}`, "notice");
         }
       }
-      showToast("Saved", resE.data?.resubmitted ? "Claim resubmitted — CEO notified for approval" : "Claim updated — still awaiting CEO approval");
+      showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
       setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0);
       void load();
       return;
@@ -2272,11 +2287,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       method: "POST",
       body: JSON.stringify(payloadC),
     });
-    if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? "Could not submit the claim"); return; }
+    if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? L("Could not submit the claim", "Tidak dapat menghantar tuntutan")); return; }
     if (receipt) {
       const compressed = await compressImage(receipt); // PDFs pass through untouched
       if (compressed.size > MAX_RECEIPT_MB * 1024 * 1024) {
-        showToast("No changes", `Claim submitted WITHOUT the receipt. ${RECEIPT_TOO_BIG} Then use Edit on your claim to attach it.`, "notice");
+        showToast(L("No changes", "Tiada perubahan"), `${L("Claim submitted WITHOUT the receipt.", "Tuntutan dihantar TANPA resit.")} ${receiptTooBig()} ${L("Then use Edit on your claim to attach it.", "Kemudian guna Sunting pada tuntutan anda untuk melampirkannya.")}`, "notice");
       } else {
       const up = await fetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
         method: "POST",
@@ -2284,12 +2299,12 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         headers: { "Content-Type": compressed.type || receipt.type || "image/jpeg" },
         body: compressed,
       });
-      if (!up.ok) showToast("No changes", `Claim submitted, but the receipt failed to upload. ${RECEIPT_TOO_BIG} Then use Edit on your claim to attach it.`, "notice");
+      if (!up.ok) showToast(L("No changes", "Tiada perubahan"), `${L("Claim submitted, but the receipt failed to upload.", "Tuntutan dihantar, tetapi resit gagal dimuat naik.")} ${receiptTooBig()} ${L("Then use Edit on your claim to attach it.", "Kemudian guna Sunting pada tuntutan anda untuk melampirkannya.")}`, "notice");
       }
     }
     setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
     setReceipt(null);
-    showToast("Saved", "Claim submitted — the CEO has been notified");
+    showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
   };
 
@@ -2316,34 +2331,34 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       }
       if (missingSkipped.length > 0) {
         if (!(await confirm({
-          title: "Approve past the incomplete chain?",
-          message: "The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.",
-          confirmLabel: "Approve as CEO",
+          title: L("Approve past the incomplete chain?", "Luluskan melangkaui rantaian yang belum lengkap?"),
+          message: L("The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.", "Rantaian kelulusan belum selesai untuk tuntutan ini.\nPintasan ini akan direkodkan pada tuntutan dan dalam log audit."),
+          confirmLabel: L("Approve as CEO", "Luluskan sebagai CEO"),
         }))) return;
       } else if (anyWaived) {
         if (!(await confirm({
-          title: "Approve directly?",
-          message: "The pre-approver of this claim is its PAYEE, so their stage is waived (conflict of interest) — your direct decision is the designed route.\nThe waiver is recorded on the claim and in the audit log.",
-          confirmLabel: "Approve as CEO",
+          title: L("Approve directly?", "Luluskan terus?"),
+          message: L("The pre-approver of this claim is its PAYEE, so their stage is waived (conflict of interest) — your direct decision is the designed route.\nThe waiver is recorded on the claim and in the audit log.", "Pra-pelulus tuntutan ini ialah PENERIMA BAYARANNYA, jadi peringkat mereka diketepikan (konflik kepentingan) — keputusan terus anda ialah laluan yang direka.\nPengecualian ini direkodkan pada tuntutan dan dalam log audit."),
+          confirmLabel: L("Approve as CEO", "Luluskan sebagai CEO"),
         }))) return;
       }
     }
     const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
-    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Decision failed", "notice"); return; }
-    showToast("Saved", `Claim ${action === "approve" ? "approved" : "rejected"} — claimant notified`);
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Decision failed", "Keputusan gagal"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), `${L("Claim", "Tuntutan")} ${action === "approve" ? L("approved", "diluluskan") : L("rejected", "ditolak")} ${L("— claimant notified", "— penuntut dimaklumkan")}`);
     void load();
   };
   // v1.4.106: chain stage actions.
   const hrReview = async (id: number) => {
     const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/review`, { method: "POST", body: JSON.stringify({}) });
-    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Review failed", "notice"); return; }
-    showToast("Saved", "HR review recorded — COO notified for pre-approval");
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Review failed", "Semakan gagal"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), L("HR review recorded — COO notified for pre-approval", "Semakan HR direkodkan — COO dimaklumkan untuk pra-kelulusan"));
     void load();
   };
   const preApprove = async (id: number) => {
     const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/preapprove`, { method: "POST", body: JSON.stringify({}) });
-    if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Pre-approval failed", "notice"); return; }
-    showToast("Saved", "Pre-approved — CEO notified for final approval");
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Pre-approval failed", "Pra-kelulusan gagal"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), L("Pre-approved — CEO notified for final approval", "Pra-diluluskan — CEO dimaklumkan untuk kelulusan akhir"));
     void load();
   };
 
@@ -2376,29 +2391,29 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {/* v1.4.249 (CEO: "globally and standardize"): the claim number is
               the identifier and the only thing you click to open the record —
               same affordance as a document number or a company name. */}
-          <RecordToggle open={expanded === c.id} title="Purpose, items, receipt and decision"
+          <RecordToggle open={expanded === c.id} title={L("Purpose, items, receipt and decision", "Tujuan, item, resit dan keputusan")}
             onToggle={() => setExpanded((e) => e === c.id ? null : c.id)}>{claimNoOf(c)}</RecordToggle>{" · "}
           {c.claimant && <span className="font-medium">{properName(c.claimant)} · </span>}
           <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
           {claimItems(c).length > 1
-            ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} items</span>
-            : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{c.category}</span>}{" "}
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{c.status}</span>
+            ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} {L("items", "item")}</span>
+            : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(c.category)}</span>}{" "}
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
             <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
-              title="Chain: HR review → COO pre-approval → CEO final approval">
-              {c.pre_approved_at ? "HR ✓ · COO ✓ — CEO next" : c.hr_reviewed_at ? "HR ✓ — awaiting COO" : "awaiting HR review"}
+              title={L("Chain: HR review → COO pre-approval → CEO final approval", "Rantaian: semakan HR → pra-kelulusan COO → kelulusan akhir CEO")}>
+              {c.pre_approved_at ? L("HR ✓ · COO ✓ — CEO next", "HR ✓ · COO ✓ — CEO seterusnya") : c.hr_reviewed_at ? L("HR ✓ — awaiting COO", "HR ✓ — menunggu COO") : L("awaiting HR review", "menunggu semakan HR")}
             </span>
           )}
           {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
             <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
-              title="Chain: CCO pre-approval → CEO final approval">
-              {c.pre_approved_at ? "CCO ✓ — CEO next" : "awaiting CCO"}
+              title={L("Chain: CCO pre-approval → CEO final approval", "Rantaian: pra-kelulusan CCO → kelulusan akhir CEO")}>
+              {c.pre_approved_at ? L("CCO ✓ — CEO next", "CCO ✓ — CEO seterusnya") : L("awaiting CCO", "menunggu CCO")}
             </span>
           )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
             <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
-              title="Payment released by the CEO">💸 PAID {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
+              title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}>{L("💸 PAID", "💸 DIBAYAR")} {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
         {/* v1.4.253: date on the left, real buttons in the standard wrapping
@@ -2407,17 +2422,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <span>{dmy(c.claim_date)}</span>
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
             <>
-              <label className={`${rowBtn} cursor-pointer`} title="Attach the receipt photo/PDF directly — no need to edit the claim">
-                📎 Attach receipt
+              <label className={`${rowBtn} cursor-pointer`} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
+                {L("📎 Attach receipt", "📎 Lampirkan resit")}
                 <input type="file" accept="image/*,application/pdf" className="hidden"
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";
                     if (!f) return;
-                    if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
-                    if (f.size > 40 * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
+                    if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                    if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
                     const comp = await compressImage(f);
-                    if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast("No changes", RECEIPT_TOO_BIG, "notice"); return; }
+                    if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
                     const up = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, {
                       method: "POST", credentials: "include",
                       headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
@@ -2425,13 +2440,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                     if (up.ok) {
                       let resub = false;
                       try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
-                      showToast("Saved", resub ? "Receipt attached — claim RESUBMITTED for approval" : "Receipt attached to your claim");
+                      showToast(L("Saved", "Disimpan"), resub ? L("Receipt attached — claim RESUBMITTED for approval", "Resit dilampirkan — tuntutan DIHANTAR SEMULA untuk kelulusan") : L("Receipt attached to your claim", "Resit dilampirkan pada tuntutan anda"));
                       void load();
                     }
                     else {
                       let m = "";
                       try { m = ((await up.json()) as { error?: { message?: string } })?.error?.message ?? ""; } catch { /* not JSON */ }
-                      showToast("No changes", m || RECEIPT_TOO_BIG, "notice");
+                      showToast(L("No changes", "Tiada perubahan"), m || receiptTooBig(), "notice");
                     }
                   }} />
               </label>
@@ -2439,20 +2454,20 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
             <>
-              <button type="button" className={rowBtnDanger} title="Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records"
+              <button type="button" className={rowBtnDanger} title={L("Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records", "Padam tuntutan ini — dibenarkan semasa menunggu atau ditolak; tuntutan diluluskan/dibayar ialah rekod kekal")}
                 onClick={async () => {
                   if (!(await confirm({
-                    title: `Delete claim ${claimNoOf(c)}?`,
-                    message: `RM ${rmBare(c.amount_cents)} — this cannot be undone. The attached receipt is removed too.`,
-                    confirmLabel: "Delete claim", variant: "danger",
+                    title: `${L("Delete claim", "Padam tuntutan")} ${claimNoOf(c)}?`,
+                    message: `RM ${rmBare(c.amount_cents)} ${L("— this cannot be undone. The attached receipt is removed too.", "— ini tidak boleh dibatalkan. Resit yang dilampirkan turut dibuang.")}`,
+                    confirmLabel: L("Delete claim", "Padam tuntutan"), variant: "danger",
                   }))) return;
                   const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                  if (r.ok) { showToast("Saved", `Claim ${claimNoOf(c)} deleted`); void load(); }
-                  else showToast("No changes", r.data?.error?.message ?? "Delete failed", "notice");
+                  if (r.ok) { showToast(L("Saved", "Disimpan"), `${L("Claim", "Tuntutan")} ${claimNoOf(c)} ${L("deleted", "dipadam")}`); void load(); }
+                  else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice");
                 }}>
-                Delete
+                {L("Delete", "Padam")}
               </button>
-              <button type="button" className={rowBtn} title={c.status === "rejected" ? "Fix and resubmit for CEO approval" : "Edit — allowed until the CEO decides"}
+              <button type="button" className={rowBtn} title={c.status === "rejected" ? L("Fix and resubmit for CEO approval", "Betulkan dan hantar semula untuk kelulusan CEO") : L("Edit — allowed until the CEO decides", "Sunting — dibenarkan sehingga CEO membuat keputusan")}
                 onClick={() => {
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
                   setPayeeId(c.payee_user_id ?? 0); // v1.4.173
@@ -2461,14 +2476,14 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   setReceipt(null);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}>
-                {c.status === "rejected" ? "Edit & resubmit" : "Edit"}
+                {c.status === "rejected" ? L("Edit & resubmit", "Sunting & hantar semula") : L("Edit", "Sunting")}
               </button>
             </>
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
-            ? <span className="rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title="This claim was raised on your behalf — the payment comes to you; track its status here">💰 pays to you</span>
-            : c.payee_name ? <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`Pay to ${properName(c.payee_full || c.payee_name)} — internal remark`}>💰 → {firstName(c.payee_name)}</span> : null}
+            ? <span className="rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title={L("This claim was raised on your behalf — the payment comes to you; track its status here", "Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}>{L("💰 pays to you", "💰 dibayar kepada anda")}</span>
+            : c.payee_name ? <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`${L("Pay to", "Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark", "— catatan dalaman")}`}>💰 → {firstName(c.payee_name)}</span> : null}
         </div>
       </div>
       {expanded === c.id && (
@@ -2484,7 +2499,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <span className="mt-1 flex flex-wrap items-center gap-1.5">
               <select className="border-input bg-background h-8 rounded-lg border px-2 text-xs" value={payeeEdit.value}
                 onChange={(e) => setPayeeEdit({ claimId: c.id, value: Number(e.target.value) })}>
-                <option value={0}>— pay the submitter ({properName(c.claimant_full || c.claimant || "")}) —</option>
+                <option value={0}>{`${L("— pay the submitter", "— bayar penghantar")} (${properName(c.claimant_full || c.claimant || "")}) —`}</option>
                 {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
               </select>
               <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
@@ -2492,36 +2507,36 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   const res = await api<{ ok?: boolean; unchanged?: boolean; error?: { message?: string } }>(`/claims/${c.id}/payee`, {
                     method: "POST", body: JSON.stringify({ payee_user_id: payeeEdit.value }),
                   });
-                  if (!res.ok) { showToast("No changes", res.data?.error?.message ?? "Could not save the payee", "notice"); return; }
-                  showToast(res.data?.unchanged ? "No changes" : "Saved", res.data?.unchanged ? "Payee is already set to that" : "Payee updated — recorded in the audit log");
+                  if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Could not save the payee", "Tidak dapat menyimpan penerima bayaran"), "notice"); return; }
+                  showToast(res.data?.unchanged ? L("No changes", "Tiada perubahan") : L("Saved", "Disimpan"), res.data?.unchanged ? L("Payee is already set to that", "Penerima bayaran sudah ditetapkan begitu") : L("Payee updated — recorded in the audit log", "Penerima bayaran dikemas kini — direkodkan dalam log audit"));
                   setPayeeEdit(null);
                   void load();
-                }}>Save payee</button>
-              <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>cancel</button>
+                }}>{L("Save payee", "Simpan penerima bayaran")}</button>
+              <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>{L("cancel", "batal")}</button>
             </span>
           ) : c.payee_user_id === userId ? (
             <p className="mt-1 rounded-lg border border-green-300 bg-green-100 px-2 py-1 text-xs font-semibold text-green-900">
-              💰 This claim was raised on your behalf by {properName(c.claimant_full || c.claimant || "")} — the payment comes to YOU once the CEO approves. Follow the status chip above.
-              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
+              {L("💰 This claim was raised on your behalf by", "💰 Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
+              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : c.payee_name ? (
             <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
-              title="Internal remark for the CEO (payment) and HR (records) — not printed on the claim form">
-              💰 Pay this claim to: {properName(c.payee_full || c.payee_name)}
-              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>✎ change</button>}
+              title={L("Internal remark for the CEO (payment) and HR (records) — not printed on the claim form", "Catatan dalaman untuk CEO (bayaran) dan HR (rekod) — tidak dicetak pada borang tuntutan")}>
+              {L("💰 Pay this claim to:", "💰 Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
+              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : canPayee && (
             <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
-              title="No separate payee set — the payment goes to whoever submitted the claim">
-              💰 Pay to: {properName(c.claimant_full || c.claimant || "")} (the submitter — no separate payee)
-              <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>✎ set payee</button>
+              title={L("No separate payee set — the payment goes to whoever submitted the claim", "Tiada penerima bayaran berasingan — bayaran pergi kepada penghantar tuntutan")}>
+              {L("💰 Pay to:", "💰 Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
+              <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
             </p>
           )}
-          {c.description && <p className="text-muted-foreground mt-1 text-xs">Purpose: {c.description}</p>}
+          {c.description && <p className="text-muted-foreground mt-1 text-xs">{L("Purpose:", "Tujuan:")} {c.description}</p>}
           <div className="mt-1 space-y-0.5">
             {claimItems(c).map((it, i) => (
               <p key={i} className="text-muted-foreground text-xs">
-                {dmy(it.claim_date)} · <span className="capitalize">{it.category}</span>
+                {dmy(it.claim_date)} · <span className="capitalize">{catLabel(it.category)}</span>
                 {it.description ? ` · ${it.description}` : ""} · {rmc(it.amount_cents)}
               </p>
             ))}
@@ -2532,65 +2547,65 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               an underlined word has no tap target on a phone. */}
           <div className={`${rowActions} mt-1.5 justify-start`}>
             {c.receipt_key
-              ? <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">View receipt</a>
-              : <span className="text-muted-foreground text-xs">No receipt attached</span>}
-            <button type="button" className={rowBtn} title="AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative"
-              onClick={() => void printClaimForm(c)}>Print form</button>
+              ? <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">{L("View receipt", "Lihat resit")}</a>
+              : <span className="text-muted-foreground text-xs">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
+            <button type="button" className={rowBtn} title={L("AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang AZOO-HR-CLM-001 sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
+              onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
             {/* v1.4.246: the real PDF file, straight into the phone's share sheet. */}
-            <button type="button" className={rowBtn} title="Send the claim form as a PDF file"
-              onClick={() => void sendClaimPdf(c)}>Send PDF</button>
+            <button type="button" className={rowBtn} title={L("Send the claim form as a PDF file", "Hantar borang tuntutan sebagai fail PDF")}
+              onClick={() => void sendClaimPdf(c)}>{L("Send PDF", "Hantar PDF")}</button>
           </div>
           {c.decided_by_name && (
             <p className="text-muted-foreground mt-1 text-xs">
-              Decided by {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}
+              {L("Decided by", "Diputuskan oleh")} {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}
             </p>
           )}
           {canDecide && c.paid_at && !c.payment_proof_key && (
             <label className="border-border mt-2 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-              title="Attach the bank-transfer slip as payout proof — the claimant is notified">
-              📎 Attach payment receipt (bank slip)
+              title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
+              {L("📎 Attach payment receipt (bank slip)", "📎 Lampirkan resit bayaran (slip bank)")}
               <input type="file" accept="image/*,application/pdf" className="hidden"
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
                   if (!f) return;
-                  if (f.size > 40 * 1024 * 1024) { showToast("No changes", "Payment proof too large — maximum 8 MB.", "notice"); return; }
+                  if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
                   const comp = await compressImage(f);
-                  if (comp.size > 8 * 1024 * 1024) { showToast("No changes", "Payment proof too large — maximum 8 MB.", "notice"); return; }
+                  if (comp.size > 8 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
                   const up = await fetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
                     method: "POST", credentials: "include",
                     headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
                   });
-                  if (up.ok) { showToast("Saved", "Payment receipt attached — claimant notified"); void load(); }
-                  else showToast("No changes", "Payment proof upload failed", "notice");
+                  if (up.ok) { showToast(L("Saved", "Disimpan"), L("Payment receipt attached — claimant notified", "Resit bayaran dilampirkan — penuntut dimaklumkan")); void load(); }
+                  else showToast(L("No changes", "Tiada perubahan"), L("Payment proof upload failed", "Muat naik bukti bayaran gagal"), "notice");
                 }} />
             </label>
           )}
           {c.payment_proof_key && (c.user_id === userId || canDecide || role === "hr_admin") && (
             <p className="mt-1 text-xs">
-              <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">View payment receipt (payout proof)</a>
+              <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</a>
             </p>
           )}
           {canDecide && c.status === "approved" && !c.paid_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
               onClick={async () => {
                 const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
-                if (res.ok) { showToast("Saved", "Claim marked PAID — claimant notified"); void load(); }
+                if (res.ok) { showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan")); void load(); }
               }}>
-              💸 Mark paid (money released)
+              {L("💸 Mark paid (money released)", "💸 Tanda dibayar (wang dilepaskan)")}
             </button>
           )}
         </>
       )}
       {actions && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder="Note (optional — sent to the claimant)"
+          <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
             value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-            title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? "Chain (HR → COO) not finished — approving now is a recorded CEO override" : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? "CCO pre-approval not done — approving now is a recorded CEO override" : "Final approval"}
-            onClick={() => void decide(c.id, "approve")}>Approve</button>
+            title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? L("Chain (HR → COO) not finished — approving now is a recorded CEO override", "Rantaian (HR → COO) belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? L("CCO pre-approval not done — approving now is a recorded CEO override", "Pra-kelulusan CCO belum dibuat — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
+            onClick={() => void decide(c.id, "approve")}>{L("Approve", "Luluskan")}</button>
           <button type="button" className="border-border text-destructive inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            onClick={() => void decide(c.id, "reject")}>Reject</button>
+            onClick={() => void decide(c.id, "reject")}>{L("Reject", "Tolak")}</button>
         </div>
       )}
       {/* v1.4.106 stage actions — HR review, COO/CCO pre-approval. No self-review.
@@ -2599,22 +2614,22 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           claim skips them. */}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id === userId && ["hr_admin", "coo", "cco"].includes(role) && (
         <p className="text-muted-foreground mt-2 text-xs">
-          ⚖ Your stage is waived on this claim — it pays to you, so the CEO decides it directly.
+          {L("⚖ Your stage is waived on this claim — it pays to you, so the CEO decides it directly.", "⚖ Peringkat anda diketepikan pada tuntutan ini — ia dibayar kepada anda, jadi CEO memutuskannya terus.")}
         </p>
       )}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
         <>
           {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-              onClick={() => void hrReview(c.id)}>✔ HR review OK — pass to COO</button>
+              onClick={() => void hrReview(c.id)}>{L("✔ HR review OK — pass to COO", "✔ Semakan HR OK — serah kepada COO")}</button>
           )}
           {(role === "coo" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "staff" && c.hr_reviewed_at && !c.pre_approved_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-              onClick={() => void preApprove(c.id)}>✔ Pre-approve — pass to CEO</button>
+              onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
           {(role === "cco" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at && (
             <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-              onClick={() => void preApprove(c.id)}>✔ Pre-approve — pass to CEO</button>
+              onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
         </>
       )}
@@ -2628,76 +2643,75 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div className={card}>
         <p className="text-sm font-semibold">
           {editingClaim
-            ? <>Editing {editingClaim.no}{editingClaim.wasRejected ? " (rejected — will resubmit)" : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); }}>cancel</button></>
-            : "Submit a claim"}
+            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); }}>{L("cancel", "batal")}</button></>
+            : L("Submit a claim", "Hantar tuntutan")}
         </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Expense claims from CEO, COO, CCO and HR — every claim is approved or
-          rejected by the CEO, who is notified the moment you submit.
+          {L("Expense claims from CEO, COO, CCO and HR — every claim is approved or rejected by the CEO, who is notified the moment you submit.", "Tuntutan perbelanjaan daripada CEO, COO, CCO dan HR — setiap tuntutan diluluskan atau ditolak oleh CEO, yang dimaklumkan sebaik sahaja anda hantar.")}
         </p>
-        <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Purpose (shown on the printed form, optional)</span>
-        <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. Office pantry restock"
+        <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
+        <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
         {/* v1.4.173 (CEO): who the payment actually goes to when this claim
             is raised on behalf of someone. Internal remark — CEO pays by it,
             HR keeps it for records; NEVER printed on the claim form. */}
         {canPayee && (
           <label className="mt-2 block sm:max-w-md">
-            <span className="text-muted-foreground mb-0.5 block text-[11px]">💰 Pay claim to (optional — only when raised on behalf of someone; remark for CEO &amp; HR, not printed on the form)</span>
+            <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("💰 Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "💰 Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
             <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
-              <option value={0}>— pay the submitter (normal claim) —</option>
+              <option value={0}>{L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
               {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
             </select>
           </label>
         )}
         <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
-          <span>Date</span><span>Category</span><span>Description</span><span>Amount (RM)</span><span />
+          <span>{L("Date", "Tarikh")}</span><span>{L("Category", "Kategori")}</span><span>{L("Description", "Keterangan")}</span><span>{L("Amount (RM)", "Amaun (RM)")}</span><span />
         </div>
         {items.map((it, i) => (
           <div key={i} className="border-border mt-2 grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:mt-1 sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] sm:rounded-none sm:border-0 sm:p-0">
-            <label className="text-muted-foreground block text-[11px] sm:hidden">Date
+            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Date", "Tarikh")}
               <input type="date" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm"
                 value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             </label>
             <input type="date" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block"
               value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
-            <label className="text-muted-foreground block text-[11px] sm:hidden">Category
+            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Category", "Kategori")}
               <select className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm capitalize" value={it.category}
                 onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
-                {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
               </select>
             </label>
             <select className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm capitalize sm:block" value={it.category}
               onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
-              {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
             </select>
-            <label className="text-muted-foreground col-span-2 block text-[11px] sm:hidden">Description
-              <input className="border-input bg-background mt-0.5 h-9 w-full min-w-0 rounded-lg border px-2 text-sm" placeholder="e.g. Grab to client meeting"
+            <label className="text-muted-foreground col-span-2 block text-[11px] sm:hidden">{L("Description", "Keterangan")}
+              <input className="border-input bg-background mt-0.5 h-9 w-full min-w-0 rounded-lg border px-2 text-sm" placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
                 value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
             </label>
-            <input className="border-input bg-background hidden h-9 min-w-0 rounded-lg border px-2 text-sm sm:block" placeholder="e.g. Grab to client meeting"
+            <input className="border-input bg-background hidden h-9 min-w-0 rounded-lg border px-2 text-sm sm:block" placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
               value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
-            <label className="text-muted-foreground block text-[11px] sm:hidden">Amount (RM)
+            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Amount (RM)", "Amaun (RM)")}
               <input type="number" min={0} step="0.01" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm" placeholder="0.00"
                 value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
             </label>
             <input type="number" min={0} step="0.01" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block" placeholder="0.00"
               value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
             {items.length > 1
-              ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>✕ Remove</button>
+              ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>{L("✕ Remove", "✕ Buang")}</button>
               : <span className="hidden sm:block" />}
           </div>
         ))}
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>+ Add item</button>
+          <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>{L("+ Add item", "+ Tambah item")}</button>
           <p className="text-sm font-semibold">
-            Total: RM {rmBare(Math.round(items.reduce((a, i) => a + (Number(i.amount) || 0), 0) * 100))}
+            {L("Total: RM", "Jumlah: RM")} {rmBare(Math.round(items.reduce((a, i) => a + (Number(i.amount) || 0), 0) * 100))}
           </p>
         </div>
         <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <label className="border-border inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border px-3 text-sm hover:bg-secondary sm:justify-start">
-            {receipt ? `Receipt: ${receipt.name}` : "Attach receipt (image/PDF)"}
+            {receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}
             <input type="file" accept="image/*,application/pdf" className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
@@ -2705,13 +2719,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 // now. Oversized photos get a chance: compression runs on
                 // submit, and only if still too big is the upload refused.
                 if (f && f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) {
-                  showToast("No changes", RECEIPT_TOO_BIG, "notice");
+                  showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
                   e.target.value = "";
                   setReceipt(null);
                   return;
                 }
                 if (f && f.size > 40 * 1024 * 1024) {
-                  showToast("No changes", RECEIPT_TOO_BIG, "notice");
+                  showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
                   e.target.value = "";
                   setReceipt(null);
                   return;
@@ -2720,7 +2734,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               }} />
           </label>
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:justify-start"
-            onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? "Resubmit for approval" : "Update claim") : "Submit claim"}</button>
+            onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       </div>
@@ -2728,20 +2742,20 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
         <div className={card}>
           <p className="text-sm font-semibold">
-            Pending approvals
+            {L("Pending approvals", "Kelulusan menunggu")}
             {pending.length > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{pending.length}</span>
             )}
           </p>
           <div className="mt-3 space-y-2">
-            {pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">Nothing awaiting your action.</p>}
+            {pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
             {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
           </div>
         </div>
       )}
 
       <div className={card}>
-        <p className="text-sm font-semibold">{canDecide ? "All claims" : "My claims"}</p>
+        <p className="text-sm font-semibold">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
         {(() => {
           // v1.4.147: overall of the present month, by CLAIM DATE (the same
           // month-attribution rule the Expenses tab uses).
@@ -2757,43 +2771,42 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           const rejected = mine.filter((c) => c.status === "rejected");
           return (
             <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
-              <span className="font-semibold">{dmy(nowMyt)} · {mine.length} claim{mine.length === 1 ? "" : "s"} · {fmt(sum(mine))}</span>
-              <span className="text-green-800">Approved {approved.length} · {fmt(sum(approved))}</span>
-              <span className="text-green-800">— of which paid {paid.length} · {fmt(sum(paid))}</span>
-              <span className="text-amber-700">Pending {pending.length} · {fmt(sum(pending))}</span>
-              {rejected.length > 0 && <span className="text-red-700">Rejected {rejected.length} · {fmt(sum(rejected))}</span>}
-              <span className="text-muted-foreground">by claim date — matches the Expenses month figure</span>
+              <span className="font-semibold">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
+              <span className="text-green-800">{L("Approved", "Diluluskan")} {approved.length} · {fmt(sum(approved))}</span>
+              <span className="text-green-800">{L("— of which paid", "— daripadanya dibayar")} {paid.length} · {fmt(sum(paid))}</span>
+              <span className="text-amber-700">{L("Pending", "Menunggu")} {pending.length} · {fmt(sum(pending))}</span>
+              {rejected.length > 0 && <span className="text-red-700">{L("Rejected", "Ditolak")} {rejected.length} · {fmt(sum(rejected))}</span>}
+              <span className="text-muted-foreground">{L("by claim date — matches the Expenses month figure", "ikut tarikh tuntutan — sepadan dengan angka bulan Perbelanjaan")}</span>
             </div>
           );
         })()}
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {(canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">No claims yet.</p>}
+          {(canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
           {(canDecide ? decided : mainList).map((c) => claimRow(c, false))}
         </div>
       </div>
 
       {role === "hr_admin" && (
         <div className={card}>
-          <p className="text-sm font-semibold">Approved claims history — compilation</p>
+          <p className="text-sm font-semibold">{L("Approved claims history — compilation", "Sejarah tuntutan diluluskan — kompilasi")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Read-only: every CEO-approved claim, for printing the claim form and
-            the payment receipt (payout proof) for HR records.
+            {L("Read-only: every CEO-approved claim, for printing the claim form and the payment receipt (payout proof) for HR records.", "Baca sahaja: setiap tuntutan yang diluluskan CEO, untuk mencetak borang tuntutan dan resit bayaran (bukti bayaran) untuk rekod HR.")}
           </p>
           <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-            {hrHistory.length === 0 && <p className="text-muted-foreground text-sm">No approved claims yet.</p>}
+            {hrHistory.length === 0 && <p className="text-muted-foreground text-sm">{L("No approved claims yet.", "Tiada tuntutan diluluskan lagi.")}</p>}
             {hrHistory.map((c) => (
               <div key={`hrh-${c.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span className="min-w-0">
                   <span className="font-medium">{claimNoOf(c)}</span>
                   <span className="text-muted-foreground"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
                   {c.paid_at
-                    ? <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">PAID {dmy(c.paid_at)}</span>
-                    : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">payment due</span>}
+                    ? <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{L("PAID", "DIBAYAR")} {dmy(c.paid_at)}</span>
+                    : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{L("payment due", "bayaran perlu dibuat")}</span>}
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                  <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>Print form</button>
-                  <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c)}>Send PDF</button>
-                  {c.payment_proof_key && <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">Payment proof</a>}
+                  <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
+                  <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c)}>{L("Send PDF", "Hantar PDF")}</button>
+                  {c.payment_proof_key && <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">{L("Payment proof", "Bukti bayaran")}</a>}
                 </span>
               </div>
             ))}
@@ -2878,14 +2891,14 @@ function ExpensePie({ slices, active, onSelect, centerTop, centerBottom }: {
         strokeWidth={isActive ? 26 : 19}
         strokeLinecap="butt"
         opacity={dimmed ? 0.45 : 1}
-        role="button" tabIndex={0} aria-label={`${cat} details`} aria-pressed={isActive}
+        role="button" tabIndex={0} aria-label={`${cat} ${L("details", "butiran")}`} aria-pressed={isActive}
         style={{ cursor: "pointer", outline: "none", transition: "stroke-width 150ms, opacity 150ms" }}
         onClick={() => onSelect(cat)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(cat); }} />
     );
   });
   return (
-    <svg viewBox="0 0 120 120" className="h-40 w-40 shrink-0 sm:h-44 sm:w-44" role="img" aria-label="Expenses by category">
+    <svg viewBox="0 0 120 120" className="h-40 w-40 shrink-0 sm:h-44 sm:w-44" role="img" aria-label={L("Expenses by category", "Perbelanjaan mengikut kategori")}>
       {arcs}
       <text x={C} y={C - 3} textAnchor="middle" style={{ fontSize: 9, fontWeight: 600, fill: "currentColor", textTransform: "capitalize" }}>{centerTop}</text>
       <text x={C} y={C + 9} textAnchor="middle" style={{ fontSize: 8.5, fill: "currentColor", opacity: 0.65 }}>{centerBottom}</text>
@@ -2925,7 +2938,7 @@ export function ExpensesPanel() {
     const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
     // v1.4.114: a failed load must SAY SO — a silent empty list looks like
     // data loss (the CEO's screenshot).
-    setLoadError(res.ok ? "" : ((res.data as { error?: { message?: string } } | null)?.error?.message ?? "Server error — expenses could not be loaded. If this version was just deployed, apply migrations 0037 + 0038 first."));
+    setLoadError(res.ok ? "" : ((res.data as { error?: { message?: string } } | null)?.error?.message ?? L("Server error — expenses could not be loaded. If this version was just deployed, apply migrations 0037 + 0038 first.", "Ralat pelayan — perbelanjaan tidak dapat dimuatkan. Jika versi ini baru digunakan, laksanakan migrasi 0037 + 0038 dahulu.")));
     if (res.ok && res.data) {
       setRows(res.data.expenses);
       setUpcoming(res.data.upcoming ?? []);
@@ -2946,7 +2959,7 @@ export function ExpensesPanel() {
   const total = rows.reduce((a, r) => a + r.amount_cents, 0);
 
   const addExpense = async () => {
-    if (!draft.expense_date || !Number(draft.amount)) { setMsg("Date and amount are required."); return; }
+    if (!draft.expense_date || !Number(draft.amount)) { setMsg(L("Date and amount are required.", "Tarikh dan amaun diperlukan.")); return; }
     setMsg("");
     const res = await api<{ id?: number; error?: { message?: string } }>(`/expenses`, {
       method: "POST",
@@ -2959,8 +2972,8 @@ export function ExpensesPanel() {
         due_day: draft.due_day ? Number(draft.due_day) : undefined,
       }),
     });
-    if (!res.ok) { setMsg(res.data?.error?.message ?? "Could not record the expense"); return; }
-    showToast("Saved", `Expense recorded — ${rmc(Math.round(Number(draft.amount) * 100))}`);
+    if (!res.ok) { setMsg(res.data?.error?.message ?? L("Could not record the expense", "Tidak dapat merekodkan perbelanjaan")); return; }
+    showToast(L("Saved", "Disimpan"), `${L("Expense recorded —", "Perbelanjaan direkodkan —")} ${rmc(Math.round(Number(draft.amount) * 100))}`);
     setDraft({ expense_date: "", category: "software", amount: "", vendor: "", description: "", recurring: false, due_day: "" });
     void load();
   };
@@ -2971,10 +2984,9 @@ export function ExpensesPanel() {
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">Company expenses</p>
+            <p className="text-sm font-semibold">{L("Company expenses", "Perbelanjaan syarikat")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Operating costs the company pays — rent, software, ads, logistics.
-              Staff reimbursements belong in Claims (approved by the CEO), not here.
+              {L("Operating costs the company pays — rent, software, ads, logistics. Staff reimbursements belong in Claims (approved by the CEO), not here.", "Kos operasi yang dibayar syarikat — sewa, perisian, iklan, logistik. Pembayaran balik kakitangan tergolong dalam Tuntutan (diluluskan oleh CEO), bukan di sini.")}
             </p>
           </div>
           <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
@@ -2984,19 +2996,19 @@ export function ExpensesPanel() {
         {/* v1.4.154: standard widths — 2-up full-width grid on phones, capped
             inline row from sm: (portal-wide pattern). */}
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Expense date</span>
-          <input type="date" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-44" title="Expense date"
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Expense date", "Tarikh perbelanjaan")}</span>
+          <input type="date" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-44" title={L("Expense date", "Tarikh perbelanjaan")}
             value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} /></label>
-          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Category</span>
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Category", "Kategori")}</span>
           <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm capitalize sm:max-w-40" value={draft.category}
             onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
-            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
           </select></label>
-          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Amount (RM)</span>
+          <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Amount (RM)", "Amaun (RM)")}</span>
           <input type="number" min={0} step="0.01" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-36" placeholder="0.00"
             value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-          <label className="block sm:max-w-52 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Vendor (optional)</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="e.g. TNB, Shopee"
+          <label className="block sm:max-w-52 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Vendor (optional)", "Vendor (pilihan)")}</span>
+          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("e.g. TNB, Shopee", "cth. TNB, Shopee")}
             value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} /></label>
         </div>
         {/* v1.4.186 mobile audit: on phones the description was squeezed to a
@@ -3005,79 +3017,78 @@ export function ExpensesPanel() {
             recurring/due-day a clean row, button full-width centred; from sm:
             the original single inline row returns. */}
         <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-          <label className="col-span-2 block min-w-0 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Description (optional)</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder="What was this for?"
+          <label className="col-span-2 block min-w-0 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Description (optional)", "Keterangan (pilihan)")}</span>
+          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("What was this for?", "Untuk apa perbelanjaan ini?")}
             value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
-          <label className="flex h-9 items-center gap-1.5 text-sm whitespace-nowrap" title="A recurring expense reappears every month as due until you record it">
+          <label className="flex h-9 items-center gap-1.5 text-sm whitespace-nowrap" title={L("A recurring expense reappears every month as due until you record it", "Perbelanjaan berulang muncul semula setiap bulan sebagai perlu dibayar sehingga anda merekodkannya")}>
             <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
-            Monthly recurring
+            {L("Monthly recurring", "Berulang bulanan")}
           </label>
-          <label className="flex h-9 items-center justify-end gap-1.5 text-sm whitespace-nowrap sm:justify-start" title="Day of the month the payment must be made by">
-            Due day
+          <label className="flex h-9 items-center justify-end gap-1.5 text-sm whitespace-nowrap sm:justify-start" title={L("Day of the month the payment must be made by", "Hari dalam bulan bayaran mesti dibuat")}>
+            {L("Due day", "Hari akhir bayaran")}
             <input type="number" min={1} max={31} className="border-input bg-background h-9 w-16 rounded-lg border px-2 text-sm" placeholder="—"
               value={draft.due_day} onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value }))} />
           </label>
           <button type="button" className="bg-primary text-primary-foreground col-span-2 inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:col-span-1"
-            onClick={() => void addExpense()}>Record expense</button>
+            onClick={() => void addExpense()}>{L("Record expense", "Rekod perbelanjaan")}</button>
         </div>
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
       </div>
 
       {(payrollDue || upcoming.length > 0 || staffClaims.due.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
         <div className={card}>
-          <p className="text-sm font-semibold">💳 Payments due — {dmy(month)}</p>
+          <p className="text-sm font-semibold">{L("💳 Payments due —", "💳 Bayaran perlu dibuat —")} {dmy(month)}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Commit each payment before its due date. Recurring expenses from
-            earlier months appear here until recorded for this month.
+            {L("Commit each payment before its due date. Recurring expenses from earlier months appear here until recorded for this month.", "Buat setiap bayaran sebelum tarikh akhirnya. Perbelanjaan berulang dari bulan terdahulu muncul di sini sehingga direkodkan untuk bulan ini.")}
           </p>
           <div className="mt-3 space-y-2">
             {payrollDue && (
               <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">
-                    Staff payroll — {dmy(payrollDue.month)}
+                    {L("Staff payroll —", "Gaji kakitangan —")} {dmy(payrollDue.month)}
                     {staffPayroll && staffPayroll.month === payrollDue.month && (
                       staffPayroll.cents > 0
                         ? <span className="ml-2">{rmc(staffPayroll.cents)}</span>
-                        : <span className="text-muted-foreground ml-2 text-xs font-normal">(figure appears once {dmy(payrollDue.month)} payroll is processed in the Payroll tab — it counts in THIS month&apos;s total)</span>
+                        : <span className="text-muted-foreground ml-2 text-xs font-normal">{L("(figure appears once", "(angka muncul setelah gaji")} {dmy(payrollDue.month)} {L("payroll is processed in the Payroll tab — it counts in THIS month's total)", "diproses dalam tab Gaji — ia dikira dalam jumlah bulan INI)")}</span>
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs">
-                    Pay by <span className="font-medium">{dmy(payrollDue.by.split(" ")[0])}, {payrollDue.by.split(" ")[1]} MYT</span> (payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches
+                    {L("Pay by", "Bayar sebelum")} <span className="font-medium">{dmy(payrollDue.by.split(" ")[0])}, {payrollDue.by.split(" ")[1]} MYT</span> {L("(payslips release then) · sum of SAVED payslip nets — after any change in the Payroll tab, press Save all there so this figure matches", "(slip gaji dikeluarkan ketika itu) · jumlah bersih slip gaji TERSIMPAN — selepas sebarang perubahan dalam tab Gaji, tekan Simpan semua di sana supaya angka ini sepadan")}
                   </p>
                   {(staffPayroll?.entries?.length ?? 0) > 0 && staffPayroll?.month === payrollDue.month && (
                     <details className="mt-1 text-xs">
                       <summary className="text-muted-foreground cursor-pointer select-none">
-                        Breakdown — {staffPayroll!.entries!.length} saved {staffPayroll!.entries!.length === 1 ? "entry" : "entries"} (compare with the Payroll tab: extra or missing names / different figures = rows not yet re-saved)
+                        {L("Breakdown —", "Pecahan —")} {staffPayroll!.entries!.length} {L("saved", "tersimpan")} {staffPayroll!.entries!.length === 1 ? L("entry", "entri") : L("entries", "entri")} {L("(compare with the Payroll tab: extra or missing names / different figures = rows not yet re-saved)", "(bandingkan dengan tab Gaji: nama lebih atau hilang / angka berbeza = baris belum disimpan semula)")}
                       </summary>
                       <ul className="mt-1 space-y-0.5">
                         {staffPayroll!.entries!.map((r, i) => (
                           <li key={i} className="flex justify-between gap-3">
-                            <span>{properName(r.name)}{!r.saved_net && <span className="text-amber-700" title="Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net."> · recomputed ⚠</span>}</span>
+                            <span>{properName(r.name)}{!r.saved_net && <span className="text-amber-700" title={L("Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net.", "Disimpan sebelum kemas kini penyimpanan bersih — angka dikira semula oleh pelayan. Tekan Simpan semua dalam tab Gaji untuk menyimpan bersih yang tepat.")}>{L(" · recomputed ⚠", " · dikira semula ⚠")}</span>}</span>
                             <span className="tabular-nums">{rmc(r.cents)}</span>
                           </li>
                         ))}
                       </ul>
                       <button type="button"
                         className="border-border mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
-                        title="Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every entry's net — no Save all needed"
+                        title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every entry's net — no Save all needed", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri — tiada Simpan semua diperlukan")}
                         onClick={async () => {
                           const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
                             method: "POST", body: JSON.stringify({ month: staffPayroll!.month }),
                           });
-                          if (r.ok) { showToast("Saved", `Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days — figures now match everywhere`); void load(); }
-                          else showToast("No changes", r.data?.error?.message ?? "Recompute failed", "notice");
+                          if (r.ok) { showToast(L("Saved", "Disimpan"), `${L("Recomputed", "Dikira semula")} ${r.data?.rows ?? 0} ${L("entries at", "entri pada")} ${r.data?.working_days ?? "?"} ${L("working days — figures now match everywhere", "hari bekerja — angka kini sepadan di mana-mana")}`); void load(); }
+                          else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Pengiraan semula gagal"), "notice");
                         }}>
-                        🔧 Fix discrepancy now (recompute on server)
+                        {L("🔧 Fix discrepancy now (recompute on server)", "🔧 Betulkan percanggahan sekarang (kira semula di pelayan)")}
                       </button>
                       <button type="button"
                         className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
-                        title="Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time ⚙ M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here"
+                        title={L("Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time ⚙ M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here", "Muat turun templat rasmi Maybank2E yang SUDAH DIISI (helaian Home + baris gaji). Perlukan tetapan ⚙ M2E sekali sahaja dalam tab Gaji. Buka → benarkan makro → jana → muat naik → lulus → Tanda dibayar di sini")}
                         onClick={async () => {
                           const res = await fetch(`/api/v1/staff/payroll/m2e-file?month=${staffPayroll!.month}`, { credentials: "include" });
                           if (!res.ok) {
                             const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-                            showToast("No file", j?.error?.message ?? "M2E file failed — check ⚙ M2E setup in the Payroll tab", "notice");
+                            showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check ⚙ M2E setup in the Payroll tab", "Fail M2E gagal — semak tetapan ⚙ M2E dalam tab Gaji"), "notice");
                             return;
                           }
                           const blob = await res.blob();
@@ -3085,9 +3096,9 @@ export function ExpensesPanel() {
                           const a = document.createElement("a");
                           a.href = url; a.download = `azoo-m2e-salary-${staffPayroll!.month}.xlsm`; a.click();
                           URL.revokeObjectURL(url);
-                          showToast("Saved", "M2E workbook downloaded — open, enable macros, generate + upload");
+                          showToast(L("Saved", "Disimpan"), L("M2E workbook downloaded — open, enable macros, generate + upload", "Buku kerja M2E dimuat turun — buka, benarkan makro, jana + muat naik"));
                         }}>
-                        💳 M2E salary file
+                        {L("💳 M2E salary file", "💳 Fail gaji M2E")}
                       </button>
                     </details>
                   )}
@@ -3095,18 +3106,18 @@ export function ExpensesPanel() {
                 <span className="flex items-center gap-1.5">
                   {staffPayroll?.paid_at
                     ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
-                        title={`Payment recorded ${dmy(staffPayroll.paid_at.slice(0, 10))}`}>💸 PAID</span>
+                        title={`${L("Payment recorded", "Bayaran direkodkan")} ${dmy(staffPayroll.paid_at.slice(0, 10))}`}>{L("💸 PAID", "💸 DIBAYAR")}</span>
                     : (
                       <>
                         {payrollDue.released
-                          ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">RELEASED</span>
-                          : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>}
+                          ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">{L("RELEASED", "DILEPASKAN")}</span>
+                          : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")}</span>}
                         <button type="button" className={rowBtnPrimary}
-                          title="Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed"
+                          title={L("Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed", "Rekodkan bahawa bayaran gaji bank telah dibuat — pil PERLU DIBAYAR hilang dan bayaran berpindah ke Bayaran selesai")}
                           onClick={async () => {
                             const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
-                            if (res.ok) { showToast("Saved", "Payroll payment recorded"); void load(); }
-                          }}>Mark paid</button>
+                            if (res.ok) { showToast(L("Saved", "Disimpan"), L("Payroll payment recorded", "Bayaran gaji direkodkan")); void load(); }
+                          }}>{L("Mark paid", "Tanda dibayar")}</button>
                       </>
                     )}
                 </span>
@@ -3117,12 +3128,12 @@ export function ExpensesPanel() {
                 <div className="min-w-0">
                   <p className="text-sm">
                     <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">staff claim</span>
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{L("staff claim", "tuntutan kakitangan")}</span>
                     {c.claimant && <span className="text-muted-foreground"> · {properName(c.claimant)}</span>}
                   </p>
-                  <p className="text-muted-foreground text-xs">Approved{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""} — pay the claimant, then press 💸 Mark paid on the Claims tab</p>
+                  <p className="text-muted-foreground text-xs">{L("Approved", "Diluluskan")}{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""}{L(" — pay the claimant, then press 💸 Mark paid on the Claims tab", " — bayar penuntut, kemudian tekan 💸 Tanda dibayar pada tab Tuntutan")}</p>
                 </div>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">DUE</span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")}</span>
               </div>
             ))}
             {upcoming.map((r) => {
@@ -3134,13 +3145,13 @@ export function ExpensesPanel() {
                   <div className="min-w-0">
                     <p className="text-sm">
                       <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
-                      <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">↻ recurring</span>
+                      <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">{L("↻ recurring", "↻ berulang")}</span>
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs">
-                      {r.due_day ? `Due ${dmy(dueISO)}` : "No due day set"}
-                      {r.description ? ` · ${r.description}` : ""} · last recorded {dmy(r.expense_date)}
+                      {r.due_day ? `${L("Due", "Perlu dibayar")} ${dmy(dueISO)}` : L("No due day set", "Tiada hari akhir ditetapkan")}
+                      {r.description ? ` · ${r.description}` : ""}{L(" · last recorded ", " · terakhir direkod ")}{dmy(r.expense_date)}
                     </p>
                   </div>
                   <button type="button" className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
@@ -3150,9 +3161,9 @@ export function ExpensesPanel() {
                         vendor: r.vendor || undefined, description: r.description || undefined,
                         recurring: true, due_day: r.due_day ?? undefined,
                       }) });
-                      if (res.ok) { showToast("Saved", `Recorded for ${dmy(month)} — mark it paid once committed`); void load(); }
+                      if (res.ok) { showToast(L("Saved", "Disimpan"), `${L("Recorded for", "Direkodkan untuk")} ${dmy(month)} ${L("— mark it paid once committed", "— tanda dibayar setelah bayaran dibuat")}`); void load(); }
                     }}>
-                    Record for this month
+                    {L("Record for this month", "Rekod untuk bulan ini")}
                   </button>
                 </div>
               );
@@ -3168,18 +3179,18 @@ export function ExpensesPanel() {
                   <div className="min-w-0">
                     <p className="text-sm">
                       <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                     </p>
                     <p className="mt-0.5 text-xs">
                       <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-                        {overdue ? "OVERDUE" : "DUE"} {dmy(dueISO)}
+                        {overdue ? L("OVERDUE", "TERTUNGGAK") : L("DUE", "PERLU DIBAYAR")} {dmy(dueISO)}
                       </span>
                     </p>
                   </div>
                   <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-                    onClick={async () => { await api(`/expenses/${r.id}/paid`, { method: "POST" }); showToast("Saved", `${rmc(r.amount_cents)} marked paid`); void load(); }}>
-                    Mark paid
+                    onClick={async () => { await api(`/expenses/${r.id}/paid`, { method: "POST" }); showToast(L("Saved", "Disimpan"), `${rmc(r.amount_cents)} ${L("marked paid", "ditanda dibayar")}`); void load(); }}>
+                    {L("Mark paid", "Tanda dibayar")}
                   </button>
                 </div>
               );
@@ -3199,24 +3210,24 @@ export function ExpensesPanel() {
           return (
             <div className="border-border mb-4 rounded-lg border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold">✅ Payments completed — {dmy(month)}</p>
+                <p className="text-sm font-semibold">{L("✅ Payments completed —", "✅ Bayaran selesai —")} {dmy(month)}</p>
                 <p className="text-sm font-semibold">{rmc(doneTotal)}</p>
               </div>
               <div className="mt-2 space-y-1">
                 {payrollDone && (
                   <p className="text-muted-foreground text-xs">
-                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> · Staff payroll ({dmy(payrollDone.month)}) · released {dmy(payrollDone.paid_at!.slice(0, 10))}
+                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> {L("· Staff payroll", "· Gaji kakitangan")} ({dmy(payrollDone.month)}) {L("· released", "· dilepaskan")} {dmy(payrollDone.paid_at!.slice(0, 10))}
                   </p>
                 )}
                 {staffClaims.paid.map((c) => (
                   <p key={`clmdone-${c.id}`} className="text-muted-foreground text-xs">
-                    🧾 <span className="text-foreground font-medium">{rmc(c.amount_cents)}</span> · Staff claim{c.claimant ? ` — ${properName(c.claimant)}` : ""} · paid {c.paid_at ? dmy(c.paid_at.slice(0, 10)) : ""}
+                    🧾 <span className="text-foreground font-medium">{rmc(c.amount_cents)}</span> {L("· Staff claim", "· Tuntutan kakitangan")}{c.claimant ? ` — ${properName(c.claimant)}` : ""} {L("· paid", "· dibayar")} {c.paid_at ? dmy(c.paid_at.slice(0, 10)) : ""}
                   </p>
                 ))}
                 {done.map((r) => (
                   <p key={`done-${r.id}`} className="text-muted-foreground text-xs">
-                    <span className="text-foreground font-medium">{rmc(r.amount_cents)}</span> · <span className="capitalize">{r.category}</span>
-                    {r.vendor ? ` · ${r.vendor}` : ""}{r.description ? ` · ${r.description}` : ""} · paid {dmy(r.paid_at!.slice(0, 10))}
+                    <span className="text-foreground font-medium">{rmc(r.amount_cents)}</span> · <span className="capitalize">{catLabel(r.category)}</span>
+                    {r.vendor ? ` · ${r.vendor}` : ""}{r.description ? ` · ${r.description}` : ""}{L(" · paid ", " · dibayar ")}{dmy(r.paid_at!.slice(0, 10))}
                   </p>
                 ))}
               </div>
@@ -3233,12 +3244,12 @@ export function ExpensesPanel() {
           const catTotal = catRows.reduce((a, r) => a + r.amount_cents, 0);
           return totalPie > 0 ? (
             <div className="border-border mb-3 rounded-lg border p-3">
-              <p className="text-sm font-semibold">📊 Expenses by category — {dmy(month)}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Tap a slice or a category for its records.</p>
+              <p className="text-sm font-semibold">{L("📊 Expenses by category —", "📊 Perbelanjaan mengikut kategori —")} {dmy(month)}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{L("Tap a slice or a category for its records.", "Ketik hirisan atau kategori untuk rekodnya.")}</p>
               <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-5">
                 <ExpensePie slices={slices} active={pieCat}
                   onSelect={(c) => setPieCat((cur) => (cur === c ? null : c))}
-                  centerTop={pieCat ?? "Total"}
+                  centerTop={pieCat ? catLabel(pieCat) : L("Total", "Jumlah")}
                   centerBottom={rmc(pieCat ? catTotal : totalPie)} />
                 <div className="grid grid-cols-1 w-full gap-1 text-xs sm:w-auto">
                   {slices.map(([cat, v]) => (
@@ -3249,16 +3260,16 @@ export function ExpensesPanel() {
                         (pieCat === cat ? "bg-secondary font-semibold" : "hover:bg-secondary/60")
                       }>
                       <span className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: PIE_COLORS[cat] ?? PIE_COLORS.other }} />
-                      <span className="font-medium capitalize">{cat}</span>
+                      <span className="font-medium capitalize">{catLabel(cat)}</span>
                       <span className="text-muted-foreground ml-auto tabular-nums">{rmc(v)} · {((v / totalPie) * 100).toFixed(v / totalPie < 0.1 ? 1 : 0)}%</span>
                     </button>
                   ))}
-                  <p className="text-muted-foreground mt-1 px-2">Expense records only — payroll and claims have their own lines above.</p>
+                  <p className="text-muted-foreground mt-1 px-2">{L("Expense records only — payroll and claims have their own lines above.", "Rekod perbelanjaan sahaja — gaji dan tuntutan ada barisnya sendiri di atas.")}</p>
                 </div>
               </div>
               {pieCat && (
                 <div className="border-border mt-2 rounded-lg border p-2">
-                  <p className="text-xs font-semibold capitalize">{pieCat} — {catRows.length} record{catRows.length === 1 ? "" : "s"} · {rmc(catTotal)}</p>
+                  <p className="text-xs font-semibold capitalize">{catLabel(pieCat)} — {catRows.length} {L("record", "rekod")}{catRows.length === 1 ? "" : L("s", "")} · {rmc(catTotal)}</p>
                   <div className="mt-1 grid grid-cols-1 gap-1 text-xs">
                     {catRows.map((r) => (
                       <div key={r.id} className="flex flex-wrap items-center gap-x-2">
@@ -3266,8 +3277,8 @@ export function ExpensesPanel() {
                         <span>{r.vendor || r.description || "—"}</span>
                         <span className="text-muted-foreground">{dmy(r.expense_date)}</span>
                         {r.paid_at
-                          ? <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">PAID</span>
-                          : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">outstanding</span>}
+                          ? <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">{L("PAID", "DIBAYAR")}</span>
+                          : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">{L("outstanding", "tertunggak")}</span>}
                       </div>
                     ))}
                   </div>
@@ -3277,12 +3288,12 @@ export function ExpensesPanel() {
           ) : null;
         })()}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">{dmy(month)} expenses</p>
+          <p className="text-sm font-semibold">{dmy(month)} {L("expenses", "perbelanjaan")}</p>
           <div className="text-right">
-            <p className="text-sm font-semibold">Total {rmc(total + (staffPayroll?.cents ?? 0) + staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))}</p>
+            <p className="text-sm font-semibold">{L("Total", "Jumlah")} {rmc(total + (staffPayroll?.cents ?? 0) + staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))}</p>
             {staffPayroll && staffPayroll.cents > 0 && (
               <p className="text-muted-foreground text-xs">
-                incl. staff payroll {rmc(staffPayroll.cents)} ({dmy(staffPayroll.month)}) + expenses {rmc(total)}{staffClaims.in_month.length > 0 ? ` + staff claims ${rmc(staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.in_month.length}, by claim date)` : ""}
+                {L("incl. staff payroll", "termasuk gaji kakitangan")} {rmc(staffPayroll.cents)} ({dmy(staffPayroll.month)}) {L("+ expenses", "+ perbelanjaan")} {rmc(total)}{staffClaims.in_month.length > 0 ? ` ${L("+ staff claims", "+ tuntutan kakitangan")} ${rmc(staffClaims.in_month.reduce((a, r) => a + r.amount_cents, 0))} (${staffClaims.in_month.length}${L(", by claim date", ", ikut tarikh tuntutan")})` : ""}
               </p>
             )}
             {/* v1.4.208 (CEO): what's cleared vs what's still to pay this
@@ -3299,13 +3310,13 @@ export function ExpensesPanel() {
               const items = expOutN + (payrollOut > 0 ? 1 : 0) + claimsOutRows.length;
               return outstanding > 0 ? (
                 <p className="mt-0.5 text-xs">
-                  <span className="font-medium text-green-700">Paid {rmc(grand - outstanding)}</span>
+                  <span className="font-medium text-green-700">{L("Paid", "Dibayar")} {rmc(grand - outstanding)}</span>
                   <span className="text-muted-foreground"> · </span>
-                  <span className="font-bold text-amber-700">Outstanding {rmc(outstanding)}</span>
-                  <span className="text-muted-foreground"> ({items} to clear)</span>
+                  <span className="font-bold text-amber-700">{L("Outstanding", "Tertunggak")} {rmc(outstanding)}</span>
+                  <span className="text-muted-foreground"> ({items} {L("to clear", "untuk dijelaskan")})</span>
                 </p>
               ) : (
-                <p className="mt-0.5 text-xs font-medium text-green-700">✅ All cleared — {rmc(grand)} paid</p>
+                <p className="mt-0.5 text-xs font-medium text-green-700">{L("✅ All cleared —", "✅ Semua dijelaskan —")} {rmc(grand)} {L("paid", "dibayar")}</p>
               );
             })()}
           </div>
@@ -3314,9 +3325,7 @@ export function ExpensesPanel() {
           {loadError && <p className="mb-2 text-sm font-medium text-amber-700">⚠ {loadError}</p>}
           {rows.length === 0 && !loadError && (
             <p className="text-muted-foreground text-sm">
-              No expenses recorded for this month. This tab shows ONE month at a
-              time — earlier records (e.g. July) are under the month picker at
-              the top right.
+              {L("No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right.", "Tiada perbelanjaan direkodkan untuk bulan ini. Tab ini menunjukkan SATU bulan pada satu masa — rekod terdahulu (cth. Julai) berada di bawah pemilih bulan di penjuru kanan atas.")}
             </p>
           )}
           {rows.map((r) => editId === r.id ? (
@@ -3326,30 +3335,30 @@ export function ExpensesPanel() {
                   value={edit.expense_date} onChange={(e) => setEdit((d) => ({ ...d, expense_date: e.target.value }))} />
                 <select className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm capitalize sm:w-auto sm:max-w-36"
                   value={edit.category} onChange={(e) => setEdit((d) => ({ ...d, category: e.target.value }))}>
-                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
                 </select>
                 <input type="number" min={0} step="0.01" className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-32"
-                  placeholder="Amount (RM)" value={edit.amount} onChange={(e) => setEdit((d) => ({ ...d, amount: e.target.value }))} />
-                <input className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:max-w-48 sm:flex-1" placeholder="Vendor"
+                  placeholder={L("Amount (RM)", "Amaun (RM)")} value={edit.amount} onChange={(e) => setEdit((d) => ({ ...d, amount: e.target.value }))} />
+                <input className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:max-w-48 sm:flex-1" placeholder={L("Vendor", "Vendor")}
                   value={edit.vendor} onChange={(e) => setEdit((d) => ({ ...d, vendor: e.target.value }))} />
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <input className="border-input bg-background h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder="Description"
+                <input className="border-input bg-background h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder={L("Description", "Keterangan")}
                   value={edit.description} onChange={(e) => setEdit((d) => ({ ...d, description: e.target.value }))} />
                 <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
                   onClick={async () => {
                     const unchanged = edit.expense_date === r.expense_date && edit.category === r.category
                       && Math.round(Number(edit.amount) * 100) === r.amount_cents
                       && edit.vendor === (r.vendor ?? "") && edit.description === (r.description ?? "");
-                    if (unchanged) { showToast("No changes", "Nothing to save", "notice"); setEditId(null); return; }
+                    if (unchanged) { showToast(L("No changes", "Tiada perubahan"), L("Nothing to save", "Tiada apa untuk disimpan"), "notice"); setEditId(null); return; }
                     if (!edit.expense_date || !Number(edit.amount)) return;
                     const res = await api(`/expenses/${r.id}`, { method: "PATCH", body: JSON.stringify({
                       expense_date: edit.expense_date, category: edit.category, amount: Number(edit.amount),
                       vendor: edit.vendor, description: edit.description,
                     }) });
-                    if (res.ok) { showToast("Saved", "Expense updated"); setEditId(null); void load(); }
-                  }}>Save</button>
-                <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>Cancel</button>
+                    if (res.ok) { showToast(L("Saved", "Disimpan"), L("Expense updated", "Perbelanjaan dikemas kini")); setEditId(null); void load(); }
+                  }}>{L("Save", "Simpan")}</button>
+                <button type="button" className="text-xs underline" onClick={() => setEditId(null)}>{L("Cancel", "Batal")}</button>
               </div>
             </div>
           ) : (
@@ -3360,14 +3369,14 @@ export function ExpensesPanel() {
                       who recorded it and the recurring mark live in the panel;
                       the paid state stays on the row because it is the thing
                       being tracked (v1.4.208). */}
-                  <RecordToggle open={openExp === r.id} title="Date, description and who recorded it"
+                  <RecordToggle open={openExp === r.id} title={L("Date, description and who recorded it", "Tarikh, keterangan dan siapa yang merekodkannya")}
                     className="font-semibold" onToggle={() => setOpenExp(openExp === r.id ? null : r.id)}>{rmc(r.amount_cents)}</RecordToggle>{" "}
-                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{r.category}</span>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
                   {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                   {r.paid_at
-                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">✓ PAID {dmy(r.paid_at.slice(0, 10))}</span>
+                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">{L("✓ PAID", "✓ DIBAYAR")} {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">DUE {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
+                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")} {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>
@@ -3377,11 +3386,11 @@ export function ExpensesPanel() {
                     paid state is set right on the row; Undo covers a
                     misclick (toggle route). */}
                 {r.paid_at ? (
-                  <button type="button" className={rowBtn} title="Clear the paid mark (misclick)"
-                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({ paid: false }) }); if (res.ok) { showToast("Saved", "Paid mark cleared — back to outstanding"); void load(); } }}>Undo paid</button>
+                  <button type="button" className={rowBtn} title={L("Clear the paid mark (misclick)", "Kosongkan tanda dibayar (tersilap klik)")}
+                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({ paid: false }) }); if (res.ok) { showToast(L("Saved", "Disimpan"), L("Paid mark cleared — back to outstanding", "Tanda dibayar dikosongkan — kembali tertunggak")); void load(); } }}>{L("Undo paid", "Buat asal dibayar")}</button>
                 ) : (
-                  <button type="button" className={rowBtnGood} title="Record that this expense has been paid"
-                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({}) }); if (res.ok) { showToast("Saved", "Marked paid ✓"); void load(); } }}>Mark paid</button>
+                  <button type="button" className={rowBtnGood} title={L("Record that this expense has been paid", "Rekodkan bahawa perbelanjaan ini telah dibayar")}
+                    onClick={async () => { const res = await api(`/expenses/${r.id}/paid`, { method: "POST", body: JSON.stringify({}) }); if (res.ok) { showToast(L("Saved", "Disimpan"), L("Marked paid ✓", "Ditanda dibayar ✓")); void load(); } }}>{L("Mark paid", "Tanda dibayar")}</button>
                 )}
                 {/* v1.4.258: these two sat beside a bordered Mark paid as bare
                     underlined words — the same row, two different controls. */}
@@ -3389,17 +3398,17 @@ export function ExpensesPanel() {
                   onClick={() => {
                     setEditId(r.id);
                     setEdit({ expense_date: r.expense_date, category: r.category, amount: (r.amount_cents / 100).toString(), vendor: r.vendor ?? "", description: r.description ?? "" });
-                  }}>Edit</button>
-                <button type="button" className={rowBtnDanger} onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast("Saved", "Expense removed"); void load(); }}>Remove</button>
+                  }}>{L("Edit", "Sunting")}</button>
+                <button type="button" className={rowBtnDanger} onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast(L("Saved", "Disimpan"), L("Expense removed", "Perbelanjaan dibuang")); void load(); }}>{L("Remove", "Buang")}</button>
               </span>
               {openExp === r.id && (
                 <DetailGrid items={[
-                  { label: "Date", value: dmy(r.expense_date) },
-                  { label: "Category", value: <span className="capitalize">{r.category}</span> },
-                  { label: "Vendor", value: r.vendor ?? "" },
-                  { label: "Recorded by", value: r.created_by_name ?? "" },
-                  { label: "Recurring", value: r.recurring === 1 ? `Yes${r.due_day ? ` · due day ${r.due_day}` : ""}` : "" },
-                  { label: "Description", wide: true, value: r.description ?? "" },
+                  { label: L("Date", "Tarikh"), value: dmy(r.expense_date) },
+                  { label: L("Category", "Kategori"), value: <span className="capitalize">{catLabel(r.category)}</span> },
+                  { label: L("Vendor", "Vendor"), value: r.vendor ?? "" },
+                  { label: L("Recorded by", "Direkod oleh"), value: r.created_by_name ?? "" },
+                  { label: L("Recurring", "Berulang"), value: r.recurring === 1 ? `${L("Yes", "Ya")}${r.due_day ? ` ${L("· due day", "· hari akhir")} ${r.due_day}` : ""}` : "" },
+                  { label: L("Description", "Keterangan"), wide: true, value: r.description ?? "" },
                 ]} />
               )}
             </div>

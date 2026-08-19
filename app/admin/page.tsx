@@ -20,15 +20,23 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { inputClass, btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { inputClass, btnClass, btnGhost, btnHdr, card } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
 
 const API = "/api/v1";
+
+/* v1.25.7 — EN/BM for the admin console. Same storage as the portal
+   (localStorage azone-lang, lib/i18n). L() re-reads per render, so the
+   header toggle's re-render flips the whole page. Display-point only:
+   role/status/tab VALUES stay English — they are compared and sent to
+   the API — and map to BM labels only where they are shown. */
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface User {
   id: number;
@@ -61,6 +69,15 @@ interface CrudItem {
 
 const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
 
+/* BM labels for enquiry status VALUES — display only; the value sent to the
+   API stays English. */
+const ENQUIRY_STATUS_MS: Record<string, string> = {
+  new: "baharu",
+  contacted: "dihubungi",
+  qualified: "layak",
+  closed: "ditutup",
+};
+
 function Enquiries() {
   const [openEnq, setOpenEnq] = useState<number | null>(null);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -75,14 +92,14 @@ function Enquiries() {
 
   const setStatus = async (id: number, status: string) => {
     const r = await api(`/enquiries/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? `Marked ${status}` : "Could not update that enquiry — try again",
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? L(`Marked ${status}`, `Ditanda ${ENQUIRY_STATUS_MS[status] ?? status}`) : L("Could not update that enquiry — try again", "Pertanyaan itu tidak dapat dikemas kini — cuba lagi"),
       r.ok ? undefined : "notice");
     void load();
   };
 
   if (items.length === 0)
-    return <p className="text-muted-foreground text-sm">No enquiries yet.</p>;
+    return <p className="text-muted-foreground text-sm">{L("No enquiries yet.", "Belum ada pertanyaan.")}</p>;
 
   return (
     <div className="space-y-4">
@@ -95,7 +112,7 @@ function Enquiries() {
                 wall of text and the status control — the thing you actually
                 came to change — sat somewhere in the middle of it. */}
             <p className="text-sm font-semibold">
-              <RecordToggle open={openEnq === e.id} title="Contact details and the message"
+              <RecordToggle open={openEnq === e.id} title={L("Contact details and the message", "Butiran hubungan dan mesej")}
                 onToggle={() => setOpenEnq(openEnq === e.id ? null : e.id)}>
                 {e.name}
               </RecordToggle>
@@ -108,18 +125,18 @@ function Enquiries() {
             >
               {ENQUIRY_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {L(s, ENQUIRY_STATUS_MS[s] ?? s)}
                 </option>
               ))}
             </select>
           </div>
           {openEnq === e.id && (
             <DetailGrid items={[
-              { label: "Email", value: e.email ?? "" },
-              { label: "Phone", value: e.phone ?? "" },
-              { label: "Company", value: e.company ?? "" },
-              { label: "Received", value: dmyMyt(e.created_at) },
-              { label: "Message", wide: true, value: <span className="whitespace-pre-line">{e.message}</span> },
+              { label: L("Email", "E-mel"), value: e.email ?? "" },
+              { label: L("Phone", "Telefon"), value: e.phone ?? "" },
+              { label: L("Company", "Syarikat"), value: e.company ?? "" },
+              { label: L("Received", "Diterima"), value: dmyMyt(e.created_at) },
+              { label: L("Message", "Mesej"), wide: true, value: <span className="whitespace-pre-line">{e.message}</span> },
             ]} />
           )}
         </article>
@@ -166,23 +183,23 @@ function CrudPanel({
       ? await api(`/${resource}/${editingId}`, { method: "PUT", body: JSON.stringify(draft) })
       : await api(`/${resource}`, { method: "POST", body: JSON.stringify(draft) });
     if (!res.ok) {
-      setError("Save failed — check required fields.");
-      showToast("No changes", "Save failed — check the required fields", "notice");
+      setError(L("Save failed — check required fields.", "Simpanan gagal — semak medan yang diperlukan."));
+      showToast(L("No changes", "Tiada perubahan"), L("Save failed — check the required fields", "Simpanan gagal — semak medan yang diperlukan"), "notice");
       return;
     }
     setDraft({});
     setEditingId(null);
-    const recordTitle = String(draft[titleKey] || "Record");
-    showToast("Saved", editingId ? `${recordTitle} updated` : `${recordTitle} created`);
+    const recordTitle = String(draft[titleKey] || L("Record", "Rekod"));
+    showToast(L("Saved", "Disimpan"), editingId ? L(`${recordTitle} updated`, `${recordTitle} dikemas kini`) : L(`${recordTitle} created`, `${recordTitle} dibuat`));
     void load();
   };
 
   const remove = async (id: number) => {
     const item = items.find((i) => i.id === id);
-    const recordTitle = item ? String((item as Record<string, unknown>)[titleKey] || "Record") : "Record";
+    const recordTitle = item ? String((item as Record<string, unknown>)[titleKey] || L("Record", "Rekod")) : L("Record", "Rekod");
     const r = await api(`/${resource}/${id}`, { method: "DELETE" });
-    showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? `${recordTitle} removed` : "Could not remove that record", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? L(`${recordTitle} removed`, `${recordTitle} dipadam`) : L("Could not remove that record", "Rekod itu tidak dapat dipadam"), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -191,7 +208,7 @@ function CrudPanel({
       {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">
-          {editingId ? `Edit #${editingId}` : "Add new"}
+          {editingId ? L(`Edit #${editingId}`, `Sunting #${editingId}`) : L("Add new", "Tambah baharu")}
         </h3>
         {fields.map((f) => (
           <label key={f.key} className="block">
@@ -229,7 +246,7 @@ function CrudPanel({
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <button type="button" className={btnClass} onClick={() => void save()}>
-            {editingId ? "Save changes" : "Create"}
+            {editingId ? L("Save changes", "Simpan perubahan") : L("Create", "Buat")}
           </button>
           {editingId && (
             <button
@@ -240,24 +257,24 @@ function CrudPanel({
                 setDraft({});
               }}
             >
-              Cancel
+              {L("Cancel", "Batal")}
             </button>
           )}
         </div>
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold tracking-tight">Existing</h3>
+        <h3 className="text-sm font-semibold tracking-tight">{L("Existing", "Sedia ada")}</h3>
         {items.length === 0 && (
-          <p className="text-muted-foreground text-sm">Nothing here yet.</p>
+          <p className="text-muted-foreground text-sm">{L("Nothing here yet.", "Belum ada apa-apa di sini.")}</p>
         )}
         {items.map((item) => (
           <div key={item.id} className="rounded-lg border border-border px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="min-w-0 text-sm">
-              <RecordToggle open={openItem === item.id} title="What this record contains"
+              <RecordToggle open={openItem === item.id} title={L("What this record contains", "Kandungan rekod ini")}
                 onToggle={() => setOpenItem(openItem === item.id ? null : item.id)}>
-                {String(item[titleKey] ?? "(untitled)")}
+                {String(item[titleKey] ?? L("(untitled)", "(tanpa tajuk)"))}
               </RecordToggle>
               <span className="text-muted-foreground"> · #{item.id}</span>
             </span>
@@ -272,14 +289,14 @@ function CrudPanel({
                   setDraft(d);
                 }}
               >
-                Edit
+                {L("Edit", "Sunting")}
               </button>
               <button
                 type="button"
                 className={rowBtnDanger}
                 onClick={() => void remove(item.id)}
               >
-                Delete
+                {L("Delete", "Padam")}
               </button>
             </span>
             </div>
@@ -290,7 +307,7 @@ function CrudPanel({
                 label: f.label,
                 wide: f.type === "textarea",
                 value: f.type === "checkbox"
-                  ? (item[f.key] ? "Yes" : "No")
+                  ? (item[f.key] ? L("Yes", "Ya") : L("No", "Tidak"))
                   : String(item[f.key] ?? ""),
               }))} />
             )}
@@ -328,11 +345,11 @@ function Dashboard() {
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { label: "Total enquiries", value: summary?.enquiries?.total },
-          { label: "New enquiries", value: summary?.enquiries?.new_count },
-          { label: "Blog posts", value: summary?.posts?.total },
-          { label: "Portfolio items", value: summary?.portfolio?.total },
-          { label: "Testimonials", value: summary?.testimonials?.total },
+          { label: L("Total enquiries", "Jumlah pertanyaan"), value: summary?.enquiries?.total },
+          { label: L("New enquiries", "Pertanyaan baharu"), value: summary?.enquiries?.new_count },
+          { label: L("Blog posts", "Kiriman blog"), value: summary?.posts?.total },
+          { label: L("Portfolio items", "Item portfolio"), value: summary?.portfolio?.total },
+          { label: L("Testimonials", "Testimoni"), value: summary?.testimonials?.total },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border p-5">
             <p className="text-3xl font-semibold">{s.value ?? "—"}</p>
@@ -341,17 +358,17 @@ function Dashboard() {
         ))}
       </div>
       <div>
-        <h3 className="text-sm font-semibold tracking-tight">Recent activity</h3>
+        <h3 className="text-sm font-semibold tracking-tight">{L("Recent activity", "Aktiviti terkini")}</h3>
         <ul className="mt-3 space-y-1.5">
           {(summary?.activity ?? []).map((a, i) => (
             <li key={i} className="text-muted-foreground text-sm">
-              <span className="text-foreground">{a.user_name ?? "system"}</span>{" "}
+              <span className="text-foreground">{a.user_name ?? L("system", "sistem")}</span>{" "}
               — {a.action}
               {a.entity_id ? ` #${a.entity_id}` : ""} · {dmyMyt(a.created_at)}
             </li>
           ))}
           {(summary?.activity ?? []).length === 0 && (
-            <li className="text-muted-foreground text-sm">No activity yet.</li>
+            <li className="text-muted-foreground text-sm">{L("No activity yet.", "Belum ada aktiviti.")}</li>
           )}
         </ul>
       </div>
@@ -395,11 +412,11 @@ function MediaPanel() {
         `${API}/media?filename=${encodeURIComponent(file.name)}&kind=${kind}`,
         { method: "POST", credentials: "include", headers: { "Content-Type": payload.type || file.type }, body: payload },
       );
-      if (!res.ok) { setError("Upload failed."); showToast("No changes", "Upload failed — try again", "notice"); }
-      else showToast("Saved", `${file.name} uploaded`);
+      if (!res.ok) { setError(L("Upload failed.", "Muat naik gagal.")); showToast(L("No changes", "Tiada perubahan"), L("Upload failed — try again", "Muat naik gagal — cuba lagi"), "notice"); }
+      else showToast(L("Saved", "Disimpan"), L(`${file.name} uploaded`, `${file.name} dimuat naik`));
     } catch {
-      setError("Upload failed — is the API reachable?");
-      showToast("No changes", "Upload failed — is the API reachable?", "notice");
+      setError(L("Upload failed — is the API reachable?", "Muat naik gagal — adakah API boleh dicapai?"));
+      showToast(L("No changes", "Tiada perubahan"), L("Upload failed — is the API reachable?", "Muat naik gagal — adakah API boleh dicapai?"), "notice");
     }
     setBusy(false);
     void load();
@@ -407,8 +424,8 @@ function MediaPanel() {
 
   const remove = async (id: number) => {
     const r = await api(`/media/${id}`, { method: "DELETE" });
-    showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? "File removed" : "Could not remove that file", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? L("File removed", "Fail dipadam") : L("Could not remove that file", "Fail itu tidak dapat dipadam"), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -416,7 +433,7 @@ function MediaPanel() {
     <div className="space-y-4 md:space-y-6">
       {toastNode}
       <label className="block">
-        <span className="mb-2 block text-sm font-semibold">Upload file</span>
+        <span className="mb-2 block text-sm font-semibold">{L("Upload file", "Muat naik fail")}</span>
         <input
           type="file"
           disabled={busy}
@@ -428,7 +445,7 @@ function MediaPanel() {
           className="text-sm"
         />
       </label>
-      {busy && <p className="text-muted-foreground text-sm">Uploading…</p>}
+      {busy && <p className="text-muted-foreground text-sm">{L("Uploading…", "Sedang dimuat naik…")}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((m) => (
@@ -453,19 +470,19 @@ function MediaPanel() {
                 className={rowBtn}
                 onClick={() => void navigator.clipboard.writeText(`${API}/media/file/${encodeURIComponent(m.r2_key)}`)}
               >
-                Copy URL
+                {L("Copy URL", "Salin URL")}
               </button>
               <button
                 type="button"
                 className={rowBtnDanger}
                 onClick={() => void remove(m.id)}
               >
-                Delete
+                {L("Delete", "Padam")}
               </button>
             </div>
           </div>
         ))}
-        {items.length === 0 && <p className="text-muted-foreground text-sm">No media yet.</p>}
+        {items.length === 0 && <p className="text-muted-foreground text-sm">{L("No media yet.", "Belum ada media.")}</p>}
       </div>
     </div>
   );
@@ -508,13 +525,13 @@ function ContentPanel() {
       body: JSON.stringify({ value: parsed }),
     });
     if (!res.ok) {
-      setError("Save failed.");
-      showToast("No changes", "Save failed — check the key and value", "notice");
+      setError(L("Save failed.", "Simpanan gagal."));
+      showToast(L("No changes", "Tiada perubahan"), L("Save failed — check the key and value", "Simpanan gagal — semak kunci dan nilai"), "notice");
       return;
     }
     setKey("");
     setValue("");
-    showToast("Saved", `${key.trim()} updated — live on the website now`);
+    showToast(L("Saved", "Disimpan"), L(`${key.trim()} updated — live on the website now`, `${key.trim()} dikemas kini — kini live di laman web`));
     void load();
   };
 
@@ -522,32 +539,31 @@ function ContentPanel() {
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {toastNode}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold tracking-tight">Set content</h3>
+        <h3 className="text-sm font-semibold tracking-tight">{L("Set content", "Tetapkan kandungan")}</h3>
         <p className="text-muted-foreground text-xs">
-          Keys use dot notation, e.g. <code>home.hero.headline</code>. Values can
-          be plain text or JSON.
+          {L("Keys use dot notation, e.g.", "Kunci menggunakan notasi titik, cth.")} <code>home.hero.headline</code>. {L("Values can be plain text or JSON.", "Nilai boleh berupa teks biasa atau JSON.")}
         </p>
         <input
           className={inputClass}
-          placeholder="key (e.g. home.hero.headline)"
+          placeholder={L("key (e.g. home.hero.headline)", "kunci (cth. home.hero.headline)")}
           value={key}
           onChange={(e) => setKey(e.target.value)}
         />
         <textarea
           className={inputClass}
           rows={4}
-          placeholder="value"
+          placeholder={L("value", "nilai")}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <button type="button" className={btnClass} onClick={() => void save()}>
-          Save
+          {L("Save", "Simpan")}
         </button>
       </div>
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold tracking-tight">Existing keys</h3>
-        {rows.length === 0 && <p className="text-muted-foreground text-sm">No content keys yet.</p>}
+        <h3 className="text-sm font-semibold tracking-tight">{L("Existing keys", "Kunci sedia ada")}</h3>
+        {rows.length === 0 && <p className="text-muted-foreground text-sm">{L("No content keys yet.", "Belum ada kunci kandungan.")}</p>}
         {rows.map((r) => (
           <button
             key={r.key}
@@ -573,10 +589,10 @@ function AccountPanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold tracking-tight">Change password</h3>
+        <h3 className="text-sm font-semibold tracking-tight">{L("Change password", "Tukar kata laluan")}</h3>
         <p className="text-muted-foreground mt-1 text-xs">
-          Changing your password signs you out everywhere else — any other
-          device or stolen session loses access immediately.
+          {L("Changing your password signs you out everywhere else — any other device or stolen session loses access immediately.",
+            "Menukar kata laluan anda akan melog keluar anda di tempat lain — mana-mana peranti lain atau sesi yang dicuri hilang akses serta-merta.")}
         </p>
       </div>
       <ChangePasswordForm />
@@ -629,14 +645,14 @@ function UsersPanel({ me }: { me: User }) {
     if (!res.ok) {
       setError(
         res.status === 409
-          ? "Email already exists."
+          ? L("Email already exists.", "E-mel sudah wujud.")
           : (res.data?.error?.message ??
-            "Check all fields — password needs 10+ characters."),
+            L("Check all fields — password needs 10+ characters.", "Semak semua medan — kata laluan perlu 10+ aksara.")),
       );
-      showToast("No changes", "User not created — see the message on the form", "notice");
+      showToast(L("No changes", "Tiada perubahan"), L("User not created — see the message on the form", "Pengguna tidak dibuat — lihat mesej pada borang"), "notice");
       return;
     }
-    showToast("Saved", `${draft.email} created`);
+    showToast(L("Saved", "Disimpan"), L(`${draft.email} created`, `${draft.email} dibuat`));
     setDraft({ email: "", name: "", role: "editor", password: "" });
     void load();
   };
@@ -644,17 +660,17 @@ function UsersPanel({ me }: { me: User }) {
   /* v1.4.255: patch() drives suspend / reinstate / role change / promote —
      four different actions that all used to complete in silence. The caller
      passes what happened so the toast can say it. */
-  const patch = async (id: number, body: Record<string, unknown>, said = "Updated") => {
+  const patch = async (id: number, body: Record<string, unknown>, said = L("Updated", "Dikemas kini")) => {
     const r = await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-    showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? said : "Could not update that account — try again", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? said : L("Could not update that account — try again", "Akaun itu tidak dapat dikemas kini — cuba lagi"), r.ok ? undefined : "notice");
     void load();
   };
 
   const forceLogout = async (id: number) => {
     const r = await api(`/users/${id}/revoke-sessions`, { method: "POST" });
-    showToast(r.ok ? "Saved" : "No changes",
-      r.ok ? "Signed out of every device" : "Could not revoke those sessions", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? L("Signed out of every device", "Dilog keluar dari setiap peranti") : L("Could not revoke those sessions", "Sesi tersebut tidak dapat dibatalkan"), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -681,9 +697,9 @@ function UsersPanel({ me }: { me: User }) {
       setResetId(null);
       setResetPw("");
       window.setTimeout(() => setResetDone(null), 5000);
-      showToast("Password set", `${email} — signed out everywhere. Tell them the new password directly.`);
+      showToast(L("Password set", "Kata laluan ditetapkan"), L(`${email} — signed out everywhere. Tell them the new password directly.`, `${email} — dilog keluar di semua tempat. Beritahu mereka kata laluan baharu secara terus.`));
     } else {
-      showToast("Not saved", res.data?.error?.message ?? "Could not set that password — try again", "notice");
+      showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Could not set that password — try again", "Kata laluan itu tidak dapat ditetapkan — cuba lagi"), "notice");
     }
   };
 
@@ -692,10 +708,10 @@ function UsersPanel({ me }: { me: User }) {
       {userConfirmNode}
       {toastNode}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold tracking-tight">Add user</h3>
-        <input className={inputClass} placeholder="Email" value={draft.email}
+        <h3 className="text-sm font-semibold tracking-tight">{L("Add user", "Tambah pengguna")}</h3>
+        <input className={inputClass} placeholder={L("Email", "E-mel")} value={draft.email}
           onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
-        <input className={inputClass} placeholder="Name" value={draft.name}
+        <input className={inputClass} placeholder={L("Name", "Nama")} value={draft.name}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
         <select className={inputClass} value={draft.role}
           onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
@@ -704,24 +720,24 @@ function UsersPanel({ me }: { me: User }) {
           )}
         </select>
         <label className="block">
-          <span className="text-muted-foreground mb-1 block text-xs font-medium">Password</span>
+          <span className="text-muted-foreground mb-1 block text-xs font-medium">{L("Password", "Kata laluan")}</span>
           <PasswordInput
             className={inputClass}
-            placeholder="10+ characters"
+            placeholder={L("10+ characters", "10+ aksara")}
             value={draft.password}
             onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))}
           />
           {draft.password.length > 0 && draft.password.length < 10 && (
             <p className="text-destructive mt-1 text-xs">
-              {draft.password.length} of 10 characters
+              {L(`${draft.password.length} of 10 characters`, `${draft.password.length} daripada 10 aksara`)}
             </p>
           )}
         </label>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <button type="button" className={btnClass} onClick={() => void create()}>Create user</button>
+        <button type="button" className={btnClass} onClick={() => void create()}>{L("Create user", "Buat pengguna")}</button>
       </div>
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold tracking-tight">Team</h3>
+        <h3 className="text-sm font-semibold tracking-tight">{L("Team", "Pasukan")}</h3>
         {users.map((u) => {
           // An admin can see a super admin but cannot act on them
           const locked = u.role === "super_admin" && me.role !== "super_admin";
@@ -732,7 +748,7 @@ function UsersPanel({ me }: { me: User }) {
                   {u.name} <span className="text-muted-foreground">· {u.email}</span>
                   {!u.is_active && (
                     <span className="bg-destructive/10 text-destructive ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
-                      Suspended
+                      {L("Suspended", "Digantung")}
                     </span>
                   )}
                 </span>
@@ -744,11 +760,11 @@ function UsersPanel({ me }: { me: User }) {
                     onChange={(e) => {
                       const newRole = e.target.value;
                       void userConfirm({
-                        title: "Confirm Role Change",
-                        message: `Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?`,
-                        confirmLabel: "Change Role",
+                        title: L("Confirm Role Change", "Sahkan Pertukaran Peranan"),
+                        message: L(`Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?`, `Adakah anda pasti mahu menukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}?`),
+                        confirmLabel: L("Change Role", "Tukar Peranan"),
                       }).then((ok) => {
-                        if (ok) void patch(u.id, { role: newRole }, `Role changed to ${newRole.replace(/_/g, " ")}`);
+                        if (ok) void patch(u.id, { role: newRole }, L(`Role changed to ${newRole.replace(/_/g, " ")}`, `Peranan ditukar kepada ${newRole.replace(/_/g, " ")}`));
                       });
                     }}
                   >
@@ -765,7 +781,7 @@ function UsersPanel({ me }: { me: User }) {
                         className={rowBtn}
                         onClick={() => void forceLogout(u.id)}
                       >
-                        Force logout
+                        {L("Force logout", "Paksa log keluar")}
                       </button>
                       <button
                         type="button"
@@ -775,7 +791,7 @@ function UsersPanel({ me }: { me: User }) {
                           setResetPw("");
                         }}
                       >
-                        Reset password
+                        {L("Reset password", "Set semula kata laluan")}
                       </button>
                       {/* Kill switch: suspend blocks sign-in AND revokes all
                           sessions server-side, instantly. */}
@@ -784,15 +800,15 @@ function UsersPanel({ me }: { me: User }) {
                         className={u.is_active ? "text-destructive text-xs font-medium underline" : "text-xs underline"}
                         onClick={async () => {
                           if (u.is_active && !(await userConfirm({
-                            title: `Suspend ${u.email}?`,
-                            message: "They are signed out everywhere immediately and cannot sign back in until reinstated.",
-                            confirmLabel: "Suspend",
+                            title: L(`Suspend ${u.email}?`, `Gantung ${u.email}?`),
+                            message: L("They are signed out everywhere immediately and cannot sign back in until reinstated.", "Mereka dilog keluar di semua tempat serta-merta dan tidak boleh log masuk semula sehingga dipulihkan."),
+                            confirmLabel: L("Suspend", "Gantung"),
                             variant: "danger",
                           }))) return;
-                          void patch(u.id, { is_active: u.is_active ? 0 : 1 }, u.is_active ? `${u.email} suspended — signed out everywhere` : `${u.email} reinstated`);
+                          void patch(u.id, { is_active: u.is_active ? 0 : 1 }, u.is_active ? L(`${u.email} suspended — signed out everywhere`, `${u.email} digantung — dilog keluar di semua tempat`) : L(`${u.email} reinstated`, `${u.email} dipulihkan`));
                         }}
                       >
-                        {u.is_active ? "Suspend" : "Reinstate"}
+                        {u.is_active ? L("Suspend", "Gantung") : L("Reinstate", "Pulihkan")}
                       </button>
                     </>
                   )}
@@ -804,7 +820,7 @@ function UsersPanel({ me }: { me: User }) {
                   <PasswordInput
                     autoComplete="new-password"
                     className="border-input bg-background w-full rounded-lg border px-2 py-1.5 text-xs sm:w-56"
-                    placeholder="New password (10+ characters)"
+                    placeholder={L("New password (10+ characters)", "Kata laluan baharu (10+ aksara)")}
                     value={resetPw}
                     onChange={(e) => setResetPw(e.target.value)}
                   />
@@ -814,7 +830,7 @@ function UsersPanel({ me }: { me: User }) {
                     disabled={resetPw.length < 10}
                     onClick={() => void resetPassword(u.id, u.email)}
                   >
-                    Set password
+                    {L("Set password", "Tetapkan kata laluan")}
                   </button>
                   <button
                     type="button"
@@ -824,23 +840,22 @@ function UsersPanel({ me }: { me: User }) {
                       setResetPw("");
                     }}
                   >
-                    Cancel
+                    {L("Cancel", "Batal")}
                   </button>
                   {resetPw.length > 0 && resetPw.length < 10 && (
                     <span className="text-destructive text-xs">
-                      {resetPw.length} of 10 characters
+                      {L(`${resetPw.length} of 10 characters`, `${resetPw.length} daripada 10 aksara`)}
                     </span>
                   )}
                   <span className="text-muted-foreground w-full text-[11px]">
-                    Tell them the new password directly (WhatsApp or in person) and ask
-                    them to change it in Profile after signing in. Setting it signs them
-                    out everywhere.
+                    {L("Tell them the new password directly (WhatsApp or in person) and ask them to change it in Profile after signing in. Setting it signs them out everywhere.",
+                      "Beritahu mereka kata laluan baharu secara terus (WhatsApp atau bersemuka) dan minta mereka menukarnya di Profil selepas log masuk. Menetapkannya akan melog keluar mereka di semua tempat.")}
                   </span>
                 </div>
               )}
               {resetDone === u.id && (
                 <p className="mt-2 text-xs font-medium text-green-700">
-                  Password set — all their sessions were signed out.
+                  {L("Password set — all their sessions were signed out.", "Kata laluan ditetapkan — semua sesi mereka telah dilog keluar.")}
                 </p>
               )}
             </div>
@@ -869,6 +884,24 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 
+/* BM labels for the tab KEYS above — display only. The Tab values themselves
+   drive routing, icon lookup and role gating, so they stay English. */
+const TAB_MS: Record<Tab, string> = {
+  Dashboard: "Papan Pemuka",
+  Website: "Laman Web",
+  Enquiries: "Pertanyaan",
+  Portfolio: "Portfolio",
+  Testimonials: "Testimoni",
+  Posts: "Kiriman",
+  Media: "Media",
+  Users: "Pengguna",
+  Staff: "Kakitangan",
+  Audit: "Audit",
+  Account: "Akaun",
+  Advanced: "Lanjutan",
+};
+const tabLabel = (t: Tab) => L(t, TAB_MS[t]);
+
 /* v1.11.0: the mobile bottom nav shows an icon per tab, exactly like /portal.
    v1.16.0: the local emoji map is gone — admin's tab names live in the shared
    SVG map (components/layout/nav-icons.tsx) alongside the portal's, so the
@@ -892,11 +925,32 @@ const TAB_HELP: Record<Tab, string> = {
   Advanced: "Raw content keys — for anything the Website tab does not cover.",
 };
 
+/* BM twin of TAB_HELP — same keys, display only. */
+const TAB_HELP_MS: Record<Tab, string> = {
+  Dashboard: "Gambaran syarikat dan aktiviti akaun terkini.",
+  Website: "Sunting teks laman web live — hero, tentang, seksyen, footer, statistik.",
+  Enquiries: "Mesej daripada borang hubungan.",
+  Portfolio: "Kerja pelanggan yang dipaparkan di halaman Portfolio.",
+  Testimonials: "Petikan pelanggan yang dipaparkan di laman.",
+  Posts: "Artikel blog.",
+  Media: "Imej dan fail yang dimuat naik.",
+  Users: "Akaun kakitangan dan pelanggan — peranan, penggantungan, paksa log keluar.",
+  Staff: "Kelulusan cuti dan akses ke setiap modul kakitangan — kuasa admin penuh.",
+  Audit: "Jejak aktiviti penuh — log masuk, kelulusan, pertukaran peranan, set semula.",
+  Account: "Keselamatan log masuk anda sendiri.",
+  Advanced: "Kunci kandungan mentah — untuk apa-apa yang tab Laman Web tidak liputi.",
+};
+
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [tab, setTab] = useState<Tab>("Dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
+  /* v1.25.7: EN/BM toggle — same storage as /portal. State lives here so
+     flipping it re-renders the whole console (L() re-reads per render).
+     Hydrated in an effect because localStorage is client-only. */
+  const [lang, setLangState] = useState<Lang>("en");
+  useEffect(() => { setLangState(getLang()); }, []);
 
   // While the More sheet is open, the page behind must not scroll.
   useEffect(() => {
@@ -933,10 +987,11 @@ export default function AdminPage() {
       <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
-            Two-Factor Authentication Required
+            {L("Two-Factor Authentication Required", "Pengesahan Dua Faktor Diperlukan")}
           </h1>
           <p className="mb-8 text-sm text-muted-foreground">
-            Your role requires two-factor authentication to be enabled before you can access the admin panel. Please set it up now.
+            {L("Your role requires two-factor authentication to be enabled before you can access the admin panel. Please set it up now.",
+              "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses panel admin. Sila tetapkannya sekarang.")}
           </p>
           <TwoFactorPanel />
           <div className="mt-8 flex justify-end border-t border-border pt-6">
@@ -950,7 +1005,7 @@ export default function AdminPage() {
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
-              Sign out
+              {L("Sign out", "Log keluar")}
             </button>
           </div>
         </div>
@@ -981,7 +1036,7 @@ export default function AdminPage() {
       maxWidth="md:max-w-6xl"
       rail={
         <SidebarNav
-          items={visibleTabs.map((t) => ({ name: t, label: t }))}
+          items={visibleTabs.map((t) => ({ name: t, label: tabLabel(t) }))}
           active={tab}
           onSelect={(t) => { setTab(t as Tab); setMoreOpen(false); }}
           onSignOut={() => void logout()}
@@ -999,18 +1054,24 @@ export default function AdminPage() {
           {/* v1.23.0: with the pill row retired for the rail, the desktop
               heading names the ACTIVE SECTION (portal pattern). */}
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            {tab}
+            {tabLabel(tab)}
           </h1>
           {/* v1.11.0: on phones this reads as an app screen title, matching
               /portal's mobile h1 weight and size. */}
-          <h1 className="text-xl font-bold tracking-tight md:hidden">{tab}</h1>
+          <h1 className="text-xl font-bold tracking-tight md:hidden">{tabLabel(tab)}</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground text-sm">
             {user.name} · {user.role}
           </span>
+          {/* v1.25.7: EN/BM — the portal's header toggle, verbatim (btnHdr on
+              all sizes: admin has no mobile Preferences sheet to fall back to). */}
+          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
+            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
+            {lang === "ms" ? "BM" : "EN"}
+          </button>
           {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
-          <button type="button" className={`${btnGhost} px-2.5`} title="Sign out" aria-label="Sign out" onClick={() => void logout()}>
+          <button type="button" className={`${btnGhost} px-2.5`} title={L("Sign out", "Log keluar")} aria-label={L("Sign out", "Log keluar")} onClick={() => void logout()}>
             <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
@@ -1033,7 +1094,7 @@ export default function AdminPage() {
            its floating toolbar is shown, which removed ALL breathing room under
            the labels. max() guarantees a floor either way. */
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
-              aria-label="Admin sections (mobile)"
+              aria-label={L("Admin sections (mobile)", "Seksyen admin (mudah alih)")}
             >
               {/* v1.11.0 (reference design, ported from /portal): each tab
                   shows its icon; the active one sits in a filled navy rounded
@@ -1058,7 +1119,7 @@ export default function AdminPage() {
                     </span>
                     {/* truncate: longer names ("Testimonials") must not wrap
                         and unbalance the row on narrow phones */}
-                    <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
+                    <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tabLabel(t)}</span>
                   </button>
                 );
               })}
@@ -1081,7 +1142,7 @@ export default function AdminPage() {
                     >
                       <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
                     </span>
-                    <span className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>More</span>
+                    <span className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{L("More", "Lagi")}</span>
                   </button>
                 );
               })()}
@@ -1090,7 +1151,7 @@ export default function AdminPage() {
               <div className="fixed inset-0 z-30 md:hidden">
                 <button
                   type="button"
-                  aria-label="Close menu"
+                  aria-label={L("Close menu", "Tutup menu")}
                   className="absolute inset-0 cursor-pointer bg-black/40"
                   onClick={() => setMoreOpen(false)}
                 />
@@ -1102,13 +1163,13 @@ export default function AdminPage() {
                     <span className="w-9" />
                     <button
                       type="button"
-                      aria-label="Close menu"
+                      aria-label={L("Close menu", "Tutup menu")}
                       className="bg-border mx-auto h-1.5 w-12 rounded-full"
                       onClick={() => setMoreOpen(false)}
                     />
                     <button
                       type="button"
-                      aria-label="Close"
+                      aria-label={L("Close", "Tutup")}
                       className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
                       onClick={() => setMoreOpen(false)}
                     >
@@ -1126,7 +1187,7 @@ export default function AdminPage() {
                         }`}
                       >
                         <span aria-hidden className="grid place-items-center"><TabIcon name={t} /></span>
-                        {t}
+                        {tabLabel(t)}
                       </button>
                     ))}
                   </div>
@@ -1138,7 +1199,7 @@ export default function AdminPage() {
       })()}
 
       <main key={tab} className="screen-enter mt-4 md:mt-8">
-        <p className="text-muted-foreground -mt-2 mb-4 text-xs">{TAB_HELP[tab]}</p>
+        <p className="text-muted-foreground -mt-2 mb-4 text-xs">{L(TAB_HELP[tab], TAB_HELP_MS[tab])}</p>
         {/* v1.22.8: bare sections now render inside the house card, exactly
             like every /portal module. Staff/Audit/Account tabs already use
             card components of their own. */}
@@ -1150,12 +1211,12 @@ export default function AdminPage() {
             resource="posts"
             titleKey="title"
             fields={[
-              { key: "slug", label: "Slug (unique)" },
-              { key: "title", label: "Title" },
-              { key: "excerpt", label: "Excerpt", type: "textarea" },
-              { key: "body", label: "Body", type: "textarea" },
-              { key: "status", label: "Status (draft/scheduled/published)" },
-              { key: "category", label: "Category" },
+              { key: "slug", label: L("Slug (unique)", "Slug (unik)") },
+              { key: "title", label: L("Title", "Tajuk") },
+              { key: "excerpt", label: L("Excerpt", "Petikan"), type: "textarea" },
+              { key: "body", label: L("Body", "Isi kandungan"), type: "textarea" },
+              { key: "status", label: L("Status (draft/scheduled/published)", "Status (draft/scheduled/published)") },
+              { key: "category", label: L("Category", "Kategori") },
             ]}
           />
           </div>
@@ -1166,10 +1227,10 @@ export default function AdminPage() {
             resource="portfolio"
             titleKey="client"
             fields={[
-              { key: "client", label: "Client" },
-              { key: "summary", label: "Summary", type: "textarea" },
-              { key: "result", label: "Result" },
-              { key: "is_published", label: "Published", type: "checkbox" },
+              { key: "client", label: L("Client", "Pelanggan") },
+              { key: "summary", label: L("Summary", "Ringkasan"), type: "textarea" },
+              { key: "result", label: L("Result", "Hasil") },
+              { key: "is_published", label: L("Published", "Diterbitkan"), type: "checkbox" },
             ]}
           />
           </div>
@@ -1204,12 +1265,12 @@ export default function AdminPage() {
             resource="testimonials"
             titleKey="author"
             fields={[
-              { key: "author", label: "Author" },
-              { key: "company", label: "Company" },
-              { key: "position", label: "Position" },
-              { key: "review", label: "Review", type: "textarea" },
-              { key: "rating", label: "Rating (1–5)", type: "number" },
-              { key: "is_published", label: "Published", type: "checkbox" },
+              { key: "author", label: L("Author", "Penulis") },
+              { key: "company", label: L("Company", "Syarikat") },
+              { key: "position", label: L("Position", "Jawatan") },
+              { key: "review", label: L("Review", "Ulasan"), type: "textarea" },
+              { key: "rating", label: L("Rating (1–5)", "Penilaian (1–5)"), type: "number" },
+              { key: "is_published", label: L("Published", "Diterbitkan"), type: "checkbox" },
             ]}
           />
           </div>

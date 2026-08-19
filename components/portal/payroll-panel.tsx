@@ -19,6 +19,9 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { btnSm, card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
 
@@ -350,7 +353,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const res = await fetch(`${API}/payroll/m2e-file?month=${month}`, { credentials: "include" });
     if (!res.ok) {
       const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-      showToast("No file", j?.error?.message ?? "M2E file failed — check ⚙ M2E setup below", "notice");
+      showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check ⚙ M2E setup below", "Fail M2E gagal — semak persediaan ⚙ M2E di bawah"), "notice");
       return;
     }
     const skipped = res.headers.get("X-M2E-Skipped");
@@ -359,23 +362,23 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const a = document.createElement("a");
     a.href = url; a.download = `azoo-m2e-salary-${month}.xlsm`; a.click();
     URL.revokeObjectURL(url);
-    if (skipped) showToast("Check bank details", `Skipped (fix in Staff Details, then re-download): ${decodeURIComponent(skipped)}`, "notice");
-    else showToast("Saved", "M2E workbook downloaded — open, enable macros, generate + upload");
+    if (skipped) showToast(L("Check bank details", "Semak butiran bank"), `${L("Skipped (fix in Staff Details, then re-download)", "Dilangkau (betulkan dalam Butiran Kakitangan, kemudian muat turun semula)")}: ${decodeURIComponent(skipped)}`, "notice");
+    else showToast(L("Saved", "Disimpan"), L("M2E workbook downloaded — open, enable macros, generate + upload", "Buku kerja M2E dimuat turun — buka, aktifkan makro, jana + muat naik"));
   };
   const saveM2eSettings = async () => {
     const r = await api<{ error?: { message?: string } }>(`/payroll/m2e-settings`, {
       method: "POST", body: JSON.stringify({ corporate_id: m2eCid, payer_account: m2eAcc, client_batch_id: m2eCbid }),
     });
-    if (r.ok) showToast("Saved", "M2E settings stored — the 💳 button now fills them into every file");
-    else showToast("No changes", r.data?.error?.message ?? "Save failed", "notice");
+    if (r.ok) showToast(L("Saved", "Disimpan"), L("M2E settings stored — the 💳 button now fills them into every file", "Tetapan M2E disimpan — butang 💳 kini mengisinya ke dalam setiap fail"));
+    else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Save failed", "Simpan gagal"), "notice");
   };
   const uploadM2eTemplate = async (f: File) => {
     /* v1.23.1: raw fetch (needed — binary body, api() would JSON it) but WITH
        the CSRF header the middleware requires on every mutating call. */
     const res = await fetch(`${API}/payroll/m2e-template`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() }, body: f });
     const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (res.ok) { setM2eHasTpl(true); showToast("Saved", "Blank M2E template stored — 💳 now generates the filled workbook"); }
-    else showToast("No changes", j?.error?.message ?? "Template upload failed", "notice");
+    if (res.ok) { setM2eHasTpl(true); showToast(L("Saved", "Disimpan"), L("Blank M2E template stored — 💳 now generates the filled workbook", "Templat M2E kosong disimpan — 💳 kini menjana buku kerja yang terisi")); }
+    else showToast(L("No changes", "Tiada perubahan"), j?.error?.message ?? L("Template upload failed", "Muat naik templat gagal"), "notice");
   };
   // v1.4.87: change detection — snapshot of each row as loaded, so Save can
   // honestly say "No changes" instead of pretending to work.
@@ -399,7 +402,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     const filled: Record<number, number> = {};
     for (const u of staff) filled[u.id] = attDays[u.id] ?? 0;
     setWorkedDays(filled);
-    setMsg("Days filled from clock-in records — review, correct if needed, then Save all. Net adjusts automatically; Basic stays full.");
+    setMsg(L("Days filled from clock-in records — review, correct if needed, then Save all. Net adjusts automatically; Basic stays full.", "Hari diisi daripada rekod daftar masuk — semak, betulkan jika perlu, kemudian Simpan semua. Bersih dilaraskan automatik; Gaji pokok kekal penuh."));
     window.setTimeout(() => setMsg(""), 6000);
   };
 
@@ -444,8 +447,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       });
       if (res.ok) n += 1;
     }
-    if (n === 0) showToast("No changes", "Every row already matches what's saved", "notice");
-    else showToast("Saved", `${n} ${n === 1 ? "entry" : "entries"} saved for ${month}`);
+    if (n === 0) showToast(L("No changes", "Tiada perubahan"), L("Every row already matches what's saved", "Setiap baris sudah sepadan dengan yang disimpan"), "notice");
+    else showToast(L("Saved", "Disimpan"), L(`${n} ${n === 1 ? "entry" : "entries"} saved for ${month}`, `${n} entri disimpan untuk ${month}`));
     void load();
   };
 
@@ -545,7 +548,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const save = async (id: number, name?: string) => {
     setMsg("");
     if (fingerprint(id) === pristineRef.current[id]) {
-      showToast("No changes", name ? `${name} — nothing to save` : "Nothing to save", "notice");
+      showToast(L("No changes", "Tiada perubahan"), name ? `${name} — ${L("nothing to save", "tiada apa untuk disimpan")}` : L("Nothing to save", "Tiada apa untuk disimpan"), "notice");
       return;
     }
     const d = workedDays[id];
@@ -559,8 +562,8 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         net_cents: netFor(id),
       }),
     });
-    if (res.ok) showToast("Saved", name ?? "Payroll entry saved");
-    else setMsg(res.data?.error?.message ?? "Save failed");
+    if (res.ok) showToast(L("Saved", "Disimpan"), name ?? L("Payroll entry saved", "Entri gaji disimpan"));
+    else setMsg(res.data?.error?.message ?? L("Save failed", "Simpan gagal"));
     void load();
   };
 
@@ -573,7 +576,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const sendSlip = async (u: StaffRow) => {
     const d = await api<{ extras: SlipExtras }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
     await sendPayslipPdf(u, entry(u.id), month, d.data?.extras ?? null);
-    showToast("Saved", `Payslip ready to send — ${displayName(u)} ${month}`);
+    showToast(L("Saved", "Disimpan"), `${L("Payslip ready to send", "Slip gaji sedia untuk dihantar")} — ${displayName(u)} ${month}`);
   };
 
   return (
@@ -582,32 +585,17 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {payConfirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">Payroll processing</p>
+          <p className="text-sm font-semibold">{L("Payroll processing", "Pemprosesan gaji")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            One-pass flow: everything auto-fills — Basic from base salaries,
-            working days computed (Mon–Fri minus the holidays on the company
-            calendar for that month), days worked from attendance — review,
-            then Save all. A holiday the team did NOT observe (worked instead,
-            to be replaced later) must be deleted from that month in the
-            holiday calendar — the month then counts that day as a working
-            day — and added on the actual replacement date, which reduces THAT
-            month&apos;s working days. After any calendar change, press
-            Re-fill days and Save all so saved entries recompute — otherwise
-            payslips keep the old figures and staff are over- or under-paid.
-            Net = basic + commission + allowance + overtime (hours × 1.5 ×
-            hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid
-            leave (statutory rate: 1/26 of monthly wage per day, Employment
-            Act — a FIXED divisor, separate from the month&apos;s working
-            days) − incomplete month (basic × missing working days ÷ this
-            month&apos;s working days; unpaid-leave days excluded so nothing
-            deducts twice). Blank days box = full month. No KWSP/SOCSO/EIS
-            lines yet — registration pending. Emergency leave is paid, never
-            deducted.
+            {L(
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (statutory rate: 1/26 of monthly wage per day, Employment Act — a FIXED divisor, separate from the month's working days) − incomplete month (basic × missing working days ÷ this month's working days; unpaid-leave days excluded so nothing deducts twice). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave is paid, never deducted.",
+              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (kadar statutori: 1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP, berasingan daripada hari bekerja bulan itu) − bulan tidak lengkap (pokok × hari bekerja yang tiada ÷ hari bekerja bulan ini; hari cuti tanpa gaji dikecualikan supaya tiada potongan dua kali). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan dibayar, tidak sekali-kali dipotong.",
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-muted-foreground text-xs" title="Computed automatically: Monday–Friday minus every holiday on the company calendar (public, replacement and company days). Edit only for exceptions.">
-            Working days (auto){" "}
+          <label className="text-muted-foreground text-xs" title={L("Computed automatically: Monday–Friday minus every holiday on the company calendar (public, replacement and company days). Edit only for exceptions.", "Dikira secara automatik: Isnin–Jumaat tolak setiap cuti pada kalendar syarikat (cuti umum, gantian dan hari syarikat). Sunting hanya untuk pengecualian.")}>
+            {L("Working days (auto)", "Hari bekerja (auto)")}{" "}
             <input
               type="number" min={1} max={31}
               className="border-input bg-background w-16 rounded-lg border px-2 py-1 text-sm"
@@ -624,45 +612,45 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Fixed monthly basic per staff — auto-fills every month; adjust here on increment"
+            title={L("Fixed monthly basic per staff — auto-fills every month; adjust here on increment", "Gaji pokok bulanan tetap bagi setiap kakitangan — terisi automatik setiap bulan; laraskan di sini apabila ada kenaikan")}
             onClick={() => setShowBase((v) => !v)}
           >
-            {showBase ? "Close base salaries" : "Base salaries"}
+            {showBase ? L("Close base salaries", "Tutup gaji asas") : L("Base salaries", "Gaji asas")}
           </button>
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Days already auto-fill from attendance on load — this re-fills every box from clock-ins, overwriting manual edits"
+            title={L("Days already auto-fill from attendance on load — this re-fills every box from clock-ins, overwriting manual edits", "Hari sudah terisi automatik daripada kehadiran semasa dimuat — ini mengisi semula setiap kotak daripada rekod daftar masuk, menulis ganti suntingan manual")}
             onClick={autoFillDays}
           >
-            Re-fill days
+            {L("Re-fill days", "Isi semula hari")}
           </button>
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change"
+            title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri yang disimpan — guna selepas sebarang perubahan kalendar")}
             onClick={async () => {
               const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
                 method: "POST", body: JSON.stringify({ month }),
               });
-              if (r.ok) showToast("Saved", `Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`);
-              else showToast("No changes", r.data?.error?.message ?? "Recompute failed", "notice");
+              if (r.ok) showToast(L("Saved", "Disimpan"), L(`Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`, `${r.data?.rows ?? 0} entri dikira semula pada ${r.data?.working_days ?? "?"} hari bekerja`));
+              else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Kira semula gagal"), "notice");
               void load();
             }}
           >
-            🔧 Recompute nets
+            {L("🔧 Recompute nets", "🔧 Kira semula bersih")}
           </button>
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time ⚙ M2E setup first."
+            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time ⚙ M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan ⚙ M2E sekali sahaja terlebih dahulu.")}
             onClick={() => void downloadM2e()}
           >
-            💳 M2E salary file
+            {L("💳 M2E salary file", "💳 Fail gaji M2E")}
           </button>
           <a
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title="Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself"
+            title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
             href={`${API}/payroll/payment-file?month=${month}`}
             download
           >
@@ -673,7 +661,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
             onClick={() => void saveAll()}
           >
-            Save all
+            {L("Save all", "Simpan semua")}
           </button>
         </div>
       </div>
@@ -682,44 +670,47 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
       {!readOnly && (<>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
-            ⚙ M2E setup (one-time) — {m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? "⚠ incomplete: 💳 needs this" : "complete"}
+            {L("⚙ M2E setup (one-time) — ", "⚙ Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("⚠ incomplete: 💳 needs this", "⚠ belum lengkap: 💳 memerlukannya") : L("complete", "lengkap")}
           </summary>
           <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
             <p className="text-muted-foreground">
-              Stored once, reused every month. Your M2E <span className="font-medium">User ID and password are never stored</span> — you still sign in yourself to upload and approve.
+              {L("Stored once, reused every month. Your M2E ", "Disimpan sekali, diguna semula setiap bulan. ")}<span className="font-medium">{L("User ID and password are never stored", "User ID dan kata laluan M2E anda tidak pernah disimpan")}</span>{L(" — you still sign in yourself to upload and approve.", " — anda masih log masuk sendiri untuk memuat naik dan meluluskan.")}
             </p>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
               <label className="block">
                 <span className="text-muted-foreground">Corporate ID</span>
                 <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
-                  placeholder="e.g. MYXXXXX" onChange={(e) => setM2eCid(e.target.value)} />
+                  placeholder={L("e.g. MYXXXXX", "cth. MYXXXXX")} onChange={(e) => setM2eCid(e.target.value)} />
               </label>
               <label className="block">
                 <span className="text-muted-foreground">Client Batch ID</span>
                 <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
-                  placeholder="e.g. MYXXXXX1D" title="From your working M2E batch — shown as Client Batch ID on the template's Home sheet"
+                  placeholder={L("e.g. MYXXXXX1D", "cth. MYXXXXX1D")} title={L("From your working M2E batch — shown as Client Batch ID on the template's Home sheet", "Daripada kelompok M2E anda yang berjaya — dipaparkan sebagai Client Batch ID pada helaian Home templat")}
                   onChange={(e) => setM2eCbid(e.target.value)} />
               </label>
               <label className="block">
-                <span className="text-muted-foreground">Payer account no</span>
+                <span className="text-muted-foreground">{L("Payer account no", "No akaun pembayar")}</span>
                 <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
-                  inputMode="numeric" placeholder="Maybank account" onChange={(e) => setM2eAcc(e.target.value)} />
+                  inputMode="numeric" placeholder={L("Maybank account", "Akaun Maybank")} onChange={(e) => setM2eAcc(e.target.value)} />
               </label>
               <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
                 onClick={() => void saveM2eSettings()}>
-                Save
+                {L("Save", "Simpan")}
               </button>
             </div>
             <div className="grid grid-cols-2 items-center gap-2 sm:flex">
-              <span className="text-muted-foreground">Blank template (.xlsm): {m2eHasTpl ? "✔ stored" : "not uploaded yet"}</span>
+              <span className="text-muted-foreground">{L("Blank template (.xlsm): ", "Templat kosong (.xlsm): ")}{m2eHasTpl ? L("✔ stored", "✔ disimpan") : L("not uploaded yet", "belum dimuat naik")}</span>
               <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
-                {m2eHasTpl ? "Replace template" : "Upload template"}
+                {m2eHasTpl ? L("Replace template", "Ganti templat") : L("Upload template", "Muat naik templat")}
                 <input type="file" accept=".xlsm" className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
               </label>
             </div>
             <p className="text-muted-foreground">
-              Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff&apos;s Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.
+              {L(
+                "Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff's Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.",
+                "Kemudian 💳 memuat turun templat yang sudah terisi: helaian Home (Corporate ID, Client Batch ID, akaun pembayar, tarikh nilai = 5 haribulan atau Jumaat sebelumnya) + semua baris gaji dari baris 5 — Favourite Recipient Code terisi automatik daripada Employee ID setiap kakitangan, Own Ref berjalan PAYROLL+tarikh+01,02,… Buka → aktifkan makro → Generate File → muat naik → luluskan → Tanda dibayar.",
+              )}
             </p>
           </div>
         </details>
@@ -736,18 +727,18 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
             onClick={async () => {
               const r = await api<{ applied: { name: string; amount_cents: number }[]; skipped: string[] }>(
                 `/payroll/pull-commission`, { method: "POST", body: JSON.stringify({ month }) });
-              if (!r.ok) { showToast("No changes", "Payroll access required", "notice"); return; }
+              if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), L("Payroll access required", "Akses gaji diperlukan"), "notice"); return; }
               const a = r.data?.applied ?? []; const sk = r.data?.skipped ?? [];
-              showToast(a.length ? "Saved" : "No changes",
+              showToast(a.length ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
                 a.length
-                  ? `Pulled ${a.length} approved commission ${a.length === 1 ? "entry" : "entries"} (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · no payroll row yet: ${sk.join(", ")}` : ""}`
-                  : sk.length ? `No payroll rows for: ${sk.join(", ")} — save the payroll grid first` : "Nothing approved on the Commission tab for this month",
+                  ? L(`Pulled ${a.length} approved commission ${a.length === 1 ? "entry" : "entries"} (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · no payroll row yet: ${sk.join(", ")}` : ""}`, `${a.length} entri komisen diluluskan ditarik (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · belum ada baris gaji: ${sk.join(", ")}` : ""}`)
+                  : sk.length ? L(`No payroll rows for: ${sk.join(", ")} — save the payroll grid first`, `Tiada baris gaji untuk: ${sk.join(", ")} — simpan grid gaji dahulu`) : L("Nothing approved on the Commission tab for this month", "Tiada yang diluluskan pada tab Komisen untuk bulan ini"),
                 a.length ? undefined : "notice");
               if (a.length) void load();
             }}>
-            Pull approved commission — {ym(month)}
+            {L("Pull approved commission", "Tarik komisen diluluskan")} — {ym(month)}
           </button>
-          <span className="text-muted-foreground">Rates &amp; approvals live on the Commission tab.</span>
+          <span className="text-muted-foreground">{L("Rates & approvals live on the Commission tab.", "Kadar & kelulusan berada di tab Komisen.")}</span>
         </div>
       </>)}
 
@@ -764,18 +755,18 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               const early = release.available_from > nowMYT;
               return (
                 <span className="font-medium text-green-700">
-                  Payslips for {monthDMY(month)} are RELEASED to staff (since {release.released.released_at.slice(0, 16)} UTC).
+                  {L(`Payslips for ${monthDMY(month)} are RELEASED to staff (since ${release.released.released_at.slice(0, 16)} UTC).`, `Slip gaji untuk ${monthDMY(month)} telah DIKELUARKAN kepada kakitangan (sejak ${release.released.released_at.slice(0, 16)} UTC).`)}
                   {early && (
                     <>
-                      {" "}<span className="font-semibold text-amber-700">⚠ Released EARLY — the automatic date was {dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month&apos;s.</span>
+                      {" "}<span className="font-semibold text-amber-700">{L(`⚠ Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `⚠ DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
                       {" "}<button type="button" className="font-medium underline"
-                        title="Take this month's payslips back from staff view — the automatic release date resumes"
+                        title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
                         onClick={async () => {
                           const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month, undo: true }) });
-                          setMsg(res.ok ? "Early release undone — automatic date resumes." : "Undo failed");
+                          setMsg(res.ok ? L("Early release undone — automatic date resumes.", "Keluaran awal dibatalkan — tarikh automatik disambung semula.") : L("Undo failed", "Batal gagal"));
                           window.setTimeout(() => setMsg(""), 3000);
                           void load();
-                        }}>Undo release</button>
+                        }}>{L("Undo release", "Batal keluaran")}</button>
                     </>
                   )}
                 </span>
@@ -784,9 +775,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           ) : (
             <>
               <span className="text-muted-foreground">
-                Staff can view {monthDMY(month)} payslips from{" "}
+                {L("Staff can view", "Kakitangan boleh melihat slip gaji")} {monthDMY(month)} {L("payslips from", "dari")}{" "}
                 <span className="font-medium">{dmy(release.available_from)} {release.available_from.split(" ")[1]} MYT</span>
-                {" "}(5th of the next month, or the next working day). Until then, only payroll processors see the figures.
+                {" "}{L("(5th of the next month, or the next working day). Until then, only payroll processors see the figures.", "(5 haribulan bulan berikutnya, atau hari bekerja berikutnya). Sehingga itu, hanya pemproses gaji melihat angkanya.")}
                 {(() => {
                   /* v1.4.211: when the CURRENT month is on screen, the
                      early release the CEO usually wants is LAST month's —
@@ -794,14 +785,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   const nowM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
                   const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
                   return month === nowM
-                    ? <> Paying salaries early? The payslips to release are <span className="font-medium">{monthDMY(cycleM)}</span> — pick that month above, then Release now.</>
+                    ? <> {L("Paying salaries early? The payslips to release are", "Membayar gaji awal? Slip gaji yang perlu dikeluarkan ialah")} <span className="font-medium">{monthDMY(cycleM)}</span>{L(" — pick that month above, then Release now.", " — pilih bulan itu di atas, kemudian Keluarkan sekarang.")}</>
                     : null;
                 })()}
               </span>{" "}
               <button
                 type="button"
                 className="font-medium underline"
-                title="Release this month's payslips to staff now, before the automatic date"
+                title={L("Release this month's payslips to staff now, before the automatic date", "Keluarkan slip gaji bulan ini kepada kakitangan sekarang, sebelum tarikh automatik")}
                 onClick={async () => {
                   /* v1.4.210: releasing before the automatic date usually
                      means the wrong month is on screen — confirm with the
@@ -820,25 +811,25 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                     const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
                     const ok = month === cycleM
                       ? await payConfirm({
-                          title: `Release ${monthDMY(month)} payslips now?`,
-                          message: `Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`,
-                          confirmLabel: "Release now",
+                          title: L(`Release ${monthDMY(month)} payslips now?`, `Keluarkan slip gaji ${monthDMY(month)} sekarang?`),
+                          message: L(`Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`, `Lebih awal daripada tarikh automatik (${autoD} 10:00 MYT).\nIni keluaran awal biasa apabila anda membayar gaji sebelum 5 haribulan.`),
+                          confirmLabel: L("Release now", "Keluarkan sekarang"),
                         })
                       : await payConfirm({
-                          title: "⚠ Early release — check the month",
-                          message: `${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`,
-                          confirmLabel: `Release ${monthDMY(month)} anyway`,
+                          title: L("⚠ Early release — check the month", "⚠ Keluaran awal — semak bulan"),
+                          message: L(`${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(month)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
+                          confirmLabel: L(`Release ${monthDMY(month)} anyway`, `Keluarkan ${monthDMY(month)} juga`),
                           variant: "danger",
                         });
                     if (!ok) return;
                   }
                   const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
-                  setMsg(res.ok ? "Payslips released to staff." : "Release failed");
+                  setMsg(res.ok ? L("Payslips released to staff.", "Slip gaji dikeluarkan kepada kakitangan.") : L("Release failed", "Keluaran gagal"));
                   window.setTimeout(() => setMsg(""), 3000);
                   void load();
                 }}
               >
-                Release now
+                {L("Release now", "Keluarkan sekarang")}
               </button>
             </>
           )}
@@ -847,11 +838,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
 
       {showBase && (
         <div className="border-border mt-3 rounded-lg border p-3">
-          <p className="text-sm font-semibold">Base salaries (fixed monthly basic)</p>
+          <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Every new month&apos;s Basic auto-fills from these figures — no retyping.
-            When someone gets an increment, change it here and it applies from
-            the next unsaved month onwards; months already saved stay as saved.
+            {L(
+              "Every new month's Basic auto-fills from these figures — no retyping. When someone gets an increment, change it here and it applies from the next unsaved month onwards; months already saved stay as saved.",
+              "Gaji pokok setiap bulan baharu terisi automatik daripada angka ini — tiada taipan semula. Apabila seseorang menerima kenaikan, ubah di sini dan ia terpakai dari bulan belum disimpan yang berikutnya; bulan yang sudah disimpan kekal seperti disimpan.",
+            )}
           </p>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {staff.map((u) => (
@@ -881,12 +873,12 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   if (res.ok) n++;
                 }
               }
-              if (n > 0) showToast("Saved", `Base salary updated for ${n} staff`);
-              else showToast("No changes", "Base salaries already match", "notice");
+              if (n > 0) showToast(L("Saved", "Disimpan"), L(`Base salary updated for ${n} staff`, `Gaji asas dikemas kini untuk ${n} kakitangan`));
+              else showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
               void load();
             }}
           >
-            Save base salaries
+            {L("Save base salaries", "Simpan gaji asas")}
           </button>
         </div>
       )}
@@ -896,16 +888,16 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
           <thead>
             <tr className="border-border border-b">
               {([
-                ["staff", "Staff"],
-                ["basic", "Basic (RM)"],
-                ["comm", "Commission"],
-                ["allow", "Allowance"],
-                ["ot", "OT (hrs)"],
-                ["deduct", "Deduction"],
-                ["net", "Net"]
+                ["staff", L("Staff", "Kakitangan")],
+                ["basic", L("Basic (RM)", "Gaji pokok (RM)")],
+                ["comm", L("Commission", "Komisen")],
+                ["allow", L("Allowance", "Elaun")],
+                ["ot", L("OT (hrs)", "OT (jam)")],
+                ["deduct", L("Deduction", "Potongan")],
+                ["net", L("Net", "Bersih")]
               ] as [PrCol, string][]).map(([col, label]) => (
                 <th key={col} className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none"
-                  title={col === "ot" ? "Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate\nSort by OT — click again to reverse" : `Sort by ${label} — click again to reverse`}
+                  title={col === "ot" ? L("Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate\nSort by OT — click again to reverse", "Jam OT — dibayar pada 1.5 × ORP sejam (pokok ÷ 26 ÷ 8), kadar hari biasa Akta Kerja\nIsih ikut OT — klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
                   onClick={() => cyclePr(col)}>
                   {label}{prSort.col === col ? (prSort.asc ? " ▲" : " ▼") : ""}
                 </th>
@@ -948,14 +940,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         bank account goes unnoticed until a transfer bounces. */}
                     <span className="font-medium">{displayName(u)}</span>{" "}
                     <span className="text-muted-foreground text-xs">{u.position ?? u.role}</span>
-                    {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900" title="Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT">⏱ hourly</span>}
+                    {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT", "Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly", "⏱ ikut jam")}</span>}
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
                     <td key={k} className="px-2 py-1.5">
                       {hourlyRow && k === "basic_cents" ? (
-                        <span className="block text-xs" title="Auto from clock in–out — first in to last out per day, summed for the month. RM15.00/hour (CEO rule). Not editable.">
+                        <span className="block text-xs" title={L("Auto from clock in–out — first in to last out per day, summed for the month. RM15.00/hour (CEO rule). Not editable.", "Auto daripada daftar masuk–keluar — masuk pertama hingga keluar terakhir setiap hari, dijumlahkan untuk bulan itu. RM15.00/jam (peraturan CEO). Tidak boleh disunting.")}>
                           <span className="font-medium">{(hourlyPay / 100).toFixed(2)}</span>
-                          <span className="text-muted-foreground"> · {hmLabel(hourlyMins)} × RM15/h</span>
+                          <span className="text-muted-foreground"> · {hmLabel(hourlyMins)}{L(" × RM15/h", " × RM15/jam")}</span>
                         </span>
                       ) : (
                       <input
@@ -971,7 +963,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   ))}
                   <td className="px-2 py-1.5">
                     {hourlyRow ? (
-                      <span className="text-muted-foreground text-xs" title="Part-time live hosts are not OT-eligible (CEO rule) — contract/permanent live hosts are">—</span>
+                      <span className="text-muted-foreground text-xs" title={L("Part-time live hosts are not OT-eligible (CEO rule) — contract/permanent live hosts are", "Hos siaran langsung separuh masa tidak layak OT (peraturan CEO) — hos kontrak/tetap layak")}>—</span>
                     ) : (
                     <input
                       type="number" min={0} max={300} step="0.5"
@@ -979,7 +971,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                       disabled={readOnly}
                       value={e.ot_hours ? e.ot_hours.toString() : ""}
                       placeholder="0"
-                      title={ot > 0 ? `= ${rm(ot)} at 1.5 × hourly ORP` : "Overtime hours (halves allowed)"}
+                      title={ot > 0 ? L(`= ${rm(ot)} at 1.5 × hourly ORP`, `= ${rm(ot)} pada 1.5 × ORP sejam`) : L("Overtime hours (halves allowed)", "Jam OT (separuh dibenarkan)")}
                       onChange={(ev) => {
                         const h = ev.target.value === "" ? null : Math.max(0, Number(ev.target.value));
                         setEntries((m) => ({ ...m, [u.id]: { ...e, ot_hours: h } }));
@@ -1003,7 +995,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                     {(adj > 0 || ulDed > 0) && (
                       <span
                         className="block text-[10px] text-red-700"
-                        title={`Auto-deducted on the payslip: ${adj > 0 ? `incomplete month ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `unpaid leave ${rm(ulDed)}` : ""} — Basic stays full`}
+                        title={L(`Auto-deducted on the payslip: ${adj > 0 ? `incomplete month ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `unpaid leave ${rm(ulDed)}` : ""} — Basic stays full`, `Dipotong automatik pada slip gaji: ${adj > 0 ? `bulan tidak lengkap ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `cuti tanpa gaji ${rm(ulDed)}` : ""} — Gaji pokok kekal penuh`)}
                       >
                         −{rm(adj + ulDed)} auto
                       </span>
@@ -1011,14 +1003,14 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {hourlyRow ? (
-                      <span className="text-muted-foreground text-xs" title="Hourly pay is computed from clocked time directly — no worked-days proration">{hmLabel(hourlyMins)}</span>
+                      <span className="text-muted-foreground text-xs" title={L("Hourly pay is computed from clocked time directly — no worked-days proration", "Gaji sejam dikira terus daripada masa berdaftar — tiada prorata hari bekerja")}>{hmLabel(hourlyMins)}</span>
                     ) : !readOnly && (
                       <>
                         <input
                           type="number" min={0} max={31}
                           className="border-input bg-background w-12 rounded border px-1 py-0.5 text-xs"
-                          placeholder="d"
-                          title={`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`}
+                          placeholder={L("d", "h")}
+                          title={L(`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`, `Hari bekerja (daripada ${monthDays}) — kehadiran merekod ${attDays[u.id] ?? 0} hari daftar masuk bulan ini; sunting bebas untuk membetulkan ketukan yang salah atau tidak jujur`)}
                           value={workedDays[u.id] ?? ""}
                           onChange={(ev) => setWorkedDays((m) => {
                             // Blank = full month (no adjustment) — an empty box
@@ -1031,35 +1023,35 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                         />
                         <span
                           className="text-muted-foreground ml-1 text-[10px]"
-                          title="Clock-in days recorded in Attendance this month"
+                          title={L("Clock-in days recorded in Attendance this month", "Hari daftar masuk direkod dalam Kehadiran bulan ini")}
                         >
                           ⏱{attDays[u.id] ?? 0}
                         </span>
                         {(unpaidDays[u.id] ?? 0) > 0 && (
                           <span
                             className="ml-1 text-[10px] font-semibold text-red-700"
-                            title={`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at basic ÷ 26 per day. Keep Basic full and do NOT deduct it again here.`}
+                            title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at basic ÷ 26 per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada pokok ÷ 26 sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
                           >
                             UL:{unpaidDays[u.id]}
                           </span>
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
-                          <button type="button" className="ml-1 text-xs underline" title="Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)"
+                          <button type="button" className="ml-1 text-xs underline" title={L("Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)", "Set semula Gaji pokok kepada gaji asas tetap (guna ini untuk membetulkan baris yang dikecilkan butang Prorate lama)")}
                             onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
-                            Base
+                            {L("Base", "Asas")}
                           </button>
                         )}
                         <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id, u.name)}>
-                          Save
+                          {L("Save", "Simpan")}
                         </button>
                       </>
                     )}
                     <button type="button" className={`${rowBtn} ml-2`} onClick={() => void printSlip(u)}>
-                      Payslip
+                      {L("Payslip", "Slip gaji")}
                     </button>
-                    <button type="button" className={`${rowBtn} ml-1.5`} title="Send this payslip as a PDF file"
+                    <button type="button" className={`${rowBtn} ml-1.5`} title={L("Send this payslip as a PDF file", "Hantar slip gaji ini sebagai fail PDF")}
                       onClick={() => void sendSlip(u)}>
-                      Send PDF
+                      {L("Send PDF", "Hantar PDF")}
                     </button>
                   </td>
                 </tr>
@@ -1094,7 +1086,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               );
               return (
                 <tr className="border-border border-t-2 font-semibold">
-                  <td className="px-2 py-2">TOTAL — {staff.length} staff</td>
+                  <td className="px-2 py-2">{L("TOTAL", "JUMLAH")} — {staff.length} {L("staff", "kakitangan")}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.basic)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.comm)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.allow)}</td>
@@ -1162,10 +1154,12 @@ export function MyPayslip() {
     <div className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">My payslip</p>
+          <p className="text-sm font-semibold">{L("My payslip", "Slip gaji saya")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            View and print your payslip. Amounts are set by payroll processing
-            and cannot be edited here.
+            {L(
+              "View and print your payslip. Amounts are set by payroll processing and cannot be edited here.",
+              "Lihat dan cetak slip gaji anda. Amaun ditetapkan oleh pemprosesan gaji dan tidak boleh disunting di sini.",
+            )}
           </p>
         </div>
         <input
@@ -1186,7 +1180,7 @@ export function MyPayslip() {
       {lockedUntil ? (
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
-            🔒 Your payslip for <span className="font-medium">{monthDMY(month)}</span> will be available on{" "}
+            {L("🔒 Your payslip for", "🔒 Slip gaji anda untuk")} <span className="font-medium">{monthDMY(month)}</span> {L("will be available on", "akan tersedia pada")}{" "}
             <span className="font-semibold">{dmy(lockedUntil)}, {lockedUntil.split(" ")[1]} MYT</span>.
           </p>
           <button
@@ -1194,46 +1188,46 @@ export function MyPayslip() {
             disabled
             className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
           >
-            Print payslip
+            {L("Print payslip", "Cetak slip gaji")}
           </button>
         </div>
       ) : beforeJoining ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-muted-foreground text-sm">
-            You joined AZ ONE OFFICIAL on {dmy(joinedOn)} — no payslip exists for this month.
+            {L("You joined AZ ONE OFFICIAL on", "Anda menyertai AZ ONE OFFICIAL pada")} {dmy(joinedOn)}{L(" — no payslip exists for this month.", " — tiada slip gaji wujud untuk bulan ini.")}
           </p>
           <button
             type="button"
             disabled
             className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
           >
-            Print payslip
+            {L("Print payslip", "Cetak slip gaji")}
           </button>
         </div>
       ) : entry ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
-            Basic {rm(entry.basic_cents)} · Commission {rm(entry.commission_cents)} ·
-            Allowance {rm(entry.allowance_cents)} · OT {rm(otC)} ·
-            Deductions {rm(entry.deduction_cents + autoDed)} ·{" "}
-            <span className="font-semibold">Net {rm(Math.max(0, net))}</span>
+            {L("Basic", "Pokok")} {rm(entry.basic_cents)} · {L("Commission", "Komisen")} {rm(entry.commission_cents)} ·{" "}
+            {L("Allowance", "Elaun")} {rm(entry.allowance_cents)} · OT {rm(otC)} ·{" "}
+            {L("Deductions", "Potongan")} {rm(entry.deduction_cents + autoDed)} ·{" "}
+            <span className="font-semibold">{L("Net", "Bersih")} {rm(Math.max(0, net))}</span>
           </span>
           <span className={rowActions}>
             <button type="button" className={rowBtn}
               onClick={() => printPayslip(entry, entry, month, extras)}>
-              Print payslip
+              {L("Print payslip", "Cetak slip gaji")}
             </button>
             {/* v1.4.257: the errand this exists for is a bank or a landlord
                 asking for a payslip while you are standing at their counter. */}
-            <button type="button" className={rowBtnPrimary} title="Send the payslip as a PDF file"
+            <button type="button" className={rowBtnPrimary} title={L("Send the payslip as a PDF file", "Hantar slip gaji sebagai fail PDF")}
               onClick={() => void sendPayslipPdf(entry, entry, month, extras)}>
-              Send PDF
+              {L("Send PDF", "Hantar PDF")}
             </button>
           </span>
         </div>
       ) : (
         <p className="text-muted-foreground mt-3 text-sm">
-          No payslip for this month yet — it appears once payroll is processed.
+          {L("No payslip for this month yet — it appears once payroll is processed.", "Belum ada slip gaji untuk bulan ini — ia muncul setelah gaji diproses.")}
         </p>
       )}
     </div>

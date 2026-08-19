@@ -14,8 +14,10 @@ import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { card, inputClass, btnClass, fieldRow, fieldLabel } from "@/lib/ui-styles";
 import { MiniBar } from "@/components/ui/stat-card";
 import { dmy } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface ContentItem {
   id: number; title: string; kind: string; platform: string; stage: string;
@@ -24,9 +26,17 @@ interface ContentItem {
   performance?: string | null; notes?: string | null; posted_at?: string | null; created_at: string;
 }
 
-const KINDS = [["video", "Video"], ["reel", "Reel"], ["live", "Live"], ["campaign", "Campaign"], ["other", "Other"]] as const;
-const PLATFORMS = [["tiktok", "TikTok"], ["shopee", "Shopee"], ["instagram", "Instagram"], ["facebook", "Facebook"], ["other", "Other"]] as const;
+const KINDS = [["video", "Video", "Video"], ["reel", "Reel", "Reel"], ["live", "Live", "Live"], ["campaign", "Campaign", "Kempen"], ["other", "Other", "Lain-lain"]] as const;
+const PLATFORMS = [["tiktok", "TikTok", "TikTok"], ["shopee", "Shopee", "Shopee"], ["instagram", "Instagram", "Instagram"], ["facebook", "Facebook", "Facebook"], ["other", "Other", "Lain-lain"]] as const;
 const STAGES = ["idea", "script", "shoot", "edit", "approval", "posted"] as const;
+
+/* BM labels for stage/kind VALUES — display only; the values themselves stay
+   English everywhere they are compared, filtered or sent to the API. */
+const STAGE_MS: Record<string, string> = {
+  idea: "idea", script: "skrip", shoot: "penggambaran", edit: "suntingan", approval: "kelulusan", posted: "telah disiarkan",
+};
+const KIND_MS: Record<string, string> = { video: "video", reel: "reel", live: "live", campaign: "kempen", other: "lain-lain" };
+const stageLabel = (s: string) => L(s, STAGE_MS[s] ?? s);
 
 const STAGE_CHIP: Record<string, string> = {
   idea: "bg-secondary text-foreground",
@@ -61,17 +71,17 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
   }, []);
 
   const save = async () => {
-    if (!draft.title.trim()) { showToast("No changes", "A title is required", "notice"); return; }
+    if (!draft.title.trim()) { showToast(L("No changes", "Tiada perubahan"), L("A title is required", "Tajuk diperlukan"), "notice"); return; }
     const body = JSON.stringify({ ...draft, assigned_to: draft.assigned_to ? Number(draft.assigned_to) : null });
     const r = editingId ? await api(`/content/${editingId}`, { method: "PATCH", body }) : await api(`/content`, { method: "POST", body });
-    if (!r.ok) { showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Could not save", "notice"); return; }
-    showToast("Saved", editingId ? `${draft.title} updated` : `${draft.title} added`);
+    if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Could not save", "Tidak dapat disimpan"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), editingId ? L(`${draft.title} updated`, `${draft.title} dikemas kini`) : L(`${draft.title} added`, `${draft.title} ditambah`));
     setDraft({ ...EMPTY }); setEditingId(null); void load();
   };
 
   const setStage = async (c: ContentItem, stage: string) => {
     const r = await api(`/content/${c.id}`, { method: "PATCH", body: JSON.stringify({ stage }) });
-    showToast(r.ok ? "Saved" : "No changes", r.ok ? `${c.title} → ${stage}` : "Could not update", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), r.ok ? L(`${c.title} → ${stage}`, `${c.title} → ${STAGE_MS[stage] ?? stage}`) : L("Could not update", "Tidak dapat dikemas kini"), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -79,16 +89,16 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
   const shown = stageFilter ? rows.filter((c) => c.stage === stageFilter) : rows;
 
   if (notReady) {
-    return <div className={card}><p className="text-sm font-semibold">🎬 Content</p>
-      <p className="text-muted-foreground mt-1 text-xs">Content management is temporarily unavailable — the server may need migration 0069 applied.</p></div>;
+    return <div className={card}><p className="text-sm font-semibold">{L("🎬 Content", "🎬 Kandungan")}</p>
+      <p className="text-muted-foreground mt-1 text-xs">{L("Content management is temporarily unavailable — the server may need migration 0069 applied.", "Pengurusan kandungan tidak tersedia buat sementara — pelayan mungkin perlu migrasi 0069.")}</p></div>;
   }
 
   return (
     <div className={card}>
       {toastNode}{confirmNode}
-      <p className="text-sm font-semibold">🎬 Content — IDEA → POSTED</p>
+      <p className="text-sm font-semibold">{L("🎬 Content — IDEA → POSTED", "🎬 Kandungan — IDEA → DISIARKAN")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Plan every piece of content, move it through the production stages, and keep the script + caption together. Assigning it notifies the owner.
+        {L("Plan every piece of content, move it through the production stages, and keep the script + caption together. Assigning it notifies the owner.", "Rancang setiap kandungan, gerakkannya melalui peringkat produksi, dan simpan skrip + kapsyen bersama. Penugasan akan memaklumkan pemiliknya.")}
       </p>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -96,81 +106,81 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
           <button key={s} type="button"
             className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STAGE_CHIP[s]} ${stageFilter === s ? "ring-2 ring-ring" : ""}`}
             onClick={() => setStageFilter(stageFilter === s ? null : s)}>
-            {s} {counts[s] ?? 0}
+            {stageLabel(s)} {counts[s] ?? 0}
           </button>
         ))}
       </div>
 
       {canManage && (
         <div className="border-border mt-3 rounded-lg border p-3">
-          <p className="text-xs font-semibold">{editingId ? "Edit content" : "Add content"}</p>
+          <p className="text-xs font-semibold">{editingId ? L("Edit content", "Sunting kandungan") : L("Add content", "Tambah kandungan")}</p>
           <div className={`${fieldRow} mt-2`}>
             <label className="col-span-2 block sm:flex-1">
-              <span className={fieldLabel}>Title *</span>
-              <input className={inputClass} placeholder="e.g. Raya haul live, ELFIA bawal reel" value={draft.title}
+              <span className={fieldLabel}>{L("Title *", "Tajuk *")}</span>
+              <input className={inputClass} placeholder={L("e.g. Raya haul live, ELFIA bawal reel", "cth. Raya haul live, reel bawal ELFIA")} value={draft.title}
                 onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </label>
             <label className="block">
-              <span className={fieldLabel}>Type</span>
+              <span className={fieldLabel}>{L("Type", "Jenis")}</span>
               <select className={inputClass} value={draft.kind} onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value }))}>
-                {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {KINDS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className={fieldLabel}>Platform</span>
+              <span className={fieldLabel}>{L("Platform", "Platform")}</span>
               <select className={inputClass} value={draft.platform} onChange={(e) => setDraft((d) => ({ ...d, platform: e.target.value }))}>
-                {PLATFORMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {PLATFORMS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className={fieldLabel}>Scheduled</span>
+              <span className={fieldLabel}>{L("Scheduled", "Dijadualkan")}</span>
               <input type="date" className={inputClass} value={draft.scheduled_date} onChange={(e) => setDraft((d) => ({ ...d, scheduled_date: e.target.value }))} />
             </label>
           </div>
           <div className={`${fieldRow} mt-2`}>
             <label className="block">
-              <span className={fieldLabel}>Campaign</span>
-              <input className={inputClass} placeholder="e.g. Raya 2026" value={draft.campaign} onChange={(e) => setDraft((d) => ({ ...d, campaign: e.target.value }))} />
+              <span className={fieldLabel}>{L("Campaign", "Kempen")}</span>
+              <input className={inputClass} placeholder={L("e.g. Raya 2026", "cth. Raya 2026")} value={draft.campaign} onChange={(e) => setDraft((d) => ({ ...d, campaign: e.target.value }))} />
             </label>
             <label className="block">
-              <span className={fieldLabel}>Assigned to</span>
+              <span className={fieldLabel}>{L("Assigned to", "Diberikan kepada")}</span>
               <select className={inputClass} value={draft.assigned_to} onChange={(e) => setDraft((d) => ({ ...d, assigned_to: e.target.value }))}>
-                <option value="">— unassigned —</option>
+                <option value="">{L("— unassigned —", "— tidak diberikan —")}</option>
                 {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </label>
           </div>
           <label className="mt-2 block">
-            <span className={fieldLabel}>Script</span>
-            <textarea className={inputClass} rows={2} placeholder="the hook, key points, CTA" value={draft.script} onChange={(e) => setDraft((d) => ({ ...d, script: e.target.value }))} />
+            <span className={fieldLabel}>{L("Script", "Skrip")}</span>
+            <textarea className={inputClass} rows={2} placeholder={L("the hook, key points, CTA", "cangkuk, isi utama, CTA")} value={draft.script} onChange={(e) => setDraft((d) => ({ ...d, script: e.target.value }))} />
           </label>
           <label className="mt-2 block">
-            <span className={fieldLabel}>Caption</span>
-            <textarea className={inputClass} rows={2} placeholder="posting caption + hashtags" value={draft.caption} onChange={(e) => setDraft((d) => ({ ...d, caption: e.target.value }))} />
+            <span className={fieldLabel}>{L("Caption", "Kapsyen")}</span>
+            <textarea className={inputClass} rows={2} placeholder={L("posting caption + hashtags", "kapsyen siaran + hashtag")} value={draft.caption} onChange={(e) => setDraft((d) => ({ ...d, caption: e.target.value }))} />
           </label>
           <div className="mt-2.5 flex items-center gap-3">
-            <button type="button" className={btnClass} onClick={() => void save()}>{editingId ? "Save changes" : "Add content"}</button>
-            {editingId && <button type="button" className="text-xs underline" onClick={() => { setEditingId(null); setDraft({ ...EMPTY }); }}>Cancel</button>}
+            <button type="button" className={btnClass} onClick={() => void save()}>{editingId ? L("Save changes", "Simpan perubahan") : L("Add content", "Tambah kandungan")}</button>
+            {editingId && <button type="button" className="text-xs underline" onClick={() => { setEditingId(null); setDraft({ ...EMPTY }); }}>{L("Cancel", "Batal")}</button>}
           </div>
         </div>
       )}
 
       <div className="mt-3 space-y-1.5">
-        {shown.length === 0 && <p className="text-muted-foreground text-xs">{stageFilter ? `Nothing in ${stageFilter}.` : "No content yet — plan the first piece above."}</p>}
+        {shown.length === 0 && <p className="text-muted-foreground text-xs">{stageFilter ? L(`Nothing in ${stageFilter}.`, `Tiada dalam ${STAGE_MS[stageFilter] ?? stageFilter}.`) : L("No content yet — plan the first piece above.", "Belum ada kandungan — rancang yang pertama di atas.")}</p>}
         {shown.map((c) => (
           <div key={c.id} className="border-border rounded-lg border px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="min-w-0 text-sm">
-                <RecordToggle open={open === c.id} title="Script, caption and performance" onToggle={() => setOpen(open === c.id ? null : c.id)}>
+                <RecordToggle open={open === c.id} title={L("Script, caption and performance", "Skrip, kapsyen dan prestasi")} onToggle={() => setOpen(open === c.id ? null : c.id)}>
                   {c.title}
                 </RecordToggle>
-                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${STAGE_CHIP[c.stage] ?? "bg-secondary"}`}>{c.stage}</span>
+                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${STAGE_CHIP[c.stage] ?? "bg-secondary"}`}>{stageLabel(c.stage)}</span>
               </span>
               <span className={rowActions}>
                 {canManage && (
                   <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs capitalize" value={c.stage}
                     onChange={(e) => void setStage(c, e.target.value)}>
-                    {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {STAGES.map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
                   </select>
                 )}
                 {canManage && (
@@ -178,40 +188,40 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
                     setEditingId(c.id);
                     setDraft({ title: c.title, kind: c.kind, platform: c.platform, scheduled_date: c.scheduled_date ?? "", script: c.script ?? "", caption: c.caption ?? "", campaign: c.campaign ?? "", assigned_to: c.assigned_to ? String(c.assigned_to) : "", notes: c.notes ?? "" });
                     window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}>Edit</button>
+                  }}>{L("Edit", "Sunting")}</button>
                 )}
                 {canManage && (
                   <button type="button" className={rowBtnDanger} onClick={async () => {
-                    if (!(await confirm({ title: "Delete this content?", message: `${c.title} will be removed.`, confirmLabel: "Delete" }))) return;
+                    if (!(await confirm({ title: L("Delete this content?", "Padam kandungan ini?"), message: L(`${c.title} will be removed.`, `${c.title} akan dibuang.`), confirmLabel: L("Delete", "Padam") }))) return;
                     const r = await api(`/content/${c.id}`, { method: "DELETE" });
-                    showToast(r.ok ? "Saved" : "No changes", r.ok ? `${c.title} removed` : "Could not delete", r.ok ? undefined : "notice");
+                    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), r.ok ? L(`${c.title} removed`, `${c.title} dibuang`) : L("Could not delete", "Tidak dapat dipadam"), r.ok ? undefined : "notice");
                     void load();
-                  }}>Delete</button>
+                  }}>{L("Delete", "Padam")}</button>
                 )}
               </span>
             </div>
             <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs">
               <MiniBar className="w-12 shrink-0" pct={((STAGES.indexOf(c.stage as typeof STAGES[number]) + 1) / STAGES.length) * 100} tone={c.stage === "posted" ? "green" : "gold"} />
-              <span className="capitalize">{c.kind} · {c.platform}
+              <span className="capitalize">{L(c.kind, KIND_MS[c.kind] ?? c.kind)} · {c.platform}
                 {c.campaign ? ` · ${c.campaign}` : ""}
                 {c.assigned_name ? ` · 👤 ${c.assigned_name.split(" ")[0]}` : ""}
                 {c.scheduled_date ? ` · 📅 ${dmy(c.scheduled_date)}` : ""}
-                {c.posted_at ? ` · ✅ posted ${dmy(c.posted_at)}` : ""}
+                {c.posted_at ? L(` · ✅ posted ${dmy(c.posted_at)}`, ` · ✅ disiarkan ${dmy(c.posted_at)}`) : ""}
               </span>
             </p>
             {open === c.id && (
               <>
                 <DetailGrid items={[
-                  { label: "Script", wide: true, value: c.script ?? "" },
-                  { label: "Caption", wide: true, value: c.caption ?? "" },
-                  { label: "Performance", wide: true, value: c.performance ?? "" },
+                  { label: L("Script", "Skrip"), wide: true, value: c.script ?? "" },
+                  { label: L("Caption", "Kapsyen"), wide: true, value: c.caption ?? "" },
+                  { label: L("Performance", "Prestasi"), wide: true, value: c.performance ?? "" },
                 ]} />
                 {canManage && (
                   <div className="mt-2 flex flex-wrap items-end gap-2">
                     <label className="flex-1">
-                      <span className={fieldLabel}>Log performance (views / GMV / notes)</span>
-                      <input className={inputClass} defaultValue={c.performance ?? ""} placeholder="e.g. 42k views · RM3,200 GMV · 3.1% CVR"
-                        onBlur={async (e) => { if (e.target.value !== (c.performance ?? "")) { await api(`/content/${c.id}`, { method: "PATCH", body: JSON.stringify({ performance: e.target.value }) }); showToast("Saved", "Performance logged"); void load(); } }} />
+                      <span className={fieldLabel}>{L("Log performance (views / GMV / notes)", "Catat prestasi (tontonan / GMV / nota)")}</span>
+                      <input className={inputClass} defaultValue={c.performance ?? ""} placeholder={L("e.g. 42k views · RM3,200 GMV · 3.1% CVR", "cth. 42k tontonan · RM3,200 GMV · 3.1% CVR")}
+                        onBlur={async (e) => { if (e.target.value !== (c.performance ?? "")) { await api(`/content/${c.id}`, { method: "PATCH", body: JSON.stringify({ performance: e.target.value }) }); showToast(L("Saved", "Disimpan"), L("Performance logged", "Prestasi dicatat")); void load(); } }} />
                     </label>
                   </div>
                 )}

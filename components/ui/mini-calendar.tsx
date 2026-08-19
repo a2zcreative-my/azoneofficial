@@ -13,6 +13,14 @@
  * class of bug as the `slice(11,16)` timestamp already in the portal.
  */
 
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+/* Monday-first weekday headers; the BM short forms follow the roster board. */
+const DOW_EN = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+const DOW_MS = ["Isn", "Sel", "Rab", "Kha", "Jum", "Sab", "Ahd"];
+
 export function MiniCalendar({
   /** MYT month to render, "YYYY-MM". */
   month,
@@ -54,15 +62,15 @@ export function MiniCalendar({
         <b className="text-[12.5px] font-semibold">{label}</b>
         {onMonth ? (
           <div className="flex gap-1">
-            <button type="button" aria-label="Previous month" onClick={() => onMonth(-1)}
+            <button type="button" aria-label={L("Previous month", "Bulan sebelumnya")} onClick={() => onMonth(-1)}
               className="text-muted-foreground hover:bg-secondary hover:text-foreground grid h-6 w-6 place-items-center rounded-md text-xs">‹</button>
-            <button type="button" aria-label="Next month" onClick={() => onMonth(1)}
+            <button type="button" aria-label={L("Next month", "Bulan seterusnya")} onClick={() => onMonth(1)}
               className="text-muted-foreground hover:bg-secondary hover:text-foreground grid h-6 w-6 place-items-center rounded-md text-xs">›</button>
           </div>
         ) : null}
       </div>
       <div className="grid grid-cols-7 gap-px text-center">
-        {["MO", "TU", "WE", "TH", "FR", "SA", "SU"].map((d) => (
+        {(getLang() === "ms" ? DOW_MS : DOW_EN).map((d) => (
           <div key={d} className="text-muted-foreground pb-1 text-[9px] font-semibold">{d}</div>
         ))}
         {cells.map((c) => {

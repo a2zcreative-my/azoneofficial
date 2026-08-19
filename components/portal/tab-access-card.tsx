@@ -12,6 +12,29 @@ import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
+import { getLang, t } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+/* Display-only BM hints, keyed by the tab's internal name (never translated —
+   the name is the API/logic key). Missing entries fall back to the EN hint. */
+const HINTS_MS: Record<string, string> = {
+  Attendance: "rekod kehadiran + roster",
+  Ecommerce: "TikTok + peta",
+  Sales: "pertanyaan + dokumen",
+  Announcements: "suapan + terbit",
+  HR: "dokumen, pentadbiran cuti",
+  "Staff Details": "rekod + hari lahir",
+  Payroll: "gaji — kawal ketat",
+  Finance: "aliran tunai + P&L + perbelanjaan",
+  Content: "saluran produksi",
+  Reconciliation: "penyelesaian saluran",
+  Purchasing: "pembekal + PO",
+  Accounting: "GL — kawal ketat",
+  Stokis: "rangkaian pengedar",
+  Assets: "daftar peralatan",
+  Users: "akaun — kawal ketat",
+};
 
 
 /* v1.21.4 (CEO: "tabs access control seem like not sync with the current
@@ -95,7 +118,7 @@ export function TabAccessCard() {
     void fetch("/api/v1/staff/tabs/access", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setOverrides((d as { overrides: Record<string, string[]> }).overrides ?? {}))
-      .catch(() => setMsg("Tab access needs the latest server — deploy the worker first."));
+      .catch(() => setMsg(L("Tab access needs the latest server — deploy the worker first.", "Akses tab memerlukan pelayan terkini — deploy worker dahulu.")));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -112,54 +135,56 @@ export function TabAccessCard() {
       setOverrides(d.overrides ?? {});
       setOpenTab(null);
       showToast(
-        roles === null ? "Back to default" : "Access saved",
-        roles === null ? `${tab} uses the built-in default again` : `${tab} — takes effect on each person's next refresh`,
+        roles === null ? L("Back to default", "Kembali kepada lalai") : L("Access saved", "Akses disimpan"),
+        roles === null ? L(`${tab} uses the built-in default again`, `${tab} menggunakan tetapan lalai terbina semula`) : L(`${tab} — takes effect on each person's next refresh`, `${tab} — berkuat kuasa pada muat semula seterusnya setiap orang`),
       );
-    } else showToast("Save failed", "Please try again", "notice");
+    } else showToast(L("Save failed", "Simpan gagal"), L("Please try again", "Sila cuba lagi"), "notice");
   };
 
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">🔐 Tab access control</p>
+      <p className="text-sm font-semibold">{L("🔐 Tab access control", "🔐 Kawalan akses tab")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Choose which roles see each tab. Everyone always keeps Dashboard and Profile (clock-in and payslips), and
-        super_admin always sees every tab — the safety net if an assignment goes wrong. Changes apply on each
-        person&apos;s next page refresh.
+        {L("Choose which roles see each tab. Everyone always keeps Dashboard and Profile (clock-in and payslips), and super_admin always sees every tab — the safety net if an assignment goes wrong. Changes apply on each person's next page refresh.",
+          "Pilih peranan yang boleh melihat setiap tab. Semua orang sentiasa mengekalkan Papan Pemuka dan Profil (daftar masuk dan slip gaji), dan super_admin sentiasa melihat semua tab — jaring keselamatan jika penetapan tersilap. Perubahan berkuat kuasa pada muat semula halaman seterusnya setiap orang.")}
       </p>
       <div className="mt-3 space-y-1.5">
         {TABS.map(({ name, label, hint }) => {
           const eff = effective(name);
           const overridden = Object.prototype.hasOwnProperty.call(overrides, name);
           const isOpen = openTab === name;
+          const ms = getLang() === "ms";
+          const shownLabel = ms ? t(name, "ms") : label;
+          const shownHint = ms ? (HINTS_MS[name] ?? hint) : hint;
           return (
             <div key={name} className="border-border rounded-lg border px-2.5 py-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs">
-                  <span className="font-semibold">{label}</span>
-                  {hint && <span className="text-muted-foreground"> · {hint}</span>}
+                  <span className="font-semibold">{shownLabel}</span>
+                  {shownHint && <span className="text-muted-foreground"> · {shownHint}</span>}
                   {" "}
                   {overridden
-                    ? <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">custom</span>
-                    : <span className="text-muted-foreground text-[10px]">default</span>}
+                    ? <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">{L("custom", "tersuai")}</span>
+                    : <span className="text-muted-foreground text-[10px]">{L("default", "lalai")}</span>}
                   {" "}
                   <span className="text-muted-foreground">
-                    — {eff === null ? "all staff" : eff.length === 0 ? "nobody (super_admin only)" : eff.map((r) => r.replace("_", " ")).join(", ")}
+                    — {eff === null ? L("all staff", "semua kakitangan") : eff.length === 0 ? L("nobody (super_admin only)", "tiada sesiapa (super_admin sahaja)") : eff.map((r) => r.replace("_", " ")).join(", ")}
                   </span>
                 </p>
                 <span className="flex items-center gap-2">
                   {overridden && !isOpen && (
-                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => void save(name, null)}>Reset to default</button>
+                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => void save(name, null)}>{L("Reset to default", "Set semula kepada lalai")}</button>
                   )}
                   <button type="button" className={rowBtn}
                     onClick={() => { setOpenTab(isOpen ? null : name); setDraft(eff === null ? ROLES.map(([r]) => r) : [...eff]); }}>
-                    {isOpen ? "Close" : "Edit"}
+                    {isOpen ? L("Close", "Tutup") : L("Edit", "Sunting")}
                   </button>
                 </span>
               </div>
               {isOpen && (
                 <div className="mt-2">
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded-full border border-green-700 px-2 py-0.5 text-[11px] font-semibold text-green-700" title="Always on — the safety net">✓ super admin 🔒</span>
+                    <span className="rounded-full border border-green-700 px-2 py-0.5 text-[11px] font-semibold text-green-700" title={L("Always on — the safety net", "Sentiasa aktif — jaring keselamatan")}>✓ super admin 🔒</span>
                     {ROLES.map(([r, labelR]) => {
                       const on = draft.includes(r);
                       return (
@@ -174,9 +199,9 @@ export function TabAccessCard() {
                     })}
                   </div>
                   <div className="mt-2 flex items-center gap-3">
-                    <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium" onClick={() => void save(name, draft)}>Save</button>
-                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft(ROLES.map(([r]) => r))}>Select all</button>
-                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft([])}>Clear</button>
+                    <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium" onClick={() => void save(name, draft)}>{L("Save", "Simpan")}</button>
+                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft(ROLES.map(([r]) => r))}>{L("Select all", "Pilih semua")}</button>
+                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft([])}>{L("Clear", "Kosongkan")}</button>
                   </div>
                 </div>
               )}

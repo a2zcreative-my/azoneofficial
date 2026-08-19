@@ -8,10 +8,11 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, btnClass, btnGhost, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, btnGhost, btnHdr, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmy, fmtRM } from "@/lib/format";
+import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
 
 
 interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
@@ -29,6 +30,20 @@ const ENQUIRY_CATS = [
   ["collaboration", "Collaboration / work with us"],
 ] as const;
 const CAT_LABEL = Object.fromEntries(ENQUIRY_CATS) as Record<string, string>;
+
+/* BM labels for display only — the values sent to / received from the API
+   ("QT", "paid", "new", "general"…) never change. */
+const DOC_LABEL_MS: Record<string, string> = { QT: "Sebut harga", DO: "Pesanan penghantaran", INV: "Invois" };
+const CAT_LABEL_MS: Record<string, string> = {
+  general: "Soalan umum",
+  package_pricing: "Pakej & harga",
+  live_commerce: "Perkhidmatan live commerce",
+  order_delivery: "Pesanan & penghantaran",
+  collaboration: "Kerjasama / bekerja dengan kami",
+};
+/* Same BM status words the admin's enquiry board uses. */
+const ENQ_STATUS_MS: Record<string, string> = { new: "baharu", contacted: "dihubungi", qualified: "layak", closed: "ditutup" };
+const LIVE_STATUS_MS: Record<string, string> = { scheduled: "dijadualkan", completed: "selesai", cancelled: "dibatalkan" };
 
 
 
@@ -48,6 +63,10 @@ export default function AccountPage() {
   const [ordersLocked, setOrdersLocked] = useState(false);
   const [sending, setSending] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
+  // EN/BM chrome language — same per-device store as the staff portal.
+  const [lang, setLangState] = useState<Lang>("en");
+  useEffect(() => { setLangState(getLang()); }, []);
+  const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -92,7 +111,7 @@ export default function AccountPage() {
       maxWidth="md:max-w-4xl"
       rail={
         <SidebarNav
-          items={(["Account", "Orders", "Enquiries"] as const).map((t) => ({ name: t, label: t === "Enquiries" ? "My Enquiries" : t }))}
+          items={(["Account", "Orders", "Enquiries"] as const).map((t) => ({ name: t, label: t === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : t === "Orders" ? L("Orders", "Pesanan") : L("Account", "Akaun") }))}
           active={tab}
           onSelect={(t) => setTab(t as "Account" | "Orders" | "Enquiries")}
           onSignOut={() =>
@@ -110,30 +129,39 @@ export default function AccountPage() {
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            My account
+            {L("My account", "Akaun saya")}
           </p>
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            Welcome, {user.name.split(" ")[0]}
+            {L("Welcome", "Selamat datang")}, {user.name.split(" ")[0]}
           </h1>
           {/* v1.11.0: app screen title weight/size, matching /portal. */}
           <h1 className="text-xl font-bold tracking-tight md:hidden">
-            {tab === "Enquiries" ? "My Enquiries" : tab === "Orders" ? "My Orders" : "My Account"}
+            {tab === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : tab === "Orders" ? L("My Orders", "Pesanan Saya") : L("My Account", "Akaun Saya")}
           </h1>
         </div>
-        {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
-        <button
-          type="button"
-          className={`${btnGhost} px-2.5`}
-          title="Sign out"
-          aria-label="Sign out"
-          onClick={() =>
-            void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
-              () => window.location.replace("/"),
-            )
-          }
-        >
-          <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* EN/BM toggle — same control as the portal header (btnHdr, not
+              btnHdrDesktop: customers have no mobile Preferences sheet, so
+              the switch must stay visible on phones). */}
+          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
+            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
+            {lang === "ms" ? "BM" : "EN"}
+          </button>
+          {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
+          <button
+            type="button"
+            className={`${btnGhost} px-2.5`}
+            title={L("Sign out", "Log keluar")}
+            aria-label={L("Sign out", "Log keluar")}
+            onClick={() =>
+              void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
+                () => window.location.replace("/"),
+              )
+            }
+          >
+            <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
       </header>
 
       {/* v1.23.0: the desktop pill row is retired — the icon rail (left,
@@ -149,7 +177,7 @@ export default function AccountPage() {
            its floating toolbar is shown, which removed ALL breathing room under
            the labels. max() guarantees a floor either way. */
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
-        aria-label="Account sections (mobile)"
+        aria-label={L("Account sections (mobile)", "Bahagian akaun (mudah alih)")}
       >
         {/* v1.16.0: emoji tuples -> the shared SVG icon map. */}
         {(["Account", "Orders", "Enquiries"] as const).map((t) => {
@@ -170,7 +198,7 @@ export default function AccountPage() {
               >
                 <TabIcon name={t} />
               </span>
-              <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t}</span>
+              <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t === "Enquiries" ? L("Enquiries", "Pertanyaan") : t === "Orders" ? L("Orders", "Pesanan") : L("Account", "Akaun")}</span>
             </button>
           );
         })}
@@ -179,7 +207,7 @@ export default function AccountPage() {
       {tab === "Account" && (
       <div key="acct" className="screen-enter mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className={card}>
-          <p className="text-sm font-semibold">My details</p>
+          <p className="text-sm font-semibold">{L("My details", "Maklumat saya")}</p>
           <p className="text-muted-foreground mt-2 text-sm">{user.name}</p>
           <p className="text-muted-foreground text-sm">{user.email}</p>
         </div>
@@ -190,29 +218,34 @@ export default function AccountPage() {
               Their sign-in security lives in their Google Account. */}
           {user.oauth ? (
             <>
-              <p className="text-sm font-semibold">Password</p>
+              <p className="text-sm font-semibold">{L("Password", "Kata laluan")}</p>
               <p className="text-muted-foreground mt-1 text-sm">
-                You sign in with Google, so this account has no password —
-                there is nothing to change here. Your sign-in security
-                (password, 2-step verification) is managed in your Google
-                Account.
+                {L(
+                  "You sign in with Google, so this account has no password — there is nothing to change here. Your sign-in security (password, 2-step verification) is managed in your Google Account.",
+                  "Anda log masuk dengan Google, jadi akaun ini tiada kata laluan — tiada apa yang perlu ditukar di sini. Keselamatan log masuk anda (kata laluan, pengesahan 2 langkah) diuruskan dalam Akaun Google anda.",
+                )}
               </p>
             </>
           ) : (
             <>
-              <p className="text-sm font-semibold">Change password</p>
+              <p className="text-sm font-semibold">{L("Change password", "Tukar kata laluan")}</p>
               <p className="text-muted-foreground mt-1 mb-3 text-xs">
-                Changing your password signs you out on every other device.
+                {L(
+                  "Changing your password signs you out on every other device.",
+                  "Menukar kata laluan anda akan melog keluar anda di semua peranti lain.",
+                )}
               </p>
               <ChangePasswordForm />
             </>
           )}
         </div>
         <div className={card}>
-          <p className="text-sm font-semibold">ELFIA drops</p>
+          <p className="text-sm font-semibold">{L("ELFIA drops", "Koleksi terbaru ELFIA")}</p>
           <p className="text-muted-foreground mt-2 text-sm">
-            Our featured client launches new pieces on TikTok Live — shop
-            through ELFIA&apos;s own store.
+            {L(
+              "Our featured client launches new pieces on TikTok Live — shop through ELFIA's own store.",
+              "Klien pilihan kami melancarkan koleksi baharu di TikTok Live — beli-belah melalui kedai ELFIA sendiri.",
+            )}
           </p>
           <a
             href="https://elfiaofficialstore.com"
@@ -220,7 +253,7 @@ export default function AccountPage() {
             rel="noopener noreferrer"
             className={`${btnGhost} mt-3`}
           >
-            Visit elfiaofficialstore.com
+            {L("Visit elfiaofficialstore.com", "Lawati elfiaofficialstore.com")}
           </a>
         </div>
       </div>
@@ -231,31 +264,34 @@ export default function AccountPage() {
       <div key="orders" className="screen-enter mt-4 space-y-4 md:mt-6">
         {ordersLocked ? (
           <div className={card}>
-            <p className="text-sm font-semibold">🔒 Verify your email to see your orders</p>
+            <p className="text-sm font-semibold">{L("🔒 Verify your email to see your orders", "🔒 Sahkan e-mel anda untuk melihat pesanan anda")}</p>
             <p className="text-muted-foreground mt-1 text-sm">
-              To protect your order and invoice details, order history is shown
-              only to accounts with a verified email. Sign in with Google using
-              the email we have on file, or message us on WhatsApp and we&apos;ll
-              share your latest documents.
+              {L(
+                "To protect your order and invoice details, order history is shown only to accounts with a verified email. Sign in with Google using the email we have on file, or message us on WhatsApp and we'll share your latest documents.",
+                "Untuk melindungi butiran pesanan dan invois anda, sejarah pesanan hanya dipaparkan kepada akaun dengan e-mel yang disahkan. Log masuk dengan Google menggunakan e-mel dalam rekod kami, atau hubungi kami di WhatsApp dan kami akan kongsikan dokumen terkini anda.",
+              )}
             </p>
             <a
               href="https://wa.me/60123834821?text=Hi%20AZ%20ONE%20OFFICIAL%2C%20I%20would%20like%20to%20check%20my%20orders."
               target="_blank" rel="noopener noreferrer" className={`${btnClass} mt-3`}
             >
-              Ask on WhatsApp
+              {L("Ask on WhatsApp", "Tanya di WhatsApp")}
             </a>
           </div>
         ) : (
           <>
             <div className={card}>
-              <p className="text-sm font-semibold">🧾 My orders &amp; invoices</p>
+              <p className="text-sm font-semibold">{L("🧾 My orders & invoices", "🧾 Pesanan & invois saya")}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">
-                Your quotations, invoices and delivery orders. Tap an invoice to open its PDF.
+                {L(
+                  "Your quotations, invoices and delivery orders. Tap an invoice to open its PDF.",
+                  "Sebut harga, invois dan pesanan penghantaran anda. Ketik invois untuk membuka PDF-nya.",
+                )}
               </p>
               {!orders ? (
                 <SkelText lines={3} className="mt-3" />
               ) : orders.docs.length === 0 ? (
-                <p className="text-muted-foreground mt-3 text-sm">No documents yet. When we prepare a quotation or invoice for you, it appears here.</p>
+                <p className="text-muted-foreground mt-3 text-sm">{L("No documents yet. When we prepare a quotation or invoice for you, it appears here.", "Belum ada dokumen. Apabila kami menyediakan sebut harga atau invois untuk anda, ia akan terpapar di sini.")}</p>
               ) : (
                 <div className="mt-3 space-y-2">
                   {orders.docs.map((d) => {
@@ -264,14 +300,14 @@ export default function AccountPage() {
                       ? (paid ? chipSuccess : chipWarn)
                       : chipNeutral;
                     const status = d.doc_type === "INV"
-                      ? (paid ? "Paid" : "Unpaid")
+                      ? (paid ? L("Paid", "Dibayar") : L("Unpaid", "Belum dibayar"))
                       : d.doc_type === "DO"
-                        ? (d.delivery_status ? d.delivery_status : "Pending")
-                        : "Quotation";
+                        ? (d.delivery_status ? d.delivery_status : L("Pending", "Menunggu"))
+                        : L("Quotation", "Sebut harga");
                     const inner = (
                       <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0">
-                          <span className="font-medium">{DOC_LABEL[d.doc_type] ?? d.doc_type}</span>
+                          <span className="font-medium">{(lang === "ms" ? DOC_LABEL_MS : DOC_LABEL)[d.doc_type] ?? d.doc_type}</span>
                           <span className="text-muted-foreground ml-1.5 text-xs">{d.doc_number}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
@@ -289,9 +325,9 @@ export default function AccountPage() {
                         ) : inner}
                         <p className="text-muted-foreground mt-1 text-[11px]">
                           {dmy(d.created_at)}
-                          {d.doc_type === "INV" && !paid && d.due_date ? ` · due ${dmy(d.due_date)}` : ""}
-                          {d.doc_type === "INV" && paid && d.paid_at ? ` · paid ${dmy(d.paid_at)}` : ""}
-                          {d.share_token ? " · tap to open PDF" : ""}
+                          {d.doc_type === "INV" && !paid && d.due_date ? L(` · due ${dmy(d.due_date)}`, ` · perlu dibayar ${dmy(d.due_date)}`) : ""}
+                          {d.doc_type === "INV" && paid && d.paid_at ? L(` · paid ${dmy(d.paid_at)}`, ` · dibayar ${dmy(d.paid_at)}`) : ""}
+                          {d.share_token ? L(" · tap to open PDF", " · ketik untuk buka PDF") : ""}
                         </p>
                       </div>
                     );
@@ -302,7 +338,7 @@ export default function AccountPage() {
 
             {orders && orders.lives.length > 0 && (
               <div className={card}>
-                <p className="text-sm font-semibold">📺 My live sessions</p>
+                <p className="text-sm font-semibold">{L("📺 My live sessions", "📺 Sesi langsung saya")}</p>
                 <div className="mt-2 space-y-1.5">
                   {orders.lives.map((l, i) => (
                     <div key={i} className="border-border flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
@@ -310,7 +346,7 @@ export default function AccountPage() {
                         {dmy(l.session_date)} · {l.start_time}{l.end_time ? `–${l.end_time}` : ""}
                         <span className="text-muted-foreground ml-1.5 text-xs capitalize">{l.platform}</span>
                       </span>
-                      <span className={l.status === "completed" ? chipSuccess : l.status === "cancelled" ? chipNeutral : chipWarn}>{l.status}</span>
+                      <span className={l.status === "completed" ? chipSuccess : l.status === "cancelled" ? chipNeutral : chipWarn}>{lang === "ms" ? LIVE_STATUS_MS[l.status] ?? l.status : l.status}</span>
                     </div>
                   ))}
                 </div>
@@ -327,36 +363,40 @@ export default function AccountPage() {
           contact, categorized enquiries that bell-notify the team the
           moment they land. */}
       <div className={`${card} mt-4 md:mt-6`}>
-        <p className="text-sm font-semibold">💬 WhatsApp us — fastest reply</p>
+        <p className="text-sm font-semibold">{L("💬 WhatsApp us — fastest reply", "💬 WhatsApp kami — balasan terpantas")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Package questions, live commerce services, orders — talk to the AZ
-          ONE OFFICIAL team directly on WhatsApp.
+          {L(
+            "Package questions, live commerce services, orders — talk to the AZ ONE OFFICIAL team directly on WhatsApp.",
+            "Soalan pakej, perkhidmatan live commerce, pesanan — hubungi pasukan AZ ONE OFFICIAL terus di WhatsApp.",
+          )}
         </p>
         <a
           href="https://wa.me/60123834821?text=Hi%20AZ%20ONE%20OFFICIAL%2C%20I%20would%20like%20to%20ask%20about%20your%20services."
           target="_blank" rel="noopener noreferrer"
           className={`${btnClass} mt-3`}
         >
-          Chat on WhatsApp (+60 12-383 4821)
+          {L("Chat on WhatsApp (+60 12-383 4821)", "Sembang di WhatsApp (+60 12-383 4821)")}
         </a>
       </div>
 
       <div className={`${card} mt-4 md:mt-6`}>
-        <p className="text-sm font-semibold">Ask AZ ONE OFFICIAL</p>
+        <p className="text-sm font-semibold">{L("Ask AZ ONE OFFICIAL", "Tanya AZ ONE OFFICIAL")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Send a question to our team — it reaches staff with your name and
-          email attached, notifies them instantly, and your thread shows below.
+          {L(
+            "Send a question to our team — it reaches staff with your name and email attached, notifies them instantly, and your thread shows below.",
+            "Hantar soalan kepada pasukan kami — ia sampai kepada kakitangan bersama nama dan e-mel anda, memberitahu mereka serta-merta, dan perbualan anda dipaparkan di bawah.",
+          )}
         </p>
         <label className="mt-3 block sm:max-w-72">
-          <span className="text-muted-foreground mb-0.5 block text-[11px]">What is this about?</span>
+          <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("What is this about?", "Tentang apakah pertanyaan ini?")}</span>
           <select className={inputClass} value={askCat} onChange={(e) => setAskCat(e.target.value)}>
-            {ENQUIRY_CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            {ENQUIRY_CATS.map(([v, l]) => <option key={v} value={v}>{lang === "ms" ? CAT_LABEL_MS[v] ?? l : l}</option>)}
           </select>
         </label>
         <textarea
           className={`${inputClass} mt-2`}
           rows={3}
-          placeholder="What would you like to ask?"
+          placeholder={L("What would you like to ask?", "Apakah yang ingin anda tanyakan?")}
           value={ask}
           onChange={(e) => setAsk(e.target.value)}
         />
@@ -375,22 +415,22 @@ export default function AccountPage() {
             setSending(false);
             if (r.ok) {
               setAsk("");
-              showToast("Sent", "Enquiry received — we will get back to you"); // v1.4.101: same save popup family as the portal
+              showToast(L("Sent", "Dihantar"), L("Enquiry received — we will get back to you", "Pertanyaan diterima — kami akan menghubungi anda semula")); // v1.4.101: same save popup family as the portal
               void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
                 setEnquiries(e.data?.enquiries ?? []),
               );
             }
           }}
         >
-          {sending ? "Sending…" : "Send enquiry"}
+          {sending ? L("Sending…", "Menghantar…") : L("Send enquiry", "Hantar pertanyaan")}
         </button>
       </div>
 
       <div className={`${card} mt-4 md:mt-6`}>
-        <p className="text-sm font-semibold">My enquiries</p>
+        <p className="text-sm font-semibold">{L("My enquiries", "Pertanyaan saya")}</p>
         {enquiries.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">
-            No enquiries yet — send your first question above.
+            {L("No enquiries yet — send your first question above.", "Belum ada pertanyaan — hantar soalan pertama anda di atas.")}
           </p>
         ) : (
           enquiries.map((e) => (
@@ -399,12 +439,12 @@ export default function AccountPage() {
               {/* v1.4.191: the team's reply, right here in the thread */}
               {e.reply && (
                 <p className="mt-1.5 rounded border border-green-300 bg-green-100 px-2.5 py-1.5 text-sm text-green-900">
-                  <span className="font-semibold">AZ ONE OFFICIAL replied{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
+                  <span className="font-semibold">{L("AZ ONE OFFICIAL replied", "AZ ONE OFFICIAL membalas")}{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
                 </p>
               )}
               <p className="text-muted-foreground mt-1 text-xs">
-                {e.category ? <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{CAT_LABEL[e.category] ?? e.category}</span> : null}
-                Status: {e.status} · {dmy(e.created_at)}
+                {e.category ? <span className="bg-secondary mr-1.5 rounded-full px-2 py-0.5 text-[10px]">{(lang === "ms" ? CAT_LABEL_MS : CAT_LABEL)[e.category] ?? e.category}</span> : null}
+                Status: {lang === "ms" ? ENQ_STATUS_MS[e.status] ?? e.status : e.status} · {dmy(e.created_at)}
               </p>
             </div>
           ))
@@ -414,7 +454,7 @@ export default function AccountPage() {
       )}
       {/* v1.4.191: PDPA notice one tap away for customers */}
       <p className="text-muted-foreground mt-6 pb-2 text-center text-xs">
-        <a className="underline" href="/privacy">Privacy Notice (PDPA)</a>
+        <a className="underline" href="/privacy">{L("Privacy Notice (PDPA)", "Notis Privasi (PDPA)")}</a>
       </p>
     </div>
     </AppShell>

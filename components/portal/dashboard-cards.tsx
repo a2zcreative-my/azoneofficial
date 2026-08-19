@@ -12,8 +12,12 @@ import { Donut } from "@/components/ui/donut";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { fmtRM, ym } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
+/* EN/BM at the display point only — getLang() re-reads per call, and the
+   portal's language toggle re-renders the whole tree. */
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /* ---- Attendance today (donut) ---- */
 export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
@@ -22,20 +26,20 @@ export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
   const notIn = Math.max(0, staffTotal - onTime - late);
   return (
     <button type="button" onClick={onOpen} className={`${card} block w-full text-left transition-colors hover:border-primary`}>
-      <p className="text-sm font-semibold">Attendance today</p>
+      <p className="text-sm font-semibold">{L("Attendance today", "Kehadiran hari ini")}</p>
       <div className="mt-2">
         <Donut
           centerLabel={String(staffTotal)}
-          centerSub="staff"
+          centerSub={L("staff", "kakitangan")}
           /* v1.15.0: the ring uses the VALIDATED chart steps, not the status
              text tokens. Two reasons: --warning/--danger are not separable
              from each other (dE 2.8 deuteranopia, 9.9 normal vision), and in
              dark mode --success flips to a light text-grade green that reads
              wrong as a fill. --ring-* passes every check in both themes. */
           slices={[
-            { label: "On time", value: onTime, color: "var(--ring-ontime)" },
-            { label: "Late", value: late, color: "var(--ring-late)" },
-            { label: "Not clocked in", value: notIn, color: "var(--ring-absent)" },
+            { label: L("On time", "Tepat masa"), value: onTime, color: "var(--ring-ontime)" },
+            { label: L("Late", "Lewat"), value: late, color: "var(--ring-late)" },
+            { label: L("Not clocked in", "Belum daftar masuk"), value: notIn, color: "var(--ring-absent)" },
           ]}
         />
       </div>
@@ -72,8 +76,8 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
     setBusy(true);
     const r = await api<{ error?: { message?: string } }>(`/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     setBusy(false);
-    if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not update the session", "notice"); return; }
-    showToast("Session updated", status === "completed" ? "Marked done" : status === "cancelled" ? "Session cancelled" : "Back to scheduled");
+    if (!r.ok) { showToast(L("No change", "Tiada perubahan"), r.data?.error?.message ?? L("Could not update the session", "Sesi tidak dapat dikemas kini"), "notice"); return; }
+    showToast(L("Session updated", "Sesi dikemas kini"), status === "completed" ? L("Marked done", "Ditanda selesai") : status === "cancelled" ? L("Session cancelled", "Sesi dibatalkan") : L("Back to scheduled", "Kembali kepada dijadualkan"));
     setActing(null);
     load();
   };
@@ -82,7 +86,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
       className={`${s.status === "completed" ? chipSuccess : chipWarn} shrink-0 whitespace-nowrap ${canManage ? "cursor-pointer hover:opacity-80" : ""}`}
       onClick={() => canManage && setActing(acting === s.id ? null : s.id)}
       aria-expanded={canManage ? acting === s.id : undefined}>
-      {s.status === "completed" ? "✓ done" : "scheduled"}{canManage ? " ▾" : ""}
+      {s.status === "completed" ? L("✓ done", "✓ selesai") : L("scheduled", "dijadualkan")}{canManage ? " ▾" : ""}
     </button>
   );
   const actions = (s: RosterSessionLite) => acting === s.id && canManage && (
@@ -90,13 +94,13 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
       {s.status === "scheduled" ? (
         <>
           <button type="button" disabled={busy} className="border-success text-success rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-success-soft"
-            onClick={() => void setStatus(s.id, "completed")}>✓ Mark done</button>
+            onClick={() => void setStatus(s.id, "completed")}>{L("✓ Mark done", "✓ Tanda selesai")}</button>
           <button type="button" disabled={busy} className="border-danger text-danger rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-danger-soft"
-            onClick={() => void setStatus(s.id, "cancelled")}>✕ Cancel session</button>
+            onClick={() => void setStatus(s.id, "cancelled")}>{L("✕ Cancel session", "✕ Batal sesi")}</button>
         </>
       ) : (
         <button type="button" disabled={busy} className="border-border rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
-          onClick={() => void setStatus(s.id, "scheduled")}>Back to scheduled</button>
+          onClick={() => void setStatus(s.id, "scheduled")}>{L("Back to scheduled", "Kembali kepada dijadualkan")}</button>
       )}
     </div>
   );
@@ -104,17 +108,17 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
     <div className={card}>
       {toastNode}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold">Assignments today</p>
+        <p className="text-sm font-semibold">{L("Assignments today", "Tugasan hari ini")}</p>
         {onOpenRoster && (
           <button type="button" className="text-gold-deep text-xs font-medium underline" onClick={onOpenRoster}>
-            Open roster ↗
+            {L("Open roster ↗", "Buka jadual bertugas ↗")}
           </button>
         )}
       </div>
       {!sessions ? (
         <SkelRows rows={3} className="mt-2" />
       ) : sessions.length === 0 ? (
-        <p className="text-muted-foreground mt-2 text-sm">No live sessions scheduled today.</p>
+        <p className="text-muted-foreground mt-2 text-sm">{L("No live sessions scheduled today.", "Tiada sesi langsung dijadualkan hari ini.")}</p>
       ) : (
         <>
           {/* v1.23.3 (CEO: "I saw on mobile view apps overflow"): a 4-column
@@ -145,7 +149,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
           <div className="mt-2 hidden overflow-x-auto sm:block">
             <table className="w-full border-collapse text-sm">
               <thead><tr className="border-border border-b">
-                <th className={th}>HOST</th><th className={th}>CLIENT</th><th className={th}>TIME</th><th className={th}>STATUS</th>
+                <th className={th}>{L("HOST", "HOS")}</th><th className={th}>{L("CLIENT", "KLIEN")}</th><th className={th}>{L("TIME", "MASA")}</th><th className={th}>{L("STATUS", "STATUS")}</th>
               </tr></thead>
               <tbody>
                 {sessions.slice(0, 8).map((s) => (
@@ -180,8 +184,8 @@ export function MonthlyBarsCard({ months }: { months: { month: string; cents: nu
   const best = months.reduce((a, m) => (m.cents > a.cents ? m : a), months[0]!);
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Sales by month</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">Every channel · bar vs your best month.</p>
+      <p className="text-sm font-semibold">{L("Sales by month", "Jualan mengikut bulan")}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs">{L("Every channel · bar vs your best month.", "Semua saluran · bar berbanding bulan terbaik anda.")}</p>
       <div className="mt-3 flex items-end gap-1.5" style={{ height: 84 }} aria-hidden>
         {months.map((m) => (
           <div key={m.month} className="flex flex-1 flex-col items-center gap-1" title={`${ym(m.month)} · ${fmtRM(m.cents)}`}>
@@ -191,7 +195,7 @@ export function MonthlyBarsCard({ months }: { months: { month: string; cents: nu
           </div>
         ))}
       </div>
-      <p className="text-muted-foreground mt-1.5 text-[11px]">🏆 Best: {ym(best.month)} · {fmtRM(best.cents)}</p>
+      <p className="text-muted-foreground mt-1.5 text-[11px]">🏆 {L("Best", "Terbaik")}: {ym(best.month)} · {fmtRM(best.cents)}</p>
     </div>
   );
 }

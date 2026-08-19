@@ -22,6 +22,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 
 import { btnSm, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DataColumn<T> {
   key: string;
@@ -38,7 +41,7 @@ export interface DataColumn<T> {
 
 export function DataTable<T extends { id: number | string }>({
   columns, rows, searchText, defaultSort, defaultDir = "desc",
-  pageSizes = [10, 25, 50], empty = "No records yet.", footer,
+  pageSizes = [10, 25, 50], empty, footer,
 }: {
   columns: DataColumn<T>[];
   rows: T[];
@@ -88,16 +91,16 @@ export function DataTable<T extends { id: number | string }>({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <label className="text-muted-foreground flex items-center gap-2 text-xs">
           <select className={inputClassSm} value={per}
-            onChange={(e) => { setPer(Number(e.target.value)); setPage(1); }} aria-label="Entries per page">
+            onChange={(e) => { setPer(Number(e.target.value)); setPage(1); }} aria-label={L("Entries per page", "Entri setiap halaman")}>
             {pageSizes.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          entries per page
+          {L("entries per page", "entri setiap halaman")}
         </label>
         {searchText && (
           <label className="text-muted-foreground flex items-center gap-2 text-xs">
-            Search:
+            {L("Search:", "Cari:")}
             <input className={inputClassSm} value={q}
-              onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label="Search this table" />
+              onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
           </label>
         )}
       </div>
@@ -131,7 +134,7 @@ export function DataTable<T extends { id: number | string }>({
           <tbody>
             {slice.length === 0 ? (
               <tr><td colSpan={columns.length} className="text-muted-foreground px-3 py-8 text-center text-sm">
-                {q ? "Nothing matches that search." : empty}
+                {q ? L("Nothing matches that search.", "Tiada padanan untuk carian itu.") : (empty ?? L("No records yet.", "Tiada rekod lagi."))}
               </td></tr>
             ) : slice.map((r) => (
               <tr key={r.id} className="border-border hover:bg-secondary/50 border-t transition-colors">
@@ -148,16 +151,17 @@ export function DataTable<T extends { id: number | string }>({
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">
-          {footer ?? (shaped.length === 0 ? "Showing 0 entries"
-            : `Showing ${(cur - 1) * per + 1} to ${Math.min(cur * per, shaped.length)} of ${shaped.length} entries`)}
+          {footer ?? (shaped.length === 0 ? L("Showing 0 entries", "Memaparkan 0 entri")
+            : L(`Showing ${(cur - 1) * per + 1} to ${Math.min(cur * per, shaped.length)} of ${shaped.length} entries`,
+              `Memaparkan ${(cur - 1) * per + 1} hingga ${Math.min(cur * per, shaped.length)} daripada ${shaped.length} entri`))}
         </span>
         {pages > 1 && (
           <div className="flex items-center gap-1">
-            <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(1)} aria-label="First page">«</button>
-            <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(cur - 1)} aria-label="Previous page">‹</button>
+            <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(1)} aria-label={L("First page", "Halaman pertama")}>«</button>
+            <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(cur - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}>‹</button>
             <span className="text-muted-foreground px-1.5 tabular-nums">{cur} / {pages}</span>
-            <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(cur + 1)} aria-label="Next page">›</button>
-            <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(pages)} aria-label="Last page">»</button>
+            <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(cur + 1)} aria-label={L("Next page", "Halaman seterusnya")}>›</button>
+            <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(pages)} aria-label={L("Last page", "Halaman terakhir")}>»</button>
           </div>
         )}
       </div>

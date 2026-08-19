@@ -10,6 +10,9 @@ import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { SITE_CONFIG } from "@/constants/site";
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const api = makeApi("/staff");
 
@@ -54,12 +57,12 @@ export function GeofenceCard() {
     setLat(String(SITE_CONFIG.office.lat));
     setLng(String(SITE_CONFIG.office.lng));
     setLabel(SITE_CONFIG.office.label);
-    setMsg({ text: `Filled with ${SITE_CONFIG.office.label} — press Save to switch the fence on.`, ok: true });
+    setMsg({ text: L(`Filled with ${SITE_CONFIG.office.label} — press Save to switch the fence on.`, `Diisi dengan ${SITE_CONFIG.office.label} — tekan Simpan untuk mengaktifkan sempadan.`), ok: true });
   };
 
   const useMyLocation = () => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      setMsg({ text: "This browser has no location support — type the coordinates instead.", ok: false });
+      setMsg({ text: L("This browser has no location support — type the coordinates instead.", "Pelayar ini tiada sokongan lokasi — taip koordinat secara manual."), ok: false });
       return;
     }
     setBusy(true);
@@ -68,11 +71,11 @@ export function GeofenceCard() {
         setLat(p.coords.latitude.toFixed(6));
         setLng(p.coords.longitude.toFixed(6));
         setBusy(false);
-        setMsg({ text: `Got it (±${Math.round(p.coords.accuracy)} m). Stand at the office when you do this, then Save.`, ok: true });
+        setMsg({ text: L(`Got it (±${Math.round(p.coords.accuracy)} m). Stand at the office when you do this, then Save.`, `Berjaya (±${Math.round(p.coords.accuracy)} m). Pastikan anda berada di pejabat semasa melakukannya, kemudian tekan Simpan.`), ok: true });
       },
       () => {
         setBusy(false);
-        setMsg({ text: "Location refused — allow location access, or type the coordinates from Google Maps.", ok: false });
+        setMsg({ text: L("Location refused — allow location access, or type the coordinates from Google Maps.", "Akses lokasi ditolak — benarkan akses lokasi, atau taip koordinat daripada Google Maps."), ok: false });
       },
       { enableHighAccuracy: true, timeout: 10_000 },
     );
@@ -87,11 +90,11 @@ export function GeofenceCard() {
     const nLng = Number(lng.trim());
     const nRadius = Number(radius.trim());
     if (!Number.isFinite(nLat) || nLat < -90 || nLat > 90 || !Number.isFinite(nLng) || nLng < -180 || nLng > 180) {
-      setMsg({ text: "Latitude/longitude don't look like coordinates — use 'Use my current location', or paste \"lat, lng\" from Google Maps into the Latitude box.", ok: false });
+      setMsg({ text: L("Latitude/longitude don't look like coordinates — use 'Use my current location', or paste \"lat, lng\" from Google Maps into the Latitude box.", "Latitud/longitud tidak kelihatan seperti koordinat — guna 'Guna lokasi semasa saya', atau tampal \"lat, lng\" daripada Google Maps ke dalam kotak Latitud."), ok: false });
       return;
     }
     if (!Number.isFinite(nRadius) || nRadius < 20 || nRadius > 2000) {
-      setMsg({ text: "Radius must be 20–2000 metres.", ok: false });
+      setMsg({ text: L("Radius must be 20–2000 metres.", "Radius mesti antara 20–2000 meter."), ok: false });
       return;
     }
     setBusy(true);
@@ -102,15 +105,15 @@ export function GeofenceCard() {
     });
     setBusy(false);
     if (res.ok) {
-      setMsg({ text: "Saved — clock in/out now requires being inside this radius.", ok: true });
+      setMsg({ text: L("Saved — clock in/out now requires being inside this radius.", "Disimpan — daftar masuk/keluar kini mesti dilakukan dalam radius ini."), ok: true });
       load();
     } else {
-      setMsg({ text: res.data?.error?.message ?? "Save failed — check the values.", ok: false });
+      setMsg({ text: res.data?.error?.message ?? L("Save failed — check the values.", "Simpan gagal — semak nilai."), ok: false });
     }
   };
 
   const clear = async () => {
-    if (!window.confirm("Turn office check-in OFF? Staff will be able to clock in/out from anywhere again.")) return;
+    if (!window.confirm(L("Turn office check-in OFF? Staff will be able to clock in/out from anywhere again.", "Matikan daftar kehadiran pejabat? Kakitangan akan boleh daftar masuk/keluar dari mana-mana sahaja semula."))) return;
     setBusy(true);
     const res = await api<{ ok?: boolean }>(`/attendance/geofence`, {
       method: "POST",
@@ -118,17 +121,17 @@ export function GeofenceCard() {
     });
     setBusy(false);
     if (res.ok) {
-      setMsg({ text: "Office check-in is off.", ok: true });
+      setMsg({ text: L("Office check-in is off.", "Daftar kehadiran pejabat telah dimatikan."), ok: true });
       setInfo({ configured: false, can_edit: true });
     } else {
-      setMsg({ text: "Could not turn it off — check your access and try again.", ok: false });
+      setMsg({ text: L("Could not turn it off — check your access and try again.", "Tidak dapat dimatikan — semak akses anda dan cuba lagi."), ok: false });
     }
   };
 
   return (
     <div className={card}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold">📍 Office check-in (geofence)</p>
+        <p className="text-sm font-semibold">{L("📍 Office check-in (geofence)", "📍 Daftar kehadiran pejabat (geofence)")}</p>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${info?.configured
           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
           : "bg-secondary text-muted-foreground"}`}>
@@ -136,14 +139,12 @@ export function GeofenceCard() {
         </span>
       </div>
       <p className="text-muted-foreground mt-1 text-xs">
-        When on, staff can only clock in/out — and record OT in/out — within the radius below.
-        Positions come from the phone&apos;s GPS: good enough to stop clocking in from home, but not
-        tamper-proof; the IP address stored on every punch is the cross-check. 100–200 m is a
-        realistic radius (GPS inside a building drifts).
+        {L("When on, staff can only clock in/out — and record OT in/out — within the radius below. Positions come from the phone's GPS: good enough to stop clocking in from home, but not tamper-proof; the IP address stored on every punch is the cross-check. 100–200 m is a realistic radius (GPS inside a building drifts).",
+          "Apabila diaktifkan, kakitangan hanya boleh daftar masuk/keluar — dan rekod OT masuk/keluar — dalam radius di bawah. Kedudukan diambil daripada GPS telefon: cukup untuk menghalang daftar masuk dari rumah, tetapi tidak kalis pengubahan; alamat IP yang disimpan pada setiap rekod ialah semakan silang. 100–200 m ialah radius yang realistik (GPS di dalam bangunan boleh melencong).")}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <label className="block">
-          <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Latitude</span>
+          <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Latitude", "Latitud")}</span>
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" inputMode="decimal"
             placeholder="1.4927" value={lat}
             onChange={(e) => {
@@ -153,7 +154,7 @@ export function GeofenceCard() {
             }} />
         </label>
         <label className="block">
-          <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Longitude</span>
+          <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Longitude", "Longitud")}</span>
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" inputMode="decimal"
             placeholder="103.7414" value={lng} onChange={(e) => setLng(e.target.value)} />
         </label>
@@ -170,17 +171,17 @@ export function GeofenceCard() {
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={btnGhost} disabled={busy} onClick={useHq}>
-          Use HQ location
+          {L("Use HQ location", "Guna lokasi HQ")}
         </button>
         <button type="button" className={btnGhost} disabled={busy} onClick={useMyLocation}>
-          Use my current location
+          {L("Use my current location", "Guna lokasi semasa saya")}
         </button>
         <button type="button" className={btnClass} disabled={busy || !lat || !lng} onClick={() => void save()}>
-          Save
+          {L("Save", "Simpan")}
         </button>
         {info?.configured && (
           <button type="button" className="text-destructive text-xs underline" disabled={busy} onClick={() => void clear()}>
-            Turn off
+            {L("Turn off", "Matikan")}
           </button>
         )}
       </div>
@@ -188,9 +189,8 @@ export function GeofenceCard() {
         <p className={`mt-2 text-xs font-medium ${msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{msg.text}</p>
       )}
       <p className="text-muted-foreground mt-2 text-[11px]">
-        Reminders ride along automatically: staff still clocked in get a bell + push at 6:30 pm
-        (unless they&apos;re on OT) and a firmer one at 10 pm. Forgot-to-punch cases from home are
-        fixed with a manual punch (admin → Attendance).
+        {L("Reminders ride along automatically: staff still clocked in get a bell + push at 6:30 pm (unless they're on OT) and a firmer one at 10 pm. Forgot-to-punch cases from home are fixed with a manual punch (admin → Attendance).",
+          "Peringatan berjalan secara automatik: kakitangan yang masih berdaftar masuk menerima loceng + notifikasi tolak pada 6:30 petang (kecuali mereka sedang OT) dan peringatan lebih tegas pada 10 malam. Kes terlupa daftar dari rumah dibetulkan dengan rekod manual (admin → Kehadiran).")}
       </p>
     </div>
   );

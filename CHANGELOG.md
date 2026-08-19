@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.26.0] — 2026-08-18 — BM everywhere: the whole system translates, not just the chrome
+
+**Toggling BM now translates every page (CEO: "When I toggle BM, all the pages doesnt translate to BM!").** Since v1.9.0 the translation deliberately covered only the chrome — nav, greeting, dashboard cards, roster read surfaces. Everything deeper (claims forms, payroll, inventory, sales documents, finance, admin console…) stayed English. That scope is gone: the sweep covered **43 files, roughly 2,300 strings**, so the EN/BM toggle now flips the entire system live, without a reload.
+
+**What's covered now, tab by tab:** Dashboard, Attendance (incl. monitor, personal table, team report, OT approvals, attendance admin), Schedule & Roster (incl. the edit/assign modals and toasts that stayed EN in v1.23.2), Ecommerce (leaderboard, targets & commission, TikTok orders, ops map, fulfilment, connection status), Inventory (movements, stock-out, supplier returns, postage), Sales (customers, quotations/invoices/DOs, aging, enquiries), Claims (form, approval chain, receipts), Payroll (runs, payslips screen, M2E flow), Finance / Reconciliation / Commission / Ads Fund / Purchasing / Accounting, Tasks, News, HR (incl. the payslip/payroll summary card), Staff Details (directory, records, vault, onboarding), Stokis, Assets, Content, Users, Profile (incl. 2FA setup and change-password), plus the search palette, data tables, dialogs and calendar.
+
+**The admin console and customer account got the same treatment** — both now have the same EN/BM toggle in their headers (they had none), and their screens are translated, keeping the three shells consistent.
+
+**What deliberately stays English:** printed/official documents (payslip PDF, claim form AZOO-HR-CLM-001, leave form, SOA, staff ID badge) — an official document must not change with the operator's screen language; raw codes and proper nouns (TikTok, RM, SKU, INV/QT/DO, role codes); and server error messages passed through from the API.
+
+**How it's built (for the next release):** every string is wrapped at the DISPLAY point with `L("English", "BM")` reading the saved language per render — values used in logic, comparisons and API payloads are untouched English underneath, so nothing behavioural changes. EN mode is byte-identical to v1.25.6.
+
+**Guard test:** `tests/bm-coverage.mjs` — walks all 23 portal tabs as CEO with BM active and FAILS if common English UI words appear or any tab crashes. Verified: all 23 tabs clean in BM, zero crashes; EN mode shows zero BM leaks; the toggle flips the whole page live.
+
+**Deploy notes:** site-only change, but the zip is cumulative and carries the v1.25.6 worker (shift sales attribution) — run `DEPLOY.bat` IN FULL.
+
 ## [1.25.6] — 2026-08-18 — Sales marketing's clocked-in hours capture their TikTok sales
 
 **The leaderboard now credits sales marketing for the shop they actually run (CEO: "sales marketing when clock in then it is supposed to capture their sales").** NUR NASUHA showed RM 0.00 in v1.25.5 because none of the three attribution sources could ever reach her: she is not the salesperson on invoices, she does not host lives, and TikTok orders had no route to her at all. Now they do:

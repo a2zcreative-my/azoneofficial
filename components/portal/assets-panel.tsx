@@ -11,6 +11,9 @@ import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF head
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const input = "border-border bg-background mt-0.5 h-8 w-full rounded-lg border px-2 text-sm";
 // v1.4.272: the private td const was deleted — the global th/td/thR2/tdR2 rule applies here too.
@@ -25,8 +28,8 @@ interface Asset {
 }
 interface StaffLite { id: number; name: string; role?: string }
 
-const CATS = [["electronics", "Electronics"], ["furniture", "Furniture"], ["vehicle", "Vehicle"], ["studio", "Studio equipment"], ["other", "Other"]] as const;
-const STATUSES = [["in_use", "In use"], ["spare", "Spare"], ["repair", "In repair"], ["lost", "Lost"], ["disposed", "Disposed"]] as const;
+const CATS = [["electronics", "Electronics", "Elektronik"], ["furniture", "Furniture", "Perabot"], ["vehicle", "Vehicle", "Kenderaan"], ["studio", "Studio equipment", "Peralatan studio"], ["other", "Other", "Lain-lain"]] as const;
+const STATUSES = [["in_use", "In use", "Sedang digunakan"], ["spare", "Spare", "Simpanan"], ["repair", "In repair", "Dalam pembaikan"], ["lost", "Lost", "Hilang"], ["disposed", "Disposed", "Dilupuskan"]] as const;
 import { fmtRM as rm } from "@/lib/format"; // v1.4.272: the global formatter
 
 const EMPTY = {
@@ -59,7 +62,7 @@ export function AssetsPanel() {
     void fetch("/api/v1/staff/assets", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setAssets((d as { assets: Asset[] }).assets ?? []))
-      .catch(() => setMsg("Assets unavailable — deploy the worker first."));
+      .catch(() => setMsg(L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")));
     /* v1.21.0: assignment picker reads /staff-list — the one picker source
        (active staff only, full names) instead of the raw account list. */
     void fetch("/api/v1/staff/staff-list", { credentials: "include" })
@@ -95,14 +98,14 @@ export function AssetsPanel() {
       ? await api<{ error?: { message?: string } }>(`/staff/assets/${editId}`, { method: "PATCH", body })
       : await api<{ error?: { message?: string } }>(`/staff/assets`, { method: "POST", body });
     if (res.ok) {
-      showToast(editId ? "Asset updated" : "Asset added", editId ? "Changes saved to the register" : "New asset in the register");
+      showToast(editId ? L("Asset updated", "Aset dikemas kini") : L("Asset added", "Aset ditambah"), editId ? L("Changes saved to the register", "Perubahan disimpan ke daftar") : L("New asset in the register", "Aset baharu dalam daftar"));
       setForm({ ...EMPTY }); setEditId(null); setOpenForm(false); load();
     } else {
-      showToast("Save failed", res.data?.error?.message ?? "Please try again", "notice");
+      showToast(L("Save failed", "Simpan gagal"), res.data?.error?.message ?? L("Please try again", "Sila cuba lagi"), "notice");
     }
   };
 
-  const counts = STATUSES.map(([k, label]) => [label, assets.filter((a) => a.status === k).length] as const);
+  const counts = STATUSES.map(([k, label, labelMs]) => [L(label, labelMs), assets.filter((a) => a.status === k).length] as const);
   const totalValue = assets.filter((a) => a.status !== "disposed" && a.status !== "lost")
     .reduce((s, a) => s + (a.purchase_price_cents ?? 0), 0);
   const sub = "text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide";
@@ -111,64 +114,63 @@ export function AssetsPanel() {
   return (
     <div className="grid grid-cols-1 gap-4">
       <div className={card}>
-        <p className="text-sm font-semibold">Company assets</p>
+        <p className="text-sm font-semibold">{L("Company assets", "Aset syarikat")}</p>
         <p className="text-muted-foreground mt-1 text-xs">
-          Every piece of equipment the company owns — who holds it, where it lives, what it&apos;s worth. Assets are never
-          deleted: mark them lost or disposed so the history stays.
+          {L("Every piece of equipment the company owns — who holds it, where it lives, what it's worth. Assets are never deleted: mark them lost or disposed so the history stays.", "Setiap peralatan milik syarikat — siapa yang memegangnya, di mana ia berada, berapa nilainya. Aset tidak pernah dipadam: tandakan sebagai hilang atau dilupuskan supaya sejarahnya kekal.")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {counts.map(([label, n]) => n > 0 && <span key={label} className="border-border rounded-full border px-2 py-0.5">{label} <span className="font-semibold">{n}</span></span>)}
-          {totalValue > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">Value {rm(totalValue)}</span>}
+          {totalValue > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">{L("Value", "Nilai")} {rm(totalValue)}</span>}
         </div>
       </div>
 
       <div className={card}>
         <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium"
           onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
-          {openForm ? (editId ? "Cancel edit" : "Hide form") : "+ New asset — show details"}
+          {openForm ? (editId ? L("Cancel edit", "Batal sunting") : L("Hide form", "Sembunyi borang")) : L("+ New asset — show details", "+ Aset baharu — tunjuk butiran")}
         </button>
         {openForm && (
           <div className="mt-3">
-            <p className={sub}>🏷 Identification</p>
+            <p className={sub}>{L("🏷 Identification", "🏷 Pengenalan")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <label className="block"><span className={lbl}>Asset tag</span>
-                <input className={input} placeholder="blank = auto (AZOA-001)" disabled={editId !== null} {...f("asset_tag")} /></label>
-              <label className="block"><span className={lbl}>Asset name *</span>
-                <input className={input} placeholder="e.g. Ring light 18&quot;" {...f("name")} /></label>
-              <label className="block"><span className={lbl}>Category</span>
-                <select className={input} {...f("category")}>{CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-              <label className="block"><span className={lbl}>Brand &amp; model</span>
-                <input className={input} placeholder="e.g. Godox SL-60W" {...f("brand_model")} /></label>
-              <label className="block"><span className={lbl}>Serial no.</span>
-                <input className={input} placeholder="from the sticker" {...f("serial_no")} /></label>
+              <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
+                <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
+              <label className="block"><span className={lbl}>{L("Asset name *", "Nama aset *")}</span>
+                <input className={input} placeholder={L('e.g. Ring light 18"', 'cth. Ring light 18"')} {...f("name")} /></label>
+              <label className="block"><span className={lbl}>{L("Category", "Kategori")}</span>
+                <select className={input} {...f("category")}>{CATS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Brand & model", "Jenama & model")}</span>
+                <input className={input} placeholder={L("e.g. Godox SL-60W", "cth. Godox SL-60W")} {...f("brand_model")} /></label>
+              <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
+                <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
             </div>
-            <p className={sub}>🧾 Purchase</p>
+            <p className={sub}>{L("🧾 Purchase", "🧾 Pembelian")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>Purchase date</span>
+              <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
                 <input className={input} type="date" {...f("purchase_date")} /></label>
-              <label className="block"><span className={lbl}>Price (RM)</span>
+              <label className="block"><span className={lbl}>{L("Price (RM)", "Harga (RM)")}</span>
                 <input className={input} inputMode="decimal" placeholder="0.00" {...f("purchase_price")} /></label>
-              <label className="block"><span className={lbl}>Vendor</span>
-                <input className={input} placeholder="e.g. Shopee, Machines" {...f("vendor")} /></label>
-              <label className="block"><span className={lbl}>Warranty until</span>
+              <label className="block"><span className={lbl}>{L("Vendor", "Pembekal")}</span>
+                <input className={input} placeholder={L("e.g. Shopee, Machines", "cth. Shopee, Machines")} {...f("vendor")} /></label>
+              <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
                 <input className={input} type="date" {...f("warranty_until")} /></label>
             </div>
-            <p className={sub}>📍 Assignment &amp; status</p>
+            <p className={sub}>{L("📍 Assignment & status", "📍 Penugasan & status")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>Assigned to</span>
+              <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
                 <select className={input} {...f("assigned_to")}>
-                  <option value="">— unassigned / shared —</option>
+                  <option value="">{L("— unassigned / shared —", "— tidak diberikan / kongsi —")}</option>
                   {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select></label>
-              <label className="block"><span className={lbl}>Location</span>
-                <input className={input} placeholder="e.g. Studio A, Store room" {...f("location")} /></label>
-              <label className="block"><span className={lbl}>Status</span>
-                <select className={input} {...f("status")}>{STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-              <label className="block"><span className={lbl}>Condition note</span>
-                <input className={input} placeholder="e.g. scratch on left side" {...f("condition_note")} /></label>
+              <label className="block"><span className={lbl}>{L("Location", "Lokasi")}</span>
+                <input className={input} placeholder={L("e.g. Studio A, Store room", "cth. Studio A, Bilik stor")} {...f("location")} /></label>
+              <label className="block"><span className={lbl}>{L("Status", "Status")}</span>
+                <select className={input} {...f("status")}>{STATUSES.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
+                <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
             </div>
             <button type="button" className="bg-primary text-primary-foreground mt-3 rounded-lg px-4 py-2 text-sm font-medium" onClick={() => void save()}>
-              {editId ? "Save changes" : "Add asset"}
+              {editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}
             </button>
           </div>
         )}
@@ -177,24 +179,24 @@ export function AssetsPanel() {
       </div>
 
       <div className={card}>
-        <p className="text-sm font-semibold">Register</p>
+        <p className="text-sm font-semibold">{L("Register", "Daftar")}</p>
         {assets.length === 0 ? (
-          <p className="text-muted-foreground mt-2 text-sm">No assets yet — add the first one above.</p>
+          <p className="text-muted-foreground mt-2 text-sm">{L("No assets yet — add the first one above.", "Belum ada aset — tambah yang pertama di atas.")}</p>
         ) : (
           <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1">
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="border-border text-left">
                   {([
-                    ["tag", "TAG", th],
-                    ["item", "ITEM", th],
-                    ["assigned", "ASSIGNED", th],
-                    ["location", "LOCATION", th],
-                    ["status", "STATUS", th],
-                    ["value", "VALUE", thR2]
+                    ["tag", L("TAG", "TAG"), th],
+                    ["item", L("ITEM", "BARANG"), th],
+                    ["assigned", L("ASSIGNED", "DIBERIKAN"), th],
+                    ["location", L("LOCATION", "LOKASI"), th],
+                    ["status", L("STATUS", "STATUS"), th],
+                    ["value", L("VALUE", "NILAI"), thR2]
                   ] as [AssetCol, string, string][]).map(([col, label, cls]) => (
                     <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
-                      title={`Sort by ${label} — click again to reverse`}
+                      title={L(`Sort by ${label} — click again to reverse`, `Isih mengikut ${label} — klik lagi untuk terbalikkan`)}
                       onClick={() => cycleAsset(col)}>
                       {label}{assetSort.col === col ? (assetSort.asc ? " ▲" : " ▼") : ""}
                     </th>
@@ -222,15 +224,15 @@ export function AssetsPanel() {
                       {a.condition_note && <div className="text-muted-foreground">{a.condition_note}</div>}</td>
                     <td className={td}>{a.assigned_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className={td}>{a.location ?? <span className="text-muted-foreground">—</span>}</td>
-                    <td className={td}><span className={STATUS_CHIP[a.status] ?? STATUS_CHIP.spare}>{STATUSES.find(([v]) => v === a.status)?.[1] ?? a.status}</span></td>
+                    <td className={td}><span className={STATUS_CHIP[a.status] ?? STATUS_CHIP.spare}>{(() => { const st = STATUSES.find(([v]) => v === a.status); return st ? L(st[1], st[2]) : a.status; })()}</span></td>
                     <td className={tdR2}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
-                    <td className={td}><button type="button" className={rowBtn} onClick={() => startEdit(a)}>Edit</button></td>
+                    <td className={td}><button type="button" className={rowBtn} onClick={() => startEdit(a)}>{L("Edit", "Sunting")}</button></td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-border border-t-2 font-semibold">
-                  <td className={td} colSpan={5}>TOTAL — active asset value</td>
+                  <td className={td} colSpan={5}>{L("TOTAL — active asset value", "JUMLAH — nilai aset aktif")}</td>
                   <td className={tdR2}>{rm(totalValue)}</td>
                   <td className={td}></td>
                 </tr>

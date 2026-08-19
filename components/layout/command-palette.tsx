@@ -6,6 +6,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeApi } from "@/lib/api";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+/* Display-only BM group headers. The group strings themselves stay English —
+   GROUP_ORDER and the lastGroup comparison key off them. */
+const GROUP_MS: Record<string, string> = {
+  "Go to": "Pergi ke",
+  Actions: "Tindakan",
+  Staff: "Kakitangan",
+  Clients: "Klien",
+};
 
 const api = makeApi("/staff");
 
@@ -103,19 +115,19 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
         <input
           ref={inputRef}
           className="text-foreground placeholder:text-muted-foreground w-full rounded-t-2xl border-b border-border bg-transparent px-4 py-3 text-sm outline-none"
-          placeholder="Search tabs, staff, clients, actions…  (Esc to close)"
+          placeholder={L("Search tabs, staff, clients, actions…  (Esc to close)", "Cari tab, kakitangan, klien, tindakan…  (Esc untuk tutup)")}
           value={q}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}
           onKeyDown={onKey}
         />
         <div className="max-h-72 overflow-y-auto p-1.5">
-          {ranked.length === 0 && <p className="text-muted-foreground px-3 py-4 text-sm">No matches.</p>}
+          {ranked.length === 0 && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
           {ranked.map((r, i) => {
             const header = r.group !== lastGroup ? r.group : null;
             lastGroup = r.group;
             return (
               <div key={`${r.group}-${r.label}-${i}`}>
-                {header && <p className="text-muted-foreground px-3 pt-2 pb-0.5 text-[10px] font-semibold tracking-wider uppercase">{header}</p>}
+                {header && <p className="text-muted-foreground px-3 pt-2 pb-0.5 text-[10px] font-semibold tracking-wider uppercase">{L(header, GROUP_MS[header] ?? header)}</p>}
                 <button
                   type="button"
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm ${i === clampedSel ? "bg-secondary" : "hover:bg-secondary/60"}`}

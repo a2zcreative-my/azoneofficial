@@ -10,6 +10,8 @@
 
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 
@@ -32,6 +34,15 @@ const FILTERS: [string, string][] = [
   ["holiday", "Holidays"],
   ["task", "Tasks"],
 ];
+// Display-only BM labels for the filter chips (keyed by the EN label).
+const FILTER_MS: Record<string, string> = {
+  "All": "Semua",
+  "Sign-ins": "Log masuk",
+  "User changes": "Perubahan pengguna",
+  "Leave": "Cuti",
+  "Holidays": "Cuti umum",
+  "Tasks": "Tugasan",
+};
 
 function myt(iso: string): string {
   // DD-MM-YYYY HH:mm, Malaysia time.
@@ -70,7 +81,7 @@ export function AuditPanel() {
                 : "border-border border hover:bg-secondary"
             }`}
           >
-            {label}
+            {L(label, FILTER_MS[label] ?? label)}
           </button>
         ))}
       </div>
@@ -79,13 +90,13 @@ export function AuditPanel() {
           <thead>
             <tr className="border-border bg-secondary/40 border-b">
               {([
-                ["date", "When (MYT)"],
-                ["who", "Who"],
-                ["action", "Action"],
-                ["target", "Target"]
+                ["date", L("When (MYT)", "Bila (MYT)")],
+                ["who", L("Who", "Siapa")],
+                ["action", L("Action", "Tindakan")],
+                ["target", L("Target", "Sasaran")]
               ] as [AuditCol, string][]).map(([col, label]) => (
                 <th key={col} className="cursor-pointer px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase select-none"
-                  title={`Sort by ${label} — click again to reverse`}
+                  title={`${L("Sort by", "Susun ikut")} ${label} — ${L("click again to reverse", "klik sekali lagi untuk terbalikkan susunan")}`}
                   onClick={() => cycleAudit(col)}>
                   {label}{auditSort.col === col ? (auditSort.asc ? " ▲" : " ▼") : ""}
                 </th>
@@ -96,7 +107,7 @@ export function AuditPanel() {
             {entries.length === 0 && (
               <tr>
                 <td className="text-muted-foreground px-3 py-3" colSpan={4}>
-                  No matching activity.
+                  {L("No matching activity.", "Tiada aktiviti sepadan.")}
                 </td>
               </tr>
             )}
@@ -112,7 +123,7 @@ export function AuditPanel() {
             }).map((e) => (
               <tr key={e.id} className="border-border border-b last:border-0">
                 <td className="text-muted-foreground px-3 py-1.5 whitespace-nowrap">{myt(e.created_at)}</td>
-                <td className="px-3 py-1.5">{e.user_name ?? "system"}</td>
+                <td className="px-3 py-1.5">{e.user_name ?? L("system", "sistem")}</td>
                 <td className="px-3 py-1.5 font-mono text-xs">{e.action}</td>
                 <td className="text-muted-foreground px-3 py-1.5 text-xs">
                   {e.entity ? `${e.entity}${e.entity_id ? ` #${e.entity_id}` : ""}` : "—"}

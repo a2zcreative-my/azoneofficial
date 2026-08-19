@@ -11,6 +11,8 @@
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
 
@@ -41,19 +43,19 @@ export function SystemHealthCard() {
 
   const backupNow = async () => {
     setBusy(true);
-    setMsg("Backing up…");
+    setMsg(L("Backing up…", "Membuat sandaran…"));
     const res = await api<{ key?: string; tables?: number; rows?: number; error?: { message?: string } }>(
       `/system/backup`, { method: "POST", body: JSON.stringify({}) },
     );
     setBusy(false);
     if (res.ok && res.data?.key) {
-      setMsg(`Backup saved: ${res.data.key} (${res.data.tables} tables, ${res.data.rows} rows)`);
-      showToast("Saved", `Backup complete — ${res.data.tables} tables, ${res.data.rows} rows`);
+      setMsg(`${L("Backup saved", "Sandaran disimpan")}: ${res.data.key} (${res.data.tables} ${L("tables", "jadual")}, ${res.data.rows} ${L("rows", "baris")})`);
+      showToast(L("Saved", "Disimpan"), `${L("Backup complete", "Sandaran selesai")} — ${res.data.tables} ${L("tables", "jadual")}, ${res.data.rows} ${L("rows", "baris")}`);
       void load();
     } else {
-      const m = res.data?.error?.message ?? "Backup failed — see the error list below";
+      const m = res.data?.error?.message ?? L("Backup failed — see the error list below", "Sandaran gagal — lihat senarai ralat di bawah");
       setMsg(m);
-      showToast("No changes", m, "notice");
+      showToast(L("No changes", "Tiada perubahan"), m, "notice");
     }
   };
 
@@ -74,8 +76,8 @@ export function SystemHealthCard() {
       {(health?.migrations_all?.length ?? 0) > 0 && (
         <details className="mt-3 text-xs">
           <summary className="cursor-pointer select-none font-medium">
-            🗄 Migration health — {health!.migrations_all!.filter((m) => m.applied).length}/{health!.migrations_all!.length} applied
-            {health!.migrations_all!.some((m) => !m.applied) ? ` · ${health!.migrations_all!.filter((m) => !m.applied).length} missing` : " · all up to date ✓"}
+            🗄 {L("Migration health", "Kesihatan migrasi")} — {health!.migrations_all!.filter((m) => m.applied).length}/{health!.migrations_all!.length} {L("applied", "diterapkan")}
+            {health!.migrations_all!.some((m) => !m.applied) ? ` · ${health!.migrations_all!.filter((m) => !m.applied).length} ${L("missing", "belum diterapkan")}` : ` · ${L("all up to date ✓", "semua terkini ✓")}`}
           </summary>
           <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
             {health!.migrations_all!.map((m) => (
@@ -99,11 +101,11 @@ export function SystemHealthCard() {
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">System health</p>
+          <p className="text-sm font-semibold">{L("System health", "Kesihatan sistem")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {health?.last_backup
-              ? <>Last backup <span className={backupAge !== null && backupAge > 2 ? "font-semibold text-amber-700" : "font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? " — older than 2 days, check the nightly cron" : ""}</>
-              : "No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now."}
+              ? <>{L("Last backup", "Sandaran terakhir")} <span className={backupAge !== null && backupAge > 2 ? "font-semibold text-amber-700" : "font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? ` — ${L("older than 2 days, check the nightly cron", "melebihi 2 hari, semak cron malam")}` : ""}</>
+              : L("No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now.", "Belum ada sandaran — sandaran malam berjalan pada 03:20 MYT selepas deploy seterusnya, atau jalankan satu sekarang.")}
           </p>
         </div>
         <span className="flex flex-wrap items-center gap-2">
@@ -113,7 +115,7 @@ export function SystemHealthCard() {
             className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary disabled:opacity-50"
             onClick={() => void backupNow()}
           >
-            Back up now
+            {L("Back up now", "Buat sandaran sekarang")}
           </button>
           {/* v1.4.191 (CEO gap list): OFF-CLOUDFLARE copy — download the
               newest backup and keep it OUTSIDE this Cloudflare account
@@ -121,9 +123,9 @@ export function SystemHealthCard() {
           <a
             className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
             href={`${API}/system/backup/download`}
-            title="Downloads the newest backup file — store it on a drive or another cloud, outside Cloudflare"
+            title={L("Downloads the newest backup file — store it on a drive or another cloud, outside Cloudflare", "Muat turun fail sandaran terbaru — simpan pada pemacu atau awan lain, di luar Cloudflare")}
           >
-            ⬇ Off-site copy
+            ⬇ {L("Off-site copy", "Salinan luar tapak")}
           </a>
         </span>
       </div>
@@ -133,30 +135,30 @@ export function SystemHealthCard() {
         return (
           <p className={`mt-1.5 text-xs ${days === null || days > 90 ? "font-semibold text-amber-700" : "text-muted-foreground"}`}>
             {days === null
-              ? "No off-site copy has ever been downloaded — take one now and store it outside Cloudflare (quarterly)."
+              ? L("No off-site copy has ever been downloaded — take one now and store it outside Cloudflare (quarterly).", "Tiada salinan luar tapak pernah dimuat turun — ambil satu sekarang dan simpan di luar Cloudflare (setiap suku tahun).")
               : days > 90
-                ? `Last off-site copy ${days} days ago — a quarter has passed, download a fresh one.`
-                : `Last off-site copy ${days} day(s) ago.`}
+                ? `${L("Last off-site copy", "Salinan luar tapak terakhir")} ${days} ${L("days ago — a quarter has passed, download a fresh one.", "hari lalu — sudah satu suku tahun berlalu, muat turun yang baharu.")}`
+                : `${L("Last off-site copy", "Salinan luar tapak terakhir")} ${days} ${L("day(s) ago.", "hari lalu.")}`}
           </p>
         );
       })()}
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       <div className="mt-3">
-        <p className="text-xs font-semibold tracking-wide uppercase">Recent errors</p>
+        <p className="text-xs font-semibold tracking-wide uppercase">{L("Recent errors", "Ralat terkini")}</p>
         {(health?.errors ?? []).length === 0 ? (
-          <p className="text-muted-foreground mt-1 text-sm">No recorded errors. 🎉</p>
+          <p className="text-muted-foreground mt-1 text-sm">{L("No recorded errors. 🎉", "Tiada ralat direkodkan. 🎉")}</p>
         ) : (
           <div className="border-border mt-2 max-h-60 overflow-x-auto overflow-y-auto rounded-lg border">
             <table className="w-full min-w-[520px] border-collapse text-sm">
               <thead>
                 <tr className="border-border bg-secondary/40 border-b">
                   {([
-                    ["date", "When (MYT)"],
-                    ["source", "Source"],
-                    ["message", "Message"]
+                    ["date", L("When (MYT)", "Bila (MYT)")],
+                    ["source", L("Source", "Sumber")],
+                    ["message", L("Message", "Mesej")]
                   ] as [ErrCol, string][]).map(([col, label]) => (
                     <th key={col} className="cursor-pointer px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase select-none"
-                      title={`Sort by ${label} — click again to reverse`}
+                      title={`${L("Sort by", "Susun ikut")} ${label} — ${L("click again to reverse", "klik sekali lagi untuk terbalikkan susunan")}`}
                       onClick={() => cycleErr(col)}>
                       {label}{errSort.col === col ? (errSort.asc ? " ▲" : " ▼") : ""}
                     </th>

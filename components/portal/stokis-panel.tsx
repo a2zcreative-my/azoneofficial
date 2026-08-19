@@ -14,8 +14,10 @@ import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { MiniBar } from "@/components/ui/stat-card";
 import { card, inputClass, btnClass, btnSm, fieldRow, fieldLabel, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { dmy, fmtRM, ym } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface Stokis {
   id: number; name: string; company?: string | null; phone?: string | null; email?: string | null;
@@ -51,24 +53,24 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   };
 
   const save = async () => {
-    if (!draft.name.trim()) { showToast("No changes", "Stokis name is required", "notice"); return; }
+    if (!draft.name.trim()) { showToast(L("No changes", "Tiada perubahan"), L("Stokis name is required", "Nama stokis diperlukan"), "notice"); return; }
     const body = JSON.stringify({ ...draft, commission_pct: draft.commission_pct ? Number(draft.commission_pct) : 0 });
     const r = editingId ? await api(`/stokis/${editingId}`, { method: "PATCH", body }) : await api(`/stokis`, { method: "POST", body });
-    if (!r.ok) { showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Could not save", "notice"); return; }
-    showToast("Saved", editingId ? `${draft.name} updated` : `${draft.name} registered`);
+    if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Could not save", "Tidak dapat disimpan"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), editingId ? L(`${draft.name} updated`, `${draft.name} dikemas kini`) : L(`${draft.name} registered`, `${draft.name} didaftarkan`));
     setDraft({ ...EMPTY }); setEditingId(null); void load();
   };
 
   const addOrder = async (id: number) => {
     const cents = Math.round(Number(orderDraft.amount) * 100);
-    if (!cents || cents < 0) { showToast("No changes", "Enter an amount", "notice"); return; }
+    if (!cents || cents < 0) { showToast(L("No changes", "Tiada perubahan"), L("Enter an amount", "Masukkan amaun"), "notice"); return; }
     const r = await api(`/stokis/${id}/orders`, { method: "POST", body: JSON.stringify({ amount_cents: cents, qty: orderDraft.qty ? Number(orderDraft.qty) : null, note: orderDraft.note, payment_status: orderDraft.paid ? "paid" : "unpaid" }) });
-    if (r.ok) { showToast("Saved", "Purchase recorded"); setOrderDraft({ amount: "", qty: "", note: "", paid: false }); void loadOrders(id); void load(); }
+    if (r.ok) { showToast(L("Saved", "Disimpan"), L("Purchase recorded", "Pembelian direkodkan")); setOrderDraft({ amount: "", qty: "", note: "", paid: false }); void loadOrders(id); void load(); }
   };
 
   if (notReady) {
     return <div className={card}><p className="text-sm font-semibold">🏪 Stokis</p>
-      <p className="text-muted-foreground mt-1 text-xs">Stokis management is temporarily unavailable — the server may need migration 0069 applied.</p></div>;
+      <p className="text-muted-foreground mt-1 text-xs">{L("Stokis management is temporarily unavailable — the server may need migration 0069 applied.", "Pengurusan stokis tidak tersedia buat sementara — pelayan mungkin perlu migrasi 0069.")}</p></div>;
   }
 
   const activeCount = rows.filter((s) => s.status === "active").length;
@@ -78,124 +80,124 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   return (
     <div className={card}>
       {toastNode}{confirmNode}
-      <p className="text-sm font-semibold">🏪 Stokis — reseller network</p>
+      <p className="text-sm font-semibold">{L("🏪 Stokis — reseller network", "🏪 Stokis — rangkaian pengedar")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        {activeCount} active · this month {fmtRM(monthTotal)} · outstanding balance {fmtRM(balanceTotal)}{month ? ` · ${ym(month)}` : ""}.
+        {activeCount} {L("active", "aktif")} · {L("this month", "bulan ini")} {fmtRM(monthTotal)} · {L("outstanding balance", "baki tertunggak")} {fmtRM(balanceTotal)}{month ? ` · ${ym(month)}` : ""}.
       </p>
 
       {canManage && (
         <div className="border-border mt-3 rounded-lg border p-3">
-          <p className="text-xs font-semibold">{editingId ? "Edit stokis" : "Register a stokis"}</p>
+          <p className="text-xs font-semibold">{editingId ? L("Edit stokis", "Sunting stokis") : L("Register a stokis", "Daftarkan stokis")}</p>
           <div className={`${fieldRow} mt-2`}>
             <label className="col-span-2 block sm:flex-1">
-              <span className={fieldLabel}>Name *</span>
+              <span className={fieldLabel}>{L("Name *", "Nama *")}</span>
               <input className={inputClass} value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
             </label>
             <label className="block">
-              <span className={fieldLabel}>Company</span>
+              <span className={fieldLabel}>{L("Company", "Syarikat")}</span>
               <input className={inputClass} value={draft.company} onChange={(e) => setDraft((d) => ({ ...d, company: e.target.value }))} />
             </label>
             <label className="block">
-              <span className={fieldLabel}>Commission %</span>
-              <input type="number" min={0} step="0.1" className={inputClass} placeholder="e.g. 10" value={draft.commission_pct} onChange={(e) => setDraft((d) => ({ ...d, commission_pct: e.target.value }))} />
+              <span className={fieldLabel}>{L("Commission %", "Komisen %")}</span>
+              <input type="number" min={0} step="0.1" className={inputClass} placeholder={L("e.g. 10", "cth. 10")} value={draft.commission_pct} onChange={(e) => setDraft((d) => ({ ...d, commission_pct: e.target.value }))} />
             </label>
           </div>
           <div className={`${fieldRow} mt-2`}>
             <label className="block">
-              <span className={fieldLabel}>Phone</span>
+              <span className={fieldLabel}>{L("Phone", "Telefon")}</span>
               <input className={inputClass} value={draft.phone} onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))} />
             </label>
             <label className="block">
-              <span className={fieldLabel}>Email</span>
+              <span className={fieldLabel}>{L("Email", "E-mel")}</span>
               <input className={inputClass} value={draft.email} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
             </label>
             <label className="col-span-2 block sm:flex-1">
-              <span className={fieldLabel}>Location</span>
-              <input className={inputClass} placeholder="city / state" value={draft.location} onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} />
+              <span className={fieldLabel}>{L("Location", "Lokasi")}</span>
+              <input className={inputClass} placeholder={L("city / state", "bandar / negeri")} value={draft.location} onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))} />
             </label>
           </div>
           <div className="mt-2.5 flex items-center gap-3">
-            <button type="button" className={btnClass} onClick={() => void save()}>{editingId ? "Save changes" : "Register"}</button>
-            {editingId && <button type="button" className="text-xs underline" onClick={() => { setEditingId(null); setDraft({ ...EMPTY }); }}>Cancel</button>}
+            <button type="button" className={btnClass} onClick={() => void save()}>{editingId ? L("Save changes", "Simpan perubahan") : L("Register", "Daftar")}</button>
+            {editingId && <button type="button" className="text-xs underline" onClick={() => { setEditingId(null); setDraft({ ...EMPTY }); }}>{L("Cancel", "Batal")}</button>}
           </div>
         </div>
       )}
 
       <div className="mt-3 space-y-1.5">
-        {rows.length === 0 && <p className="text-muted-foreground text-xs">No stokis registered yet.</p>}
+        {rows.length === 0 && <p className="text-muted-foreground text-xs">{L("No stokis registered yet.", "Belum ada stokis didaftarkan.")}</p>}
         {rows.map((s) => {
           const pct = s.target_cents && s.target_cents > 0 ? Math.round((s.month_cents / s.target_cents) * 100) : null;
           return (
             <div key={s.id} className="border-border rounded-lg border px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0 text-sm">
-                  <RecordToggle open={open === s.id} title="Purchases, target and details"
+                  <RecordToggle open={open === s.id} title={L("Purchases, target and details", "Pembelian, sasaran dan butiran")}
                     onToggle={() => { const n = open === s.id ? null : s.id; setOpen(n); if (n) void loadOrders(s.id); }}>
                     {s.name}
                   </RecordToggle>
-                  <span className={`ml-1.5 ${s.status === "active" ? chipSuccess : chipNeutral}`}>{s.status}</span>
+                  <span className={`ml-1.5 ${s.status === "active" ? chipSuccess : chipNeutral}`}>{L(s.status, s.status === "active" ? "aktif" : s.status === "inactive" ? "tidak aktif" : s.status)}</span>
                 </span>
                 <span className={rowActions}>
-                  <span className="text-xs tabular-nums font-semibold">{fmtRM(s.month_cents)}<span className="text-muted-foreground">/mo</span></span>
-                  {s.balance_cents > 0 && <span className={chipWarn}>owes {fmtRM(s.balance_cents)}</span>}
+                  <span className="text-xs tabular-nums font-semibold">{fmtRM(s.month_cents)}<span className="text-muted-foreground">{L("/mo", "/bln")}</span></span>
+                  {s.balance_cents > 0 && <span className={chipWarn}>{L("owes", "hutang")} {fmtRM(s.balance_cents)}</span>}
                   {canManage && (
                     <button type="button" className={btnSm} onClick={async () => {
                       await api(`/stokis/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: s.status === "active" ? "inactive" : "active" }) }); void load();
-                    }}>{s.status === "active" ? "Deactivate" : "Activate"}</button>
+                    }}>{s.status === "active" ? L("Deactivate", "Nyahaktifkan") : L("Activate", "Aktifkan")}</button>
                   )}
                   {canManage && (
                     <button type="button" className={rowBtn} onClick={() => {
                       setEditingId(s.id);
                       setDraft({ name: s.name, company: s.company ?? "", phone: s.phone ?? "", email: s.email ?? "", location: s.location ?? "", commission_pct: s.commission_pct ? String(s.commission_pct) : "", notes: s.notes ?? "" });
                       window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}>Edit</button>
+                    }}>{L("Edit", "Sunting")}</button>
                   )}
                   {canManage && (
                     <button type="button" className={rowBtnDanger} onClick={async () => {
-                      if (!(await confirm({ title: "Delete this stokis?", message: `${s.name} and their purchase records will be removed.`, confirmLabel: "Delete" }))) return;
+                      if (!(await confirm({ title: L("Delete this stokis?", "Padam stokis ini?"), message: L(`${s.name} and their purchase records will be removed.`, `${s.name} dan rekod pembelian mereka akan dibuang.`), confirmLabel: L("Delete", "Padam") }))) return;
                       const r = await api(`/stokis/${s.id}`, { method: "DELETE" });
-                      showToast(r.ok ? "Saved" : "No changes", r.ok ? `${s.name} removed` : "Could not delete", r.ok ? undefined : "notice");
+                      showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), r.ok ? L(`${s.name} removed`, `${s.name} dibuang`) : L("Could not delete", "Tidak dapat dipadam"), r.ok ? undefined : "notice");
                       void load();
-                    }}>Delete</button>
+                    }}>{L("Delete", "Padam")}</button>
                   )}
                 </span>
               </div>
               <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs">
                 {pct !== null && <MiniBar className="w-16 shrink-0" pct={Math.min(100, pct)} tone={pct >= 100 ? "green" : "gold"} />}
                 <span>
-                  total {fmtRM(s.total_cents)}
-                  {s.commission_pct > 0 ? ` · comm ${s.commission_pct}% = ${fmtRM(s.commission_cents)}` : ""}
-                  {s.target_cents ? ` · target ${fmtRM(s.target_cents)} (${pct}%)` : ""}
+                  {L("total", "jumlah")} {fmtRM(s.total_cents)}
+                  {s.commission_pct > 0 ? L(` · comm ${s.commission_pct}% = ${fmtRM(s.commission_cents)}`, ` · komisen ${s.commission_pct}% = ${fmtRM(s.commission_cents)}`) : ""}
+                  {s.target_cents ? L(` · target ${fmtRM(s.target_cents)} (${pct}%)`, ` · sasaran ${fmtRM(s.target_cents)} (${pct}%)`) : ""}
                   {s.location ? ` · 📍 ${s.location}` : ""}
-                  {s.joined_at ? ` · since ${dmy(s.joined_at)}` : ""}
+                  {s.joined_at ? L(` · since ${dmy(s.joined_at)}`, ` · sejak ${dmy(s.joined_at)}`) : ""}
                 </span>
               </p>
               {open === s.id && (
                 <div className="mt-2 rounded-lg bg-secondary/40 p-2.5">
                   {canManage && (
                     <div className="mb-2 flex flex-wrap items-end gap-2">
-                      <label className="text-xs">Amount RM<input type="number" min={0} step="0.01" className={`${inputClass} ml-1 h-8 w-28`} value={orderDraft.amount} onChange={(e) => setOrderDraft((o) => ({ ...o, amount: e.target.value }))} /></label>
-                      <label className="text-xs">Qty<input type="number" min={0} className={`${inputClass} ml-1 h-8 w-16`} value={orderDraft.qty} onChange={(e) => setOrderDraft((o) => ({ ...o, qty: e.target.value }))} /></label>
-                      <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={orderDraft.paid} onChange={(e) => setOrderDraft((o) => ({ ...o, paid: e.target.checked }))} /> paid</label>
-                      <button type="button" className={btnSm} onClick={() => void addOrder(s.id)}>Add purchase</button>
-                      <label className="text-xs">Target RM<input type="number" min={0} step="100" className={`${inputClass} ml-1 h-8 w-28`} placeholder={month ? ym(month) : ""}
+                      <label className="text-xs">{L("Amount RM", "Amaun RM")}<input type="number" min={0} step="0.01" className={`${inputClass} ml-1 h-8 w-28`} value={orderDraft.amount} onChange={(e) => setOrderDraft((o) => ({ ...o, amount: e.target.value }))} /></label>
+                      <label className="text-xs">{L("Qty", "Kuantiti")}<input type="number" min={0} className={`${inputClass} ml-1 h-8 w-16`} value={orderDraft.qty} onChange={(e) => setOrderDraft((o) => ({ ...o, qty: e.target.value }))} /></label>
+                      <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={orderDraft.paid} onChange={(e) => setOrderDraft((o) => ({ ...o, paid: e.target.checked }))} /> {L("paid", "dibayar")}</label>
+                      <button type="button" className={btnSm} onClick={() => void addOrder(s.id)}>{L("Add purchase", "Tambah pembelian")}</button>
+                      <label className="text-xs">{L("Target RM", "Sasaran RM")}<input type="number" min={0} step="100" className={`${inputClass} ml-1 h-8 w-28`} placeholder={month ? ym(month) : ""}
                         defaultValue={s.target_cents ? (s.target_cents / 100).toString() : ""}
-                        onBlur={async (e) => { if (e.target.value && month) { await api(`/stokis/${s.id}/target`, { method: "POST", body: JSON.stringify({ month, target_cents: Math.round(Number(e.target.value) * 100) }) }); showToast("Saved", "Target set"); void load(); } }} /></label>
+                        onBlur={async (e) => { if (e.target.value && month) { await api(`/stokis/${s.id}/target`, { method: "POST", body: JSON.stringify({ month, target_cents: Math.round(Number(e.target.value) * 100) }) }); showToast(L("Saved", "Disimpan"), L("Target set", "Sasaran ditetapkan")); void load(); } }} /></label>
                     </div>
                   )}
                   {(orders[s.id] ?? []).length === 0
-                    ? <p className="text-muted-foreground text-xs">No purchases recorded.</p>
+                    ? <p className="text-muted-foreground text-xs">{L("No purchases recorded.", "Tiada pembelian direkodkan.")}</p>
                     : (
                       <div className="space-y-1">
                         {(orders[s.id] ?? []).map((o) => (
                           <div key={o.id} className="flex items-center justify-between gap-2 text-xs">
-                            <span>{dmy(o.ordered_at)}{o.qty ? ` · ${o.qty} units` : ""}{o.note ? ` · ${o.note}` : ""}</span>
+                            <span>{dmy(o.ordered_at)}{o.qty ? L(` · ${o.qty} units`, ` · ${o.qty} unit`) : ""}{o.note ? ` · ${o.note}` : ""}</span>
                             <span className="flex items-center gap-2">
                               <span className="tabular-nums font-medium">{fmtRM(o.amount_cents)}</span>
                               <button type="button" className={o.payment_status === "paid" ? chipSuccess : chipWarn}
-                                title="toggle paid/unpaid" disabled={!canManage}
+                                title={L("toggle paid/unpaid", "togol dibayar/belum bayar")} disabled={!canManage}
                                 onClick={async () => { await api(`/stokis/orders/${o.id}`, { method: "PATCH", body: JSON.stringify({ payment_status: o.payment_status === "paid" ? "unpaid" : "paid" }) }); void loadOrders(s.id); void load(); }}>
-                                {o.payment_status}
+                                {L(o.payment_status, o.payment_status === "paid" ? "dibayar" : "belum bayar")}
                               </button>
                             </span>
                           </div>

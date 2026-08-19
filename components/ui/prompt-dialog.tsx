@@ -14,6 +14,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface PromptOpts {
   title: string;
@@ -93,11 +96,11 @@ export function usePrompt() {
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="border-border hover:bg-secondary inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium"
-            onClick={() => close(null)}>{opts.cancelLabel ?? "Cancel"}</button>
+            onClick={() => close(null)}>{opts.cancelLabel ?? L("Cancel", "Batal")}</button>
           <button type="button"
             className="bg-primary inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
             disabled={!!opts.required && !value.trim()} onClick={submit}>
-            {opts.confirmLabel ?? "Save"}
+            {opts.confirmLabel ?? L("Save", "Simpan")}
           </button>
         </div>
       </div>

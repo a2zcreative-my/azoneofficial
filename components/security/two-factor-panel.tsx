@@ -12,6 +12,8 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import { useCallback, useEffect, useState } from "react";
 import { card, btnGhost, btnClass as btn } from "@/lib/ui-styles"; // v1.5.0: shared button styles
 import { useSaveToast } from "@/components/ui/save-toast";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 
@@ -46,8 +48,8 @@ export function TwoFactorPanel() {
       setSecret(res.data.secret);
       setOtpauth(res.data.otpauth);
     } else {
-      setErr("Could not start setup — try again.");
-      showToast("No changes", "Could not start two-factor setup — try again", "notice");
+      setErr(L("Could not start setup — try again.", "Tidak dapat memulakan persediaan — cuba lagi."));
+      showToast(L("No changes", "Tiada perubahan"), L("Could not start two-factor setup — try again", "Tidak dapat memulakan persediaan dua faktor — cuba lagi"), "notice");
     }
   };
 
@@ -61,13 +63,13 @@ export function TwoFactorPanel() {
       setBackupCodes(res.data.backup_codes);
       setSecret("");
       setCode("");
-      setMsg("Two-factor authentication is on.");
-      showToast("Saved", "Two-factor is ON — save your backup codes before leaving this page");
+      setMsg(L("Two-factor authentication is on.", "Pengesahan dua faktor telah diaktifkan."));
+      showToast(L("Saved", "Disimpan"), L("Two-factor is ON — save your backup codes before leaving this page", "Dua faktor AKTIF — simpan kod sandaran anda sebelum meninggalkan halaman ini"));
       void load();
     } else {
-      const m = res.data?.error?.message ?? "That code is not correct.";
+      const m = res.data?.error?.message ?? L("That code is not correct.", "Kod itu tidak betul.");
       setErr(m);
-      showToast("No changes", m, "notice");
+      showToast(L("No changes", "Tiada perubahan"), m, "notice");
     }
   };
 
@@ -79,13 +81,13 @@ export function TwoFactorPanel() {
     });
     if (res.ok) {
       setPassword("");
-      setMsg("Two-factor authentication is off.");
-      showToast("Saved", "Two-factor is OFF for this account");
+      setMsg(L("Two-factor authentication is off.", "Pengesahan dua faktor telah dinyahaktifkan."));
+      showToast(L("Saved", "Disimpan"), L("Two-factor is OFF for this account", "Dua faktor DIMATIKAN untuk akaun ini"));
       void load();
     } else {
-      const m = res.data?.error?.message ?? "Your current password is required.";
+      const m = res.data?.error?.message ?? L("Your current password is required.", "Kata laluan semasa anda diperlukan.");
       setErr(m);
-      showToast("No changes", m, "notice");
+      showToast(L("No changes", "Tiada perubahan"), m, "notice");
     }
   };
 
@@ -93,64 +95,67 @@ export function TwoFactorPanel() {
     <div className={card}>
       {toastNode}
       <p className="text-sm font-semibold">
-        Two-factor authentication
+        {L("Two-factor authentication", "Pengesahan dua faktor")}
         {status.enabled ? (
-          <span className="ml-2 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase">On</span>
+          <span className="ml-2 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("On", "Aktif")}</span>
         ) : (
-          <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white uppercase">Off</span>
+          <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("Off", "Mati")}</span>
         )}
       </p>
       <p className="text-muted-foreground mt-1 text-xs">
-        A stolen password is not enough to reach this account — signing in also
-        needs a 6-digit code from your phone. All staff accounts hold company
-        data, so turning this on is strongly recommended for everyone.
+        {L(
+          "A stolen password is not enough to reach this account — signing in also needs a 6-digit code from your phone. All staff accounts hold company data, so turning this on is strongly recommended for everyone.",
+          "Kata laluan yang dicuri tidak cukup untuk mencapai akaun ini — log masuk juga memerlukan kod 6 digit daripada telefon anda. Semua akaun kakitangan menyimpan data syarikat, jadi mengaktifkannya amat disyorkan untuk semua orang.",
+        )}
       </p>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
       {err && <p className="text-destructive mt-2 text-xs font-medium">{err}</p>}
 
       {backupCodes.length > 0 && (
         <div className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:bg-amber-950/20">
-          <p className="text-xs font-semibold">Save these backup codes now — they are shown only once.</p>
+          <p className="text-xs font-semibold">{L("Save these backup codes now — they are shown only once.", "Simpan kod sandaran ini sekarang — ia dipaparkan sekali sahaja.")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            Each works once if you lose your phone. Keep them somewhere safe and private.
+            {L("Each works once if you lose your phone. Keep them somewhere safe and private.", "Setiap satu berfungsi sekali jika anda kehilangan telefon. Simpan di tempat yang selamat dan peribadi.")}
           </p>
           <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-4">
             {backupCodes.map((c) => <span key={c}>{c}</span>)}
           </div>
           <button type="button" className={`${btnGhost} mt-3`} onClick={() => setBackupCodes([])}>
-            I have saved them
+            {L("I have saved them", "Saya sudah menyimpannya")}
           </button>
         </div>
       )}
 
       {!status.enabled && !secret && backupCodes.length === 0 && (
         <button type="button" className={`${btn} mt-3`} onClick={() => void startSetup()}>
-          Turn on two-factor
+          {L("Turn on two-factor", "Aktifkan dua faktor")}
         </button>
       )}
 
       {!status.enabled && secret && (
         <div className="mt-3 space-y-3">
           <div>
-            <p className="text-xs font-medium">1. Add this key to your authenticator app</p>
+            <p className="text-xs font-medium">{L("1. Add this key to your authenticator app", "1. Tambah kunci ini ke aplikasi pengesah anda")}</p>
             <p className="text-muted-foreground text-xs">
-              Google Authenticator, Authy, 1Password or Microsoft Authenticator →
-              &quot;Add account&quot; → &quot;Enter setup key&quot;.
+              {L(
+                "Google Authenticator, Authy, 1Password or Microsoft Authenticator → \"Add account\" → \"Enter setup key\".",
+                "Google Authenticator, Authy, 1Password atau Microsoft Authenticator → \"Add account\" → \"Enter setup key\".",
+              )}
             </p>
             <p className="border-border bg-secondary/40 mt-2 rounded-lg border px-3 py-2 font-mono text-sm break-all">
               {secret}
             </p>
             <p className="text-muted-foreground mt-1 text-xs">
-              Account name: AZ ONE OFFICIAL · Type: time-based
+              {L("Account name: AZ ONE OFFICIAL · Type: time-based", "Nama akaun: AZ ONE OFFICIAL · Jenis: berasaskan masa")}
             </p>
             {otpauth && (
               <a href={otpauth} className="mt-1 inline-block text-xs underline">
-                Or open in your authenticator app
+                {L("Or open in your authenticator app", "Atau buka dalam aplikasi pengesah anda")}
               </a>
             )}
           </div>
           <div>
-            <p className="text-xs font-medium">2. Enter the 6-digit code it shows</p>
+            <p className="text-xs font-medium">{L("2. Enter the 6-digit code it shows", "2. Masukkan kod 6 digit yang dipaparkan")}</p>
             <input
               className={`${input} mt-1 max-w-40 text-center tracking-[0.3em]`}
               inputMode="numeric"
@@ -160,7 +165,7 @@ export function TwoFactorPanel() {
             />
           </div>
           <button type="button" className={btn} disabled={code.length < 6} onClick={() => void enable()}>
-            Confirm and turn on
+            {L("Confirm and turn on", "Sahkan dan aktifkan")}
           </button>
         </div>
       )}
@@ -168,18 +173,18 @@ export function TwoFactorPanel() {
       {status.enabled && (
         <div className="mt-3 space-y-2">
           <p className="text-muted-foreground text-xs">
-            Backup codes remaining: <span className="font-medium">{status.backup_codes_left}</span>
+            {L("Backup codes remaining:", "Kod sandaran berbaki:")} <span className="font-medium">{status.backup_codes_left}</span>
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="password"
               className={`${input} max-w-56`}
-              placeholder="Current password to turn off"
+              placeholder={L("Current password to turn off", "Kata laluan semasa untuk mematikan")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
             <button type="button" className={btnGhost} disabled={!password} onClick={() => void disable()}>
-              Turn off
+              {L("Turn off", "Matikan")}
             </button>
           </div>
         </div>

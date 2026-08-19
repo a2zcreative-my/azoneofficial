@@ -17,6 +17,8 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import { useCallback, useEffect, useState } from "react";
 import { inputClass, btnClass } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { getLang } from "@/lib/i18n";
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 
@@ -103,6 +105,46 @@ const GROUPS: Group[] = [
   },
 ];
 
+/* Display-only BM lookups for the GROUPS table above — keys and the EN
+   strings themselves never change, so nothing the site reads is affected. */
+const GROUP_TITLE_MS: Record<string, string> = {
+  "Homepage — hero": "Laman utama — hero",
+  "Homepage — about": "Laman utama — tentang",
+  "Homepage — services": "Laman utama — perkhidmatan",
+  "Homepage — session showcase": "Laman utama — pameran sesi",
+  "Footer": "Pengaki",
+  "Statistics": "Statistik",
+};
+const GROUP_DESC_MS: Record<string, string> = {
+  "The first thing every visitor reads.": "Perkara pertama yang dibaca setiap pelawat.",
+  "The credibility block under the hero.": "Blok kredibiliti di bawah hero.",
+  "Heading above the seven service cards.": "Tajuk di atas tujuh kad perkhidmatan.",
+  "Heading above the TikTok / Shopee channel section.": "Tajuk di atas bahagian saluran TikTok / Shopee.",
+  "Site-wide.": "Seluruh tapak.",
+  "Shown on the homepage once real figures exist; leave empty to show the qualitative trust signals instead. JSON list, e.g. [{\"value\":\"500+\",\"label\":\"Live sessions hosted\"}]":
+    "Dipaparkan di laman utama apabila angka sebenar wujud; biarkan kosong untuk memaparkan isyarat kepercayaan kualitatif. Senarai JSON, cth. [{\"value\":\"500+\",\"label\":\"Live sessions hosted\"}]",
+};
+const FIELD_LABEL_MS: Record<string, string> = {
+  "home.hero.headline": "Tajuk utama",
+  "home.hero.subheadline": "Sub-tajuk",
+  "about.body1": "Perenggan pertama",
+  "about.body2": "Perenggan kedua",
+  "home.services.title": "Tajuk bahagian",
+  "home.services.intro": "Pengenalan bahagian",
+  "home.showcase.title": "Tajuk bahagian",
+  "home.showcase.intro": "Pengenalan bahagian",
+  "footer.slogan": "Slogan",
+  "stats.items": "Statistik (JSON)",
+};
+const FIELD_HINT_MS: Record<string, string> = {
+  "home.hero.headline": "Lalai: “Grow your sales through live commerce”",
+  "home.hero.subheadline": "Ayat di bawah tajuk utama.",
+  "footer.slogan": "Lalai: “LIVE . CONNECT . GROW.”",
+  "stats.items": "Kosong = isyarat kepercayaan dipaparkan, bukan sifar.",
+};
+const fieldLabel = (f: Field) => L(f.label, FIELD_LABEL_MS[f.key] ?? f.label);
+const fieldHint = (f: Field) => (f.hint ? L(f.hint, FIELD_HINT_MS[f.key] ?? f.hint) : f.hint);
+
 export function SiteEditor() {
   const { show: showToast, node: toastNode } = useSaveToast();
   const [values, setValues] = useState<Record<string, string>>({});
@@ -142,7 +184,7 @@ export function SiteEditor() {
       try {
         payload = JSON.parse(raw);
       } catch {
-        setError("Statistics must be valid JSON — check the example in the description.");
+        setError(L("Statistics must be valid JSON — check the example in the description.", "Statistik mesti JSON yang sah — semak contoh dalam penerangan."));
         setSaving(null);
         return;
       }
@@ -153,25 +195,25 @@ export function SiteEditor() {
     });
     setSaving(null);
     if (!res.ok) {
-      setError("Save failed — check your connection and try again.");
-      showToast("No changes", `${field.label} was not saved — check your connection and try again`, "notice");
+      setError(L("Save failed — check your connection and try again.", "Simpan gagal — semak sambungan anda dan cuba lagi."));
+      showToast(L("No changes", "Tiada perubahan"), `${fieldLabel(field)} ${L("was not saved — check your connection and try again", "tidak disimpan — semak sambungan anda dan cuba lagi")}`, "notice");
       return;
     }
     setInitial((s) => ({ ...s, [field.key]: raw }));
     setSavedAt((s) => ({ ...s, [field.key]: Date.now() }));
-    showToast("Saved", `${field.label} updated — live on the website now`);
+    showToast(L("Saved", "Disimpan"), `${fieldLabel(field)} ${L("updated — live on the website now", "dikemas kini — kini dipaparkan di laman web")}`);
   };
 
   return (
     <div className="space-y-8">
       {toastNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3">
-        <p className="text-sm font-medium">This tab edits the live website.</p>
+        <p className="text-sm font-medium">{L("This tab edits the live website.", "Tab ini menyunting laman web langsung.")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Each field controls the text named beside it. Save a field and the
-          site picks it up on the next page load — no rebuild, no code change.
-          An empty field means the site shows its built-in default, so nothing
-          here can break the page.
+          {L(
+            "Each field controls the text named beside it. Save a field and the site picks it up on the next page load — no rebuild, no code change. An empty field means the site shows its built-in default, so nothing here can break the page.",
+            "Setiap medan mengawal teks yang dinamakan di sebelahnya. Simpan medan dan laman web mengambilnya pada muatan halaman seterusnya — tiada bina semula, tiada perubahan kod. Medan kosong bermakna laman memaparkan lalai terbina dalamnya, jadi tiada apa-apa di sini boleh merosakkan halaman.",
+          )}
         </p>
       </div>
 
@@ -179,8 +221,8 @@ export function SiteEditor() {
 
       {GROUPS.map((group) => (
         <section key={group.title}>
-          <h3 className="text-sm font-semibold tracking-tight">{group.title}</h3>
-          <p className="text-muted-foreground mt-0.5 text-xs">{group.description}</p>
+          <h3 className="text-sm font-semibold tracking-tight">{L(group.title, GROUP_TITLE_MS[group.title] ?? group.title)}</h3>
+          <p className="text-muted-foreground mt-0.5 text-xs">{L(group.description, GROUP_DESC_MS[group.description] ?? group.description)}</p>
           <div className="mt-3 space-y-4">
             {group.fields.map((field) => {
               const dirty = (values[field.key] ?? "") !== (initial[field.key] ?? "");
@@ -188,16 +230,16 @@ export function SiteEditor() {
               return (
                 <label key={field.key} className="block">
                   <span className="mb-1 flex items-center gap-2 text-xs font-medium">
-                    {field.label}
+                    {fieldLabel(field)}
                     {justSaved && !dirty && (
-                      <span className="text-xs font-medium text-green-700">Saved ✓</span>
+                      <span className="text-xs font-medium text-green-700">{L("Saved ✓", "Disimpan ✓")}</span>
                     )}
                   </span>
                   {field.multiline ? (
                     <textarea
                       className={`${inputClass} min-h-20`}
                       value={values[field.key] ?? ""}
-                      placeholder={field.hint}
+                      placeholder={fieldHint(field)}
                       onChange={(e) =>
                         setValues((s) => ({ ...s, [field.key]: e.target.value }))
                       }
@@ -206,7 +248,7 @@ export function SiteEditor() {
                     <input
                       className={inputClass}
                       value={values[field.key] ?? ""}
-                      placeholder={field.hint}
+                      placeholder={fieldHint(field)}
                       onChange={(e) =>
                         setValues((s) => ({ ...s, [field.key]: e.target.value }))
                       }
@@ -214,7 +256,7 @@ export function SiteEditor() {
                   )}
                   {field.hint && field.multiline === undefined && (
                     <span className="text-muted-foreground mt-0.5 block text-[11px]">
-                      {field.hint}
+                      {fieldHint(field)}
                     </span>
                   )}
                   {dirty && (
@@ -224,7 +266,7 @@ export function SiteEditor() {
                       disabled={saving === field.key}
                       onClick={() => void save(field)}
                     >
-                      {saving === field.key ? "Saving…" : "Save"}
+                      {saving === field.key ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
                     </button>
                   )}
                 </label>

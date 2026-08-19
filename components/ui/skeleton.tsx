@@ -13,6 +13,9 @@
  */
 
 import { card } from "@/lib/ui-styles";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /** One shimmering block. `w`/`h` are Tailwind classes. */
 export function Skel({ className = "" }: { className?: string }) {
@@ -137,7 +140,7 @@ export function StaleHint({ show, className = "" }: { show: boolean; className?:
   return (
     <span className={`text-muted-foreground/70 inline-flex items-center gap-1 text-[10px] font-medium ${className}`}>
       <span className="bg-gold-solid inline-block h-1.5 w-1.5 animate-pulse rounded-full" aria-hidden />
-      updating…
+      {L("updating…", "mengemas kini…")}
     </span>
   );
 }

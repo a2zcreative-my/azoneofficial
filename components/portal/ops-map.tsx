@@ -12,8 +12,10 @@ import { useEffect, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /* Real state boundary paths on a 860×380 canvas (Mercator, 1dp).
    Generated offline from @highcharts/map-collection (Natural Earth data) —
@@ -135,13 +137,13 @@ export function OpsMapCard() {
 
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">Operations map — orders by state</p>
+      <p className="text-sm font-semibold">{L("Operations map — orders by state", "Peta operasi — pesanan mengikut negeri")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Where your TikTok orders ship (buyer city from the sync). Tap any state to see its orders and top buyer cities right here.
+        {L("Where your TikTok orders ship (buyer city from the sync). Tap any state to see its orders and top buyer cities right here.", "Destinasi penghantaran pesanan TikTok anda (bandar pembeli daripada segerakan). Tekan mana-mana negeri untuk melihat pesanan dan bandar pembeli teratasnya di sini.")}
       </p>
       <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
-        <svg viewBox="0 0 860 380" className="w-full" aria-label="Map of Malaysia — each state is a button showing its orders">
-          <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">PENINSULAR MALAYSIA</text>
+        <svg viewBox="0 0 860 380" className="w-full" aria-label={L("Map of Malaysia — each state is a button showing its orders", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan pesanannya")}>
+          <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">{L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}</text>
           <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">SABAH &amp; SARAWAK</text>
           <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
           {drawOrder.map((s) => {
@@ -154,7 +156,7 @@ export function OpsMapCard() {
                 d={s.d}
                 role="button"
                 tabIndex={0}
-                aria-label={`${s.name}: ${v ? `${v.orders} order${v.orders === 1 ? "" : "s"}, ${fmtRM(v.cents)}` : "no orders yet"}`}
+                aria-label={`${s.name}: ${v ? L(`${v.orders} order${v.orders === 1 ? "" : "s"}, ${fmtRM(v.cents)}`, `${v.orders} pesanan, ${fmtRM(v.cents)}`) : L("no orders yet", "belum ada pesanan")}`}
                 aria-pressed={isSel}
                 onClick={() => toggle(s.name)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(s.name); } }}
@@ -165,7 +167,7 @@ export function OpsMapCard() {
                 strokeWidth={isSel ? 2.5 : 1}
                 strokeLinejoin="round"
               >
-                <title>{`${s.name} · ${v ? `${v.orders} order${v.orders === 1 ? "" : "s"} · ${fmtRM(v.cents)}` : "no orders yet"}`}</title>
+                <title>{`${s.name} · ${v ? L(`${v.orders} order${v.orders === 1 ? "" : "s"} · ${fmtRM(v.cents)}`, `${v.orders} pesanan · ${fmtRM(v.cents)}`) : L("no orders yet", "belum ada pesanan")}`}</title>
               </path>
             );
           })}
@@ -190,24 +192,24 @@ export function OpsMapCard() {
                 <div>
                   <p className="text-sm font-semibold">{sel}</p>
                   <p className="text-muted-foreground text-[11px]">
-                    {selData ? `${Math.round((selData.orders / Math.max(1, totalOrders)) * 100)}% of located orders` : "no orders yet"}
+                    {selData ? L(`${Math.round((selData.orders / Math.max(1, totalOrders)) * 100)}% of located orders`, `${Math.round((selData.orders / Math.max(1, totalOrders)) * 100)}% daripada pesanan yang dikesan`) : L("no orders yet", "belum ada pesanan")}
                   </p>
                 </div>
-                <button type="button" className={btnSm} onClick={() => setSel(null)}>All states</button>
+                <button type="button" className={btnSm} onClick={() => setSel(null)}>{L("All states", "Semua negeri")}</button>
               </div>
               {selData ? (
                 <>
                   <div className="mt-2.5 grid grid-cols-2 gap-2">
                     <div className="bg-secondary rounded-lg px-2.5 py-2">
-                      <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Orders</p>
+                      <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Orders", "Pesanan")}</p>
                       <p className="text-sm font-semibold tabular-nums">{selData.orders}</p>
                     </div>
                     <div className="bg-secondary rounded-lg px-2.5 py-2">
-                      <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Revenue</p>
+                      <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Revenue", "Hasil")}</p>
                       <p className="text-sm font-semibold tabular-nums">{fmtRM(selData.cents)}</p>
                     </div>
                   </div>
-                  <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">Top cities</p>
+                  <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">{L("Top cities", "Bandar teratas")}</p>
                   <div className="mt-1.5 space-y-1">
                     {selData.cities.slice(0, 6).map((c) => (
                       <p key={c.city} className="flex items-baseline justify-between gap-2 text-xs">
@@ -216,17 +218,17 @@ export function OpsMapCard() {
                       </p>
                     ))}
                     {selData.cities.length > 6 && (
-                      <p className="text-muted-foreground text-[11px]">+{selData.cities.length - 6} more cities</p>
+                      <p className="text-muted-foreground text-[11px]">{L(`+${selData.cities.length - 6} more cities`, `+${selData.cities.length - 6} bandar lagi`)}</p>
                     )}
                   </div>
                 </>
               ) : (
-                <p className="text-muted-foreground mt-2.5 text-xs">No orders shipped to {sel} yet.</p>
+                <p className="text-muted-foreground mt-2.5 text-xs">{L(`No orders shipped to ${sel} yet.`, `Belum ada pesanan dihantar ke ${sel}.`)}</p>
               )}
             </div>
           ) : (
             <div>
-              <p className="text-sm font-semibold">Malaysia — all states</p>
+              <p className="text-sm font-semibold">{L("Malaysia — all states", "Malaysia — semua negeri")}</p>
               <div className="mt-2.5 grid grid-cols-2 gap-2">
                 <div className="bg-secondary rounded-lg px-2.5 py-2">
                   <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Orders</p>
@@ -237,7 +239,7 @@ export function OpsMapCard() {
                   <p className="text-sm font-semibold tabular-nums">{fmtRM(totalCents)}</p>
                 </div>
               </div>
-              <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">Top states</p>
+              <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">{L("Top states", "Negeri teratas")}</p>
               <div className="mt-1 -mx-1">
                 {top.map(([st, v]) => (
                   <button
@@ -253,10 +255,10 @@ export function OpsMapCard() {
               </div>
               {unknown > 0 && (
                 <p className="text-muted-foreground mt-1.5 flex items-baseline justify-between px-1 text-[11px]">
-                  <span>Unmapped cities</span><span className="tabular-nums">{unknown}</span>
+                  <span>{L("Unmapped cities", "Bandar tidak dipetakan")}</span><span className="tabular-nums">{unknown}</span>
                 </p>
               )}
-              <p className="text-muted-foreground mt-2 text-[11px]">Tap a state on the map for its city breakdown.</p>
+              <p className="text-muted-foreground mt-2 text-[11px]">{L("Tap a state on the map for its city breakdown.", "Tekan negeri pada peta untuk pecahan bandarnya.")}</p>
             </div>
           )}
         </div>

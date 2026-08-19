@@ -28,6 +28,12 @@ const MY_MS = 8 * 3600 * 1000;
 const mytNow = () => new Date(Date.now() + MY_MS);
 const mytDay = (iso: string) => new Date(new Date(iso).getTime() + MY_MS).toISOString().slice(0, 10);
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_MS = ["Januari","Februari","Mac","April","Mei","Jun","Julai","Ogos","September","Oktober","November","Disember"];
+/* BM labels for API VALUES — display only. The values themselves stay
+   English: the filters above still compare "completed" / "cancelled" etc. */
+const TASK_STATUS_MS: Record<string, string> = { open: "terbuka", in_progress: "sedang berjalan", completed: "selesai" };
+const LEAVE_TYPE_MS: Record<string, string> = { annual: "tahunan", medical: "perubatan", emergency: "kecemasan", unpaid: "tanpa gaji", replacement: "gantian" };
+const EVENT_CAT_MS: Record<string, string> = { event: "acara", news: "berita", meeting: "mesyuarat", holiday: "cuti", kpi: "KPI", training: "latihan", memo: "memo" };
 
 /** Left column: month grid + what is happening today. */
 export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
@@ -88,7 +94,7 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
           const next = new Date(Date.UTC(y, m - 1 + d, 1));
           setMonth(next.toISOString().slice(0, 7));
         }}
-        label={`${MONTHS[m - 1]} ${y}`}
+        label={`${(lang === "ms" ? MONTHS_MS : MONTHS)[m - 1]} ${y}`}
       />
 
       <div className="bg-brand rounded-card p-3 text-white">
@@ -118,7 +124,7 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">
             {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {s.platform}
           </p>
-          <p className="mt-1 truncate text-[13px] font-semibold">{s.client_company ?? s.client_name ?? "Live session"}</p>
+          <p className="mt-1 truncate text-[13px] font-semibold">{s.client_company ?? s.client_name ?? (lang === "ms" ? "Sesi langsung" : "Live session")}</p>
           <p className="text-muted-foreground mt-0.5 truncate text-[11.5px]">{s.host_name}</p>
         </div>
       ))}
@@ -126,14 +132,14 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
         <div key={`e${e.id}`} className="border-border bg-card rounded-card border p-3">
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{e.start_time || (lang === "ms" ? "Sepanjang hari" : "All day")}</p>
           <p className="mt-1 truncate text-[13px] font-semibold">{e.title}</p>
-          <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{e.category}</p>
+          <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{lang === "ms" ? EVENT_CAT_MS[e.category] ?? e.category : e.category}</p>
         </div>
       ))}
       {dayTasks.slice(0, 6).map((t) => (
         <div key={t.id} className="border-border bg-card rounded-card border p-3">
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{t.due_date?.slice(0, 10)}</p>
           <p className="mt-1 truncate text-[13px] font-semibold">{t.title}</p>
-          <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{t.status.replace(/_/g, " ")}</p>
+          <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{lang === "ms" ? TASK_STATUS_MS[t.status] ?? t.status.replace(/_/g, " ") : t.status.replace(/_/g, " ")}</p>
         </div>
       ))}
       {dayCount === 0 && (
@@ -180,7 +186,7 @@ export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
         ) : leave.slice(0, 4).map((l) => (
           <div key={l.id} className="border-border flex items-start gap-2 border-b py-2 last:border-0 last:pb-0">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px] font-semibold capitalize">{l.type.replace(/_/g, " ")}</p>
+              <p className="truncate text-[12.5px] font-semibold capitalize">{lang === "ms" ? LEAVE_TYPE_MS[l.type] ?? l.type.replace(/_/g, " ") : l.type.replace(/_/g, " ")}</p>
               <p className="text-muted-foreground text-[11.5px] tabular-nums">{l.start_date} → {l.end_date}</p>
             </div>
           </div>
@@ -193,7 +199,7 @@ export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
         ) : tasks.map((t) => (
           <div key={t.id} className="border-border border-b py-2 last:border-0 last:pb-0">
             <p className="truncate text-[12.5px] font-semibold">{t.title}</p>
-            <p className="text-muted-foreground text-[11.5px] capitalize">{t.status.replace(/_/g, " ")}</p>
+            <p className="text-muted-foreground text-[11.5px] capitalize">{lang === "ms" ? TASK_STATUS_MS[t.status] ?? t.status.replace(/_/g, " ") : t.status.replace(/_/g, " ")}</p>
           </div>
         ))}
       </Section>

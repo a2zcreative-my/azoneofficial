@@ -14,9 +14,13 @@ import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { makeApi } from "@/lib/api";
 import { fmtRM, ym } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, card, chipDanger, chipNeutral, chipSuccess, chipWarn, fieldLabel, fieldRow, inputClass, rowHead } from "@/lib/ui-styles";
 
 const api = makeApi("/staff/erp");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+/** BM display names for commission/claim statuses — display only, never compared. */
+const statusMs: Record<string, string> = { pending: "menunggu", approved: "diluluskan", paid: "dibayar", rejected: "ditolak" };
 const MYT_MONTH = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
 
 /* ============================ Commission ============================ */
@@ -61,8 +65,8 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
         effective_from: rateDraft.effective_from,
       }),
     });
-    if (r.ok) { setRateDraft({ host_id: "", percent: "", per_hour: "", effective_from: "" }); showToast("Saved", "Commission rate set"); void load(); }
-    else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
+    if (r.ok) { setRateDraft({ host_id: "", percent: "", per_hour: "", effective_from: "" }); showToast(L("Saved", "Disimpan"), L("Commission rate set", "Kadar komisen ditetapkan")); void load(); }
+    else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
 
   const addEntry = async () => {
@@ -78,104 +82,104 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
     });
     if (r.ok) {
       setDraft((d) => ({ ...d, basis: "", hours: "", note: "" }));
-      showToast("Saved", r.data?.amount_cents !== undefined ? `Computed ${fmtRM(r.data.amount_cents)} from the rate table` : "Entry added");
+      showToast(L("Saved", "Disimpan"), r.data?.amount_cents !== undefined ? L(`Computed ${fmtRM(r.data.amount_cents)} from the rate table`, `${fmtRM(r.data.amount_cents)} dikira dari jadual kadar`) : L("Entry added", "Catatan ditambah"));
       void load();
-    } else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
+    } else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
 
   const setStatus = async (id: number, status: string) => {
     const r = await api(`/commission/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    showToast(r.ok ? "Saved" : "No changes", r.ok ? `Marked ${status}` : "Only the CEO tier approves commission", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), r.ok ? L(`Marked ${status}`, `Ditanda ${statusMs[status] ?? status}`) : L("Only the CEO tier approves commission", "Hanya peringkat CEO boleh meluluskan komisen"), r.ok ? undefined : "notice");
     void load();
   };
 
   return (
     <div className={card}>
       {toastNode}
-      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.</p>}
+      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
       <div className={rowHead}>
-        <p className="text-sm font-semibold">Commission</p>
-        <button type="button" className={btnSm} onClick={() => setShowRates((v) => !v)}>{showRates ? "Hide rates" : `Rates (${rates.length})`}</button>
+        <p className="text-sm font-semibold">{L("Commission", "Komisen")}</p>
+        <button type="button" className={btnSm} onClick={() => setShowRates((v) => !v)}>{showRates ? L("Hide rates", "Sembunyikan kadar") : L(`Rates (${rates.length})`, `Kadar (${rates.length})`)}</button>
       </div>
 
       <div className="mt-3">
         <StatStrip>
-          <StatTile tone="info" label="Entries · this month" value={thisMonth.length} icon="≡" />
-          <StatTile tone="gold" label="This month" value={fmtRM(thisMonth.reduce((a, e) => a + e.amount_cents, 0))} icon="%" />
-          <StatTile tone="brand" label="Approved, unpaid" value={fmtRM(owed)} icon="◷" />
-          <StatTile tone="success" label="Paid out" value={fmtRM(paid)} icon="✓" />
+          <StatTile tone="info" label={L("Entries · this month", "Catatan · bulan ini")} value={thisMonth.length} icon="≡" />
+          <StatTile tone="gold" label={L("This month", "Bulan ini")} value={fmtRM(thisMonth.reduce((a, e) => a + e.amount_cents, 0))} icon="%" />
+          <StatTile tone="brand" label={L("Approved, unpaid", "Diluluskan, belum dibayar")} value={fmtRM(owed)} icon="◷" />
+          <StatTile tone="success" label={L("Paid out", "Telah dibayar")} value={fmtRM(paid)} icon="✓" />
         </StatStrip>
       </div>
 
       {showRates && (
         <div className="border-border mb-4 rounded-xl border p-3">
-          <p className="mb-2 text-xs font-semibold">Rates (latest effective wins; only the CEO tier can set)</p>
+          <p className="mb-2 text-xs font-semibold">{L("Rates (latest effective wins; only the CEO tier can set)", "Kadar (yang berkuat kuasa terkini digunakan; hanya peringkat CEO boleh tetapkan)")}</p>
           {rates.map((r) => (
             <p key={r.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
               <span>{r.host_name}</span>
-              <span className="text-muted-foreground tabular-nums">{r.percent}% {r.per_hour_cents > 0 ? `+ ${fmtRM(r.per_hour_cents)}/h` : ""} · from {r.effective_from}</span>
+              <span className="text-muted-foreground tabular-nums">{r.percent}% {r.per_hour_cents > 0 ? `+ ${fmtRM(r.per_hour_cents)}/h` : ""} · {L("from", "dari")} {r.effective_from}</span>
             </p>
           ))}
           {canDecide && (
             <div className={`${fieldRow} mt-2`}>
-              <label><span className={fieldLabel}>Host</span>
+              <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
                 <select className={inputClass} value={rateDraft.host_id} onChange={(e) => setRateDraft((d) => ({ ...d, host_id: e.target.value }))}>
                   <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
                 </select></label>
-              <label><span className={fieldLabel}>Percent</span>
+              <label><span className={fieldLabel}>{L("Percent", "Peratus")}</span>
                 <input type="number" min="0" max="50" step="0.1" className={inputClass} value={rateDraft.percent} onChange={(e) => setRateDraft((d) => ({ ...d, percent: e.target.value }))} /></label>
-              <label><span className={fieldLabel}>+ RM/hour</span>
+              <label><span className={fieldLabel}>{L("+ RM/hour", "+ RM/jam")}</span>
                 <input type="number" min="0" step="0.01" className={inputClass} value={rateDraft.per_hour} onChange={(e) => setRateDraft((d) => ({ ...d, per_hour: e.target.value }))} /></label>
-              <label><span className={fieldLabel}>Effective from</span>
+              <label><span className={fieldLabel}>{L("Effective from", "Berkuat kuasa dari")}</span>
                 <input type="date" className={inputClass} value={rateDraft.effective_from} onChange={(e) => setRateDraft((d) => ({ ...d, effective_from: e.target.value }))} /></label>
-              <button type="button" className={btnSm} onClick={() => void addRate()}>Set rate</button>
+              <button type="button" className={btnSm} onClick={() => void addRate()}>{L("Set rate", "Tetapkan kadar")}</button>
             </div>
           )}
         </div>
       )}
 
       <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>Host</span>
+        <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
           <select className={inputClass} value={draft.host_id} onChange={(e) => setDraft((d) => ({ ...d, host_id: e.target.value }))}>
             <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select></label>
-        <label><span className={fieldLabel}>Period</span>
+        <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
           <input type="month" className={inputClass} value={draft.period} onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>Sales basis (RM)</span>
+        <label><span className={fieldLabel}>{L("Sales basis (RM)", "Asas jualan (RM)")}</span>
           <input type="number" min="0" step="0.01" className={inputClass} value={draft.basis} onChange={(e) => setDraft((d) => ({ ...d, basis: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>Live hours</span>
+        <label><span className={fieldLabel}>{L("Live hours", "Jam live")}</span>
           <input type="number" min="0" step="0.5" className={inputClass} value={draft.hours} onChange={(e) => setDraft((d) => ({ ...d, hours: e.target.value }))} /></label>
         <button type="button" className={btnClass} disabled={!draft.host_id || !draft.basis} onClick={() => void addEntry()}>
-          + Compute entry
+          {L("+ Compute entry", "+ Kira catatan")}
         </button>
       </div>
-      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">The amount is computed from the host&apos;s rate on the server — the form cannot set it.</p>
+      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
 
       <DataTable
         rows={entries}
         searchText={(e) => `${e.host_name} ${e.period} ${e.note}`}
         defaultSort="id"
         columns={[
-          { key: "period", label: "Period", render: (e) => <span className="tabular-nums">{ym(e.period)}</span> },
-          { key: "host_name", label: "Host" },
-          { key: "basis_cents", label: "Basis", numeric: true, sortValue: (e) => e.basis_cents, render: (e) => fmtRM(e.basis_cents) },
-          { key: "amount_cents", label: "Commission", numeric: true, sortValue: (e) => e.amount_cents, render: (e) => <b>{fmtRM(e.amount_cents)}</b> },
+          { key: "period", label: L("Period", "Tempoh"), render: (e) => <span className="tabular-nums">{ym(e.period)}</span> },
+          { key: "host_name", label: L("Host", "Hos") },
+          { key: "basis_cents", label: L("Basis", "Asas"), numeric: true, sortValue: (e) => e.basis_cents, render: (e) => fmtRM(e.basis_cents) },
+          { key: "amount_cents", label: L("Commission", "Komisen"), numeric: true, sortValue: (e) => e.amount_cents, render: (e) => <b>{fmtRM(e.amount_cents)}</b> },
           {
             key: "status", label: "Status", sortable: false,
             render: (e) => (
               <span className="flex items-center gap-1.5">
-                <span className={e.status === "paid" ? chipSuccess : e.status === "approved" ? chipNeutral : chipWarn}>{e.status}</span>
+                <span className={e.status === "paid" ? chipSuccess : e.status === "approved" ? chipNeutral : chipWarn}>{L(e.status, statusMs[e.status] ?? e.status)}</span>
                 {canDecide && e.status === "pending" && (
-                  <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(e.id, "approved")}>approve</button>
+                  <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(e.id, "approved")}>{L("approve", "luluskan")}</button>
                 )}
                 {canDecide && e.status === "approved" && (
-                  <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(e.id, "paid")}>mark paid</button>
+                  <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(e.id, "paid")}>{L("mark paid", "tanda dibayar")}</button>
                 )}
               </span>
             ),
           },
         ]}
-        empty="No commission entries yet."
+        empty={L("No commission entries yet.", "Tiada catatan komisen lagi.")}
       />
     </div>
   );
@@ -216,8 +220,8 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
       method: "POST",
       body: JSON.stringify({ period: allocDraft.period, channel: allocDraft.channel, amount: allocDraft.amount ? Number(allocDraft.amount) : undefined, notes: allocDraft.notes }),
     });
-    if (r.ok) { setAllocDraft((d) => ({ ...d, amount: "", notes: "" })); showToast("Saved", "Allocation created"); void load(); }
-    else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
+    if (r.ok) { setAllocDraft((d) => ({ ...d, amount: "", notes: "" })); showToast(L("Saved", "Disimpan"), L("Allocation created", "Peruntukan dibuat")); void load(); }
+    else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
 
   /* v1.20.0 C4: spend RECORD, not a claim — managers book spend directly
@@ -228,59 +232,59 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
       method: "POST",
       body: JSON.stringify({ amount: claimDraft.amount ? Number(claimDraft.amount) : undefined, description: claimDraft.description }),
     });
-    if (r.ok) { setClaimDraft({ allocation_id: "", amount: "", description: "" }); showToast("Saved", "Spend recorded against the allocation"); void load(); }
-    else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
+    if (r.ok) { setClaimDraft({ allocation_id: "", amount: "", description: "" }); showToast(L("Saved", "Disimpan"), L("Spend recorded against the allocation", "Perbelanjaan direkodkan terhadap peruntukan")); void load(); }
+    else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
 
   return (
     <div className={card}>
       {toastNode}
-      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.</p>}
-      <p className="text-sm font-semibold">Ads Fund</p>
+      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
+      <p className="text-sm font-semibold">{L("Ads Fund", "Dana Iklan")}</p>
 
       <div className="mt-3">
         <StatStrip>
-          <StatTile tone="brand" label="Allocated" value={fmtRM(allocated)} icon="◎" />
-          <StatTile tone="success" label="Approved spend" value={fmtRM(approved)} icon="✓" />
-          <StatTile tone="gold" label="Remaining" value={fmtRM(allocated - approved)} icon="~" />
-          <StatTile tone="muted" label="Spend entries" value={claims.length} icon="≡" />
+          <StatTile tone="brand" label={L("Allocated", "Diperuntukkan")} value={fmtRM(allocated)} icon="◎" />
+          <StatTile tone="success" label={L("Approved spend", "Perbelanjaan diluluskan")} value={fmtRM(approved)} icon="✓" />
+          <StatTile tone="gold" label={L("Remaining", "Baki")} value={fmtRM(allocated - approved)} icon="~" />
+          <StatTile tone="muted" label={L("Spend entries", "Catatan perbelanjaan")} value={claims.length} icon="≡" />
         </StatStrip>
       </div>
 
       {canManage && (
         <div className={`${fieldRow} mb-3`}>
-          <label><span className={fieldLabel}>Period</span>
+          <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
             <input type="month" className={inputClass} value={allocDraft.period} onChange={(e) => setAllocDraft((d) => ({ ...d, period: e.target.value }))} /></label>
-          <label><span className={fieldLabel}>Channel</span>
+          <label><span className={fieldLabel}>{L("Channel", "Saluran")}</span>
             <select className={inputClass} value={allocDraft.channel} onChange={(e) => setAllocDraft((d) => ({ ...d, channel: e.target.value }))}>
               {["tiktok", "shopee", "lazada", "direct"].map((c) => <option key={c} value={c}>{c}</option>)}
             </select></label>
-          <label><span className={fieldLabel}>Budget (RM)</span>
+          <label><span className={fieldLabel}>{L("Budget (RM)", "Bajet (RM)")}</span>
             <input type="number" min="0.01" step="0.01" className={inputClass} value={allocDraft.amount} onChange={(e) => setAllocDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-          <button type="button" className={btnClass} disabled={!allocDraft.amount} onClick={() => void addAllocation()}>+ Allocate</button>
+          <button type="button" className={btnClass} disabled={!allocDraft.amount} onClick={() => void addAllocation()}>{L("+ Allocate", "+ Peruntukkan")}</button>
         </div>
       )}
 
       {canManage && (
       <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>Spend against</span>
+        <label><span className={fieldLabel}>{L("Spend against", "Belanja terhadap")}</span>
           <select className={inputClass} value={claimDraft.allocation_id} onChange={(e) => setClaimDraft((d) => ({ ...d, allocation_id: e.target.value }))}>
             <option value="">—</option>
             {allocations.map((a) => (
-              <option key={a.id} value={a.id}>{ym(a.period)} · {a.channel} · {fmtRM(a.amount_cents - a.approved_cents - a.pending_cents)} left</option>
+              <option key={a.id} value={a.id}>{ym(a.period)} · {a.channel} · {fmtRM(a.amount_cents - a.approved_cents - a.pending_cents)} {L("left", "baki")}</option>
             ))}
           </select></label>
-        <label><span className={fieldLabel}>Amount (RM)</span>
+        <label><span className={fieldLabel}>{L("Amount (RM)", "Amaun (RM)")}</span>
           <input type="number" min="0.01" step="0.01" className={inputClass} value={claimDraft.amount} onChange={(e) => setClaimDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-        <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Spent on</span>
-          <input className={inputClass} placeholder="TikTok ads top-up 12–14 Aug" value={claimDraft.description} onChange={(e) => setClaimDraft((d) => ({ ...d, description: e.target.value }))} /></label>
+        <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>{L("Spent on", "Dibelanjakan untuk")}</span>
+          <input className={inputClass} placeholder={L("TikTok ads top-up 12–14 Aug", "Tambah nilai iklan TikTok 12–14 Ogos")} value={claimDraft.description} onChange={(e) => setClaimDraft((d) => ({ ...d, description: e.target.value }))} /></label>
         <button type="button" className={btnClass} disabled={!claimDraft.allocation_id || !claimDraft.amount || !claimDraft.description} onClick={() => void addSpend()}>
-          Record spend
+          {L("Record spend", "Rekod perbelanjaan")}
         </button>
       </div>
       )}
       <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">
-        Paid for ads out of pocket? Submit it on the <b>Claims</b> tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.
+        {L("Paid for ads out of pocket? Submit it on the", "Bayar iklan dari poket sendiri? Hantarkannya pada tab")} <b>{L("Claims", "Tuntutan")}</b> {L("tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.", "(resit + rantaian kelulusan) — kad ini ialah buku bajet, bukan barisan bayaran balik.")}
       </p>
 
       <DataTable
@@ -288,17 +292,17 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         searchText={(c) => `${c.claimant} ${c.description}`}
         defaultSort="id"
         columns={[
-          { key: "claimant", label: "By" },
-          { key: "description", label: "Spent on" },
-          { key: "amount_cents", label: "Amount", numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
+          { key: "claimant", label: L("By", "Oleh") },
+          { key: "description", label: L("Spent on", "Dibelanjakan untuk") },
+          { key: "amount_cents", label: L("Amount", "Amaun"), numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
           {
             key: "status", label: "Status", sortable: false,
             // Legacy pending/rejected rows (pre-v1.20.0) still display; new
             // entries are born approved.
-            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{c.status}</span>,
+            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{L(c.status, statusMs[c.status] ?? c.status)}</span>,
           },
         ]}
-        empty="No spend recorded yet — allocate a budget, then record spend against it."
+        empty={L("No spend recorded yet — allocate a budget, then record spend against it.", "Tiada perbelanjaan direkodkan lagi — peruntukkan bajet, kemudian rekod perbelanjaan terhadapnya.")}
       />
     </div>
   );

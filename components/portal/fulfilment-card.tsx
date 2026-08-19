@@ -11,6 +11,9 @@
 import { useEffect, useState } from "react";
 import { SkelText } from "@/components/ui/skeleton";
 import { card } from "@/lib/ui-styles";
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 interface FulfilSummary {
@@ -23,12 +26,13 @@ interface FulfilOrder { // v1.4.222 drill-down row
   buyer_city: string | null; order_amount_cents: number | null; created_at: string;
 }
 
-const CHIPS: [key: string, label: string][] = [
-  ["preparing", "📦 Preparing"],
-  ["shipped", "🚚 Shipped"],
-  ["in_transit", "✈ In transit"],
-  ["delivered", "✅ Delivered"],
-  ["returned", "↩ Returned"],
+/* [status key (API value — never translated), EN label, BM label] */
+const CHIPS: [key: string, label: string, labelMs: string][] = [
+  ["preparing", "📦 Preparing", "📦 Sedang disediakan"],
+  ["shipped", "🚚 Shipped", "🚚 Dihantar"],
+  ["in_transit", "✈ In transit", "✈ Dalam perjalanan"],
+  ["delivered", "✅ Delivered", "✅ Telah sampai"],
+  ["returned", "↩ Returned", "↩ Dipulangkan"],
 ];
 
 import { fmtRM as rmF, dmy } from "@/lib/format"; // v1.4.272: the global formatters
@@ -74,24 +78,24 @@ export function FulfilmentCard() {
   const totalMonth = d ? Object.values(d.by_status).reduce((a, b) => a + b, 0) : 0;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">📮 Fulfilment — {d ? dmy(d.month) : "…"}</p>
+      <p className="text-sm font-semibold">{L("📮 Fulfilment", "📮 Pemenuhan")} — {d ? dmy(d.month) : "…"}</p>
       {!d ? (
         <SkelText lines={2} className="mt-2" />
       ) : totalMonth === 0 ? (
-        <p className="text-muted-foreground mt-2 text-sm">No shipments recorded this month yet.</p>
+        <p className="text-muted-foreground mt-2 text-sm">{L("No shipments recorded this month yet.", "Belum ada penghantaran direkodkan bulan ini.")}</p>
       ) : (
         <>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {CHIPS.map(([k, label]) => (
+            {CHIPS.map(([k, label, labelMs]) => (
               <button key={k} type="button" onClick={() => void toggleDrill(k)}
-                title="Click to show these orders"
+                title={L("Click to show these orders", "Klik untuk tunjuk pesanan ini")}
                 className={
                   (drill === k ? "ring-primary ring-2 " : "") +
                   (k === "preparing" && n(k) > 0
                     ? "rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800"
                     : "border-border rounded-full border px-2 py-0.5")
                 }>
-                {label} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
+                {L(label, labelMs)} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
               </button>
             ))}
           </div>
@@ -99,7 +103,7 @@ export function FulfilmentCard() {
             <div className="mt-2">
               {drillBusy && <SkelText lines={2} className="mt-1" />}
               {orders && orders.length === 0 && (
-                <p className="text-muted-foreground text-xs">No orders in this status this month.</p>
+                <p className="text-muted-foreground text-xs">{L("No orders in this status this month.", "Tiada pesanan dalam status ini bulan ini.")}</p>
               )}
               {orders && orders.length > 0 && (
                 <div className="tbl-sticky -mx-1 max-h-64 overflow-auto px-1">
@@ -107,14 +111,14 @@ export function FulfilmentCard() {
                     <thead>
                       <tr className="text-muted-foreground text-left">
                         {([
-                          ["order", "ORDER", "px-2 py-1"],
-                          ["date", "DATE", "px-2 py-1"],
-                          ["courier", "COURIER · TRACKING", "px-2 py-1"],
-                          ["city", "CITY", "px-2 py-1"],
-                          ["amount", "AMOUNT", "px-2 py-1 text-right"],
+                          ["order", L("ORDER", "PESANAN"), "px-2 py-1"],
+                          ["date", L("DATE", "TARIKH"), "px-2 py-1"],
+                          ["courier", L("COURIER · TRACKING", "KURIER · PENJEJAKAN"), "px-2 py-1"],
+                          ["city", L("CITY", "BANDAR"), "px-2 py-1"],
+                          ["amount", L("AMOUNT", "AMAUN"), "px-2 py-1 text-right"],
                         ] as [OCol, string, string][]).map(([col, label, cls]) => (
                           <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
-                            title={`Sort by ${label} — click again to reverse`}
+                            title={L(`Sort by ${label} — click again to reverse`, `Isih mengikut ${label} — klik lagi untuk terbalikkan`)}
                             onClick={() => cycleO(col)}>
                             {label}{oSort.col === col ? (oSort.asc ? " ▲" : " ▼") : ""}
                           </th>
@@ -149,10 +153,10 @@ export function FulfilmentCard() {
           )}
           {d.oldest_preparing && (
             <p className="mt-2 text-xs font-medium text-amber-700">
-              ⏳ Oldest unshipped: {d.oldest_preparing.order_ref}
+              {L("⏳ Oldest unshipped:", "⏳ Paling lama belum dihantar:")} {d.oldest_preparing.order_ref}
               {d.oldest_preparing.days !== null && d.oldest_preparing.days >= 1
-                ? ` — waiting ${d.oldest_preparing.days} day${d.oldest_preparing.days === 1 ? "" : "s"}`
-                : " — from today"}
+                ? L(` — waiting ${d.oldest_preparing.days} day${d.oldest_preparing.days === 1 ? "" : "s"}`, ` — menunggu ${d.oldest_preparing.days} hari`)
+                : L(" — from today", " — dari hari ini")}
             </p>
           )}
         </>

@@ -78,6 +78,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
      detail-card actions) stays EN by design — see lib/i18n.ts. */
   const lang = getLang();
   const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
+  /* BM completion — the write surfaces (modals, toasts, confirm bar) follow
+     the toggle too. API statuses stay EN in state/payloads; they map to BM
+     at the display point only. */
+  const statusLabel = (st: string) =>
+    lang === "ms" ? (({ scheduled: "dijadualkan", completed: "selesai", cancelled: "dibatalkan" } as Record<string, string>)[st] ?? st) : st;
   const DAYS = lang === "ms" ? DAY_LABEL_MS : DAY_LABEL;
   const [data, setData] = useState<RosterData | null>(null);
   const [week, setWeek] = useState<string>("");           // "" = server default (this week)
@@ -157,7 +162,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   const saveEdit = async () => {
     if (editingId == null) return;
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
-      showToast("No change", "Date, start time and host are required", "notice");
+      showToast(L("No change", "Tiada perubahan"), L("Date, start time and host are required", "Tarikh, masa mula dan hos diperlukan"), "notice");
       return;
     }
     setSaving(true);
@@ -171,15 +176,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       }),
     });
     setSaving(false);
-    if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not update the session", "notice"); return; }
+    if (!r.ok) { showToast(L("No change", "Tiada perubahan"), r.data?.error?.message ?? L("Could not update the session", "Sesi tidak dapat dikemas kini"), "notice"); return; }
     /* v1.22.7 (CEO: "I have done edit, but it doesnt updated!!!"): his live
        worker was an OLDER build — it applied date/time/host and silently
        ignored client/platform/notes, then said ok. The new worker echoes the
        applied columns; no echo = old worker, so say so instead of lying. */
     if (!Array.isArray(r.data?.applied) || !r.data.applied.includes("client_name")) {
-      showToast("Only the schedule saved", "The API worker is an older build — client, platform and notes were ignored. Run DEPLOY.bat IN FULL (step 3 deploys the worker), then edit again.", "notice");
+      showToast(L("Only the schedule saved", "Hanya jadual disimpan"), L("The API worker is an older build — client, platform and notes were ignored. Run DEPLOY.bat IN FULL (step 3 deploys the worker), then edit again.", "Worker API ialah binaan lama — klien, platform dan catatan diabaikan. Jalankan DEPLOY.bat SEPENUHNYA (langkah 3 melancarkan worker), kemudian sunting semula."), "notice");
     } else {
-      showToast("Session updated", `${draft.client_name || "Live session"} · ${dmy(draft.session_date)} ${draft.start_time}`);
+      showToast(L("Session updated", "Sesi dikemas kini"), `${draft.client_name || L("Live session", "Sesi LIVE")} · ${dmy(draft.session_date)} ${draft.start_time}`);
     }
     setAssignOpen(false); setEditingId(null);
     void load(week);
@@ -220,15 +225,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   /** Validate the form + repeat rule; toast and return null when unusable. */
   const expandOrExplain = (): PlanEntry[] | null => {
     if (!draft.session_date || !draft.start_time || !draft.host_user_id) {
-      showToast("No change", "Date, start time and host are required", "notice");
+      showToast(L("No change", "Tiada perubahan"), L("Date, start time and host are required", "Tarikh, masa mula dan hos diperlukan"), "notice");
       return null;
     }
     if (repeat !== "once" && (!repeatUntil || repeatUntil < draft.session_date)) {
-      showToast("Set the until date", "Repeat needs an end — pick the last date the run should reach.", "notice");
+      showToast(L("Set the until date", "Tetapkan tarikh sehingga"), L("Repeat needs an end — pick the last date the run should reach.", "Ulangan perlukan penghujung — pilih tarikh terakhir yang perlu dicapai."), "notice");
       return null;
     }
     if (repeat === "days" && repeatDays.length === 0) {
-      showToast("Pick the days", "Toggle at least one weekday (Mon–Sun) for the run.", "notice");
+      showToast(L("Pick the days", "Pilih hari"), L("Toggle at least one weekday (Mon–Sun) for the run.", "Togol sekurang-kurangnya satu hari (Isn–Ahd) untuk ulangan ini."), "notice");
       return null;
     }
     return expandDates().map((dt) => ({ ...draft, session_date: dt }));
@@ -243,7 +248,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       const fresh = entries.filter((e) => !seen.has(key(e)));
       return [...p, ...fresh].slice(0, 100).sort((a, b) => `${a.session_date}${a.start_time}`.localeCompare(`${b.session_date}${b.start_time}`));
     });
-    showToast("Added to plan", `${entries.length} session${entries.length === 1 ? "" : "s"} queued — adjust the form and add more, or Schedule all.`);
+    showToast(L("Added to plan", "Ditambah ke pelan"), lang === "ms"
+      ? `${entries.length} sesi dalam giliran — laraskan borang dan tambah lagi, atau Jadualkan semua.`
+      : `${entries.length} session${entries.length === 1 ? "" : "s"} queued — adjust the form and add more, or Schedule all.`);
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]);
   };
 
@@ -267,10 +274,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       else fails.push(`${dmy(e.session_date)} ${e.start_time}${r.data?.error?.message ? ` (${r.data.error.message})` : ""}`);
     }
     setSaving(false);
-    if (ok === 0) { showToast("No change", fails[0] ?? "Could not schedule", "notice"); return; }
+    if (ok === 0) { showToast(L("No change", "Tiada perubahan"), fails[0] ?? L("Could not schedule", "Tidak dapat dijadualkan"), "notice"); return; }
     showToast(
-      ok === 1 && batch.length === 1 ? "Scheduled" : `Scheduled ${ok} session${ok === 1 ? "" : "s"}`,
-      fails.length > 0 ? `${fails.length} failed: ${fails[0]}` : (batch.length === 1 ? `${batch[0]!.client_name || "Live session"} · ${dmy(batch[0]!.session_date)} ${batch[0]!.start_time}` : "Each host has been notified"),
+      ok === 1 && batch.length === 1 ? L("Scheduled", "Dijadualkan") : (lang === "ms" ? `${ok} sesi dijadualkan` : `Scheduled ${ok} session${ok === 1 ? "" : "s"}`),
+      fails.length > 0 ? L(`${fails.length} failed: ${fails[0]}`, `${fails.length} gagal: ${fails[0]}`) : (batch.length === 1 ? `${batch[0]!.client_name || L("Live session", "Sesi LIVE")} · ${dmy(batch[0]!.session_date)} ${batch[0]!.start_time}` : L("Each host has been notified", "Setiap hos telah dimaklumkan")),
       fails.length > 0 ? "notice" : undefined,
     );
     setAssignOpen(false);
@@ -402,14 +409,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   const how = await shareRosterPdf(
                     data.days, data.sessions, staff, data.on_leave,
                     data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal");
-                  showToast(how === "shared" ? "Ready to share" : "Downloaded",
-                    `Week roster PDF · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
+                  showToast(how === "shared" ? L("Ready to share", "Sedia untuk dikongsi") : L("Downloaded", "Dimuat turun"),
+                    `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
                 }}>
                 {L("PDF — share plan", "PDF — kongsi pelan")}
               </button>
               {/* v1.22.3 — view toggle (desktop only; phones keep the agenda). */}
               <span className="border-border ml-1 hidden overflow-hidden rounded-lg border text-xs md:inline-flex">
-                {([["grid", "Staff grid"], ["timeline", "Timeline"]] as const).map(([v, l]) => (
+                {([["grid", L("Staff grid", "Grid staf")], ["timeline", L("Timeline", "Garis masa")]] as const).map(([v, l]) => (
                   <button key={v} type="button"
                     className={`px-2.5 py-1 font-medium ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
                     onClick={() => setView(v)}>{l}</button>
@@ -482,7 +489,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                               return (
                                 <div key={d} className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""}`}>
                                   {leave && (
-                                    <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">On leave</div>
+                                    <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
                                   )}
                                   {cs.map((s) => (
                                     <button key={s.id} type="button"
@@ -505,8 +512,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       {sel && (
                         <div className="bg-brand absolute left-1/2 top-14 z-20 w-72 -translate-x-1/2 rounded-xl p-3.5 text-white shadow-xl">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold">{sel.client ?? "Live session"}
-                              <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{sel.status}</span>
+                            <p className="text-sm font-semibold">{sel.client ?? L("Live session", "Sesi LIVE")}
+                              <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{statusLabel(sel.status)}</span>
                             </p>
                             <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
                           </div>
@@ -518,19 +525,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                               {canEdit && sel.status !== "cancelled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={() => openEdit(sel)}>
-                                  Edit details
+                                  {L("Edit details", "Sunting butiran")}
                                 </button>
                               )}
                               {sel.status === "scheduled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
-                                  ✓ Mark completed
+                                  {L("✓ Mark completed", "✓ Tanda selesai")}
                                 </button>
                               )}
                               {sel.status !== "cancelled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
-                                  ✕ Cancel session
+                                  {L("✕ Cancel session", "✕ Batalkan sesi")}
                                 </button>
                               )}
                             </div>
@@ -541,10 +548,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       <div className="border-border text-muted-foreground flex flex-wrap gap-3 border-t px-3 py-1.5 text-[10px]">
                         <span className="inline-flex items-center gap-1"><span className="border-brand/30 bg-brand/10 h-2.5 w-2.5 rounded-sm border" />TikTok</span>
                         <span className="inline-flex items-center gap-1"><span className="border-gold bg-gold-soft/60 h-2.5 w-2.5 rounded-sm border" />Shopee</span>
-                        <span className="inline-flex items-center gap-1"><span className="border-border bg-secondary h-2.5 w-2.5 rounded-sm border" />Other</span>
-                        <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />Completed</span>
-                        <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />Conflict</span>
-                        <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />On leave</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-border bg-secondary h-2.5 w-2.5 rounded-sm border" />{L("Other", "Lain-lain")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />{L("Completed", "Selesai")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />{L("Conflict", "Pertindihan")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />{L("On leave", "Bercuti")}</span>
                       </div>
                     </>
                   );
@@ -618,7 +625,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       const isDragging = drag?.id === s.id;
                       return (
                         <button key={s.id} type="button" onClick={() => { if (!drag) setOpenSession(openSession === s.id ? null : s.id); }}
-                          title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${canManage ? " — drag to reschedule (desktop)" : ""}`}
+                          title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${canManage ? L(" — drag to reschedule (desktop)", " — seret untuk jadual semula (desktop)") : ""}`}
                           draggable={canManage && s.status === "scheduled"}
                           onDragStart={(e) => {
                             const ev = e as unknown as { clientY: number; currentTarget: { getBoundingClientRect(): { top: number } }; dataTransfer: { effectAllowed: string; setData(t: string, v: string): void } };
@@ -651,8 +658,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     style={{ top: selTop, ...selPos }}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold">{sel.client ?? "Live session"}
-                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{sel.status}</span>
+                      <p className="text-sm font-semibold">{sel.client ?? L("Live session", "Sesi LIVE")}
+                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{statusLabel(sel.status)}</span>
                       </p>
                       <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
                     </div>
@@ -664,19 +671,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         {canEdit && sel.status !== "cancelled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                             onClick={() => openEdit(sel)}>
-                            Edit details
+                            {L("Edit details", "Sunting butiran")}
                           </button>
                         )}
                         {sel.status === "scheduled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                             onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
-                            ✓ Mark completed
+                            {L("✓ Mark completed", "✓ Tanda selesai")}
                           </button>
                         )}
                         {sel.status !== "cancelled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                             onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
-                            ✕ Cancel session
+                            {L("✕ Cancel session", "✕ Batalkan sesi")}
                           </button>
                         )}
                       </div>
@@ -734,7 +741,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         {isOpen && (
                           <div className="border-border/60 border-t px-2.5 py-2">
                             <p className="flex flex-wrap items-center gap-1.5 text-xs">
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.status === "completed" ? "bg-success-soft text-success" : s.status === "cancelled" ? "bg-danger-soft text-danger" : "bg-secondary"}`}>{s.status}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.status === "completed" ? "bg-success-soft text-success" : s.status === "cancelled" ? "bg-danger-soft text-danger" : "bg-secondary"}`}>{statusLabel(s.status)}</span>
                               <span className="text-muted-foreground truncate">{s.host_name}</span>
                             </p>
                             {s.notes && <p className="text-muted-foreground mt-1 text-xs break-words">{s.notes}</p>}
@@ -742,19 +749,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                               <div className="mt-2 flex flex-wrap gap-2">
                                 {canEdit && s.status !== "cancelled" && (
                                   <button type="button" className={btnSm} onClick={() => openEdit(s)}>
-                                    Edit details
+                                    {L("Edit details", "Sunting butiran")}
                                   </button>
                                 )}
                                 {s.status === "scheduled" && (
                                   <button type="button" className={btnSm}
                                     onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
-                                    ✓ Mark completed
+                                    {L("✓ Mark completed", "✓ Tanda selesai")}
                                   </button>
                                 )}
                                 {s.status !== "cancelled" && (
                                   <button type="button" className={btnSm}
                                     onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
-                                    ✕ Cancel session
+                                    {L("✕ Cancel session", "✕ Batalkan sesi")}
                                   </button>
                                 )}
                               </div>
@@ -773,7 +780,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
           {pendingMove && (
             <div className="border-gold bg-gold-soft/60 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
               <span>
-                Move <span className="font-semibold">{pendingMove.s.client ?? "Live"}</span> ({pendingMove.s.host_name.split(" ")[0]}) →{" "}
+                {L("Move", "Pindah")} <span className="font-semibold">{pendingMove.s.client ?? "Live"}</span> ({pendingMove.s.host_name.split(" ")[0]}) →{" "}
                 <span className="font-semibold tabular-nums">{dmy(pendingMove.date)} · {pendingMove.start}{pendingMove.end ? `–${pendingMove.end}` : ""}</span>?
               </span>
               <span className="flex gap-2">
@@ -784,12 +791,12 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     body: JSON.stringify({ session_date: pendingMove.date, start_time: pendingMove.start, ...(pendingMove.end ? { end_time: pendingMove.end } : {}) }),
                   });
                   setSaving(false);
-                  if (!r.ok) { showToast("No change", r.data?.error?.message ?? "Could not reschedule", "notice"); return; }
-                  showToast("Rescheduled", `${pendingMove.s.client ?? "Live"} → ${dmy(pendingMove.date)} ${pendingMove.start}`);
+                  if (!r.ok) { showToast(L("No change", "Tiada perubahan"), r.data?.error?.message ?? L("Could not reschedule", "Tidak dapat dijadualkan semula"), "notice"); return; }
+                  showToast(L("Rescheduled", "Dijadualkan semula"), `${pendingMove.s.client ?? "Live"} → ${dmy(pendingMove.date)} ${pendingMove.start}`);
                   setPendingMove(null);
                   void load(week);
-                }}>{saving ? "Moving…" : "✓ Confirm move"}</button>
-                <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setPendingMove(null)}>Cancel</button>
+                }}>{saving ? L("Moving…", "Memindahkan…") : L("✓ Confirm move", "✓ Sahkan pindah")}</button>
+                <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setPendingMove(null)}>{L("Cancel", "Batal")}</button>
               </span>
             </div>
           )}
@@ -816,7 +823,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     {canManage && (
                       <button type="button" className="text-gold-deep mt-1 text-xs font-medium underline"
                         onClick={() => openAssign({ client_name: q.company ?? q.name })}>
-                        Schedule
+                        {L("Schedule", "Jadualkan")}
                       </button>
                     )}
                   </div>
@@ -842,36 +849,36 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={() => setAssignOpen(false)}>
           <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-base font-semibold">{editingId != null ? "Edit session" : "New assignment"}</p>
+            <p className="text-base font-semibold">{editingId != null ? L("Edit session", "Sunting sesi") : L("New assignment", "Tugasan baharu")}</p>
             {editingId != null && (
-              <p className="text-muted-foreground mt-0.5 text-xs">Amend any detail — the host is notified if the slot or assignment changes.</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{L("Amend any detail — the host is notified if the slot or assignment changes.", "Pinda mana-mana butiran — hos akan dimaklumkan jika slot atau tugasan berubah.")}</p>
             )}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
-                <span className={fieldLabel}>Client</span>
-                <input className={inputClass} placeholder="client / brand" value={draft.client_name}
+                <span className={fieldLabel}>{L("Client", "Klien")}</span>
+                <input className={inputClass} placeholder={L("client / brand", "klien / jenama")} value={draft.client_name}
                   onChange={(e) => setDraft((d) => ({ ...d, client_name: e.target.value }))} />
               </label>
               <label className="block">
-                <span className={fieldLabel}>Date *</span>
+                <span className={fieldLabel}>{L("Date *", "Tarikh *")}</span>
                 <input type="date" className={inputClass} value={draft.session_date}
                   onChange={(e) => setDraft((d) => ({ ...d, session_date: e.target.value }))} />
               </label>
               <label className="block">
-                <span className={fieldLabel}>Host *</span>
+                <span className={fieldLabel}>{L("Host *", "Hos *")}</span>
                 <select className={inputClass} value={draft.host_user_id}
                   onChange={(e) => setDraft((d) => ({ ...d, host_user_id: e.target.value }))}>
-                  <option value="">— pick —</option>
+                  <option value="">{L("— pick —", "— pilih —")}</option>
                   {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </label>
               <label className="block">
-                <span className={fieldLabel}>Start *</span>
+                <span className={fieldLabel}>{L("Start *", "Mula *")}</span>
                 <input type="time" className={inputClass} value={draft.start_time}
                   onChange={(e) => setDraft((d) => ({ ...d, start_time: e.target.value }))} />
               </label>
               <label className="block">
-                <span className={fieldLabel}>End</span>
+                <span className={fieldLabel}>{L("End", "Tamat")}</span>
                 <input type="time" className={inputClass} value={draft.end_time}
                   onChange={(e) => setDraft((d) => ({ ...d, end_time: e.target.value }))} />
               </label>
@@ -879,11 +886,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 <span className={fieldLabel}>Platform</span>
                 <select className={inputClass} value={draft.platform}
                   onChange={(e) => setDraft((d) => ({ ...d, platform: e.target.value }))}>
-                  <option value="tiktok">TikTok</option><option value="shopee">Shopee</option><option value="other">Other</option>
+                  <option value="tiktok">TikTok</option><option value="shopee">Shopee</option><option value="other">{L("Other", "Lain-lain")}</option>
                 </select>
               </label>
               <label className="block">
-                <span className={fieldLabel}>Notes</span>
+                <span className={fieldLabel}>{L("Notes", "Catatan")}</span>
                 <input className={inputClass} value={draft.notes}
                   onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
               </label>
@@ -894,8 +901,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             {editingId == null && (
             <div className="border-border mt-3 rounded-lg border p-2.5">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`${fieldLabel} mb-0 mr-1`}>Repeat</span>
-                {([["once", "One-off"], ["daily", "Daily"], ["days", "Pick days"]] as const).map(([v, l]) => (
+                <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
+                {([["once", L("One-off", "Sekali")], ["daily", L("Daily", "Setiap hari")], ["days", L("Pick days", "Pilih hari")]] as const).map(([v, l]) => (
                   <button key={v} type="button"
                     className={repeat === v
                       ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
@@ -904,7 +911,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 ))}
                 {repeat !== "once" && (
                   <label className="ml-auto flex items-center gap-1.5 text-[11px]">
-                    <span className="text-muted-foreground">until</span>
+                    <span className="text-muted-foreground">{L("until", "sehingga")}</span>
                     <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={repeatUntil} min={draft.session_date}
                       onChange={(e) => setRepeatUntil(e.target.value)} />
                   </label>
@@ -912,7 +919,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               </div>
               {repeat === "days" && (
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {([["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]] as const).map(([l, n]) => {
+                  {([[L("Mon", "Isn"), 1], [L("Tue", "Sel"), 2], [L("Wed", "Rab"), 3], [L("Thu", "Kha"), 4], [L("Fri", "Jum"), 5], [L("Sat", "Sab"), 6], [L("Sun", "Ahd"), 0]] as const).map(([l, n]) => {
                     const on = repeatDays.includes(n);
                     return (
                       <button key={n} type="button"
@@ -930,23 +937,26 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   date. It now prints the ACTUAL dates the rule lands on. */}
               {repeat !== "once" && (() => {
                 const dts = expandDates();
-                const wd = (iso: string) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${iso}T00:00:00Z`).getUTCDay()];
+                const wd = (iso: string) => (lang === "ms"
+                  ? ["Ahd", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab"]
+                  : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])[new Date(`${iso}T00:00:00Z`).getUTCDay()];
+                const dtList = dts.length <= 7
+                  ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
+                  : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`;
                 return (
                   <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
                     {dts.length > 0
-                      ? `→ Creates ${dts.length} session${dts.length === 1 ? "" : "s"}: ${
-                          dts.length <= 7
-                            ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
-                            : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`
-                        } — nothing outside these dates`
+                      ? L(`→ Creates ${dts.length} session${dts.length === 1 ? "" : "s"}: ${dtList} — nothing outside these dates`,
+                          `→ Membuat ${dts.length} sesi: ${dtList} — tiada di luar tarikh ini`)
                       : repeat === "days" && repeatDays.length === 0
-                        ? "Toggle at least one weekday below/above."
-                        : "Set the until date — the run needs an end."}
+                        ? L("Toggle at least one weekday below/above.", "Togol sekurang-kurangnya satu hari di bawah/atas.")
+                        : L("Set the until date — the run needs an end.", "Tetapkan tarikh sehingga — ulangan perlukan penghujung.")}
                   </p>
                 );
               })()}
               <p className="text-muted-foreground mt-1.5 text-[11px]">
-                Flow: set the form (and a repeat if you want a run) → press Schedule. To stack MORE in one go — another slot, host or week — press + Add to plan between changes, then Schedule all.
+                {L("Flow: set the form (and a repeat if you want a run) → press Schedule. To stack MORE in one go — another slot, host or week — press + Add to plan between changes, then Schedule all.",
+                   "Aliran: isi borang (dan ulangan jika mahu satu siri) → tekan Jadualkan. Untuk susun LEBIH banyak sekali gus — slot, hos atau minggu lain — tekan + Tambah ke pelan antara perubahan, kemudian Jadualkan semua.")}
               </p>
             </div>
             )}
@@ -954,7 +964,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             {/* the plan — everything queued so far */}
             {plan.length > 0 && (
               <div className="border-gold bg-gold-soft/30 mt-2 max-h-40 overflow-y-auto rounded-lg border p-2.5">
-                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">Plan · {plan.length} session{plan.length === 1 ? "" : "s"}</p>
+                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{lang === "ms" ? `Pelan · ${plan.length} sesi` : `Plan · ${plan.length} session${plan.length === 1 ? "" : "s"}`}</p>
                 {plan.map((e, i) => (
                   <p key={`${e.session_date}${e.start_time}${e.host_user_id}${i}`} className="mt-1 flex items-center justify-between gap-2 text-xs">
                     <span className="min-w-0 truncate">
@@ -971,20 +981,20 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {editingId != null ? (
                 <button type="button" className={btnClass} disabled={saving} onClick={() => void saveEdit()}>
-                  {saving ? "Saving…" : "Save changes"}
+                  {saving ? L("Saving…", "Menyimpan…") : L("Save changes", "Simpan perubahan")}
                 </button>
               ) : (
                 <>
                   <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
-                    {saving ? "Scheduling…"
-                      : plan.length > 0 ? `Schedule all (${plan.length})`
-                      : repeat !== "once" && expandDates().length > 1 ? `Schedule ${expandDates().length} sessions`
-                      : "Schedule"}
+                    {saving ? L("Scheduling…", "Menjadualkan…")
+                      : plan.length > 0 ? L(`Schedule all (${plan.length})`, `Jadualkan semua (${plan.length})`)
+                      : repeat !== "once" && expandDates().length > 1 ? L(`Schedule ${expandDates().length} sessions`, `Jadualkan ${expandDates().length} sesi`)
+                      : L("Schedule", "Jadualkan")}
                   </button>
-                  <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>+ Add to plan</button>
+                  <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>{L("+ Add to plan", "+ Tambah ke pelan")}</button>
                 </>
               )}
-              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setAssignOpen(false); setEditingId(null); }}>Cancel</button>
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setAssignOpen(false); setEditingId(null); }}>{L("Cancel", "Batal")}</button>
             </div>
           </div>
         </div>

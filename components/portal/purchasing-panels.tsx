@@ -14,9 +14,13 @@ import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { makeApi } from "@/lib/api";
 import { fmtRM } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, card, chipDanger, chipNeutral, chipSuccess, chipWarn, fieldLabel, fieldRow, inputClass, inputClassSm, rowHead, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 
 const api = makeApi("/staff/erp");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+/** BM display names for PO statuses — display only, never compared. */
+const poStatusMs: Record<string, string> = { draft: "draf", sent: "dihantar", received: "diterima", cancelled: "dibatalkan" };
 const dmy2 = (iso: string | null) => (iso && iso.length >= 10 ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : "—");
 
 /* ============================ Purchasing ============================ */
@@ -55,8 +59,8 @@ export function PurchasingPanel() {
 
   const addSupplier = async () => {
     const r = await api(`/suppliers`, { method: "POST", body: JSON.stringify(supplierDraft) });
-    if (r.ok) { setSupplierDraft({ name: "", contact: "", phone: "" }); showToast("Saved", "Supplier added"); void load(); }
-    else showToast("No changes", "The supplier needs a name", "notice");
+    if (r.ok) { setSupplierDraft({ name: "", contact: "", phone: "" }); showToast(L("Saved", "Disimpan"), L("Supplier added", "Pembekal ditambah")); void load(); }
+    else showToast(L("No changes", "Tiada perubahan"), L("The supplier needs a name", "Pembekal perlu ada nama"), "notice");
   };
 
   const createPo = async () => {
@@ -78,14 +82,14 @@ export function PurchasingPanel() {
     });
     if (r.ok) {
       setPoDraft({ supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "", inventory_item_id: "" }] });
-      showToast("Saved", `${r.data?.po_no ?? "PO"} created as draft`);
+      showToast(L("Saved", "Disimpan"), L(`${r.data?.po_no ?? "PO"} created as draft`, `${r.data?.po_no ?? "PO"} dibuat sebagai draf`));
       void load();
-    } else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Check the fields", "notice");
+    } else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
 
   const setStatus = async (id: number, status: string) => {
     const r = await api(`/purchase-orders/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    showToast(r.ok ? "Saved" : "No changes", r.ok ? `Marked ${status}` : "Could not update", r.ok ? undefined : "notice");
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), r.ok ? L(`Marked ${status}`, `Ditanda ${poStatusMs[status] ?? status}`) : L("Could not update", "Tidak dapat kemas kini"), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -95,18 +99,18 @@ export function PurchasingPanel() {
   return (
     <div className={card}>
       {toastNode}
-      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.</p>}
+      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
       <div className={rowHead}>
-        <p className="text-sm font-semibold">Purchasing</p>
-        <button type="button" className={btnSm} onClick={() => setShowSuppliers((v) => !v)}>{showSuppliers ? "Hide suppliers" : `Suppliers (${suppliers.length})`}</button>
+        <p className="text-sm font-semibold">{L("Purchasing", "Pembelian")}</p>
+        <button type="button" className={btnSm} onClick={() => setShowSuppliers((v) => !v)}>{showSuppliers ? L("Hide suppliers", "Sembunyikan pembekal") : L(`Suppliers (${suppliers.length})`, `Pembekal (${suppliers.length})`)}</button>
       </div>
 
       <div className="mt-3">
         <StatStrip>
-          <StatTile tone="info" label="Purchase orders" value={pos.length} icon="≡" />
-          <StatTile tone="brand" label="Open POs" value={open.length} icon="◷" />
-          <StatTile tone="gold" label="Open value" value={fmtRM(openValue)} icon="$" />
-          <StatTile tone="muted" label="Suppliers" value={suppliers.filter((s) => s.active).length} icon="⌂" />
+          <StatTile tone="info" label={L("Purchase orders", "Pesanan pembelian")} value={pos.length} icon="≡" />
+          <StatTile tone="brand" label={L("Open POs", "PO terbuka")} value={open.length} icon="◷" />
+          <StatTile tone="gold" label={L("Open value", "Nilai terbuka")} value={fmtRM(openValue)} icon="$" />
+          <StatTile tone="muted" label={L("Suppliers", "Pembekal")} value={suppliers.filter((s) => s.active).length} icon="⌂" />
         </StatStrip>
       </div>
 
@@ -119,32 +123,32 @@ export function PurchasingPanel() {
             </p>
           ))}
           <div className={`${fieldRow} mt-2`}>
-            <label className="min-w-32 flex-1"><span className={fieldLabel}>Name</span>
+            <label className="min-w-32 flex-1"><span className={fieldLabel}>{L("Name", "Nama")}</span>
               <input className={inputClassSm} value={supplierDraft.name} onChange={(e) => setSupplierDraft((d) => ({ ...d, name: e.target.value }))} /></label>
-            <label><span className={fieldLabel}>Contact person</span>
+            <label><span className={fieldLabel}>{L("Contact person", "Orang hubungan")}</span>
               <input className={inputClassSm} value={supplierDraft.contact} onChange={(e) => setSupplierDraft((d) => ({ ...d, contact: e.target.value }))} /></label>
-            <label><span className={fieldLabel}>Phone</span>
+            <label><span className={fieldLabel}>{L("Phone", "Telefon")}</span>
               <input className={inputClassSm} value={supplierDraft.phone} onChange={(e) => setSupplierDraft((d) => ({ ...d, phone: e.target.value }))} /></label>
-            <button type="button" className={btnSm} onClick={() => void addSupplier()}>Add supplier</button>
+            <button type="button" className={btnSm} onClick={() => void addSupplier()}>{L("Add supplier", "Tambah pembekal")}</button>
           </div>
         </div>
       )}
 
       {/* New PO */}
       <div className="border-border mb-4 rounded-xl border p-3">
-        <p className="mb-2 text-xs font-semibold">New purchase order</p>
+        <p className="mb-2 text-xs font-semibold">{L("New purchase order", "Pesanan pembelian baharu")}</p>
         <div className={fieldRow}>
-          <label><span className={fieldLabel}>Supplier</span>
+          <label><span className={fieldLabel}>{L("Supplier", "Pembekal")}</span>
             <select className={inputClass} value={poDraft.supplier_id} onChange={(e) => setPoDraft((d) => ({ ...d, supplier_id: e.target.value }))}>
               <option value="">—</option>
               {suppliers.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select></label>
-          <label><span className={fieldLabel}>Expected date</span>
+          <label><span className={fieldLabel}>{L("Expected date", "Tarikh dijangka")}</span>
             <input type="date" className={inputClass} value={poDraft.expected_date} onChange={(e) => setPoDraft((d) => ({ ...d, expected_date: e.target.value }))} /></label>
         </div>
         {poDraft.items.map((it, i) => (
           <div key={i} className={`${fieldRow} mt-2`}>
-            <label><span className={fieldLabel}>Stock item</span>
+            <label><span className={fieldLabel}>{L("Stock item", "Item stok")}</span>
               {/* v1.20.0 C4: pick a stock item and receiving this PO will
                   add its qty to the shelves — leave on "— not stock —" for
                   services/one-offs, which never touch inventory. */}
@@ -153,12 +157,12 @@ export function PurchasingPanel() {
                   const si = stockItems.find((x) => String(x.id) === e.target.value);
                   setItem(i, { inventory_item_id: e.target.value, ...(si && !it.title ? { title: si.name } : {}) });
                 }}>
-                <option value="">— not stock —</option>
+                <option value="">{L("— not stock —", "— bukan stok —")}</option>
                 {stockItems.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.sku})</option>)}
               </select></label>
             <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Item</span>
               <input className={inputClassSm} value={it.title} onChange={(e) => setItem(i, { title: e.target.value })} /></label>
-            <label><span className={fieldLabel}>Qty</span>
+            <label><span className={fieldLabel}>{L("Qty", "Kuantiti")}</span>
               <input type="number" min="1" className={inputClassSm} value={it.qty} onChange={(e) => setItem(i, { qty: e.target.value })} /></label>
             <label><span className={fieldLabel}>Unit (RM)</span>
               <input type="number" min="0.01" step="0.01" className={inputClassSm} value={it.unit_price} onChange={(e) => setItem(i, { unit_price: e.target.value })} /></label>
@@ -167,7 +171,7 @@ export function PurchasingPanel() {
         <div className="mt-2 flex gap-2">
           <button type="button" className={btnSm} onClick={() => setPoDraft((d) => ({ ...d, items: [...d.items, { title: "", qty: "", unit_price: "", inventory_item_id: "" }] }))}>+ Item</button>
           <button type="button" className={btnClass} disabled={!poDraft.supplier_id || !poDraft.items.some((it) => it.title.trim())} onClick={() => void createPo()}>
-            Create PO
+            {L("Create PO", "Buat PO")}
           </button>
         </div>
       </div>
@@ -177,23 +181,23 @@ export function PurchasingPanel() {
         searchText={(p) => `${p.po_no} ${p.supplier_name}`}
         defaultSort="id"
         columns={[
-          { key: "po_no", label: "PO no", render: (p) => <b className="tabular-nums">{p.po_no}</b> },
-          { key: "supplier_name", label: "Supplier" },
-          { key: "expected_date", label: "Expected", render: (p) => <span className="tabular-nums">{dmy2(p.expected_date)}</span> },
-          { key: "total_cents", label: "Total", numeric: true, sortValue: (p) => p.total_cents, render: (p) => fmtRM(p.total_cents) },
+          { key: "po_no", label: L("PO no", "No PO"), render: (p) => <b className="tabular-nums">{p.po_no}</b> },
+          { key: "supplier_name", label: L("Supplier", "Pembekal") },
+          { key: "expected_date", label: L("Expected", "Dijangka"), render: (p) => <span className="tabular-nums">{dmy2(p.expected_date)}</span> },
+          { key: "total_cents", label: L("Total", "Jumlah"), numeric: true, sortValue: (p) => p.total_cents, render: (p) => fmtRM(p.total_cents) },
           {
             key: "status", label: "Status", sortable: false,
             render: (p) => (
               <span className="flex items-center gap-1.5">
-                <span className={p.status === "received" ? chipSuccess : p.status === "cancelled" ? chipDanger : p.status === "sent" ? chipNeutral : chipWarn}>{p.status}</span>
-                {p.status === "draft" && <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(p.id, "sent")}>send</button>}
-                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" title="Adds linked items to stock"
-                  onClick={() => void setStatus(p.id, "received")}>received → stock</button>}
+                <span className={p.status === "received" ? chipSuccess : p.status === "cancelled" ? chipDanger : p.status === "sent" ? chipNeutral : chipWarn}>{L(p.status, poStatusMs[p.status] ?? p.status)}</span>
+                {p.status === "draft" && <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(p.id, "sent")}>{L("send", "hantar")}</button>}
+                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" title={L("Adds linked items to stock", "Menambah item berpaut ke stok")}
+                  onClick={() => void setStatus(p.id, "received")}>{L("received → stock", "diterima → stok")}</button>}
               </span>
             ),
           },
         ]}
-        empty="No purchase orders yet."
+        empty={L("No purchase orders yet.", "Tiada pesanan pembelian lagi.")}
       />
     </div>
   );
@@ -241,9 +245,9 @@ export function AccountingPanel() {
     });
     if (r.ok) {
       setDraft({ entry_date: "", memo: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] });
-      showToast("Saved", "Journal entry posted");
+      showToast(L("Saved", "Disimpan"), L("Journal entry posted", "Catatan jurnal diposkan"));
       void load();
-    } else showToast("No changes", (r.data as { error?: { message?: string } } | null)?.error?.message ?? "Debits must equal credits", "notice");
+    } else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Debits must equal credits", "Debit mesti sama dengan kredit"), "notice");
   };
 
   const setLine = (i: number, patch: Partial<JournalLineDraft>) =>
@@ -252,63 +256,62 @@ export function AccountingPanel() {
   return (
     <div className={card}>
       {toastNode}
-      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.</p>}
-      <p className="text-sm font-semibold">Accounting</p>
+      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
+      <p className="text-sm font-semibold">{L("Accounting", "Perakaunan")}</p>
 
       <div className="mt-3">
         <StatStrip>
-          <StatTile tone="brand" label="Accounts" value={accounts.length} icon="≡" />
-          <StatTile tone="info" label="Total debits" value={fmtRM(trialDebit)} icon="◧" />
-          <StatTile tone="info" label="Total credits" value={fmtRM(trialCredit)} icon="◨" />
+          <StatTile tone="brand" label={L("Accounts", "Akaun")} value={accounts.length} icon="≡" />
+          <StatTile tone="info" label={L("Total debits", "Jumlah debit")} value={fmtRM(trialDebit)} icon="◧" />
+          <StatTile tone="info" label={L("Total credits", "Jumlah kredit")} value={fmtRM(trialCredit)} icon="◨" />
           <StatTile tone={trialDebit === trialCredit ? "success" : "danger"}
-            label={trialDebit === trialCredit ? "Balanced" : "OUT OF BALANCE"}
+            label={trialDebit === trialCredit ? L("Balanced", "Seimbang") : L("OUT OF BALANCE", "TIDAK SEIMBANG")}
             value={trialDebit === trialCredit ? "✓" : fmtRM(Math.abs(trialDebit - trialCredit))} icon="⚖" />
         </StatStrip>
       </div>
 
       <p className="text-muted-foreground mb-3 text-[11.5px]">
-        Bank movements post here automatically (paid expenses, payroll runs, claim payouts,
-        Finance-tab entries) — this composer is for adjustments only.
+        {L("Bank movements post here automatically (paid expenses, payroll runs, claim payouts, Finance-tab entries) — this composer is for adjustments only.", "Pergerakan bank diposkan di sini secara automatik (perbelanjaan dibayar, larian gaji, bayaran tuntutan, catatan tab Kewangan) — borang ini untuk pelarasan sahaja.")}
       </p>
       {/* Journal entry — the server refuses unbalanced entries; the button
           mirrors that rule so nobody types a whole entry to be told no. */}
       <div className="border-border mb-4 rounded-xl border p-3">
-        <p className="mb-2 text-xs font-semibold">New journal entry</p>
+        <p className="mb-2 text-xs font-semibold">{L("New journal entry", "Catatan jurnal baharu")}</p>
         <div className={fieldRow}>
-          <label><span className={fieldLabel}>Date</span>
+          <label><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
             <input type="date" className={inputClass} value={draft.entry_date} onChange={(e) => setDraft((d) => ({ ...d, entry_date: e.target.value }))} /></label>
           <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Memo</span>
-            <input className={inputClass} placeholder="August TikTok payout banked" value={draft.memo} onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))} /></label>
+            <input className={inputClass} placeholder={L("August TikTok payout banked", "Bayaran TikTok Ogos dibankkan")} value={draft.memo} onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))} /></label>
         </div>
         {draft.lines.map((l, i) => (
           <div key={i} className={`${fieldRow} mt-2`}>
-            <label className="col-span-2 min-w-44 flex-1 sm:col-span-1"><span className={fieldLabel}>Account</span>
+            <label className="col-span-2 min-w-44 flex-1 sm:col-span-1"><span className={fieldLabel}>{L("Account", "Akaun")}</span>
               <select className={inputClassSm} value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
                 <option value="">—</option>
                 {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
               </select></label>
             <label><span className={fieldLabel}>Debit (RM)</span>
               <input type="number" min="0" step="0.01" className={inputClassSm} value={l.debit} onChange={(e) => setLine(i, { debit: e.target.value, credit: "" })} /></label>
-            <label><span className={fieldLabel}>Credit (RM)</span>
+            <label><span className={fieldLabel}>{L("Credit (RM)", "Kredit (RM)")}</span>
               <input type="number" min="0" step="0.01" className={inputClassSm} value={l.credit} onChange={(e) => setLine(i, { credit: e.target.value, debit: "" })} /></label>
           </div>
         ))}
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { account_id: "", debit: "", credit: "" }] }))}>+ Line</button>
-          <button type="button" className={btnClass} disabled={!draft.entry_date || !balanced} onClick={() => void post()}>Post entry</button>
+          <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { account_id: "", debit: "", credit: "" }] }))}>{L("+ Line", "+ Baris")}</button>
+          <button type="button" className={btnClass} disabled={!draft.entry_date || !balanced} onClick={() => void post()}>{L("Post entry", "Pos catatan")}</button>
           <span className={`text-xs font-medium tabular-nums ${balanced ? "text-success" : "text-muted-foreground"}`}>
-            Dr {totalDebit.toFixed(2)} / Cr {totalCredit.toFixed(2)} {balanced ? "— balanced ✓" : "— must match"}
+            Dr {totalDebit.toFixed(2)} / Cr {totalCredit.toFixed(2)} {balanced ? L("— balanced ✓", "— seimbang ✓") : L("— must match", "— mesti sepadan")}
           </span>
         </div>
       </div>
 
       {/* Trial balance */}
-      <p className="mb-2 text-xs font-semibold">Trial balance</p>
+      <p className="mb-2 text-xs font-semibold">{L("Trial balance", "Imbangan duga")}</p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[520px]">
           <thead><tr>
-            <th className={th}>Code</th><th className={th}>Account</th><th className={th}>Type</th>
-            <th className={thR2}>Debit</th><th className={thR2}>Credit</th>
+            <th className={th}>{L("Code", "Kod")}</th><th className={th}>{L("Account", "Akaun")}</th><th className={th}>{L("Type", "Jenis")}</th>
+            <th className={thR2}>Debit</th><th className={thR2}>{L("Credit", "Kredit")}</th>
           </tr></thead>
           <tbody>
             {trial.filter((t) => (t.debit_cents ?? 0) !== 0 || (t.credit_cents ?? 0) !== 0).map((t) => (
@@ -321,12 +324,12 @@ export function AccountingPanel() {
               </tr>
             ))}
             {trial.every((t) => (t.debit_cents ?? 0) === 0 && (t.credit_cents ?? 0) === 0) && (
-              <tr><td colSpan={5} className="text-muted-foreground px-3 py-6 text-center text-sm">No journal entries yet — the {accounts.length}-account chart is seeded and ready.</td></tr>
+              <tr><td colSpan={5} className="text-muted-foreground px-3 py-6 text-center text-sm">{L(`No journal entries yet — the ${accounts.length}-account chart is seeded and ready.`, `Tiada catatan jurnal lagi — carta ${accounts.length} akaun sudah dibenih dan sedia.`)}</td></tr>
             )}
           </tbody>
           {trialDebit + trialCredit > 0 && (
             <tfoot><tr className="border-border border-t-2">
-              <td className={td} colSpan={3}><b>Total</b></td>
+              <td className={td} colSpan={3}><b>{L("Total", "Jumlah")}</b></td>
               <td className={tdR2}><b>{fmtRM(trialDebit)}</b></td>
               <td className={tdR2}><b>{fmtRM(trialCredit)}</b></td>
             </tr></tfoot>
