@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.4] — 2026-08-19 — the deploy no longer stops on a type-definition version
+
+**Reported from the CEO's machine: step 2 died with `npm error code ERESOLVE`.** `worker/package.json` pinned `@cloudflare/workers-types@^4`, while the wrangler it installs (4.116+) declares an OPTIONAL peer on `@cloudflare/workers-types@^5`. npm refuses the whole tree over that, so nothing after step 2 ran. My container never hit it because its `worker/node_modules` predated the wrangler bump — a clean machine is the only place this shows up, which is exactly why the first run of a new script belongs on a clean machine.
+
+- **The pin now matches wrangler:** `@cloudflare/workers-types@^5.20260730.1`, with `worker/package-lock.json` regenerated to match. Verified on a from-scratch install: `npm install` succeeds with no flags, and the compile gate still reports zero undefined names (the same 28 pre-existing strict-mode warnings, no new ones — the v5 types changed nothing this Worker depends on).
+- **Step 2 now retries instead of dying.** If npm ever refuses the tree again — wrangler moves that peer every few weeks — the script retries with `--legacy-peer-deps` (the flag npm itself suggests), says plainly that this only relaxes an optional TYPE definition and cannot change what gets deployed, and fails only if the retry fails too. A deploy must never be blocked at midnight by a `.d.ts` version.
+- **A batch-file trap fixed while writing that retry:** inside a parenthesised block, `cmd.exe` expands `%errorlevel%` when it PARSES the block, so a nested check reads the value from before the command ran and silently passes. The retry uses `if errorlevel 1`, and the reason is written above it in the file so the next edit does not reintroduce it.
+
+**Deploy notes:** run `DEPLOY.bat` IN FULL from the v1.29.4 folder. Everything from 1.29.1–1.29.3 rides along: the `url is not defined` outage fix, the Mark completed confirmation, the mobile sign-in page, the single-domain routes, and the consultancy site's scoped enquiry door.
+
 ## [1.29.3] — 2026-08-19 — the three-brand shape: one back office, one cross-site door
 
 **Your three decisions, on record: one back office (not three databases) · ELFIA's canonical address is elfiaofficialstore.my · the consultancy site gets a working contact form.** This release is the API side of that shape; the two new websites follow.

@@ -1,4 +1,4 @@
-a2z-v1.29.3-FULL — 316 files
+a2z-v1.29.4-FULL — 316 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,10 +8,10 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	555896
+CHANGELOG.md	557940
 CONTRIBUTING.md	3920
 DATABASE.md	10175
-DEPLOY.bat	5939
+DEPLOY.bat	6995
 DEPLOYMENT.md	986
 DOCUMENT-NUMBERING.md	4286
 FEATURE-SUGGESTIONS.md	4732
@@ -301,7 +301,7 @@ worker/migrations/0070_selfie_clockin.sql	253
 worker/migrations/0071_erp_core.sql	9780
 worker/migrations/0072_geofence_seed.sql	1035
 worker/migrations/0073_document_issuer.sql	1343
-worker/package-lock.json	50961
+worker/package-lock.json	50267
 worker/package.json	470
 worker/pnpm-lock.yaml	29008
 worker/pnpm-workspace.yaml	101

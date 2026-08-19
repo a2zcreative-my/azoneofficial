@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  A2Z CREATIVE MARKETING - ONE-CLICK DEPLOY  (v1.29.3)
+REM  A2Z CREATIVE MARKETING - ONE-CLICK DEPLOY  (v1.29.4)
 REM
 REM  New in this version, after the 19-08 login outage:
 REM   * STEP 3 COMPILES THE API CODE BEFORE PUBLISHING IT.
@@ -11,7 +11,7 @@ REM     bundles without resolving types - so a broken build went
 REM     live and every signed-in page returned 500. That check now
 REM     runs here and refuses to deploy code that cannot work.
 REM   * It refuses to run from an old folder (package.json must
-REM     say 1.29.3) - deploying stale code caused the same outage.
+REM     say 1.29.4) - deploying stale code caused the same outage.
 REM   * It CHECKS the live API itself after publishing and prints
 REM     the version, so you see the result without asking anyone.
 REM
@@ -43,12 +43,12 @@ if not exist worker\wrangler.toml (
   exit /b 1
 )
 
-findstr /C:"\"version\": \"1.29.3\"" package.json >nul
+findstr /C:"\"version\": \"1.29.4\"" package.json >nul
 if %errorlevel% neq 0 (
   echo.
-  echo [X] THIS IS NOT THE v1.29.3 FOLDER.
+  echo [X] THIS IS NOT THE v1.29.4 FOLDER.
   echo     Deploying an older folder is what broke the new domain.
-  echo     Unzip a2z-v1.29.3-FULL.zip into a NEW EMPTY folder and
+  echo     Unzip a2z-v1.29.4-FULL.zip into a NEW EMPTY folder and
   echo     run the DEPLOY.bat that is inside it.
   echo.
   pause
@@ -56,7 +56,7 @@ if %errorlevel% neq 0 (
 )
 
 echo ============================================
-echo  A2Z CREATIVE - one-click deploy  v1.29.3
+echo  A2Z CREATIVE - one-click deploy  v1.29.4
 echo  Folder: %CD%
 echo ============================================
 echo.
@@ -67,12 +67,30 @@ if %errorlevel% neq 0 goto :failed
 echo.
 
 echo [2/8] Installing API dependencies...
+REM  v1.29.4: npm refuses to install when wrangler's OPTIONAL peer wants a
+REM  newer @cloudflare/workers-types than this folder pins (ERESOLVE). The
+REM  pin now matches wrangler, so the plain install works - but wrangler
+REM  bumps that peer every few weeks, and a deploy must never be blocked at
+REM  midnight by a type-definition version. If it happens again, retry the
+REM  way npm itself suggests, and only give up if THAT fails too.
+REM  NOTE for whoever edits this next: the retry uses "if errorlevel 1",
+REM  NOT "if %%errorlevel%% neq 0". Inside a parenthesised block cmd.exe
+REM  expands %%errorlevel%% when it PARSES the block, so the nested check
+REM  would test the value from before npm ran - and silently pass.
 pushd worker
 call npm install --no-audit --no-fund
-if %errorlevel% neq 0 (
+if not errorlevel 1 goto :apideps_ok
+echo.
+echo    [!] npm refused the dependency tree - retrying with
+echo        --legacy-peer-deps ^(this only relaxes an optional TYPE
+echo        definition version; it cannot change what gets deployed^).
+echo.
+call npm install --no-audit --no-fund --legacy-peer-deps
+if errorlevel 1 (
   popd
   goto :failed
 )
+:apideps_ok
 popd
 echo.
 
@@ -125,7 +143,7 @@ echo    --- https://a2zcreative.my/api/v1/health
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
 echo.
 echo.
-echo    Expected: {"ok":true,"db":true,"version":"1.29.3"}
+echo    Expected: {"ok":true,"db":true,"version":"1.29.4"}
 echo    That line means a2zcreative.my can sign in NOW.
 echo    A blank line or an error means the domain is not routed to
 echo    this worker - copy this window and send it over.
