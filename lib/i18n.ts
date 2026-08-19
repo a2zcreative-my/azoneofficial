@@ -32,7 +32,20 @@ const DICT: Record<string, { en: string; ms: string }> = {
   // chrome
   "Sign out": { en: "Sign out", ms: "Log keluar" },
   "Search…": { en: "Search…", ms: "Cari…" },
-  "Staff Portal": { en: "Staff Portal", ms: "Portal Kakitangan" },
+  /* v1.27.0 — the portal is A2Z CREATIVE MARKETING's now (A2Z is the parent
+     company and owns the internal infrastructure; AZ ONE OFFICIAL is a
+     separate legal entity and stays on payslips, invoices and receipts).
+     The DICT KEY stays "Staff Portal" so every existing tr("Staff Portal",
+     lang) call site keeps resolving — only the VALUES moved. */
+  "Staff Portal": { en: "A2Z CREATIVE MARKETING / Staff Portal", ms: "A2Z CREATIVE MARKETING / Portal Kakitangan" },
+  /* v1.27.0 — the SAME identity, sized for the one place it does not fit.
+     The portal's desktop header eyebrow gets 182px (measured: three columns
+     open at 1440px, the greeting truncates in the same space), and it is set
+     in text-xs uppercase with 0.3em tracking, so the full lockup above is
+     390px — three wrapped lines where there used to be one. This short form
+     is 172px in EN, so the header keeps its current height; the full company
+     name sits right below it in the breadcrumb, which has room for it. */
+  "Staff Portal short": { en: "A2Z Staff Portal", ms: "A2Z Portal Kakitangan" },
   "Welcome": { en: "Welcome", ms: "Selamat datang" },
   "Hello": { en: "Hello", ms: "Hai" },
   "More": { en: "More", ms: "Lagi" },

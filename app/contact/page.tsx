@@ -11,7 +11,8 @@ import { SITE_CONFIG } from "@/constants/site";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Contact AZ ONE OFFICIAL — book a free live commerce consultation on WhatsApp or visit us in Johor Bahru.",
+    "Contact A2Z Creative Marketing — book a free consultation on WhatsApp or visit us in Johor Bahru.",
+  alternates: { canonical: "/contact" },
 };
 
 const MAP_EMBED_SRC = `https://www.google.com/maps?q=${encodeURIComponent(
@@ -62,7 +63,7 @@ export default function ContactPage() {
           <div className="mt-6 overflow-hidden rounded-xl border border-border">
             <iframe
               src={MAP_EMBED_SRC}
-              title="AZ ONE OFFICIAL office location on Google Maps"
+              title="A2Z Creative Marketing office location on Google Maps"
               className="h-80 w-full"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"

@@ -4,7 +4,18 @@
    tab crashed on load, the portal reopens the last tab, so every visit
    white-screened with "Application error"). Any unhandled render error now
    lands HERE instead: a branded recovery screen whose primary action clears
-   the remembered tab and restarts on the Dashboard. */
+   the remembered tab and restarts on the Dashboard.
+
+   v1.27.0 — the screen is A2Z CREATIVE MARKETING's, and it is bilingual now.
+   It used to be the one portal surface that stayed English no matter the
+   language switch, which is exactly the wrong moment to lose someone: this is
+   what a BM-speaking staff member sees when the app breaks under her. Reading
+   the language here is safe (an error boundary only ever renders on the
+   client, so there is no prerender to mismatch). */
+
+import { getLang } from "@/lib/i18n";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export default function PortalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const backToDashboard = () => {
@@ -27,12 +38,15 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
   return (
     <div className="bg-background flex min-h-dvh items-center justify-center p-6">
       <div className="border-border bg-card w-full max-w-md rounded-2xl border p-6 text-center shadow-sm">
-        <p className="text-gold-deep text-[10px] font-semibold tracking-[0.25em] uppercase">AZ ONE OFFICIAL</p>
-        <h1 className="mt-2 text-lg font-semibold">Something went wrong on this screen</h1>
+        <p className="text-gold-deep text-[10px] font-semibold tracking-[0.25em] uppercase">A2Z CREATIVE MARKETING</p>
+        <h1 className="mt-2 text-lg font-semibold">
+          {L("Something went wrong on this screen", "Ada masalah pada skrin ini")}
+        </h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          A card on the page hit an error. Your data is safe — go back to the
-          Dashboard and carry on; if this keeps happening, tell the CEO or COO
-          which tab you clicked.
+          {L(
+            "A card on the page hit an error. Your data is safe — go back to the Dashboard and carry on; if this keeps happening, tell the CEO or COO which tab you clicked.",
+            "Satu kad pada halaman ini mengalami ralat. Data anda selamat — kembali ke Papan Pemuka dan teruskan; jika ia berulang, beritahu CEO atau COO tab mana yang anda tekan.",
+          )}
         </p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <button
@@ -40,19 +54,19 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
             onClick={backToDashboard}
             className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90"
           >
-            Back to Dashboard
+            {L("Back to Dashboard", "Kembali ke Papan Pemuka")}
           </button>
           <button
             type="button"
             onClick={() => reset()}
             className="border-border rounded-lg border px-4 py-2 text-sm font-medium hover:bg-secondary"
           >
-            Try again
+            {L("Try again", "Cuba lagi")}
           </button>
         </div>
         {error?.message && (
           <p className="text-muted-foreground/70 mt-4 text-[10px] break-words">
-            Detail for support: {error.message.slice(0, 160)}
+            {L("Detail for support:", "Butiran untuk sokongan:")} {error.message.slice(0, 160)}
           </p>
         )}
       </div>

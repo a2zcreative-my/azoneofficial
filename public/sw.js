@@ -1,9 +1,15 @@
-/* AZ ONE OFFICIAL service worker (v1.6.0)
+/* A2Z CREATIVE MARKETING service worker (v1.6.0)
    - Installable PWA + offline app shell (network-first; cache is the fallback).
    - Live data (/api/*) is NEVER cached.
    - Web push: shows the notification and focuses/open the portal on click. */
 
-const SHELL = "azone-shell-v16";
+/* v1.27.0 — v16 -> v17 is a DELIBERATE bump: every installed shell still
+   holds pages that say AZ ONE OFFICIAL, and `activate` deletes any key that
+   is not the current one. Bumping evicts those stale shells on the first
+   visit after this deploy. The `azone-` prefix is load-bearing (it is not a
+   brand string — it is what the eviction filter and our debugging tooling
+   look for), so it stays. */
+const SHELL = "azone-shell-v17";
 const SHELL_URLS = ["/portal", "/account", "/login", "/logo.png", "/icon-192.png", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -37,10 +43,10 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  let data = { title: "AZ ONE OFFICIAL", body: "You have a new notification", url: "/portal", ref: undefined };
+  let data = { title: "A2Z CREATIVE MARKETING", body: "You have a new notification", url: "/portal", ref: undefined };
   try { if (event.data) data = Object.assign(data, event.data.json()); } catch (_) { /* plain text */ }
   event.waitUntil(
-    self.registration.showNotification(data.title || "AZ ONE OFFICIAL", {
+    self.registration.showNotification(data.title || "A2Z CREATIVE MARKETING", {
       body: data.body || "",
       icon: "/icon-192.png",
       badge: "/icon-192.png",

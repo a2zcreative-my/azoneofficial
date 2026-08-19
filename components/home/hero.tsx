@@ -13,7 +13,7 @@ function LiveBadge() {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src="/logo.png"
-      alt="AZ ONE OFFICIAL"
+      alt={SITE_CONFIG.name}
       className="mx-auto h-16 w-auto sm:h-20"
     />
   );
@@ -55,8 +55,8 @@ export function Hero() {
           k="home.hero.headline"
           fallback={
             <>
-              Grow your sales through{" "}
-              <span className="text-gold-deep">live commerce</span>
+              Build the brand.{" "}
+              <span className="text-gold-deep">Sell it live.</span>
             </>
           }
         />
@@ -70,8 +70,9 @@ export function Hero() {
           k="home.hero.subheadline"
           fallback={
             <>
-              Helping brands increase sales through professional live hosts
-              and complete TikTok Live commerce management.
+              Creative marketing, digital marketing, and content production —
+              plus professional live hosts and complete TikTok Live commerce
+              management. One Malaysian team, from the plan to the sale.
             </>
           }
         />
@@ -91,28 +92,13 @@ export function Hero() {
         </ButtonGroup>
       </motion.div>
 
-      {/* Client strip — logos link to each brand's own site. The ELFIA mark
-          is a temporary generated wordmark; swap the SVG when the official
-          logo arrives (same path, no code change). */}
-      <motion.div {...fade(0.4)} className="mt-14">
-        <p className="text-muted-foreground text-[11px] font-medium tracking-[0.3em] uppercase">
-          Brands we run live for
-        </p>
-        <a
-          href="https://elfiaofficialstore.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="ELFIA — visit elfiaofficialstore.com"
-          className="mt-5 inline-flex opacity-90 transition-opacity hover:opacity-60"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/clients/elfia-wordmark.svg"
-            alt="ELFIA"
-            className="h-6 w-auto"
-          />
-        </a>
-      </motion.div>
+      {/*
+        v1.27.0 — the "Brands we run live for" client strip was removed with
+        the client-confidentiality change. Client names and marks are only
+        published with written permission; until we hold one, the hero ends
+        on the CTAs. Re-adding it means re-adding a logo asset under
+        /public/clients and a permission on file — not just this markup.
+      */}
     </section>
   );
 }

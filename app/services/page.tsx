@@ -8,15 +8,16 @@ import { SERVICES, whatsappUrl } from "@/constants/content";
 export const metadata: Metadata = {
   title: "Services",
   description:
-    "Live host service, live commerce management, TikTok strategy, creative design, content creation, and business consultation.",
+    "Creative marketing, digital marketing, live commerce management, live host service, content creation and video, plus consultancy and business development.",
+  alternates: { canonical: "/services" },
 };
 
 export default function ServicesPage() {
   return (
     <PageShell
       eyebrow="Services"
-      title="Everything a brand needs to win live"
-      intro="Pick a single service or hand us the whole channel — every engagement starts with a free consultation so we recommend only what your brand actually needs."
+      title="Everything a brand needs to grow"
+      intro="Creative marketing, digital marketing, content, live commerce, and consultancy. Pick a single service or hand us the whole thing — every engagement starts with a free consultation, so we recommend only what your brand actually needs."
     >
       <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {SERVICES.map(({ title, description, icon: Icon }) => (
@@ -58,8 +59,8 @@ export default function ServicesPage() {
         </p>
         <ButtonGroup>
           <Button href="/packages">Compare packages</Button>
-          <Button href={whatsappUrl()} external variant="outline">
-            Get a free live audit
+          <Button href="/consultancy" variant="outline">
+            See our consultancy
           </Button>
         </ButtonGroup>
       </section>

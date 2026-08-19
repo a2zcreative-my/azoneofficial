@@ -117,7 +117,10 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
           <div className={`${fieldRow} mt-2`}>
             <label className="col-span-2 block sm:flex-1">
               <span className={fieldLabel}>{L("Title *", "Tajuk *")}</span>
-              <input className={inputClass} placeholder={L("e.g. Raya haul live, ELFIA bawal reel", "cth. Raya haul live, reel bawal ELFIA")} value={draft.title}
+              {/* v1.27.0: a client-neutral example — this panel plans content
+                  for every client, and ELFIA is an independent brand rather
+                  than an A2Z product line. */}
+              <input className={inputClass} placeholder={L("e.g. Raya haul live, bawal reel", "cth. Raya haul live, reel bawal")} value={draft.title}
                 onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
             </label>
             <label className="block">

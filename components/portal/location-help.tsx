@@ -35,13 +35,17 @@ const STEPS: Record<Ctx, { en: string[]; ms: string[] }> = {
   standalone: {
     en: [
       "You opened the portal from the home-screen icon, so there is no address bar to tap.",
-      "Open Android Settings → Apps → find AZ ONE (or Samsung Internet / Chrome, whichever installed it).",
+      /* v1.27.0: this name must track public/manifest.json short_name — it is
+         the caption Android shows for the installed app, and the rebrand moved
+         it from "AZ ONE" to "A2Z Staff". A stale name here sends staff hunting
+         for an entry that no longer exists on their phone. */
+      "Open Android Settings → Apps → find A2Z Staff (or Samsung Internet / Chrome, whichever installed it).",
       "Tap Permissions → Location → allow it.",
       "If Location is already allowed there, open azoneofficial.com in the browser itself, allow location when it asks, then reopen the icon.",
     ],
     ms: [
       "Anda buka portal dari ikon skrin utama, jadi tiada bar alamat untuk ditekan.",
-      "Buka Tetapan Android → Apl → cari AZ ONE (atau Samsung Internet / Chrome).",
+      "Buka Tetapan Android → Apl → cari A2Z Staff (atau Samsung Internet / Chrome).",
       "Tekan Kebenaran → Lokasi → benarkan.",
       "Jika sudah dibenarkan, buka azoneofficial.com dalam pelayar, benarkan lokasi, kemudian buka semula ikon.",
     ],

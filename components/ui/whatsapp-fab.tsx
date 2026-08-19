@@ -37,7 +37,7 @@ export function WhatsAppFab() {
       href={whatsappUrl()}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Chat with AZ ONE OFFICIAL on WhatsApp"
+      aria-label="Chat with A2Z CREATIVE MARKETING on WhatsApp"
       tabIndex={footerVisible ? -1 : 0}
       aria-hidden={footerVisible}
       className={`fixed right-5 ${pathname.startsWith("/account") ? "bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+7.25rem)] md:bottom-[calc(2rem+3.75rem)]" : "bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+3.75rem)]"} z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-all duration-300 hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#25D366] motion-reduce:transition-none sm:right-8 sm:bottom-[calc(2rem+3.75rem)] ${

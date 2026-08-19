@@ -1,11 +1,10 @@
-# ELFIA product slug renames (v1.2.11) — old URLs kept working
-/products/signature-shawl-taupe  /products/signature-shawl-mocha      301
-/products/signature-shawl-grey   /products/signature-shawl-soft-grey  301
-/products/corporate-blush        /products/corporate-khaki            301
-
-# v1.3.0 — ELFIA repositioned as client; agency site no longer hosts a catalogue
+# v1.3.0 — the site no longer hosts a product catalogue; product URLs fold
+# into the portfolio.
 /products/*  /portfolio  301
 /products    /portfolio  301
 
-# v1.4.0 — case study folded into /portfolio; ELFIA lives at elfiaofficialstore.com
+# v1.4.0 — the featured-client case study folded into /portfolio.
+# v1.27.0 — that route was deleted outright with the client rename, so this
+# 301 is what keeps any old inbound link or stale index entry landing on a
+# real page instead of a 404. Keep it.
 /portfolio/elfia  /portfolio  301

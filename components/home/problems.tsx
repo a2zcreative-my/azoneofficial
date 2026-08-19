@@ -4,7 +4,7 @@ import { PROBLEMS } from "@/constants/content";
 
 /**
  * Problems (v1.4.0) — the pains that bring brands to an agency, each answered
- * with how AZ ONE solves it. Sits between About and Services so the flow
+ * with how A2Z solves it. Sits between About and Services so the flow
  * reads: who we are → what hurts → what we do about it → how it's packaged.
  * Cards are equal weight by design; copy in constants is written to length.
  */
@@ -13,8 +13,8 @@ export function Problems() {
     <Section
       id="problems"
       eyebrow="Sound familiar?"
-      title="The problems we solve, live"
-      intro="Most brands don't fail at live commerce because the product is wrong — they fail at the parts nobody warned them about. These are the ones we get hired for."
+      title="The problems we get hired to solve"
+      intro="Most brands don't stall because the product is wrong — they stall on the parts nobody warned them about, from an identity that never settles to a live room that draws a crowd and sells nothing. These are the ones we get hired for."
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6">
         {PROBLEMS.map((item, i) => (

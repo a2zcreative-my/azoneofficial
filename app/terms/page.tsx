@@ -7,7 +7,8 @@ import { SITE_CONFIG } from "@/constants/site";
 export const metadata: Metadata = {
   title: "Terms & Conditions",
   description:
-    "Terms governing the use of the AZ ONE OFFICIAL website and services.",
+    "Terms governing the use of the A2Z Creative Marketing website and services.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {
@@ -28,9 +29,12 @@ export default function TermsPage() {
       <section>
         <h2>Our services</h2>
         <p>
-          AZ ONE OFFICIAL provides live commerce services, including live host
-          services, live commerce management, TikTok strategy, creative design,
-          content creation, and business consultation. The scope, fees, and
+          A2Z Creative Marketing provides creative and digital marketing
+          services, including brand and campaign creative, digital marketing,
+          content creation, live host services, live commerce management, and
+          consultancy and business development. Consultancy engagements may be
+          delivered and invoiced by AZ ONE OFFICIAL (202603168673 /
+          JM1046169-H), our consultancy service. The scope, fees, and
           deliverables of any engagement are set out in the proposal or
           agreement issued for that engagement, which prevails over these
           general terms where they differ.
@@ -40,21 +44,24 @@ export default function TermsPage() {
       <section>
         <h2>No guarantee of results</h2>
         <p>
-          Live commerce performance depends on many factors outside our
-          control, including platform algorithms, product pricing, and stock.
-          Unless expressly agreed in writing, we do not guarantee any specific
-          sales, viewership, or growth outcome.
+          Marketing and live commerce performance depend on many factors
+          outside our control, including platform algorithms, product pricing,
+          and stock. Unless expressly agreed in writing, we do not guarantee
+          any specific sales, viewership, reach, or growth outcome.
         </p>
       </section>
 
       <section>
         <h2>Intellectual property</h2>
         <p>
-          Content on this website — including the AZ ONE OFFICIAL and ELFIA
-          names, logos, text, and images — belongs to {SITE_CONFIG.legalName}{" "}
-          or its licensors and may not be used without permission. Rights in
-          materials produced during an engagement are set out in that
-          engagement&apos;s agreement.
+          Content on this website — including the A2Z CREATIVE MARKETING and
+          AZ ONE OFFICIAL names, logos, text, and images — belongs to{" "}
+          {SITE_CONFIG.legalName} or its licensors and may not be used without
+          permission. Any client name, mark, or product shown on this site
+          remains the property of that client and is used with permission;
+          nothing here transfers or claims a right in it. Rights in materials
+          produced during an engagement are set out in that engagement&apos;s
+          agreement.
         </p>
       </section>
 

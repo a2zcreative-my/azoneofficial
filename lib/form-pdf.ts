@@ -10,6 +10,7 @@
    be made in BOTH places. */
 
 import { Canvas, assemblePdf, loadImage, COLOURS, GEOM, widthOf, type Img } from "@/lib/doc-pdf";
+import { resolveIssuer, type Issuer } from "@/lib/issuers";
 
 const { NAVY, GOLD, GREY, SLATE, HAIR } = COLOURS;
 const { PAGE_W, PAGE_H } = GEOM;
@@ -33,18 +34,28 @@ const myt = (iso: string | null | undefined): string => {
 const rmv = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* ------------------------------------------------------------ shared parts */
-function letterhead(c: Canvas, subtitle: string): number {
+/* v1.28.0 — the letterhead, footer and document-control row follow the
+   document's own legal issuer (issuer_code, migration 0073): a legacy form
+   (NULL) re-prints with AZ ONE OFFICIAL's letterhead and its AZOO-HR-*
+   controlled-document number forever; a new form carries A2Z's. */
+
+/** This one-line footer has always printed the registered address WITHOUT the
+    trailing country ("... 81200 Johor Bahru, Johor") — keep that exact form so
+    a legacy re-print stays byte-identical to the original. */
+const footerAddress = (a: string) => a.replace(/, Malaysia$/, "");
+
+function letterhead(c: Canvas, issuer: Issuer, subtitle: string): number {
   let y = FM;
   c.rect(FM, y, FW, 3.75, GOLD); y += 3.75 + 7;
-  c.text("AZ ONE OFFICIAL", FM + FW / 2, y + 11, 13.5, { bold: true, align: "c", spacing: 0.4 });
+  c.text(issuer.name, FM + FW / 2, y + 11, 13.5, { bold: true, align: "c", spacing: 0.4 });
   c.text("LIVE  -  CONNECT  -  GROW", FM + FW / 2, y + 20, 6, { bold: true, colour: GOLD, align: "c", spacing: 2.4 });
   c.text(subtitle, FM + FW / 2, y + 34, 9.75, { align: "c" });
   return y + 42;
 }
 
-function footer(c: Canvas, ref: string) {
+function footer(c: Canvas, issuer: Issuer, ref: string) {
   const fy = PAGE_H - FM - 14;
-  c.wrap(`AZ ONE OFFICIAL - SSM 202603168673 (JM1046169-H) - 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor - This form accompanies the system record ${ref}; the in-system decision is authoritative.`,
+  c.wrap(`${issuer.name} - ${issuer.registration} - ${footerAddress(issuer.address)} - This form accompanies the system record ${ref}; the in-system decision is authoritative.`,
     FM, fy, FW, 6, 8, { colour: GREY });
 }
 
@@ -108,6 +119,9 @@ export interface ClaimLike {
   hr_reviewed_by_name?: string | null; pre_approved_by_name?: string | null;
   pre_approved_by_full?: string | null; pre_approved_by_role?: string | null; pre_approved_at?: string | null;
   decided_by_name?: string | null; decided_by_full?: string | null; decided_at?: string | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null;
 }
 
 const SIG_FILE: Record<string, string> = {
@@ -119,10 +133,14 @@ type Placed = Record<string, { w: number; h: number }>;
 
 export function drawClaim(c: ClaimLike, claimNo: string, imgs: Placed): string {
   const cv = new Canvas();
-  let y = letterhead(cv, "Employee Claim Form");
+  const issuer = resolveIssuer(c.issuer_code);
+  let y = letterhead(cv, issuer, "Employee Claim Form");
 
+  /* An A2Z form is a DIFFERENT controlled document from an AZ ONE form — the
+     letterhead names the employer — so the document number and version come
+     from the issuer (A2Z-HR-CLM-001 v001 vs AZOO-HR-CLM-001 v002). */
   y = metaTable(cv, y, [
-    ["Document No.", "AZOO-HR-CLM-001", "Version", "002"],
+    ["Document No.", issuer.claimFormNo, "Version", issuer.claimFormVersion],
     ["Claim No.", claimNo, "Date", myt(c.created_at)],
     ["Employee", (c.claimant_full || c.claimant || "").toUpperCase(), "Department", (c.claimant_department ?? "").toUpperCase()],
     ["Position", (c.claimant_position ?? "").toUpperCase(), "Purpose", c.description ?? ""],
@@ -202,7 +220,7 @@ export function drawClaim(c: ClaimLike, claimNo: string, imgs: Placed): string {
     cv.text("Receipt attached as PDF in the system - printed separately.", FM + FW, y + 16, 7, { colour: GREY, align: "r" });
   }
 
-  footer(cv, claimNo);
+  footer(cv, issuer, claimNo);
   return cv.ops.join("\n");
 }
 
@@ -247,15 +265,21 @@ export interface LeaveLike {
   hr_by_name?: string | null; hr_at?: string | null;
   preapp_by_name?: string | null; preapp_by_full?: string | null; preapp_by_role?: string | null; preapp_at?: string | null;
   final_by_name?: string | null; final_by_full?: string | null; final_at?: string | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null;
 }
 
 export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
   const cv = new Canvas();
-  let y = letterhead(cv, "Leave Application Form");
+  const issuer = resolveIssuer(l.issuer_code);
+  let y = letterhead(cv, issuer, "Leave Application Form");
   const applicant = (l.user_full || l.user_name || "").toUpperCase();
 
+  /* Same rule as the claim form: the document number and version belong to
+     the issuing entity's controlled document, not to the layout. */
   y = metaTable(cv, y, [
-    ["Document No.", "AZOO-HR-LVE-001", "Version", "001"],
+    ["Document No.", issuer.leaveFormNo, "Version", issuer.leaveFormVersion],
     ["Leave No.", lvNo, "Date", myt(l.created_at)],
     ["Employee", applicant, "Department", (l.user_department ?? "").toUpperCase()],
     ["Position", (l.user_position ?? "").toUpperCase(), "Leave type", (l.type ?? "").toUpperCase()],
@@ -288,7 +312,7 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
   ]);
   placeSignatures(cv, sigTop, imgs);
 
-  footer(cv, lvNo);
+  footer(cv, issuer, lvNo);
   return cv.ops.join("\n");
 }
 

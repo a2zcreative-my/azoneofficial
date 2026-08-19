@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/service-icons";
 
 import type {
-  ElfiaProduct,
   FaqItem,
   PackageMatrixRow,
   PackageTier,
@@ -27,7 +26,7 @@ export const CONTACT = {
   // WhatsApp number in international format, digits only.
   whatsapp: "60123834821",
   whatsappMessage:
-    "Hi AZ ONE OFFICIAL, I'm interested in your Live Commerce services. I would like to know more.",
+    "Hi A2Z Creative Marketing, I'm interested in your services. I would like to know more.",
   email: "admin@azoneofficial.com",
   socials: {
     tiktok: "https://www.tiktok.com/@azoneofficialhq",
@@ -40,8 +39,24 @@ export const CONTACT = {
 /* Problems we solve — homepage section.                               */
 /* ------------------------------------------------------------------ */
 
-/** Pain → solution pairs; copy written to equal length so cards match. */
+/**
+ * Pain → solution pairs; copy written to equal length so cards match.
+ *
+ * v1.27.0: the first two pains are brand and channel problems, the last four
+ * are live-commerce problems. Every argument that was here before is kept —
+ * live is now the sharp end of the list, not the whole list.
+ */
 export const PROBLEMS = [
+  {
+    problem: "Our brand looks different everywhere it appears",
+    solution:
+      "One creative direction, applied everywhere: identity, campaign visuals, product cards, session overlays, and packaging cues. A brand a buyer recognises in half a second is a brand they trust enough to buy from.",
+  },
+  {
+    problem: "We post constantly and nothing converts",
+    solution:
+      "Posting is not a strategy. We build the plan first — audience, offer, channel mix, and calendar — then produce content designed to move someone from scroll to checkout, and report on what actually did.",
+  },
   {
     problem: "We went live and nobody bought",
     solution:
@@ -119,11 +134,12 @@ export function whatsappUrl(message?: string): string {
 /* ------------------------------------------------------------------ */
 
 export const ABOUT = {
-  eyebrow: "About AZ ONE",
-  title: "Live commerce, run like a business — not an experiment",
+  eyebrow: "About A2Z",
+  title: "Marketing, run like a business — not an experiment",
   body: [
-    "AZ ONE OFFICIAL is a Malaysian live commerce agency. We put brands in front of buyers in real time — TikTok Live hosting, end-to-end live commerce management, and social commerce strategy built around what actually converts.",
-    "We run channels, not just campaigns: for our featured client ELFIA, a premium hijab label, we built the live selling channel from zero and operate it end to end. When we advise you, it is from the seller's chair, not the sidelines.",
+    "A2Z CREATIVE MARKETING is a Malaysian creative marketing group based in Johor Bahru. We build brands and then sell for them: creative marketing, digital marketing, content creation, live commerce, marketing consultancy, and business and product development — one team, one accountable plan.",
+    "We run channels, not just campaigns: for a premium modestwear label we built the live selling channel from zero and operate it end to end. When we advise you, it is from the seller's chair, not the sidelines.",
+    "Our consultancy work is delivered by AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing — the business unit that advises brand owners on positioning, channel strategy, and live commerce. Same team, same standards, a dedicated remit.",
   ],
 } as const;
 
@@ -142,17 +158,17 @@ export const TRUST_SIGNALS: readonly TrustSignal[] = [
   {
     label: "SSM-registered",
     description:
-      "AZ One Official — 202603168673 (JM1046169-H). A registered Malaysian company, not a freelance side project.",
+      "A2Z Creative Marketing — 202603003468 (CA0414729-A). A registered Malaysian company, not a freelance side project.",
   },
   {
     label: "Operators, not observers",
     description:
-      "We built and run the live channel for our client ELFIA end to end — so every recommendation comes from the seller's chair.",
+      "We built and run the live selling channel for a premium modestwear label end to end — so every recommendation comes from the seller's chair.",
   },
   {
     label: "Johor Bahru based team",
     description:
-      "Hosts, creative, and management in one team you can meet — with fast WhatsApp support during your sessions.",
+      "Creatives, hosts, and management in one team you can meet — with fast WhatsApp support during your campaigns and sessions.",
   },
   {
     label: "Bahasa Melayu & English hosts",
@@ -162,7 +178,7 @@ export const TRUST_SIGNALS: readonly TrustSignal[] = [
 ] as const;
 
 /**
- * Real performance figures. Empty until AZ ONE has numbers worth publishing —
+ * Real performance figures. Empty until A2Z has numbers worth publishing —
  * the About section falls back to TRUST_SIGNALS while this is empty, so no
  * zeroes are ever rendered.
  */
@@ -297,12 +313,28 @@ export const PACKAGE_MATRIX: readonly PackageMatrixRow[] = [
 /* Services                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A2Z's service lines (v1.27.0).
+ *
+ * Six cards, deliberately: the grids that render this are 2-column on
+ * /services and 3-column on the homepage, so six fills both cleanly. Between
+ * them they cover the full registered remit — creative marketing, digital
+ * marketing, live commerce, content creation, marketing consultancy,
+ * business development, and product development. Live commerce is two of the
+ * six, not the identity of all six.
+ */
 export const SERVICES: readonly Service[] = [
   {
-    title: "Live host service",
+    title: "Creative marketing",
     description:
-      "Trained hosts who sell — product pitching, pinned-deal pacing, and comment conversion, in Bahasa Melayu and English.",
-    icon: IconLiveHost,
+      "Brand identity, campaign concepts, and the visuals that carry them — covers, overlays, product cards, and key art that make a brand worth stopping the scroll for.",
+    icon: IconDesign,
+  },
+  {
+    title: "Digital marketing",
+    description:
+      "Channel positioning, campaign planning, and a content calendar across TikTok, Instagram, and Facebook — built to feed your sales channels instead of fighting them.",
+    icon: IconStrategy,
   },
   {
     title: "Live commerce management",
@@ -311,27 +343,21 @@ export const SERVICES: readonly Service[] = [
     icon: IconLiveCommerce,
   },
   {
-    title: "TikTok strategy",
+    title: "Live host service",
     description:
-      "Account positioning, campaign planning, and a content calendar that feed your live room instead of fighting it.",
-    icon: IconStrategy,
+      "Trained hosts who sell — product pitching, pinned-deal pacing, and comment conversion, in Bahasa Melayu and English.",
+    icon: IconLiveHost,
   },
   {
-    title: "Creative design",
+    title: "Content creation & video",
     description:
-      "Covers, overlays, product cards, and campaign visuals that make your brand look worth stopping the scroll for.",
-    icon: IconDesign,
-  },
-  {
-    title: "Video editing & content creation",
-    description:
-      "Live-session highlights cut into short-form content that keeps selling long after the stream ends.",
+      "Shoots, short-form edits, and live-session highlights cut into content that keeps selling long after the stream ends.",
     icon: IconVideo,
   },
   {
-    title: "Business consultation",
+    title: "Consultancy & business development",
     description:
-      "Brand positioning, pricing, and channel strategy — advised from the seller's chair, because we sell live too.",
+      "Brand positioning, pricing, channel strategy, and new product development — delivered by AZ ONE OFFICIAL, our consultancy service, and advised from the seller's chair.",
     icon: IconConsult,
   },
 ] as const;
@@ -345,128 +371,6 @@ export const SERVICES: readonly Service[] = [
 export const TESTIMONIALS: readonly Testimonial[] = [] as const;
 
 /* ------------------------------------------------------------------ */
-/* ELFIA                                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * Featured client. Conflict-of-interest rule: nothing here may imply AZ ONE
- * owns or sells this brand — we pitch brands who compete with our clients,
- * so the agency site shows the channel we built, never a product catalogue.
- */
-export const ELFIA = {
-  eyebrow: "Featured client",
-  title: "ELFIA",
-  /**
-   * Brand slogan. The Malay line is the brand's own voice and leads; the
-   * English line is its meaning, not a separate strapline — so the two are
-   * always shown together as a pair.
-   */
-  slogan: "Dekat Di Mata, Menarik Di Hati",
-  tagline: "At First Sight. Forever in Your Heart.",
-  body: "ELFIA is a premium hijab label and our featured client — chiffon shawls in essential neutrals for office, everyday, and active wear. We built its live selling channel from zero and run it end to end; every drop launches on TikTok Live, where buyers see the fabric move before they tap checkout.",
-  cta: "Visit ELFIA",
-  ctaHref: "https://elfiaofficialstore.com",
-} as const;
-
-/**
- * How an ELFIA drop works. Unused since v1.3.0 (the /products page moved to
- * ELFIA's own site) — kept for hand-off to the standalone ELFIA project.
- * Buying live is unfamiliar to a lot of shoppers —
- * spelling out the sequence removes the "what actually happens if I show up?"
- * hesitation that stops people joining a session.
- */
-export const ELFIA_DROP_STEPS = [
-  {
-    step: "01",
-    title: "We announce the drop",
-    description:
-      "Follow us on TikTok so the session lands in your feed. Each drop is announced ahead of time with the pieces and colours going live.",
-  },
-  {
-    step: "02",
-    title: "You see the fabric move",
-    description:
-      "We style every piece on camera — drape, fall, and true colour under real light. Ask anything in the comments and the host answers live.",
-  },
-  {
-    step: "03",
-    title: "Price is revealed live",
-    description:
-      "Prices are announced during the session, not before. Quantities are limited and pieces are first come, first served.",
-  },
-  {
-    step: "04",
-    title: "Checkout in the session",
-    description:
-      "Order through the pinned link while you watch. We confirm and arrange delivery straight after the drop closes.",
-  },
-] as const;
-
-
-export const ELFIA_PRODUCTS: readonly ElfiaProduct[] = [
-  {
-    slug: "signature-shawl-mocha",
-    name: "The Signature Shawl — Mocha",
-    category: "Everyday",
-    imageSrc: "/elfia/shawl-taupe.jpg",
-    imageAlt: "ELFIA signature chiffon shawl in mocha, styled with a white blazer",
-    description:
-      "Our signature premium chiffon in warm mocha — soft drape, opaque coverage, and a matte finish that pairs with everything from office whites to weekend neutrals.",
-  },
-  {
-    slug: "signature-shawl-beige",
-    name: "The Signature Shawl — Beige",
-    category: "Everyday",
-    imageSrc: "/elfia/shawl-beige.jpg",
-    imageAlt: "ELFIA signature chiffon shawl in beige, styled with a white blazer",
-    description:
-      "The same signature chiffon in soft beige — a warm neutral that flatters every skin tone and layers beautifully over light workwear.",
-  },
-  {
-    slug: "signature-shawl-soft-grey",
-    name: "The Signature Shawl — Soft Grey",
-    category: "Everyday",
-    imageSrc: "/elfia/shawl-grey-front.jpg",
-    imageAlt: "ELFIA signature chiffon shawl in soft grey, front draped styling",
-    description:
-      "Cool soft grey in our signature chiffon — clean and contemporary. Shown here in front-draped, side, and back styling so you can see the full fall of the fabric.",
-    gallery: [
-      "/elfia/shawl-grey-front.jpg",
-      "/elfia/shawl-grey.jpg",
-      "/elfia/shawl-grey-profile.jpg",
-      "/elfia/shawl-grey-back.jpg",
-    ],
-  },
-  {
-    slug: "corporate-khaki",
-    name: "Corporate Series — Khaki",
-    category: "Workwear",
-    imageSrc: "/elfia/corporate.jpg",
-    imageAlt: "ELFIA corporate series hijab in khaki, styled with a black suit",
-    description:
-      "Built for the boardroom: a structured drape in khaki that holds its shape through a full working day, styled here against a tailored black suit.",
-  },
-  {
-    slug: "active-black",
-    name: "Active Hijab — Black",
-    category: "Active",
-    imageSrc: "/elfia/active.jpg",
-    imageAlt: "ELFIA active sports hijab in black, worn on court",
-    description:
-      "A breathable sports hijab that stays put from warm-up to match point — lightweight, quick-dry, and secure without pins.",
-  },
-  {
-    slug: "neutral-collection",
-    name: "The Neutral Collection",
-    category: "Collection",
-    imageSrc: "/elfia/collection.jpg",
-    imageAlt: "ELFIA neutral collection — black, mocha, beige, and soft grey chiffon shawls",
-    description:
-      "All four essential neutrals — black, mocha, beige, and soft grey — the foundation of an effortless rotation. Collection bundles are announced during live drops.",
-  },
-] as const;
-
-/* ------------------------------------------------------------------ */
 /* Process                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -475,25 +379,25 @@ export const PROCESS: readonly ProcessStep[] = [
     step: 1,
     title: "Consultation",
     description:
-      "We review your products, margins, and audience, and agree on what a winning live channel looks like for you.",
+      "We review your products, margins, audience, and current marketing, and agree on what growth actually looks like for you.",
   },
   {
     step: 2,
-    title: "Setup",
+    title: "Build",
     description:
-      "Account readiness, studio setup, host casting, and a session rundown built around your best offers.",
+      "Positioning and creative direction first, then the machinery: account readiness, campaign assets, studio setup, host casting, and a session rundown built around your best offers.",
   },
   {
     step: 3,
-    title: "Go live",
+    title: "Go to market",
     description:
-      "Our hosts and producers run the session end to end — pitching, moderating, and pushing orders in real time.",
+      "Campaigns run and sessions go live. Our hosts and producers work the room end to end — pitching, moderating, and pushing orders in real time.",
   },
   {
     step: 4,
     title: "Scale",
     description:
-      "Post-live reporting turns into the next rundown. We keep what converted, cut what didn't, and grow the schedule.",
+      "Reporting turns into the next campaign and the next rundown. We keep what converted, cut what didn't, and grow the schedule.",
   },
 ] as const;
 
@@ -503,6 +407,16 @@ export const PROCESS: readonly ProcessStep[] = [
 
 export const FAQS: readonly FaqItem[] = [
   {
+    question: "What does A2Z Creative Marketing actually do?",
+    answer:
+      "We are a Malaysian creative marketing group: creative marketing, digital marketing, content creation, live commerce, marketing consultancy, and business and product development. Brands come to us for one of those and usually stay for two or three, because the same team runs the strategy, the creative, and the selling.",
+  },
+  {
+    question: "Do you only do live commerce?",
+    answer:
+      "No. Live commerce is one of our strongest capabilities — we build and run live selling channels end to end — but it sits alongside brand and campaign creative, digital marketing, content production, and consultancy. If live is not right for your product, we will tell you and recommend what is.",
+  },
+  {
     question: "Which platforms do you go live on?",
     answer:
       "Our core platform is TikTok Live, where Malaysian live commerce is strongest today. We can also support other platforms your brand already sells on — tell us during consultation.",
@@ -510,7 +424,7 @@ export const FAQS: readonly FaqItem[] = [
   {
     question: "Do you work with small brands?",
     answer:
-      "Yes. Live commerce rewards good products and good offers, not big ad budgets. Our packages scale from single trial sessions to full monthly schedules.",
+      "Yes. Good marketing rewards good products and good offers, not big ad budgets. Our packages scale from single trial sessions to full monthly schedules.",
   },
   {
     question: "Can you host in Bahasa Melayu and English?",
@@ -523,9 +437,9 @@ export const FAQS: readonly FaqItem[] = [
       "Products, pricing, and stock. We handle the rest: rundown, studio, host, moderation, and reporting.",
   },
   {
-    question: "What is ELFIA?",
+    question: "What is AZ ONE OFFICIAL?",
     answer:
-      "ELFIA — Dekat Di Mata, Menarik Di Hati — is a premium hijab brand and one of our clients: chiffon shawls in essential neutrals for office, everyday, and active wear, sold through a live channel we built and run end to end. It is our featured case study, and proof the playbook works.",
+      "AZ ONE OFFICIAL is A2Z Creative Marketing's consultancy service — the business unit brand owners engage for business consultation, live commerce consultancy, and brand and channel strategy. It is a separate registered entity (202603168673 / JM1046169-H) and the entity that issues consultancy quotations, invoices, and receipts. See our Consultancy page for what an engagement covers.",
   },
   {
     question: "How much does it cost?",

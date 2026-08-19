@@ -68,7 +68,7 @@ export function SideNav({
         <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg bg-white/90 object-contain p-1" />
         {!collapsed && (
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-white">
-            AZ ONE OFFICIAL
+            A2Z CREATIVE MARKETING
           </span>
         )}
         <button

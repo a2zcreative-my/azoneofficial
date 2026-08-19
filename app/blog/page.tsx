@@ -7,7 +7,8 @@ import { BLOG_POSTS } from "@/constants/pages";
 export const metadata: Metadata = {
   title: "Blog",
   description:
-    "Practical notes on live commerce in Malaysia from the AZ ONE OFFICIAL team.",
+    "Practical notes on marketing and live commerce in Malaysia from the A2Z Creative Marketing team.",
+  alternates: { canonical: "/blog" },
 };
 
 export default function BlogPage() {

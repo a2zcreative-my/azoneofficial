@@ -169,7 +169,9 @@ export async function notify(
   ).bind(userId, kind, message, ref ?? null).run();
 
   // v1.6.0: web-push to the person's devices (best-effort, off when no VAPID).
-  await pushToUser(env, userId, "AZ ONE OFFICIAL", message, ref);
+  // v1.27.0: this one string is the title on every staff lock screen, for all
+  // ~20 notification kinds — the portal is A2Z CREATIVE MARKETING's.
+  await pushToUser(env, userId, "A2Z CREATIVE MARKETING", message, ref);
 
   // Off-platform delivery (email / WhatsApp relay). Only fires when a webhook
   // is configured; otherwise this is a no-op and notifications stay in-app.
@@ -272,6 +274,27 @@ function todayKL(): string {
   const m = String(now.getUTCMonth() + 1).padStart(2, "0");
   const d = String(now.getUTCDate()).padStart(2, "0");
   return `${y}${m}${d}`;
+}
+
+/* v1.28.0 — per-document legal issuer (migration 0073). A2Z CREATIVE
+   MARKETING (SSM 202603003468) and AZ ONE OFFICIAL (SSM 202603168673) are
+   separate legal entities; from v1.28.0 A2Z issues every NEW document. A
+   document must forever show the entity that issued it, so the issuer is
+   STAMPED at creation and never derived at render time. NULL = legacy row
+   = AZ ONE OFFICIAL (see lib/issuers.ts resolveIssuer). A separate UPDATE
+   rather than a column in each INSERT so a pre-0073 database keeps working
+   (0062 lesson: never let an optional column take down a critical write). */
+const OPERATING_ISSUER_CODE = "a2z";
+async function stampIssuer(
+  env: Env,
+  table: "sales_documents" | "receipts" | "credit_notes" | "claims" | "leave_requests",
+  id: number | null | undefined,
+): Promise<void> {
+  if (!id) return;
+  try {
+    await env.DB.prepare(`UPDATE ${table} SET issuer_code = ?1 WHERE id = ?2`)
+      .bind(OPERATING_ISSUER_CODE, id).run();
+  } catch { /* pre-0073 schema: the document stays legacy-labelled (AZ ONE) */ }
 }
 
 async function docNumber(env: Env, docType: "QT" | "DO" | "INV" | "RC" | "CN"): Promise<string> {
@@ -1867,6 +1890,7 @@ export async function handleStaff(
       str(body.reason, 1000) ? body.reason : null,
       typeof body.mc_media_id === "number" ? body.mc_media_id : null,
     ).first<{ id: number }>();
+    await stampIssuer(env, "leave_requests", res?.id);
     await audit(env, user.id, "leave.apply", "leave_requests", String(res?.id));
     return json({ id: res?.id }, 201);
   }
@@ -2539,6 +2563,7 @@ export async function handleStaff(
       ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
     }
     // v1.4.106: tell the FIRST stage of this claimant's chain.
+    await stampIssuer(env, "claims", res?.id);
     await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim", payeeRole);
     await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, ...(payeeId ? { payee_user_id: payeeId } : {}) });
     return json({ id: res?.id }, 201);
@@ -3791,6 +3816,7 @@ export async function handleStaff(
         }
       } else throw e;
     }
+    await stampIssuer(env, "sales_documents", res?.id);
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
     if (docType === "INV" && body.paid_received === true && res?.id) {
@@ -3858,10 +3884,17 @@ export async function handleStaff(
         `SELECT COALESCE(full_name, name) AS signer_name, position FROM users WHERE id = ?1`,
       ).bind(d.created_by as number).first<{ signer_name: string; position: string | null }>();
     }
+    /* v1.28.0: when no signer row exists the "prepared by" line falls back to
+       the document's ISSUING company — resolved from the row's issuer_code
+       exactly like the frontend's resolveIssuer (lib/issuers.ts is the naming
+       source; the Worker cannot import the frontend lib, so the two legal
+       names are inlined): NULL/legacy = AZ ONE OFFICIAL, 'a2z' = A2Z. */
+    const fallbackSigner = (d as { issuer_code?: string | null }).issuer_code === "a2z"
+      ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL";
     return json({ doc: {
       ...d,
       signer_role: signRole,
-      signer_name: signer?.signer_name ?? "AZ ONE OFFICIAL",
+      signer_name: signer?.signer_name ?? fallbackSigner,
       signer_position: signer?.position ?? (signRole === "coo" ? "Chief Operating Officer" : signRole === "cco" ? "Chief Commercial Officer" : signRole === "ceo" ? "Chief Executive Officer" : ""),
     } });
   }
@@ -3956,6 +3989,7 @@ export async function handleStaff(
     if (((qt as { kind?: string | null }).kind ?? "product") !== "service" && resC?.id) {
       stockMoveC = await deductForInvoice(env, resC.id, numberC, String(qt.items ?? "[]"), null, user.id);
     }
+    await stampIssuer(env, "sales_documents", resC?.id);
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
     return json({ id: resC?.id, doc_number: numberC, stock: stockMoveC }, 201);
   }
@@ -4451,11 +4485,27 @@ export async function handleStaff(
     // locked for EVERYONE before release, payroll processors included. (The
     // Payroll processing tab necessarily still shows figures to processors —
     // they type them there; this lock governs the payslip view itself.)
+    /* v1.28.0: the slip's employer of record is the issuer stamped on the
+       month's release row (payslip_releases.issuer_code, migration 0073) —
+       returned so "My payslip" prints the same letterhead the processors'
+       panel does. NULL / no row = legacy month = AZ ONE OFFICIAL at the
+       renderer (resolveIssuer, lib/issuers.ts). Wrapped for 0073 skew like
+       the release route — a pre-0073 database reports no stamp instead of
+       500ing the staff payslip view. */
+    let releaseIssuerCode: string | null = null;
     {
       const availableFrom = await payslipAvailableFrom(m0);
-      const released = await env.DB.prepare(
-        `SELECT released_at FROM payslip_releases WHERE month = ?1`,
-      ).bind(m0).first<{ released_at: string }>();
+      let released: { released_at: string; issuer_code?: string | null } | null = null;
+      try {
+        released = await env.DB.prepare(
+          `SELECT released_at, issuer_code FROM payslip_releases WHERE month = ?1`,
+        ).bind(m0).first<{ released_at: string; issuer_code: string | null }>();
+      } catch {
+        released = await env.DB.prepare(
+          `SELECT released_at FROM payslip_releases WHERE month = ?1`,
+        ).bind(m0).first<{ released_at: string }>();
+      }
+      releaseIssuerCode = released?.issuer_code ?? null;
       const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
       if (!released && nowMyt < availableFrom) {
         return json({ month: m0, entry: null, extras: null, locked: true, available_from: availableFrom });
@@ -4474,6 +4524,7 @@ export async function handleStaff(
       entry: entry ?? null,
       extras: entry ? await payslipExtras(user.id, m0) : null,
       joined_on: joined?.joined_on ?? null,
+      release_issuer_code: releaseIssuerCode, // v1.28.0 — employer of record
     });
   }
 
@@ -4529,7 +4580,7 @@ export async function handleStaff(
       }
     }
     const releasedRow = await env.DB.prepare(
-      `SELECT released_at, released_by FROM payslip_releases WHERE month = ?1`,
+      `SELECT released_at, released_by, issuer_code FROM payslip_releases WHERE month = ?1`,
     ).bind(month).first();
     return json({
       month, entries: results,
@@ -4602,10 +4653,20 @@ export async function handleStaff(
       await audit(env, user.id, "payroll.release_undo", "payslip_releases", mR);
       return json({ ok: true });
     }
-    await env.DB.prepare(
-      `INSERT INTO payslip_releases (month, released_by) VALUES (?1, ?2)
-       ON CONFLICT(month) DO NOTHING`,
-    ).bind(mR, user.id).run();
+    /* v1.28.0: the payslip's employer of record is decided at RELEASE time —
+       months released after the A2Z switch are A2Z payslips; already-released
+       months keep NULL and render as AZ ONE OFFICIAL forever. */
+    try {
+      await env.DB.prepare(
+        `INSERT INTO payslip_releases (month, released_by, issuer_code) VALUES (?1, ?2, ?3)
+         ON CONFLICT(month) DO NOTHING`,
+      ).bind(mR, user.id, OPERATING_ISSUER_CODE).run();
+    } catch {
+      await env.DB.prepare(
+        `INSERT INTO payslip_releases (month, released_by) VALUES (?1, ?2)
+         ON CONFLICT(month) DO NOTHING`,
+      ).bind(mR, user.id).run();
+    }
     await audit(env, user.id, "payroll.release", "payslip_releases", mR);
     return json({ ok: true });
   }
@@ -6579,6 +6640,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           `INSERT INTO receipts (receipt_number, invoice_id, invoice_number, customer_id, amount_cents, payment_method, payment_ref, paid_at, share_token, created_by)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
         ).bind(number, invId, inv.doc_number, inv.customer_id, inv.total_cents, inv.payment_method, inv.payment_ref, inv.paid_at, token, user.id).first<{ id: number }>();
+        await stampIssuer(env, "receipts", res?.id);
         await audit(env, user.id, "receipt.issue", "receipts", String(res?.id), { invoice: inv.doc_number, amount: inv.total_cents });
         return json({ id: res?.id, receipt_number: number }, 201);
       } catch (e) {
@@ -6604,6 +6666,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           `INSERT INTO credit_notes (cn_number, invoice_id, invoice_number, customer_id, amount_cents, reason, share_token, created_by)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
         ).bind(number, invId, inv.doc_number, inv.customer_id, cents, reason || null, token, user.id).first<{ id: number }>();
+        await stampIssuer(env, "credit_notes", res?.id);
         await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents });
         return json({ id: res?.id, cn_number: number }, 201);
       } catch (e) {
@@ -6615,7 +6678,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
       try {
         const { results } = await env.DB.prepare(
-          `SELECT r.id, r.receipt_number, r.invoice_number, r.amount_cents, r.payment_method, r.payment_ref, r.paid_at, r.share_token, r.created_at, c.company
+          `SELECT r.id, r.receipt_number, r.invoice_number, r.amount_cents, r.payment_method, r.payment_ref, r.paid_at, r.share_token, r.created_at, r.issuer_code, c.company
            FROM receipts r LEFT JOIN customers c ON c.id = r.customer_id ORDER BY r.id DESC LIMIT 200`,
         ).all();
         return json({ receipts: results });
@@ -6628,7 +6691,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
       try {
         const { results } = await env.DB.prepare(
-          `SELECT n.id, n.cn_number, n.invoice_number, n.amount_cents, n.reason, n.share_token, n.created_at, c.company
+          `SELECT n.id, n.cn_number, n.invoice_number, n.amount_cents, n.reason, n.share_token, n.created_at, c.company, n.issuer_code
            FROM credit_notes n LEFT JOIN customers c ON c.id = n.customer_id ORDER BY n.id DESC LIMIT 200`,
         ).all();
         return json({ credit_notes: results });

@@ -107,7 +107,7 @@ function TikTokEmbed() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Watch how an AZ ONE OFFICIAL live session comes together
+                Watch how an A2Z live session comes together
               </a>
             </section>
           </blockquote>

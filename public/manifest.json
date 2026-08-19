@@ -1,7 +1,7 @@
 {
-  "name": "AZ ONE OFFICIAL",
-  "short_name": "AZ ONE",
-  "description": "AZ ONE OFFICIAL staff portal and business management",
+  "name": "A2Z CREATIVE MARKETING",
+  "short_name": "A2Z Staff",
+  "description": "A2Z CREATIVE MARKETING staff portal and business management",
   "start_url": "/portal",
   "scope": "/",
   "display": "standalone",

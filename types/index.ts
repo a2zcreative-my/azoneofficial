@@ -55,13 +55,3 @@ export interface ProcessStep {
   title: string;
   description: string;
 }
-
-export interface ElfiaProduct {
-  slug: string;
-  name: string;
-  category: string;
-  imageSrc: string;
-  imageAlt: string;
-  description: string;
-  gallery?: readonly string[];
-}

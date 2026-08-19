@@ -7,7 +7,8 @@ import { SITE_CONFIG } from "@/constants/site";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How AZ ONE OFFICIAL collects, uses, and protects your personal data.",
+    "How A2Z Creative Marketing collects, uses, and protects your personal data.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {
@@ -15,7 +16,7 @@ export default function PrivacyPage() {
     <PageShell eyebrow="Legal" title="Privacy Policy" updated="24 July 2026">
       <section>
         <p>
-          {SITE_CONFIG.legalName} (&quot;AZ ONE OFFICIAL&quot;, &quot;we&quot;, &quot;us&quot;) respects your
+          {SITE_CONFIG.legalName} (&quot;A2Z&quot;, &quot;we&quot;, &quot;us&quot;) respects your
           privacy. This policy explains what personal data we collect through
           this website and our services, how we use it, and the choices you
           have. We process personal data in line with the Personal Data

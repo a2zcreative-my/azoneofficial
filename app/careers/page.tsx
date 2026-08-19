@@ -7,12 +7,13 @@ import { CAREERS } from "@/constants/pages";
 export const metadata: Metadata = {
   title: "Careers",
   description:
-    "Join AZ ONE OFFICIAL — live hosts, live operations, and creative roles in Johor Bahru.",
+    "Join A2Z Creative Marketing — live hosts, live operations, creative, and digital marketing roles in Johor Bahru.",
+  alternates: { canonical: "/careers" },
 };
 
 export default function CareersPage() {
   return (
-    <PageShell eyebrow="Careers" title="Sell live with us">
+    <PageShell eyebrow="Careers" title="Build brands with us">
       <section>
         <p>{CAREERS.intro}</p>
       </section>

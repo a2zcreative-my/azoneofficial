@@ -7,7 +7,8 @@ import { whatsappUrl } from "@/constants/content";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "Common questions about AZ ONE OFFICIAL's live commerce services and the ELFIA brand.",
+    "Common questions about A2Z Creative Marketing's services, packages, and how an engagement works.",
+  alternates: { canonical: "/faq" },
 };
 
 export default function FaqPage() {

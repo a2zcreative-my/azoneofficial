@@ -20,6 +20,8 @@ export interface DocItem {
   sku?: string; uom?: string; disc_cents?: number; sub?: string[];
 }
 
+import { resolveIssuer } from "@/lib/issuers";
+
 export interface DocFull {
   doc_type: string; doc_number: string; company: string; contact_person?: string;
   address?: string; customer_phone?: string; customer_email?: string; items: string; discount_cents: number;
@@ -36,12 +38,19 @@ export interface DocFull {
   signer_role?: string | null;
   signer_name?: string | null;
   signer_position?: string | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. The
+     letterhead, SST note, bank instruction and footer all follow this. */
+  issuer_code?: string | null;
 }
 
 /* autoPrint: the portal's popup should raise the print dialog the moment it
    opens (that is what the PDF button is for). The customer's shared link must
    NOT — they get a Save as PDF button instead. */
 export function buildDocHtml(doc: DocFull, autoPrint = true): string {
+  /* v1.28.0: a document forever shows the entity that ISSUED it — legacy
+     rows (issuer_code NULL) stay AZ ONE OFFICIAL, new rows are A2Z. */
+  const issuer = resolveIssuer(doc.issuer_code);
   const items: DocItem[] = (() => {
     try { return JSON.parse(doc.items); } catch { return []; }
   })();
@@ -140,7 +149,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true): string {
   const zone = (img: boolean) =>
     `<div class="sigzone">${img ? `<img src="${sigSrc}" alt="" onerror="this.style.display='none'"/>` : ""}</div>`;
   const signerLines = `<div class="who"><span class="nm">${esc((doc.signer_name ?? "").toUpperCase())}</span><br/>
-    ${esc(doc.signer_position ?? "")}<br/><span class="tiny">AZ ONE OFFICIAL${manualSig ? " &middot; sign &amp; date above" : ""}</span></div>`;
+    ${esc(doc.signer_position ?? "")}<br/><span class="tiny">${esc(issuer.name)}${manualSig ? " &middot; sign &amp; date above" : ""}</span></div>`;
   const partnerBlock = (label: string, l1: string, l2: string) =>
     `<div class="sig blank">${zone(false)}<span class="lbl">${label}</span>
      <div class="who"><span class="nm">${l1}</span><br/>${l2}<br/><span class="tiny">Date</span></div></div>`;
@@ -157,7 +166,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true): string {
       <div class="hdr">PAYMENT</div>
       <div class="split">
         <div>
-          <p class="body">Payment by bank transfer to <strong>MAYBANK 5516 2328 7032</strong> (AZ ONE OFFICIAL).
+          <p class="body">Payment by bank transfer to <strong>${esc(issuer.bank)}</strong> (${esc(issuer.bankHolder)}).
           Please send the transfer receipt via WhatsApp +60 12-383 4821 quoting the invoice number.</p>
           ${isPaid ? `<p class="paidline">&#10004; PAID${doc.paid_at ? ` &middot; ${dOnly(doc.paid_at)}` : ""}${doc.payment_ref ? ` &middot; Ref: ${esc(doc.payment_ref)}` : ""}</p>` : ""}
         </div>
@@ -276,12 +285,11 @@ export function buildDocHtml(doc: DocFull, autoPrint = true): string {
   ${isPaid ? '<div class="stamp">PAID</div>' : ""}
   <div class="goldbar"></div>
   <div class="hd">
-    <div class="brand">AZ ONE OFFICIAL
+    <div class="brand">${esc(issuer.name)}
       <small>LIVE &nbsp;&middot;&nbsp; CONNECT &nbsp;&middot;&nbsp; GROW</small>
-      <div class="addr">Live Commerce Agency &middot; SSM 202603168673 (JM1046169-H)<br/>
-      34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>
-      81200 Johor Bahru, Johor, Malaysia<br/>
-      admin@azoneofficial.com &middot; WhatsApp +60 12-383 4821</div>
+      <div class="addr">${esc(issuer.descriptor)} &middot; ${esc(issuer.registration)}<br/>
+      ${issuer.addressLines.map(esc).join("<br/>\n      ")}<br/>
+      ${esc(issuer.email)} &middot; WhatsApp ${esc(issuer.whatsapp)}</div>
     </div>
     <div class="docbox"><h2>${title}</h2>
       ${doc.kind ? `<div class="kindchip">${isService ? "SERVICES" : "PRODUCTS"}</div>` : ""}
@@ -313,14 +321,16 @@ export function buildDocHtml(doc: DocFull, autoPrint = true): string {
     <div class="words">
       <div class="bt">AMOUNT IN WORDS</div>
       <div class="val">${amountWords(doc.total_cents)}</div>
-      <div class="sst">Prices are in Ringgit Malaysia and exclude SST. AZ ONE OFFICIAL is not
-      registered for Sales &amp; Service Tax; no service tax is charged on this document.</div>
+      <div class="sst">${issuer.sstRegistered
+        ? ""
+        : `Prices are in Ringgit Malaysia and exclude SST. ${esc(issuer.name)} is not
+      registered for Sales &amp; Service Tax; no service tax is charged on this document.`}</div>
     </div>
     <table class="tot">${ladder}</table>
   </div>`}
   ${doc.notes ? `<p class="notes">${esc(doc.notes)}</p>` : ""}
   ${bottom}
-  <div class="foot">AZ ONE OFFICIAL &middot; Empowering Brands Through Live Commerce and Digital Connections &middot; azoneofficial.com<br/>
+  <div class="foot">${esc(issuer.name)} &middot; ${esc(issuer.slogan)} &middot; ${esc(issuer.website)}<br/>
   This is a computer-generated document; no signature is required unless indicated above.</div>
   </body></html>`;
 }

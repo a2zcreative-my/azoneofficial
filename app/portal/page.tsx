@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AZ ONE OFFICIAL — Staff Portal v1 (/portal)
+ * A2Z CREATIVE MARKETING — Staff Portal v1 (/portal)
  * Internal only. Shares auth with /admin (session cookie -> API Worker).
  * Modules: Dashboard, Attendance, Leave, Tasks, Announcements, Sales, Profile,
  * plus role modules (v1.4.4): HR, Inventory, Commercial, Operations, Overview.
@@ -15,6 +15,10 @@ import { properName, firstName } from "@/lib/names";
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
+/* v1.28.0 — legal document identity: a STAMPED document (leave form, invoice
+   chase) renders the issuer stored on its row via resolveIssuer(issuer_code);
+   a document issued fresh TODAY (the SOA) carries DOCUMENT_ISSUER. */
+import { DOCUMENT_ISSUER, resolveIssuer, type Issuer } from "@/lib/issuers";
 import { addEventToCalendar } from "@/lib/event-ics";
 import { StatCard, MiniBar } from "@/components/ui/stat-card";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
@@ -159,7 +163,10 @@ interface LeaveReq { id: number; type: string; start_date: string; end_date: str
   user_full?: string | null; user_position?: string | null; user_department?: string | null;
   hr_by_name?: string | null; hr_at?: string | null;
   preapp_by_name?: string | null; preapp_by_full?: string | null; preapp_by_role?: string | null; preapp_at?: string | null;
-  final_by_name?: string | null; final_by_full?: string | null; final_at?: string | null }
+  final_by_name?: string | null; final_by_full?: string | null; final_at?: string | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null }
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -2428,6 +2435,11 @@ async function sendLeavePdf(l: LeaveReq) {
 }
 
 function printLeaveForm(l: LeaveReq, meName: string) {
+  /* v1.28.0: the form names the EMPLOYER, so it forever carries the issuer
+     stamped on the row — a legacy print stays AZ ONE OFFICIAL with its
+     AZOO-HR-LVE document number; an A2Z form is a different controlled
+     document with its own number and version (see lib/issuers.ts). */
+  const issuer = resolveIssuer(l.issuer_code);
   const w = window.open("", "_blank", "width=900,height=950");
   if (!w) return;
   const myt = (iso: string | null | undefined): string => {
@@ -2488,10 +2500,10 @@ function printLeaveForm(l: LeaveReq, meName: string) {
     @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body>
   <div class="goldbar"></div>
-  <h1>AZ ONE OFFICIAL<small>LIVE · CONNECT · GROW</small></h1>
+  <h1>${issuer.name}<small>LIVE · CONNECT · GROW</small></h1>
   <h2>Leave Application Form</h2>
   <table class="meta">
-    <tr><td class="k">Document No.</td><td class="v">AZOO-HR-LVE-001</td><td class="k">Version</td><td class="v">001</td></tr>
+    <tr><td class="k">Document No.</td><td class="v">${issuer.leaveFormNo}</td><td class="k">Version</td><td class="v">${issuer.leaveFormVersion}</td></tr>
     <tr><td class="k">Leave No.</td><td class="v">${lvNo}</td><td class="k">Date</td><td class="v">${myt(cA)}${cA.length > 10 ? " MYT" : ""}</td></tr>
     <tr><td class="k">Employee</td><td class="v">${applicant}</td><td class="k">Department</td><td class="v">${(l.user_department ?? "").toUpperCase()}</td></tr>
     <tr><td class="k">Position</td><td class="v">${(l.user_position ?? "").toUpperCase()}</td><td class="k">Leave type</td><td class="v" style="text-transform:uppercase">${l.type}</td></tr>
@@ -2518,7 +2530,7 @@ function printLeaveForm(l: LeaveReq, meName: string) {
         <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
-  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${lvNo}; the in-system decision is authoritative.</p>
+  <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${lvNo}; the in-system decision is authoritative.</p>
   <script>window.onload = function () { window.print(); };</script>
   </body></html>`);
   w.document.close();
@@ -2633,7 +2645,7 @@ function Leave({ user }: { user: User }) {
                 <span className="font-medium">{stageL((l as LeaveReq).stage ?? l.status)}</span>
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
-                <button type="button" className={rowBtn} title={L("Print the Leave Application Form (AZOO-HR-LVE-001)", "Cetak Borang Permohonan Cuti (AZOO-HR-LVE-001)")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
+                <button type="button" className={rowBtn} title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
                 {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
                 <button type="button" className={rowBtn} title={L("Send the leave form as a PDF file", "Hantar borang cuti sebagai fail PDF")}
                   onClick={() => void sendLeavePdf(l)}>{L("Send PDF", "Hantar PDF")}</button>
@@ -2997,10 +3009,26 @@ interface SalesDoc {
   payment_ref?: string | null; paid_at?: string | null; salesperson_name?: string | null;
   customer_id?: number; customer_phone?: string | null;
   kind?: string | null; // v1.4.234
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null;
+}
+
+/* v1.28.0 — "MAYBANK · <HOLDER> · A/C <number>": the bank-transfer instruction
+   the SOA and the WhatsApp invoice chase print, composed from the issuer so
+   the payee named is always the entity whose account it is. Issuer.bank is
+   "<BANK> <account number>" (lib/issuers.ts). */
+function bankTransferLine(iss: Issuer): string {
+  const [bankName, ...account] = iss.bank.split(" ");
+  return `${bankName} · ${iss.bankHolder} · A/C ${account.join(" ")}`;
 }
 
 /** v1.4.101: printable Statement of Account per customer — same branded
     template family as the QT/DO/INV. Invoices only (paid + outstanding). */
+/* v1.28.0: the SOA is not a re-print of a stored document — it is a fresh
+   chase statement issued TODAY, so its letterhead, bank instruction and
+   footer carry DOCUMENT_ISSUER (the current operator), even when the
+   invoices it lists were issued by the earlier entity. */
 function printSOA(company: string, docs: SalesDoc[]) {
   const invs = docs.filter((d) => d.doc_type === "INV" && d.company === company)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -3046,10 +3074,10 @@ function printSOA(company: string, docs: SalesDoc[]) {
   </style></head><body onload="window.print()">
   <div class="goldbar"></div>
   <div class="hd">
-    <div class="brand">AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
-      <div class="addr">Live Commerce Agency · SSM 202603168673 (JM1046169-H)<br/>
-      34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>81200 Johor Bahru, Johor, Malaysia<br/>
-      admin@azoneofficial.com · WhatsApp +60 12-383 4821</div>
+    <div class="brand">${DOCUMENT_ISSUER.name}<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small>
+      <div class="addr">${DOCUMENT_ISSUER.descriptor} · ${DOCUMENT_ISSUER.registration}<br/>
+      ${DOCUMENT_ISSUER.addressLines.join("<br/>")}<br/>
+      ${DOCUMENT_ISSUER.email} · WhatsApp ${DOCUMENT_ISSUER.whatsapp}</div>
     </div>
     <div class="docbox"><h2>STATEMENT OF ACCOUNT</h2><div>As at ${dmy(today)}</div></div>
   </div>
@@ -3063,8 +3091,8 @@ function printSOA(company: string, docs: SalesDoc[]) {
     <tr><td>Total paid</td><td>${rm(paid)}</td></tr>
     <tr class="grand"><td>BALANCE OUTSTANDING</td><td>${rm(outstanding)}</td></tr>
   </table></div>
-  <div class="pay">Kindly settle the outstanding balance by bank transfer — MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Please send the transfer receipt via WhatsApp +60 12-383 4821.</div>
-  <div class="foot">AZ ONE OFFICIAL · Empowering Brands Through Live Commerce and Digital Connections · azoneofficial.com<br/>This is a computer-generated statement; no signature is required.</div>
+  <div class="pay">Kindly settle the outstanding balance by bank transfer — ${bankTransferLine(DOCUMENT_ISSUER)}, quoting the invoice number. Please send the transfer receipt via WhatsApp ${DOCUMENT_ISSUER.whatsapp}.</div>
+  <div class="foot">${DOCUMENT_ISSUER.name} · ${DOCUMENT_ISSUER.slogan} · ${DOCUMENT_ISSUER.website}<br/>This is a computer-generated statement; no signature is required.</div>
   </body></html>`);
   w.document.close();
 }
@@ -4000,7 +4028,7 @@ function Sales({ user }: { user: User }) {
           </p>
           <div className="mt-3 space-y-3">
             <Sub t={L("Company *", "Syarikat *")}>
-              <input className={inputClass} placeholder={L("e.g. ELFIA Official Store", "cth. ELFIA Official Store")} value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
+              <input className={inputClass} placeholder={L("e.g. Acme Retail Sdn Bhd", "cth. Acme Retail Sdn Bhd")} value={cust.company} onChange={(e) => setCust((c) => ({ ...c, company: e.target.value }))} />
             </Sub>
             <div className="grid grid-cols-2 gap-3">
               <Sub t={L("Contact person", "Orang hubungan")}>
@@ -4112,14 +4140,19 @@ function Sales({ user }: { user: User }) {
                   choice tags the document, steers the item placeholder, and
                   removes Delivery Order for services. */}
               <div className="flex gap-2">
-                {([["product", "📦 Product — ELFIA goods"], ["service", "🛠 Service — agency work"]] as const).map(([k, label]) => (
+                {/* v1.27.0: the labels name the KIND of line, not one client.
+                    ELFIA is an independent client brand, not an A2Z product,
+                    and this form writes quotations for every customer. The
+                    stored VALUES ("product" / "service") are untouched — they
+                    are in the database on every document already. */}
+                {([["product", "Product — client goods"], ["service", "Service — agency work"]] as const).map(([k, label]) => (
                   <button key={k} type="button"
                     className={
                       "h-9 flex-1 rounded-lg border px-3 text-xs font-medium " +
                       (doc.kind === k ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary")
                     }
                     onClick={() => setDoc((d) => ({ ...d, kind: k, doc_type: k === "service" && d.doc_type === "DO" ? "QT" : d.doc_type, delivery_cents: k === "service" ? 0 : d.delivery_cents }))}>
-                    {L(label, k === "product" ? "📦 Produk — barangan ELFIA" : "🛠 Perkhidmatan — kerja agensi")}
+                    {L(label, k === "product" ? "Produk — barangan klien" : "Perkhidmatan — kerja agensi")}
                   </button>
                 ))}
               </div>
@@ -4270,7 +4303,12 @@ function Sales({ user }: { user: User }) {
                 const n = age(d);
                 const [label, cls] = bucket(n);
                 const phone = (d.customer_phone ?? "").replace(/[^0-9]/g, "");
-                const msg = encodeURIComponent(`Hi! Gentle reminder from AZ ONE OFFICIAL — invoice ${d.doc_number} (${fmtRM(d.total_cents)}) is still outstanding. Kindly settle by bank transfer to MAYBANK · AZ ONE OFFICIAL · A/C 5516 2328 7032, quoting the invoice number. Thank you!`);
+                /* v1.28.0: the chase names the INVOICE's issuer and ITS bank
+                   account — the customer must pay the entity that invoiced
+                   them, so a legacy AZ ONE invoice keeps AZ ONE's account and
+                   an A2Z invoice names A2Z's (resolveIssuer on the row). */
+                const iss = resolveIssuer(d.issuer_code);
+                const msg = encodeURIComponent(`Hi! Gentle reminder from ${iss.name} — invoice ${d.doc_number} (${fmtRM(d.total_cents)}) is still outstanding. Kindly settle by bank transfer to ${bankTransferLine(iss)}, quoting the invoice number. Thank you!`);
                 return (
                   <div key={d.id} className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0">
                     <span className="min-w-0 flex-1 basis-56">
@@ -5350,10 +5388,10 @@ export default function PortalPage() {
   if (!user) {
     return (
       <div className="mx-auto mt-24 max-w-sm px-6 text-center">
-        <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">{L("Staff Portal", "Portal Kakitangan")}</p>
+        <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">{L("A2Z CREATIVE MARKETING / Staff Portal", "A2Z CREATIVE MARKETING / Portal Kakitangan")}</p>
         <h1 className="text-2xl font-semibold tracking-tight">{L("Sign in required", "Log masuk diperlukan")}</h1>
         <p className="text-muted-foreground mt-3 text-sm">
-          {L("The Staff Portal is for AZ ONE OFFICIAL employees only.", "Portal Kakitangan hanya untuk pekerja AZ ONE OFFICIAL.")}
+          {L("The Staff Portal is for A2Z CREATIVE MARKETING employees only.", "Portal Kakitangan hanya untuk pekerja A2Z CREATIVE MARKETING.")}
         </p>
         <a href="/login" className={`${btnClass} mt-6`}>{L("Go to login", "Pergi ke log masuk")}</a>
       </div>
@@ -5368,7 +5406,7 @@ export default function PortalPage() {
             {L("Two-Factor Authentication Required", "Pengesahan Dua Faktor Diperlukan")}
           </h1>
           <p className="mb-8 text-sm text-muted-foreground">
-            {L("Your role requires two-factor authentication to be enabled before you can access the staff portal. Please set it up now.", "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses portal kakitangan. Sila sediakannya sekarang.")}
+            {L("Your role requires two-factor authentication to be enabled before you can access the A2Z CREATIVE MARKETING Staff Portal. Please set it up now.", "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Kakitangan A2Z CREATIVE MARKETING. Sila sediakannya sekarang.")}
           </p>
           <TwoFactorPanel />
           <div className="mt-8 flex justify-end border-t border-border pt-6">
@@ -5456,7 +5494,7 @@ export default function PortalPage() {
             </span>
           )}
           <div className="min-w-0">
-            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">{tr("Staff Portal", lang)}</p>
+            <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">{tr("Staff Portal short", lang)}</p>
             {/* v1.15.0: time-of-day greeting, as the reference.
                 v1.16.0: text-lg until 2xl — xl is 1280px, so at a 1440px
                 viewport (both side columns open, 773px header) xl:text-xl
@@ -5778,7 +5816,10 @@ export default function PortalPage() {
             {/* v1.23.4: the visible build stamp — "is the live site on the
                 new version?" is now answerable from any phone. */}
             <p className="text-muted-foreground/70 mt-3 text-center text-[10px] tabular-nums">
-              AZ ONE {lang === "ms" ? "portal kakitangan" : "staff portal"} · v{APP_VERSION}
+              {L(
+                `A2Z CREATIVE MARKETING staff portal · v${APP_VERSION}`,
+                `Portal kakitangan A2Z CREATIVE MARKETING · v${APP_VERSION}`,
+              )}
             </p>
           </div>
         </div>

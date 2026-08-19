@@ -2,6 +2,53 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.28.0] — 2026-08-19 — A2Z issues the documents · every old document stays AZ ONE forever · official logo
+
+**Stage C of the migration: the legal document layer. Your decisions on record: "A2Z invoices, A2Z employs"; registered address 34-02 Jalan Setia Tropika 1/1; Maybank 5511 0086 5300 in A2Z's name; A2Z not SST-registered.**
+
+**One rule governs everything: a document forever shows the entity that ISSUED it.**
+- Every quotation, invoice, delivery order, receipt, credit note, claim and leave form created FROM THIS DEPLOY ONWARDS is issued by **A2Z CREATIVE MARKETING (SSM 202603003468 / CA0414729-A)** and instructs payment to **MAYBANK 5511 0086 5300 (A2Z CREATIVE MARKETING)**.
+- Every document created BEFORE this deploy keeps **AZ ONE OFFICIAL's letterhead and AZ ONE's bank account, forever** — reprints, shares and the customer's saved links all still show the entity that was legally liable and the account they were told to pay. History is never rewritten.
+- Payslips switch at RELEASE time: months you release from now on are A2Z payslips (A2Z is the employer of record); already-released months stay AZ ONE.
+- HR forms became new controlled documents: A2Z claims print **A2Z-HR-CLM-001 v001** (leave: A2Z-HR-LVE-001 v001); old signed forms keep their AZOO-HR numbers and versions exactly as inked.
+- The WhatsApp payment reminder now names whichever entity issued THAT invoice — chasing an old AZ ONE invoice still directs money to AZ ONE's account, so no transfer ever bounces on a name mismatch.
+- Statement of Account, weekly roster, staff ID badge, HR reports and client monthly reports are operating documents of the current company and now carry A2Z.
+
+**How it works underneath:** each document row carries an `issuer_code` stamped at creation (migration 0073 — six tables, additive, nothing existing touched). NULL means "issued before the switch" and always renders AZ ONE. The letterhead facts for both entities live in ONE file (`lib/issuers.ts`); all seven generators read from it, and none may touch the marketing identity.
+
+**Proof, not promises:** a new render test (`tests/doc-issuer-render.mjs`) builds the SAME invoice both ways from the real shipped code and asserts 22 checks — including that a legacy invoice contains ZERO bytes of A2Z identity and an A2Z invoice never names AZ ONE's bank. A browser test renders the customer share page under both codes. The tripwire guard now enforces the A2Z contract: the exact account number, holder name and SST status cannot drift without failing the build, and AZ ONE's legacy entry may never be edited.
+
+**Also in this release**
+- **Your official A2Z Creative logo is live** — navbar, hero, white-on-navy variant, app icons, favicon and the social share card were all rebuilt from the artwork you sent. (The staff app icon shows the mark on the navy plate with gold CREATIVE.)
+- The deploy-health check no longer lies: it tracked migration 0070 as "latest" forever; it now tracks the real latest (0073) from one constant, and migrations 0071/0072/0073 joined the health-card ledger and probes.
+- The floating WhatsApp button's screen-reader label still said AZ ONE — fixed.
+
+**Deploy notes:** site AND worker AND a database migration — run `DEPLOY.bat` IN FULL. From the moment it completes, the next invoice you raise is an A2Z invoice. Nothing needs re-entering; nothing historical changes.
+
+## [1.27.0] — 2026-08-19 — A2Z CREATIVE MARKETING becomes the company; AZ ONE OFFICIAL becomes its consultancy
+
+**Stage A of the migration (branding and positioning). No domain change, no database change, no authentication change, and not one document altered.**
+
+**The company you see is now A2Z CREATIVE MARKETING** (202603003468 / CA0414729-A). The public website, the Staff Portal, the Admin Portal and the Client Portal all belong to A2Z. Live commerce is now presented as one strong service line among creative marketing, digital marketing, content creation, consultancy, business development and product development — it is no longer the whole identity.
+
+**AZ ONE OFFICIAL is now a consultancy business unit with its own page.** A new `/consultancy` route presents it as *"AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing"*, names it as a separate registered entity (202603168673 / JM1046169-H), and sets out what it advises on. Search engines are told the same thing: A2Z is the parent Organization and AZ ONE OFFICIAL is a sub-organization pointing back to it.
+
+**ELFIA is no longer visible anywhere on the public site.** The case-study page, product photographs, wordmark, gallery, homepage client strip, FAQ entry, search-description mentions and the SEO keyword are all gone. The capability story survives, anonymised as "a premium modestwear label", so we keep the sales argument without naming a client. Two things were removed that mattered more than presentation:
+- **The Terms page claimed the ELFIA name belonged to us.** That is a claim over an independent client's trademark. It is gone, replaced with an explicit line disclaiming any right in client marks.
+- **The customer portal was advertising ELFIA's store to every logged-in customer** — including, potentially, their competitors. The card and its outbound link are deleted.
+
+**Brand assets have been reissued.** The logo, white logo, social preview card, app icons and favicon all rendered the old AZ ONE mark, which would have contradicted every line of text on the page. They are now a clean A2Z wordmark in the existing navy and gold, in the same lockup style. **These are placeholders in the house typeface — replace them with your designer's artwork when it is ready; no code change will be needed, just the image files.**
+
+**Your invoices, payslips, receipts and HR forms have deliberately NOT changed.** A2Z is a separate legal entity, and its registered address and bank account are not yet on file. Putting A2Z's name on an invoice while payment still goes to `MAYBANK 5516 2328 7032 (AZ ONE OFFICIAL)` would get transfers rejected. Every statutory and commercial document therefore still issues as AZ ONE OFFICIAL, and this is now **enforced**: a new `lib/issuers.ts` holds issuer identity as data, no document generator may read the marketing name any more, and a guard test fails the build if that changes. Switching the issuer to A2Z is deliberately a compile error until the address and bank account are supplied.
+
+**Also in this release**
+- The Android location self-help said *"find AZ ONE in Settings → Apps"*. The installed app is now captioned **A2Z Staff**, so that instruction would have sent staff hunting for an app that no longer exists. Fixed, and a guard test now keeps the two in lockstep.
+- **Canonical URLs added site-wide** — there were none. This had to land before any future domain move or the search index would fragment.
+- Every screen that was still English-only got its Bahasa Malaysia twin: the whole sign-in page, the crash-recovery screen, the admin console header and the portal version stamp.
+- The service-worker cache key was bumped so old app shells are evicted on this deploy.
+
+**Deploy notes:** site AND worker changed — run `DEPLOY.bat` IN FULL. Staff will see the new name immediately; those with the portal installed on their phone should delete and re-add the home-screen icon to pick up the new name and icon.
+
 ## [1.26.3] — 2026-08-19 — The Android location mystery: it was our own security header
 
 **"I still encounter location for the android phone" — found it, and it was never the phones.** The site ships a browser security instruction (`Permissions-Policy` in `public/_headers`, added with the v1.23.5 cache fix): `geolocation=()` — which means "forbid location for this whole website". Android Chrome and Samsung Internet obey it to the letter: instant "blocked", no prompt, no matter what the staff member allows in their settings. iPhone Safari ignores that particular directive — which is exactly why every iPhone worked and every Android was "blocked". The timeline matches to the day: the header first deployed with v1.23.5, and the Android complaints began immediately after.

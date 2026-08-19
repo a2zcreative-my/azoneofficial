@@ -7,8 +7,8 @@ import type { PackageTier } from "@/types";
 /**
  * PackagesCarousel (v1.2.21) — scroll-snap carousel for the package tiers.
  *
- * Uses native horizontal scroll + snap rather than the coverflow transform used
- * for ELFIA: these cards are text, so partial/scaled neighbours would hurt
+ * Uses native horizontal scroll + snap rather than a coverflow transform:
+ * these cards are text, so partial/scaled neighbours would hurt
  * readability. One card at a time on mobile, two on tablet, three on desktop —
  * so it stays a carousel (and stays compact) at every width.
  *

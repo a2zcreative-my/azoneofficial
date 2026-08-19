@@ -11,7 +11,8 @@ import { PublicRates } from "@/components/ui/public-rates";
 export const metadata: Metadata = {
   title: "Packages",
   description:
-    "Live commerce packages from AZ ONE OFFICIAL — Starter, Growth, Scale, and Enterprise. Hours, live hosts, reporting, creative, and consultation for Malaysian brands selling on TikTok Live.",
+    "Live commerce packages from A2Z Creative Marketing — Starter, Growth, Scale, and Enterprise. Hours, live hosts, reporting, creative, and consultation for Malaysian brands selling on TikTok Live.",
+  alternates: { canonical: "/packages" },
 };
 
 function Cell({ value }: { value: string | boolean }) {
@@ -48,7 +49,7 @@ export default function PackagesPage() {
     <PageShell
       eyebrow="Packages"
       title="Pick the level of support you need"
-      intro="Every engagement starts with a free live audit — we look at your products and your current channel, then recommend a tier. Pricing is quoted per brand, so you only pay for the cadence and creative you actually use."
+      intro="Our live commerce service is sold in four tiers. Creative, digital marketing, and consultancy are scoped per brief instead — ask us and we will quote them alongside. Every engagement starts with a free live audit: we look at your products and your current channels, then recommend a tier. Pricing is quoted per brand, so you only pay for the cadence and creative you actually use."
     >
       {/* Cards — the primary view, and the only one on mobile */}
       <section>
@@ -61,7 +62,7 @@ export default function PackagesPage() {
         <div className="border-border mt-6 overflow-x-auto rounded-xl border">
           <table className="w-full border-collapse text-left text-sm">
             <caption className="sr-only">
-              Feature comparison across AZ ONE OFFICIAL live commerce packages
+              Feature comparison across A2Z Creative Marketing live commerce packages
             </caption>
             <thead>
               <tr className="bg-secondary/60">

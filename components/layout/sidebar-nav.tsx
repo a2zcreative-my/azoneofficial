@@ -53,7 +53,7 @@ export function SidebarNav({ items, active, onSelect, onSignOut }: {
       aria-label="Portal navigation"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo.png" alt="AZ ONE OFFICIAL" className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90 object-contain p-1" />
+      <img src="/logo.png" alt="A2Z CREATIVE MARKETING" className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90 object-contain p-1" />
       <nav className="scrollbar-none flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
         {items.map((it) => (
           <button

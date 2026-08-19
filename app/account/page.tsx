@@ -128,8 +128,10 @@ export default function AccountPage() {
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
+          {/* v1.27.0: the customer area never named the company anywhere.
+              It is A2Z CREATIVE MARKETING's client portal — say so. */}
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            {L("My account", "Akaun saya")}
+            {L("A2Z CREATIVE MARKETING / Client Portal", "A2Z CREATIVE MARKETING / Portal Klien")}
           </p>
           <h1 className="hidden text-xl font-semibold tracking-tight md:block">
             {L("Welcome", "Selamat datang")}, {user.name.split(" ")[0]}
@@ -239,23 +241,10 @@ export default function AccountPage() {
             </>
           )}
         </div>
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("ELFIA drops", "Koleksi terbaru ELFIA")}</p>
-          <p className="text-muted-foreground mt-2 text-sm">
-            {L(
-              "Our featured client launches new pieces on TikTok Live — shop through ELFIA's own store.",
-              "Klien pilihan kami melancarkan koleksi baharu di TikTok Live — beli-belah melalui kedai ELFIA sendiri.",
-            )}
-          </p>
-          <a
-            href="https://elfiaofficialstore.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${btnGhost} mt-3`}
-          >
-            {L("Visit elfiaofficialstore.com", "Lawati elfiaofficialstore.com")}
-          </a>
-        </div>
+        {/* v1.27.0: the "ELFIA drops" card was removed. ELFIA is an
+            independent client brand, not an A2Z product, and this card
+            advertised one client's storefront to every signed-in customer —
+            including that client's competitors. */}
       </div>
 
       )}
@@ -366,12 +355,12 @@ export default function AccountPage() {
         <p className="text-sm font-semibold">{L("💬 WhatsApp us — fastest reply", "💬 WhatsApp kami — balasan terpantas")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
-            "Package questions, live commerce services, orders — talk to the AZ ONE OFFICIAL team directly on WhatsApp.",
-            "Soalan pakej, perkhidmatan live commerce, pesanan — hubungi pasukan AZ ONE OFFICIAL terus di WhatsApp.",
+            "Package questions, live commerce services, orders — talk to the A2Z CREATIVE MARKETING team directly on WhatsApp.",
+            "Soalan pakej, perkhidmatan live commerce, pesanan — hubungi pasukan A2Z CREATIVE MARKETING terus di WhatsApp.",
           )}
         </p>
         <a
-          href="https://wa.me/60123834821?text=Hi%20AZ%20ONE%20OFFICIAL%2C%20I%20would%20like%20to%20ask%20about%20your%20services."
+          href="https://wa.me/60123834821?text=Hi%20A2Z%20CREATIVE%20MARKETING%2C%20I%20would%20like%20to%20ask%20about%20your%20services."
           target="_blank" rel="noopener noreferrer"
           className={`${btnClass} mt-3`}
         >
@@ -380,7 +369,7 @@ export default function AccountPage() {
       </div>
 
       <div className={`${card} mt-4 md:mt-6`}>
-        <p className="text-sm font-semibold">{L("Ask AZ ONE OFFICIAL", "Tanya AZ ONE OFFICIAL")}</p>
+        <p className="text-sm font-semibold">{L("Ask A2Z CREATIVE MARKETING", "Tanya A2Z CREATIVE MARKETING")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
             "Send a question to our team — it reaches staff with your name and email attached, notifies them instantly, and your thread shows below.",
@@ -438,7 +427,7 @@ export default function AccountPage() {
               {/* v1.4.191: the team's reply, right here in the thread */}
               {e.reply && (
                 <p className="mt-1.5 rounded border border-green-300 bg-green-100 px-2.5 py-1.5 text-sm text-green-900">
-                  <span className="font-semibold">{L("AZ ONE OFFICIAL replied", "AZ ONE OFFICIAL membalas")}{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
+                  <span className="font-semibold">{L("A2Z CREATIVE MARKETING replied", "A2Z CREATIVE MARKETING membalas")}{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
                 </p>
               )}
               <p className="text-muted-foreground mt-1 text-xs">

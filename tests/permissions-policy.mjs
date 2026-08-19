@@ -38,5 +38,23 @@ const page = readFileSync('app/portal/page.tsx', 'utf8');
 if (!page.includes('allowsFeature("geolocation")')) errors.push('app/portal/page.tsx lost the featurePolicy self-diagnosis — a policy-blocked build would again masquerade as a phone problem');
 if (!/reason: "policy"/.test(page)) errors.push('the "policy" GpsFail reason is gone from the punch flow');
 
+
+/* v1.27.0 — the Android self-help step names the installed app by its
+   home-screen caption. That caption is public/manifest.json short_name. If a
+   rebrand moves one and not the other, staff are told to look for an app that
+   does not exist on their phone — which is exactly the dead end the v1.26.3
+   fix existed to remove. Keep them in lockstep. */
+const manifest = JSON.parse(readFileSync('public/manifest.json', 'utf8'));
+const help = readFileSync('components/portal/location-help.tsx', 'utf8');
+const shortName = manifest.short_name;
+if (!shortName) errors.push('public/manifest.json has no short_name');
+else {
+  const steps = help.split('\n').filter((l) => /Settings → Apps → find|Tetapan Android → Apl → cari/.test(l));
+  if (steps.length !== 2) errors.push(`expected 2 Android "find <app>" steps (EN+BM) in location-help.tsx, found ${steps.length}`);
+  for (const line of steps) {
+    if (!line.includes(shortName)) errors.push(`location-help step does not name the PWA short_name "${shortName}": ${line.trim().slice(0, 90)}`);
+  }
+}
+
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }
-console.log('PASS — geolocation allowed for self, camera/mic locked, policy self-diagnosis in place');
+console.log(`PASS — geolocation allowed for self, camera/mic locked, policy self-diagnosis in place, Android help names "${shortName}"`);

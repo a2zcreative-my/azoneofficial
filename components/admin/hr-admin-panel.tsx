@@ -14,6 +14,9 @@ import { card } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { rowBtnDanger } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
+/* v1.28.0 — the printed HR report is an operational artefact issued today,
+   so its letterhead names the CURRENT operator (lib/issuers.ts). */
+import { DOCUMENT_ISSUER } from "@/lib/issuers";
 import { getLang } from "@/lib/i18n";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -225,7 +228,7 @@ function printPayslip(p: PayslipData) {
   .hd{border-bottom:2px solid #1a2946;padding-bottom:8px;margin-bottom:12px}
   .sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#b8912f;margin-top:16px}</style>
   </head><body onload="window.print()">
-  <div class="hd"><small>AZ ONE OFFICIAL</small><h1>${L("Attendance &amp; Payroll Summary", "Ringkasan Kehadiran &amp; Gaji")}</h1>
+  <div class="hd"><small>${DOCUMENT_ISSUER.name}</small><h1>${L("Attendance &amp; Payroll Summary", "Ringkasan Kehadiran &amp; Gaji")}</h1>
   <div style="color:#5b6472;font-size:12px;margin-top:4px">${p.month}</div></div>
   <table>
     ${row(L("Name", "Nama"), p.staff.name)}
@@ -243,7 +246,7 @@ function printPayslip(p: PayslipData) {
   </table>
   <div class="sec">${L("Leave", "Cuti")}</div>
   <table>${row(L("Approved leave days", "Hari cuti diluluskan"), p.approved_leave_days)}</table>
-  <p style="margin-top:24px;font-size:10px;color:#8a93a6">${L("Generated", "Dijana")} ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · SSM 202603168673 (JM1046169-H) · ${L("This is an attendance summary, not a statement of wages.", "Ini ialah ringkasan kehadiran, bukan penyata gaji.")}</p>
+  <p style="margin-top:24px;font-size:10px;color:#8a93a6">${L("Generated", "Dijana")} ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · ${DOCUMENT_ISSUER.registration} · ${L("This is an attendance summary, not a statement of wages.", "Ini ialah ringkasan kehadiran, bukan penyata gaji.")}</p>
   </body></html>`);
   w.document.close();
 }

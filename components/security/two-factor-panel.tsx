@@ -145,8 +145,14 @@ export function TwoFactorPanel() {
             <p className="border-border bg-secondary/40 mt-2 rounded-lg border px-3 py-2 font-mono text-sm break-all">
               {secret}
             </p>
+            {/* v1.27.0 — must match the issuer the Worker writes into the
+                otpauth URI (worker/src/index.ts, /auth/2fa/setup). Split-brain
+                on purpose: staff who enrolled before this deploy still see
+                "AZ ONE OFFICIAL" in their authenticator and their codes keep
+                working (the issuer is a caption, never verified) — this line
+                only describes what a NEW enrolment will look like. */}
             <p className="text-muted-foreground mt-1 text-xs">
-              {L("Account name: AZ ONE OFFICIAL · Type: time-based", "Nama akaun: AZ ONE OFFICIAL · Jenis: berasaskan masa")}
+              {L("Account name: A2Z CREATIVE MARKETING · Type: time-based", "Nama akaun: A2Z CREATIVE MARKETING · Jenis: berasaskan masa")}
             </p>
             {otpauth && (
               <a href={otpauth} className="mt-1 inline-block text-xs underline">

@@ -23,7 +23,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "AZ ONE",
+    /* Home-screen label. iOS truncates at roughly 12 characters, so this has
+       to be the short mark, not the registered name. */
+    title: "A2Z",
     statusBarStyle: "black-translucent",
   },
   title: {
@@ -31,12 +33,23 @@ export const metadata: Metadata = {
     template: `%s — ${SITE_CONFIG.name}`,
   },
   description: SITE_CONFIG.description,
+  /* Canonical for "/". Every page sets its own via `alternates.canonical`;
+     Next resolves the relative path against metadataBase above. This exists
+     so the index cannot fragment across query strings today, and so a future
+     domain move is a one-line change to SITE_CONFIG.url rather than a
+     site-wide retrofit. */
+  alternates: { canonical: "/" },
   keywords: [
+    "creative marketing agency Malaysia",
+    "digital marketing agency Johor Bahru",
+    "marketing consultancy Malaysia",
+    "content creation Malaysia",
+    "business development Malaysia",
+    "product development Malaysia",
     "live commerce agency Malaysia",
     "TikTok Live hosting Malaysia",
     "live commerce management",
     "social commerce strategy",
-    "ELFIA hijab",
   ],
   openGraph: {
     type: "website",
@@ -46,7 +59,12 @@ export const metadata: Metadata = {
     description: SITE_CONFIG.description,
     locale: SITE_CONFIG.locale,
     images: [
-      { url: "/og.png", width: 1200, height: 630, alt: "AZ ONE OFFICIAL — Live . Connect . Grow" },
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: `${SITE_CONFIG.name} — ${SITE_CONFIG.tagline}`,
+      },
     ],
   },
   twitter: {
@@ -62,21 +80,59 @@ interface RootLayoutProps {
   children: ReactNode;
 }
 
+const POSTAL_ADDRESS = {
+  "@type": "PostalAddress",
+  streetAddress: "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika",
+  addressLocality: "Johor Bahru",
+  addressRegion: "Johor",
+  postalCode: "81200",
+  addressCountry: "MY",
+} as const;
+
+/**
+ * Organization graph (v1.27.0).
+ *
+ * A2Z CREATIVE MARKETING is the parent Organization; AZ ONE OFFICIAL is
+ * declared as a subOrganization — a consultancy service, and its own
+ * registered entity. `@id` values are anchored to the site URL so the two
+ * nodes stay distinguishable if either ever gets its own domain.
+ *
+ * Clients are NEVER named here. Structured data is machine-readable and
+ * permanently cached by search engines; a client relationship published this
+ * way cannot be quietly withdrawn later.
+ */
 const organizationJsonLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
+  "@id": `${SITE_CONFIG.url}/#organization`,
   name: SITE_CONFIG.name,
   legalName: SITE_CONFIG.legalName,
   url: SITE_CONFIG.url,
   slogan: SITE_CONFIG.slogan,
-  address: {
-    "@type": "PostalAddress",
-    streetAddress: "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika",
-    addressLocality: "Johor Bahru",
-    addressRegion: "Johor",
-    postalCode: "81200",
-    addressCountry: "MY",
-  },
+  description: SITE_CONFIG.description,
+  address: POSTAL_ADDRESS,
+  knowsAbout: [
+    "Creative marketing",
+    "Digital marketing",
+    "Live commerce",
+    "Content creation",
+    "Marketing consultancy",
+    "Business development",
+    "Product development",
+  ],
+  subOrganization: [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_CONFIG.url}/consultancy#az-one-official`,
+      name: "AZ ONE OFFICIAL",
+      legalName: "AZ One Official (202603168673 / JM1046169-H)",
+      url: `${SITE_CONFIG.url}/consultancy`,
+      description:
+        "AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing. Business consultation, live commerce consultancy, and brand and channel strategy.",
+      parentOrganization: { "@id": `${SITE_CONFIG.url}/#organization` },
+      address: POSTAL_ADDRESS,
+    },
+  ],
 };
 
 export const viewport: Viewport = {
@@ -96,8 +152,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
           Scroll behaviour:
            - Refresh / direct load  -> start at the top of the page
            - Back / forward         -> keep the browser's restored position, so
-                                       returning from an ELFIA product lands
-                                       back on the ELFIA section
+                                       returning from a linked page lands back
+                                       on the section you left from
            - #anchor in the URL     -> left alone for the browser to handle
           This must run before first paint, otherwise the browser has already
           restored the old offset and jumping to the top would flash.

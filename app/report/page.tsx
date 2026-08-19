@@ -7,6 +7,9 @@
 
 import { useEffect, useState } from "react";
 import { fmtRM, ym, dmy } from "@/lib/format";
+/* v1.28.0 — the monthly report is prepared TODAY by the current operator,
+   so every identity string on it comes from DOCUMENT_ISSUER (lib/issuers.ts). */
+import { DOCUMENT_ISSUER } from "@/lib/issuers";
 
 interface Report {
   company: string;
@@ -39,7 +42,7 @@ export default function ClientReportPage() {
     return (
       <main className="mx-auto max-w-2xl px-4 py-16 text-center">
         <p className="text-lg font-semibold text-[#1A2946]">This report link isn&apos;t valid.</p>
-        <p className="mt-2 text-sm text-neutral-500">Please ask AZ ONE OFFICIAL for a fresh link.</p>
+        <p className="mt-2 text-sm text-neutral-500">Please ask {DOCUMENT_ISSUER.name} for a fresh link.</p>
       </main>
     );
   }
@@ -50,7 +53,7 @@ export default function ClientReportPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
       <header className="border-b-2 border-[#C9A227] pb-4">
-        <p className="text-xs font-semibold tracking-widest text-[#C9A227] uppercase">AZ ONE OFFICIAL · Live Commerce</p>
+        <p className="text-xs font-semibold tracking-widest text-[#C9A227] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
         <h1 className="mt-1 text-2xl font-bold text-[#1A2946]">{rep.company}</h1>
         <p className="mt-0.5 text-sm text-neutral-500">Monthly performance — {ym(rep.month)}</p>
       </header>
@@ -89,8 +92,8 @@ export default function ClientReportPage() {
       </section>
 
       <footer className="mt-8 border-t border-neutral-200 pt-4 text-xs text-neutral-500">
-        <p>Prepared by AZ ONE OFFICIAL · generated {dmy(rep.generated)}</p>
-        <a className="mt-1 inline-block font-semibold text-[#1A2946] underline" href="https://wa.me/60123834821">
+        <p>Prepared by {DOCUMENT_ISSUER.name} · generated {dmy(rep.generated)}</p>
+        <a className="mt-1 inline-block font-semibold text-[#1A2946] underline" href={`https://wa.me/${DOCUMENT_ISSUER.whatsapp.replace(/\D/g, "")}`}>
           WhatsApp us to plan next month&apos;s lives →
         </a>
       </footer>

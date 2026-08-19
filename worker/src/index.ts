@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 
 /**
- * AZ ONE OFFICIAL — Admin/API Worker (Phase 3, v0)
+ * A2Z CREATIVE MARKETING — Admin/API Worker (Phase 3, v0)
  * Static public site stays untouched; this Worker serves /api/v1 on its own route.
  * See API.md, DATABASE.md, SECURITY.md.
  */
@@ -185,6 +185,12 @@ function getCookie(req: Request, name: string): string | null {
 
 const SESSION_COOKIE = "azone_session";
 const SESSION_TTL_HOURS = 12;
+
+/* v1.28.0 — the newest migration, in ONE place. /api/v1/health/migrations
+   compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
+   probe set in /health/detail carry the same standing rule: every new
+   migration file adds its line here AND there. */
+const LATEST_MIGRATION = "0073_document_issuer";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1417,14 +1423,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/health/migrations" && method === "GET") {
+    /* v1.28.0: this used to hard-code the newest migration's filename and
+       went stale the moment 0071 shipped — reporting "pending" forever on a
+       fully migrated database. It now tracks LATEST_MIGRATION, which sits
+       next to the migration list so the standing rule ("every new migration
+       adds a line") updates both together. */
     let pending = false;
     try {
       const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1`).all<{ name: string }>();
-      if (results.length === 0 || results[0].name !== "0070_selfie_clockin.sql") {
+      if (results.length === 0 || results[0].name !== `${LATEST_MIGRATION}.sql`) {
         pending = true;
       }
-    } catch { 
-      pending = true; 
+    } catch {
+      pending = true;
     }
     return json({ ok: true, pending });
   }
@@ -1854,7 +1865,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     let d: Record<string, unknown> | null = null;
     try {
       d = await env.DB.prepare(
-        `SELECT d.doc_type, d.doc_number, d.items, d.discount_cents, d.tax_percent, d.delivery_cents,
+        `SELECT d.doc_type, d.doc_number, d.issuer_code, d.items, d.discount_cents, d.tax_percent, d.delivery_cents,
                 d.total_cents, d.notes, d.valid_until, d.due_date, d.created_at, d.kind, d.reference,
                 d.delivery_address, d.delivery_status, d.payment_status, d.payment_ref, d.paid_at,
                 c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone,
@@ -1868,8 +1879,23 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     } catch (e) {
       // Migration skew (v1.4.218 lesson): without 0062/0063 the link simply
       // does not resolve rather than throwing a 500 at a customer.
+      // v1.28.0: without 0073 (issuer_code) the link must not die either —
+      // retry once without the issuer column; the row then renders as
+      // legacy AZ ONE OFFICIAL, which is exactly what a pre-0073 row is.
       if (!String(e).includes("no such column")) throw e;
-      d = null;
+      try {
+        d = await env.DB.prepare(
+          `SELECT d.doc_type, d.doc_number, d.items, d.discount_cents, d.tax_percent, d.delivery_cents,
+                  d.total_cents, d.notes, d.valid_until, d.due_date, d.created_at, d.kind,
+                  c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone,
+                  c.address,
+                  sp.name AS salesperson_name, cb.role AS created_by_role
+             FROM sales_documents d JOIN customers c ON c.id = d.customer_id
+             LEFT JOIN users sp ON sp.id = d.salesperson_id
+             LEFT JOIN users cb ON cb.id = d.created_by
+            WHERE d.share_token = ?1`,
+        ).bind(token).first<Record<string, unknown>>();
+      } catch { d = null; }
     }
     if (!d) return errorResponse("not_found", "This link is no longer valid — please ask for a new one", 404);
     /* Same signer rule as the portal (v1.4.233): an officer's document shows
@@ -2053,10 +2079,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // code from it is verified in /enable.
     const secret = randomSecret();
     await env.DB.prepare(`UPDATE users SET totp_secret = ?1 WHERE id = ?2`).bind(secret, me.id).run();
-    const label = encodeURIComponent(`AZ ONE OFFICIAL:${me.email}`);
+    /* v1.27.0 — the authenticator label/issuer is A2Z CREATIVE MARKETING.
+       SPLIT-BRAIN, ON PURPOSE: the issuer is a cosmetic caption the phone
+       stores at ENROLMENT and never sends back, so it is not part of the
+       TOTP computation and nothing re-keys. Staff who enrolled before this
+       deploy keep seeing "AZ ONE OFFICIAL" in their app and their codes keep
+       working; only new enrolments show A2Z. We deliberately do NOT force a
+       re-enrolment to tidy this up: /2fa/disable requires a password, and
+       Google-only accounts have none — asking them to re-enrol would strand
+       them. Keep components/security/two-factor-panel.tsx's "Account name:"
+       line in step with whatever this writes. */
+    const label = encodeURIComponent(`A2Z CREATIVE MARKETING:${me.email}`);
     return json({
       secret,
-      otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=AZ%20ONE%20OFFICIAL&digits=6&period=30`,
+      otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=A2Z%20CREATIVE%20MARKETING&digits=6&period=30`,
     });
   }
 
@@ -2642,6 +2678,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0068 (targets / commission / push)", `SELECT id FROM commission_rules LIMIT 1`],
       ["0069 (stokis / content / receipts)", `SELECT id FROM stokis LIMIT 1`],
       ["0070 (selfie clock-in)", `SELECT selfie_key FROM attendance_records LIMIT 1`],
+      ["0071 (ERP core)", `SELECT id FROM gl_accounts LIMIT 1`],
+      ["0072 (geofence seed)", `SELECT value FROM system_meta WHERE key = 'attendance_geofence' LIMIT 1`],
+      ["0073 (document issuer)", `SELECT issuer_code FROM sales_documents LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2726,6 +2765,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0068_features_v16",
       "0069_business_modules",
       "0070_selfie_clockin",
+      "0071_erp_core",
+      "0072_geofence_seed",
+      "0073_document_issuer",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -8,8 +8,8 @@ export function Services() {
     <Section
       id="services"
       eyebrow="Services"
-      title={<Editable k="home.services.title" fallback="Everything a brand needs to win live" />}
-      intro={<Editable k="home.services.intro" fallback="From your first trial session to a full monthly live schedule — pick a lane or hand us the whole channel." />}
+      title={<Editable k="home.services.title" fallback="Everything a brand needs to grow" />}
+      intro={<Editable k="home.services.intro" fallback="Creative, digital, content, live commerce, and consultancy — pick a single lane or hand us the whole thing." />}
       className="bg-brand-neutral"
     >
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">

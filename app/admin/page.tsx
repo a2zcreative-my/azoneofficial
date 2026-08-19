@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AZ ONE OFFICIAL — Admin (v0, modest)
+ * A2Z CREATIVE MARKETING — Admin Portal (v0, modest)
  * Static-exported client app talking to the API Worker at /api/v1
  * (same origin via the azoneofficial.com/api/* route).
  */
@@ -990,8 +990,8 @@ export default function AdminPage() {
             {L("Two-Factor Authentication Required", "Pengesahan Dua Faktor Diperlukan")}
           </h1>
           <p className="mb-8 text-sm text-muted-foreground">
-            {L("Your role requires two-factor authentication to be enabled before you can access the admin panel. Please set it up now.",
-              "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses panel admin. Sila tetapkannya sekarang.")}
+            {L("Your role requires two-factor authentication to be enabled before you can access the A2Z CREATIVE MARKETING Admin Portal. Please set it up now.",
+              "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Admin A2Z CREATIVE MARKETING. Sila tetapkannya sekarang.")}
           </p>
           <TwoFactorPanel />
           <div className="mt-8 flex justify-end border-t border-border pt-6">
@@ -1048,8 +1048,10 @@ export default function AdminPage() {
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div>
+          {/* v1.27.0: the console's main header. It was the only monolingual
+              string left in /admin, so it gets its BM twin here too. */}
           <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            AZ ONE OFFICIAL — Admin
+            {L("A2Z CREATIVE MARKETING — Admin Portal", "A2Z CREATIVE MARKETING — Portal Admin")}
           </p>
           {/* v1.23.0: with the pill row retired for the rail, the desktop
               heading names the ACTIVE SECTION (portal pattern). */}

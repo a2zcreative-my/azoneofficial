@@ -18,6 +18,7 @@
    688px = 516pt, so px * 0.75 = pt throughout. */
 
 import type { DocFull, DocItem } from "@/lib/doc-template";
+import { resolveIssuer } from "@/lib/issuers";
 
 /* ---------------------------------------------------------------- metrics */
 // Helvetica / Helvetica-Bold advance widths (per 1000 units) for ASCII 32-126.
@@ -254,7 +255,7 @@ export function assemblePdf(content: string, images: Img[], title: string, lands
   put(4, streamObj(`<< /Length ${cbytes.length} >>`, cbytes));
   put(5, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
   put(6, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
-  put(7, `<< /Title (${esc(title)}) /Producer (AZ ONE OFFICIAL portal) >>`);
+  put(7, `<< /Title (${esc(title)}) /Producer (A2Z staff portal) >>`);
   images.forEach((img, i) => {
     const filt = img.jpeg ? "/Filter /DCTDecode " : img.zipped ? "/Filter /FlateDecode " : "";
     put(slot(i), streamObj(
@@ -355,6 +356,9 @@ const dmy = (iso: string | null | undefined) => {
 
 /** Draws the whole document and returns the content stream. */
 export function drawDoc(doc: DocFull, hasSig: boolean): string {
+  /* v1.28.0: the letterhead follows the entity that ISSUED this document
+     (issuer_code; NULL = legacy = AZ ONE OFFICIAL). */
+  const issuer = resolveIssuer(doc.issuer_code);
   const c = new Canvas();
   const items: DocItem[] = (() => { try { return JSON.parse(doc.items); } catch { return []; } })();
   const isDO = doc.doc_type === "DO";
@@ -369,14 +373,13 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
 
   // letterhead
   const brandTop = y;
-  c.text("AZ ONE OFFICIAL", M, y + 11, 14.25, { bold: true });
+  c.text(issuer.name, M, y + 11, 14.25, { bold: true });
   c.text("LIVE  -  CONNECT  -  GROW", M, y + 20, 5.6, { bold: true, colour: GOLD, spacing: 1.6 });
   let ay = y + 32;
   for (const l of [
-    "Live Commerce Agency - SSM 202603168673 (JM1046169-H)",
-    "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,",
-    "81200 Johor Bahru, Johor, Malaysia",
-    "admin@azoneofficial.com - WhatsApp +60 12-383 4821",
+    `${issuer.descriptor} - ${issuer.registration}`,
+    ...issuer.addressLines,
+    `${issuer.email} - WhatsApp ${issuer.whatsapp}`,
   ]) { c.text(l, M, ay, 6.75, { colour: SLATE }); ay += 10.5; }
 
   // document type, right
@@ -485,7 +488,7 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
     const boxTop = y;
     c.text("AMOUNT IN WORDS", M + 7, y + 11, 5.6, { bold: true, colour: GREY, spacing: 1 });
     let wy = c.wrap(amountWords(doc.total_cents), M + 7, y + 22, bw - 14, 7.9, 10, { bold: true });
-    wy = c.wrap("Prices are in Ringgit Malaysia and exclude SST. AZ ONE OFFICIAL is not registered for Sales & Service Tax; no service tax is charged on this document.",
+    wy = c.wrap(`Prices are in Ringgit Malaysia and exclude SST. ${issuer.name} is not registered for Sales & Service Tax; no service tax is charged on this document.`,
       M + 7, wy + 4, bw - 14, 6.4, 8.4, { colour: GREY });
 
     const docDisc = doc.discount_cents ?? 0;
@@ -517,7 +520,7 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
   c.line(M, closeTop, R, NAVY, 0.6);
   c.text(hdr, M + CW / 2, closeTop + 12, 8.25, { bold: true, align: "c", spacing: 0.5 });
   const clause = isINV
-    ? "Payment by bank transfer to MAYBANK 5516 2328 7032 (AZ ONE OFFICIAL). Please send the transfer receipt via WhatsApp +60 12-383 4821 quoting the invoice number."
+    ? `Payment by bank transfer to ${issuer.bank} (${issuer.bankHolder}). Please send the transfer receipt via WhatsApp ${issuer.whatsapp} quoting the invoice number.`
     : isDO
       ? "The goods listed above were delivered in the quantities stated. Please sign and return one copy as proof of receipt."
       : "We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above.";
@@ -533,7 +536,7 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
   const zoneTop = closeTop + 22, zoneH = 55;
   for (const [x, label, l1, l2, l3, muted] of [
     [sig1X, isINV ? "AUTHORISED SIGNATURE" : isDO ? "DELIVERED BY" : "PREPARED BY",
-      (doc.signer_name ?? "").toUpperCase(), doc.signer_position ?? "", "AZ ONE OFFICIAL", false],
+      (doc.signer_name ?? "").toUpperCase(), doc.signer_position ?? "", issuer.name, false],
     [sig2X, isINV ? "RECEIVED & ACKNOWLEDGED BY" : isDO ? "RECEIVED IN GOOD ORDER" : "ACCEPTED & CONFIRMED BY",
       "Name & designation", "Company chop", "Date", true],
   ] as [number, string, string, string, string, boolean][]) {
@@ -551,7 +554,7 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
   }
 
   c.line(M, footY, R, HAIR, 0.6);
-  c.text("AZ ONE OFFICIAL - Empowering Brands Through Live Commerce and Digital Connections - azoneofficial.com",
+  c.text(`${issuer.name} - ${issuer.slogan} - ${issuer.website}`,
     M + CW / 2, footY + 9, 6, { colour: GREY, align: "c" });
   c.text("This is a computer-generated document; no signature is required unless indicated above.",
     M + CW / 2, footY + 17, 6, { colour: GREY, align: "c" });

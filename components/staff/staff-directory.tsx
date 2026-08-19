@@ -8,7 +8,8 @@
  *  - Amendment lock: once a field is saved it greys out for HR — changing a
  *    set value is admin-only (/admin → Staff). Empty fields stay editable so
  *    HR can complete records. Enforced server-side too, not just visually.
- *  - Badge carries the AZ ONE OFFICIAL logo (not text), the staff full name
+ *  - Badge carries the company logo (not text) and DOCUMENT_ISSUER's identity
+ *    (v1.28.0 — the badge names the CURRENT employer), the staff full name
  *    and phone number. Blood type is retired from both the form and the card.
  */
 
@@ -24,6 +25,9 @@ import { card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
+/* v1.28.0 — the ID badge identifies the CURRENT employer, so it carries
+   DOCUMENT_ISSUER (lib/issuers.ts), not a hardcoded company block. */
+import { DOCUMENT_ISSUER } from "@/lib/issuers";
 import { getLang } from "@/lib/i18n";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -106,9 +110,11 @@ const SELECT_FIELDS: Partial<Record<string, string[]>> = {
   employment_status: EMPLOYMENT_STATUSES,
 };
 
-/** Company location shown on every badge — edit here if the office moves. */
+/** Company location shown on every badge. */
 // v1.4.108: the FULL registered address on the badge (two lines).
-const COMPANY_LOCATION = "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika,<br/>81200 Johor Bahru, Johor, Malaysia";
+// v1.28.0: sourced from DOCUMENT_ISSUER — the badge names the CURRENT
+// employer; lib/issuers.ts is the only place identity data lives.
+const COMPANY_LOCATION = DOCUMENT_ISSUER.addressLines.join("<br/>");
 
 /** The one source of truth for what a badge shows. */
 function badgeData(s: Staff) {
@@ -174,7 +180,7 @@ function badgeCardHtml(s: Staff, origin: string): string {
   const row = (label: string, value: string) =>
     `<div class="row"><span class="k">${label}</span><span class="c">:</span><span class="v">${value || "—"}</span></div>`;
   return `<div class="card">
-    <img src="${logo}" alt="AZ ONE OFFICIAL" style="height:7mm;width:auto;align-self:center;flex:none"/>
+    <img src="${logo}" alt="${DOCUMENT_ISSUER.name}" style="height:7mm;width:auto;align-self:center;flex:none"/>
     <div class="tagline">Live · Connect · Grow</div>
     <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
     <div class="rows">
@@ -188,7 +194,7 @@ function badgeCardHtml(s: Staff, origin: string): string {
     </div>
     <div class="foot">
       <span class="left">${COMPANY_LOCATION}</span>
-      <span class="right">SSM 202603168673<br/>(JM1046169-H)</span>
+      <span class="right">SSM ${DOCUMENT_ISSUER.ssm}<br/>(${DOCUMENT_ISSUER.oldReg})</span>
     </div>
   </div>`;
 }

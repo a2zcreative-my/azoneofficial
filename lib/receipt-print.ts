@@ -1,9 +1,23 @@
 /* v1.7.0 — printable Receipt / Credit Note.
-   Opens a print window with the AZ ONE OFFICIAL letterhead + logo. Kept
+   Opens a print window with the issuing entity's letterhead + logo. Kept
    self-contained so no server-side PDF template is needed; "Save as PDF" in
-   the browser's print dialog produces the shareable file. */
+   the browser's print dialog produces the shareable file.
 
-import { SITE_CONFIG } from "@/constants/site";
+   v1.27.0 — letterhead now comes from DOCUMENT_ISSUER (lib/issuers.ts), NOT
+   from SITE_CONFIG. A receipt and a credit note acknowledge money; they must
+   name the legal entity that received or refunded it. SITE_CONFIG is the
+   marketing identity and is being rewritten to A2Z CREATIVE MARKETING — had
+   this file kept reading it, every receipt would have silently started
+   claiming A2Z issued it while the invoice it settles still prints AZ ONE
+   OFFICIAL's Maybank account. See lib/issuers.ts for the full reasoning.
+
+   v1.28.0 — the fixed DOCUMENT_ISSUER letterhead becomes per-document: rows
+   carry issuer_code (migration 0073), resolved with resolveIssuer(). A legacy
+   receipt (NULL) keeps naming AZ ONE OFFICIAL — the entity that actually
+   received the money — while receipts issued after the switch name A2Z
+   CREATIVE MARKETING, the operating issuer. */
+
+import { resolveIssuer } from "@/lib/issuers";
 import { fmtRM } from "@/lib/format";
 
 export interface PrintDocData {
@@ -16,6 +30,9 @@ export interface PrintDocData {
   method?: string | null;
   reference?: string | null;
   reason?: string | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null;
 }
 
 function esc(s: string): string {
@@ -23,6 +40,7 @@ function esc(s: string): string {
 }
 
 export function printBusinessDoc(d: PrintDocData): void {
+  const issuer = resolveIssuer(d.issuer_code);
   const title = d.kind === "RECEIPT" ? "OFFICIAL RECEIPT" : "CREDIT NOTE";
   const dateStr = d.date ? new Date(d.date.replace(" ", "T")).toLocaleDateString("en-MY", { day: "2-digit", month: "long", year: "numeric" }) : "";
   const rows: [string, string][] = [];
@@ -32,6 +50,16 @@ export function printBusinessDoc(d: PrintDocData): void {
   if (d.reference) rows.push(["Reference", d.reference]);
   if (d.reason) rows.push(["Reason", d.reason]);
 
+  /* v1.27.0 — two pre-existing letterhead inconsistencies fixed here, so the
+     receipt matches every other document we issue:
+       1) it printed SITE_CONFIG.legalName, "AZ One Official (JM1046169-H)" —
+          title case, and carrying ONLY the old registration number. Now
+          "AZ ONE OFFICIAL" + "SSM 202603168673 (JM1046169-H)", the same name
+          and both numbers that doc-pdf / doc-template / payslip-pdf print.
+       2) the footer printed SITE_CONFIG.tagline, "Malaysia's Premium Live
+          Commerce Agency" (a marketing line), where every other document
+          prints the corporate slogan. Now the slogan.
+     Every other rendered value is byte-for-byte what it was before. */
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)}</title>
 <style>
   * { box-sizing: border-box; }
@@ -53,14 +81,14 @@ export function printBusinessDoc(d: PrintDocData): void {
   @media print { body { padding: 0; } .wrap { max-width: none; } }
 </style></head><body><div class="wrap">
   <div class="head">
-    <img class="logo" src="/logo.png" alt="AZ ONE OFFICIAL" onerror="this.style.display='none'"/>
-    <div class="co"><b>${esc(SITE_CONFIG.legalName)}</b><br/>${esc(SITE_CONFIG.address)}<br/>${esc(SITE_CONFIG.url)}</div>
+    <img class="logo" src="/logo.png" alt="${esc(issuer.name)}" onerror="this.style.display='none'"/>
+    <div class="co"><b>${esc(issuer.name)}</b><br/>${esc(issuer.registration)}<br/>${esc(issuer.address)}<br/>${esc(issuer.websiteUrl)}</div>
   </div>
   <h1>${title}</h1>
   <div class="num">${esc(d.number)}${dateStr ? ` · ${dateStr}` : ""}</div>
   <table>${rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
   <div class="amt"><span class="lbl">${d.kind === "RECEIPT" ? "Amount received" : "Amount credited"}</span><span class="val">${fmtRM(d.amountCents)}</span></div>
-  <div class="foot">This is a computer-generated ${d.kind.toLowerCase()} and is valid without a signature. ${esc(SITE_CONFIG.name)} · ${esc(SITE_CONFIG.tagline)}</div>
+  <div class="foot">This is a computer-generated ${d.kind.toLowerCase()} and is valid without a signature. ${esc(issuer.name)} · ${esc(issuer.slogan)}</div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;

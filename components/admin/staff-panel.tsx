@@ -176,8 +176,8 @@ export function StaffPanel() {
         <p className="text-sm font-semibold">{L("All staff modules", "Semua modul kakitangan")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
-            "Your admin account has full rights in every staff module. These open in the staff portal:",
-            "Akaun admin anda mempunyai hak penuh dalam setiap modul kakitangan. Ini dibuka dalam portal kakitangan:",
+            "Your admin account has full rights in every staff module. These open in the A2Z CREATIVE MARKETING Staff Portal:",
+            "Akaun admin anda mempunyai hak penuh dalam setiap modul kakitangan. Ini dibuka dalam Portal Kakitangan A2Z CREATIVE MARKETING:",
           )}
         </p>
         <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">

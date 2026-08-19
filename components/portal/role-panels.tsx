@@ -30,6 +30,10 @@ import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
+/* v1.28.0 — the printed claim form follows the issuer STAMPED on its row
+   (resolveIssuer); operational artefacts issued today (the stock-count
+   sheet) carry the current operator, DOCUMENT_ISSUER. */
+import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
@@ -796,7 +800,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               const now = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
               const stamp = `${now.slice(8, 10)}-${now.slice(5, 7)}-${now.slice(0, 4)} ${now.slice(11, 16)} MYT`;
               const lines: string[] = [
-                `# AZ ONE OFFICIAL — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`,
+                `# ${DOCUMENT_ISSUER.name} — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`,
                 `# ${L("Generated", "Dijana")} ${stamp} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`,
                 ["SKU", L("Item", "Barang"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")].join(","),
               ];
@@ -2014,6 +2018,9 @@ interface Claim {
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
   created_at: string;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
+  issuer_code?: string | null;
 }
 
 /* v1.4.118 (CEO's numbering): CLM-AZOO{DDMMYY}-{running no. that day},
@@ -2051,6 +2058,11 @@ async function sendClaimPdf(c: Claim) {
 }
 
 async function printClaimForm(c: Claim) {
+  /* v1.28.0: the form names the EMPLOYER, so it forever carries the issuer
+     stamped on the row — a legacy print stays AZ ONE OFFICIAL with its
+     AZOO-HR-CLM document number; an A2Z form is a different controlled
+     document with its own number and version (see lib/issuers.ts). */
+  const issuer = resolveIssuer(c.issuer_code);
   const rmv = rmBare; // v1.4.272: global (bare number, caller places "RM")
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
   // v1.4.137: one signature file per role — used for the EMPLOYEE cell too
@@ -2146,10 +2158,10 @@ async function printClaimForm(c: Claim) {
     @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
-  <h1>AZ ONE OFFICIAL<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
+  <h1>${issuer.name}<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
   <h2>Employee Claim Form</h2>
   <table class="meta">
-    <tr><td class="k">Document No.</td><td class="v">AZOO-HR-CLM-001</td><td class="k">Version</td><td class="v">002</td></tr>
+    <tr><td class="k">Document No.</td><td class="v">${issuer.claimFormNo}</td><td class="k">Version</td><td class="v">${issuer.claimFormVersion}</td></tr>
     <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
     <tr><td class="k">Employee</td><td class="v">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class="k">Department</td><td class="v">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
     <tr><td class="k">Position</td><td class="v">${(c.claimant_position ?? "").toUpperCase()}</td><td class="k">Purpose</td><td class="v">${c.description ?? ""}</td></tr>
@@ -2195,7 +2207,7 @@ async function printClaimForm(c: Claim) {
     </tr>
   </table>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
-  <p class="foot">AZ ONE OFFICIAL · SSM 202603168673 (JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
+  <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
   </body></html>`);
   w.document.close();
 }
@@ -2548,7 +2560,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             {c.receipt_key
               ? <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">{L("View receipt", "Lihat resit")}</a>
               : <span className="text-muted-foreground text-xs">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
-            <button type="button" className={rowBtn} title={L("AZOO-HR-CLM-001 form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang AZOO-HR-CLM-001 sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
+            <button type="button" className={rowBtn} title={L("Claim form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang tuntutan sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
               onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
             {/* v1.4.246: the real PDF file, straight into the phone's share sheet. */}
             <button type="button" className={rowBtn} title={L("Send the claim form as a PDF file", "Hantar borang tuntutan sebagai fail PDF")}

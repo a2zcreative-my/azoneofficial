@@ -5,8 +5,11 @@
  *
  * Month picker → every staff member with Basic / Commission / Allowance /
  * Deduction amounts (RM). Save upserts one entry per person per month;
- * Payslip prints a branded AZ ONE OFFICIAL A4 payslip. Processed by the CEO
- * or hr_admin (hr_manage); COO/CCO see it read-only via exec view.
+ * Payslip prints a branded A4 payslip under the EMPLOYER stamped on the
+ * month's release row (v1.28.0, lib/issuers.ts): legacy months stay
+ * AZ ONE OFFICIAL, months released after the switch carry A2Z CREATIVE
+ * MARKETING. Processed by the CEO or hr_admin (hr_manage); COO/CCO see it
+ * read-only via exec view.
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
@@ -16,6 +19,9 @@ import { displayName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { buildPayslipPdf, type PayslipData } from "@/lib/payslip-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
+/* v1.28.0 — the payslip's employer of record is decided at RELEASE time and
+   stored on payslip_releases.issuer_code; the letterhead resolves it here. */
+import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { btnSm, card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
@@ -29,11 +35,8 @@ const API = "/api/v1/staff";
 const inputSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
 
-const _COMPANY = {
-  name: "AZ ONE OFFICIAL",
-  ssm: "SSM Registration No. 202603168673 (JM1046169-H)",
-  location: "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor, Malaysia",
-};
+/* v1.28.0: the old _COMPANY constant is gone — company identity lives in
+   lib/issuers.ts only, resolved per payslip from the release row's issuer. */
 
 interface StaffRow {
   id: number;
@@ -136,12 +139,17 @@ function monthDMY(m: string): string {
    "what was I paid". So the layout may exist twice; the arithmetic does not. */
 export type SlipExtras = { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null;
 
+/* v1.28.0: issuerCode is the month's payslip_releases.issuer_code — NULL or
+   absent (legacy / not yet stamped) renders AZ ONE OFFICIAL, 'a2z' renders
+   A2Z CREATIVE MARKETING (resolveIssuer, lib/issuers.ts). It rides on the
+   returned PayslipData so the PDF twin draws the same employer. */
 export function payslipData(
   u: StaffRow & { employment_status?: string | null },
   e: Entry,
   month: string,
   x?: SlipExtras,
-): PayslipData {
+  issuerCode?: string | null,
+): PayslipData & { issuer_code: string | null } {
   const hourlySlip = isHourly(u) || (e.hourly_minutes != null && e.hourly_rate_cents != null);
   const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
   const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
@@ -185,6 +193,7 @@ export function payslipData(
     gross_cents: gross, deduction_cents: totalDed, net_cents: Math.max(0, gross - totalDed),
     note: e.note ?? null,
     annual_bal: x ? x.annual_bal : null, sick_bal: x ? x.sick_bal : null,
+    issuer_code: issuerCode ?? null, // v1.28.0 — employer of record at release
   };
 }
 
@@ -192,8 +201,9 @@ export function payslipData(
    errand is a staff member standing at a bank counter being asked for one. */
 export async function sendPayslipPdf(
   u: StaffRow & { employment_status?: string | null }, e: Entry, month: string, x?: SlipExtras,
+  issuerCode?: string | null, // v1.28.0 — release row's issuer_code
 ) {
-  const d = payslipData(u, e, month, x);
+  const d = payslipData(u, e, month, x, issuerCode);
   const blob = await buildPayslipPdf(d);
   await sharePdfFile(blob, `Payslip-${(u.employee_id || u.name).replace(/\s+/g, "-")}-${month}.pdf`,
     `Payslip ${d.name} ${month}`);
@@ -204,11 +214,16 @@ export function printPayslip(
   e: Entry,
   month: string,
   x?: SlipExtras,
+  issuerCode?: string | null, // v1.28.0 — release row's issuer_code
 ) {
+  /* v1.28.0: the printed employer line follows the issuer stamped when the
+     month was released — never the current operator, so a legacy slip
+     re-prints under AZ ONE OFFICIAL forever. */
+  const issuer = resolveIssuer(issuerCode);
   /* v1.4.257: every figure below comes from payslipData() — the SAME function
      the PDF uses. v1.4.183's hourly rule, v1.4.79's unpaid-leave deduction and
      v1.4.82's incomplete-month adjustment all live there now. */
-  const D = payslipData(u, e, month, x);
+  const D = payslipData(u, e, month, x, issuerCode);
   const gross = D.gross_cents;
   const totalDed = D.deduction_cents;
   const net = D.net_cents;
@@ -310,7 +325,7 @@ export function printPayslip(
       </tr>
     </table>
   </div>
-  <p class="company">AZ ONE OFFICIAL <span>(SSM 202603168673 / JM1046169-H) · 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor · Computer-generated payslip — no signature required.</span></p>
+  <p class="company">${issuer.name} <span>(SSM ${issuer.ssm} / ${issuer.oldReg}) · ${issuer.address.replace(/, Malaysia$/, "")} · Computer-generated payslip — no signature required.</span></p>
   <p class="privacy">SULIT / PRIVATE &amp; CONFIDENTIAL — This payslip is issued to the named employee pursuant to the Employment Act 1955 and contains personal data protected under the Personal Data Protection Act 2010 (PDPA). It must not be disclosed, copied, or shared with any other party without the employee's or the company's written consent. Retain for your records.</p>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`);
@@ -456,7 +471,9 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
   const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
   // v1.4.80: staff payslip release state for this month.
-  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string } | null } | null>(null);
+  // v1.28.0: released also carries issuer_code — the employer stamped at
+  // release time, which every payslip printed for this month must show.
+  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
@@ -465,7 +482,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
-      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${month}`),
+      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null } }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[]; working_days?: number }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
@@ -569,13 +586,16 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
 
   const printSlip = async (u: StaffRow) => {
     const d = await api<{ extras: SlipExtras }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
-    printPayslip(u, entry(u.id), month, d.data?.extras ?? null);
+    /* v1.28.0: the slip renders the employer stamped on the month's release
+       row (NULL/unreleased = legacy AZ ONE OFFICIAL; released after the
+       switch = A2Z). */
+    printPayslip(u, entry(u.id), month, d.data?.extras ?? null, release?.released?.issuer_code ?? null);
   };
   /* v1.4.257: same fetch, a real file instead of a print dialog — for the
      staff member who needs the slip somewhere the portal can't follow. */
   const sendSlip = async (u: StaffRow) => {
     const d = await api<{ extras: SlipExtras }>(`/payroll/detail?user_id=${u.id}&month=${month}`);
-    await sendPayslipPdf(u, entry(u.id), month, d.data?.extras ?? null);
+    await sendPayslipPdf(u, entry(u.id), month, d.data?.extras ?? null, release?.released?.issuer_code ?? null);
     showToast(L("Saved", "Disimpan"), `${L("Payslip ready to send", "Slip gaji sedia untuk dihantar")} — ${displayName(u)} ${month}`);
   };
 
@@ -1120,6 +1140,9 @@ export function MyPayslip() {
   const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
   const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
   const [joinedOn, setJoinedOn] = useState<string | null>(null);
+  /* v1.28.0: the month's release-row issuer_code — the EMPLOYER this slip
+     prints under. NULL = legacy month = AZ ONE OFFICIAL. */
+  const [releaseIssuer, setReleaseIssuer] = useState<string | null>(null);
 
   // v1.4.80: a month's payslip unlocks on the 5th of the following month at
   // 10:00 MYT (next working day if that's a weekend/holiday), unless payroll
@@ -1127,17 +1150,18 @@ export function MyPayslip() {
   const [lockedUntil, setLockedUntil] = useState<string | null>(null);
 
   useEffect(() => {
-    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null; locked?: boolean; available_from?: string }>(
+    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null; locked?: boolean; available_from?: string; release_issuer_code?: string | null }>(
       `/payroll/self?month=${month}`,
     ).then((r) => {
       setEntry(r.data?.entry ?? null);
       setExtras(r.data?.extras ?? null);
       setJoinedOn(r.data?.joined_on ?? null);
+      setReleaseIssuer(r.data?.release_issuer_code ?? null); // v1.28.0
       setLockedUntil(r.data?.locked ? (r.data.available_from ?? null) : null);
     });
   }, [month]);
 
-  // Months before the person joined AZ ONE OFFICIAL have no payslip — the
+  // Months before the person joined the company have no payslip — the
   // button greys out instead of pretending one could exist.
   const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
 
@@ -1194,7 +1218,9 @@ export function MyPayslip() {
       ) : beforeJoining ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-muted-foreground text-sm">
-            {L("You joined AZ ONE OFFICIAL on", "Anda menyertai AZ ONE OFFICIAL pada")} {dmy(joinedOn)}{L(" — no payslip exists for this month.", " — tiada slip gaji wujud untuk bulan ini.")}
+            {/* v1.28.0: entity-neutral — which company employs the person is
+                the payslip's business, not this helper line's. */}
+            {L("You joined us on", "Anda menyertai kami pada")} {dmy(joinedOn)}{L(" — no payslip exists for this month.", " — tiada slip gaji wujud untuk bulan ini.")}
           </p>
           <button
             type="button"
@@ -1214,13 +1240,13 @@ export function MyPayslip() {
           </span>
           <span className={rowActions}>
             <button type="button" className={rowBtn}
-              onClick={() => printPayslip(entry, entry, month, extras)}>
+              onClick={() => printPayslip(entry, entry, month, extras, releaseIssuer)}>
               {L("Print payslip", "Cetak slip gaji")}
             </button>
             {/* v1.4.257: the errand this exists for is a bank or a landlord
                 asking for a payslip while you are standing at their counter. */}
             <button type="button" className={rowBtnPrimary} title={L("Send the payslip as a PDF file", "Hantar slip gaji sebagai fail PDF")}
-              onClick={() => void sendPayslipPdf(entry, entry, month, extras)}>
+              onClick={() => void sendPayslipPdf(entry, entry, month, extras, releaseIssuer)}>
               {L("Send PDF", "Hantar PDF")}
             </button>
           </span>

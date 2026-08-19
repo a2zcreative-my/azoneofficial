@@ -20,8 +20,11 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const api = makeApi("/staff");
 
 interface Invoice { id: number; doc_number: string; doc_type: string; total_cents: number; payment_status?: string | null; company?: string | null; created_at: string; due_date?: string | null }
-interface Receipt { id: number; receipt_number: string; invoice_number: string; amount_cents: number; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null; company?: string | null; created_at: string }
-interface CreditNote { id: number; cn_number: string; invoice_number: string; amount_cents: number; reason?: string | null; company?: string | null; created_at: string }
+/* issuer_code (v1.28.0, migration 0073): NULL = legacy row issued by AZ ONE
+   OFFICIAL, 'a2z' = A2Z CREATIVE MARKETING — printBusinessDoc() needs it so a
+   re-print carries the letterhead of the entity that actually issued it. */
+interface Receipt { id: number; receipt_number: string; invoice_number: string; amount_cents: number; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null; company?: string | null; created_at: string; issuer_code?: string | null }
+interface CreditNote { id: number; cn_number: string; invoice_number: string; amount_cents: number; reason?: string | null; company?: string | null; created_at: string; issuer_code?: string | null }
 interface Outstanding { id: number; doc_number: string; total_cents: number; due_date?: string | null; created_at: string; company?: string | null; phone?: string | null }
 
 export function DocumentsPanel() {
@@ -134,7 +137,7 @@ export function DocumentsPanel() {
                 {receipts.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
                     <span>{r.receipt_number}<span className="text-muted-foreground ml-1.5 text-xs">{r.company ?? ""} · {r.invoice_number} · {fmtRM(r.amount_cents)}</span></span>
-                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "RECEIPT", number: r.receipt_number, date: r.paid_at ?? r.created_at, customer: r.company, invoiceNumber: r.invoice_number, amountCents: r.amount_cents, method: r.payment_method, reference: r.payment_ref })}>{L("🖨 Print", "🖨 Cetak")}</button>
+                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "RECEIPT", number: r.receipt_number, date: r.paid_at ?? r.created_at, customer: r.company, invoiceNumber: r.invoice_number, amountCents: r.amount_cents, method: r.payment_method, reference: r.payment_ref, issuer_code: r.issuer_code })}>{L("🖨 Print", "🖨 Cetak")}</button>
                   </div>
                 ))}
               </div>
@@ -165,7 +168,7 @@ export function DocumentsPanel() {
                 {creditNotes.map((n) => (
                   <div key={n.id} className="flex items-center justify-between gap-2 text-sm">
                     <span>{n.cn_number}<span className="text-muted-foreground ml-1.5 text-xs">{n.company ?? ""} · {n.invoice_number} · {fmtRM(n.amount_cents)}{n.reason ? ` · ${n.reason}` : ""}</span></span>
-                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "CREDIT NOTE", number: n.cn_number, date: n.created_at, customer: n.company, invoiceNumber: n.invoice_number, amountCents: n.amount_cents, reason: n.reason })}>{L("🖨 Print", "🖨 Cetak")}</button>
+                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "CREDIT NOTE", number: n.cn_number, date: n.created_at, customer: n.company, invoiceNumber: n.invoice_number, amountCents: n.amount_cents, reason: n.reason, issuer_code: n.issuer_code })}>{L("🖨 Print", "🖨 Cetak")}</button>
                   </div>
                 ))}
               </div>

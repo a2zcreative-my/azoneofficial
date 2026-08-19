@@ -10,7 +10,8 @@ import { SITE_CONFIG } from "@/constants/site";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "AZ ONE OFFICIAL is a Malaysian live commerce agency in Johor Bahru — and the home of the ELFIA hijab brand.",
+    "A2Z Creative Marketing is a Malaysian creative marketing group in Johor Bahru — creative and digital marketing, content creation, live commerce, and consultancy under one roof.",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {

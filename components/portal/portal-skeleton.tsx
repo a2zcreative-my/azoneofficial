@@ -19,7 +19,15 @@ import { card } from "@/lib/ui-styles";
 
 export function PortalSkeleton() {
   return (
-    <div className="md:bg-shell-backdrop md:h-dvh md:overflow-hidden md:p-5" aria-busy="true" aria-label="Loading the staff portal">
+    /* v1.27.0 — A2Z CREATIVE MARKETING owns the portal, so the landmark names
+       it. The label is deliberately the SAME TEXT in English and BM instead of
+       an L("…","…") pair: this node is baked into portal.html by the static
+       export, where getLang() cannot see localStorage, so a translated label
+       would differ between the prerender and the first client render and cost
+       us the hydration — which is the one thing this file exists to protect.
+       "Portal" is the word in both languages, the company name is a proper
+       noun, and aria-busy carries the "loading" half for screen readers. */
+    <div className="md:bg-shell-backdrop md:h-dvh md:overflow-hidden md:p-5" aria-busy="true" aria-label="Portal A2Z CREATIVE MARKETING">
       <div className="md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:max-w-[1440px] md:overflow-hidden">
         {/* navy icon rail (desktop) — real chrome, not a placeholder, so it
             never flickers when the app takes over */}

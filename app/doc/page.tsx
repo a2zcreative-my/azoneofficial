@@ -17,6 +17,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildDocHtml, type DocFull } from "@/lib/doc-template";
+/* v1.28.0 — the header brand names the entity that ISSUED the document
+   (resolveIssuer on the payload's issuer_code); the "ask for a new link"
+   support line names the CURRENT operator (DOCUMENT_ISSUER), whoever the
+   document's issuer was — support is who answers the phone today. */
+import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 
 // A4 at 96dpi — the width the template is designed against.
 const PAGE_W = 794;
@@ -26,6 +31,9 @@ export default function PublicDocPage() {
   const [html, setHtml] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "gone">("loading");
   const [label, setLabel] = useState("Document");
+  /* v1.28.0: until the document arrives (and whenever the link is dead) the
+     header shows the current operator; once loaded it shows the ISSUER. */
+  const [brand, setBrand] = useState(DOCUMENT_ISSUER.name);
   const [scale, setScale] = useState(1);
   const frame = useRef<HTMLIFrameElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -40,7 +48,12 @@ export default function PublicDocPage() {
         const { doc } = (await res.json()) as { doc: DocFull };
         setHtml(buildDocHtml(doc, false)); // never auto-print at the customer
         setLabel(`${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[doc.doc_type] ?? "Document"} ${doc.doc_number}`);
-        document.title = `${doc.doc_number} — AZ ONE OFFICIAL`;
+        /* v1.28.0: page chrome follows the document's own issuer — a legacy
+           link stays AZ ONE OFFICIAL, a new one reads A2Z CREATIVE MARKETING,
+           matching the letterhead in the iframe below. */
+        const issuer = resolveIssuer(doc.issuer_code);
+        setBrand(issuer.name);
+        document.title = `${doc.doc_number} — ${issuer.name}`;
         setState("ready");
       } catch { setState("gone"); }
     })();
@@ -77,7 +90,7 @@ export default function PublicDocPage() {
       <header className="sticky top-0 z-10 border-b border-[#e8ebf1] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[850px] flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-extrabold text-[#1a2946]">AZ ONE OFFICIAL</p>
+            <p className="truncate text-sm font-extrabold text-[#1a2946]">{brand}</p>
             <p className="truncate text-xs text-[#8a93a6]">{label}</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -99,8 +112,8 @@ export default function PublicDocPage() {
           <div className="rounded-2xl border border-[#e8ebf1] bg-white p-8 text-center">
             <p className="text-base font-semibold text-[#1a2946]">This link is no longer valid</p>
             <p className="mt-2 text-sm text-[#5b6472]">
-              Please ask AZ ONE OFFICIAL for a new one — WhatsApp{" "}
-              <a className="underline" href="https://wa.me/60123834821">+60 12-383 4821</a>.
+              Please ask {DOCUMENT_ISSUER.name} for a new one — WhatsApp{" "}
+              <a className="underline" href={`https://wa.me/${DOCUMENT_ISSUER.whatsapp.replace(/\D/g, "")}`}>{DOCUMENT_ISSUER.whatsapp}</a>.
             </p>
           </div>
         )}

@@ -7,7 +7,8 @@ import { CASE_STUDIES } from "@/constants/pages";
 export const metadata: Metadata = {
   title: "Case Studies",
   description:
-    "How AZ ONE OFFICIAL grows brand sales through live commerce — challenge, approach, result.",
+    "How A2Z Creative Marketing grows brand sales — challenge, approach, result.",
+  alternates: { canonical: "/case-studies" },
 };
 
 export default function CaseStudiesPage() {

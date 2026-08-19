@@ -16,13 +16,14 @@ export function Cta() {
           <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
             <Editable
               k="home.cta.heading"
-              fallback="Your next customer is already watching a live. Make it yours."
+              fallback="Your next customer is already watching someone sell. Make it you."
             />
           </h2>
           <p className="text-muted-foreground mt-4 text-base leading-relaxed">
-            Start with a free live audit: we review your products, your current
-            channel, and what your buyers respond to — then tell you whether
-            live is worth it for you. No commitment, no pressure.
+            Start with a free live audit: we review your products, your brand,
+            and your current channels — then tell you honestly where the
+            growth is and whether live is part of it. No commitment, no
+            pressure.
           </p>
           <div className="mt-8 flex justify-center">
             <ButtonGroup align="center">

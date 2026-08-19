@@ -36,7 +36,9 @@ for (const tab of TABS) {
   if (!ok) { findings[tab]=['<CLICK FAILED>']; continue; }
   await p.waitForTimeout(1200);
   const txt = await Promise.race([p.evaluate(()=>document.body.innerText), new Promise(r=>setTimeout(()=>r('<EVAL TIMEOUT>'),8000))]);
-  if (/Something went wrong/.test(txt)) { const d=(txt.match(/Detail for support: (.*)/)||[])[1]; findings[tab]=['<CRASHED> '+(d||'')]; await p.goto('http://localhost:8931/portal.html',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500); continue; }
+  /* v1.27.0: app/portal/error.tsx is bilingual now, and this walk runs in BM —
+     match BOTH wordings or a crashing tab would slip through as a pass. */
+  if (/Something went wrong|Ada masalah pada skrin ini/.test(txt)) { const d=(txt.match(/(?:Detail for support|Butiran untuk sokongan): (.*)/)||[])[1]; findings[tab]=['<CRASHED> '+(d||'')]; await p.goto('http://localhost:8931/portal.html',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500); continue; }
   const hits=[...new Set((txt.match(EN_WORDS)||[]))]; if (hits.length) { for (const h of hits) { const i=txt.indexOf(h); console.log('CTX['+h+']:', JSON.stringify(txt.slice(Math.max(0,i-60), i+60))); } }
   if (hits.length) findings[tab]=hits;
   

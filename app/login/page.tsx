@@ -1,14 +1,23 @@
 "use client";
 
 /**
- * General login (/login) — one door for everyone.
- * After sign-in, people are routed by role:
+ * General login (/login) — one door for everyone, into A2Z CREATIVE
+ * MARKETING's portals. After sign-in, people are routed by role:
  *   customer -> /account · staff roles -> /portal · CMS roles -> /admin
+ *
+ * v1.27.0 — the page is bilingual now. It was the last monolingual surface in
+ * the whole authenticated app, which meant a BM-speaking staff member met
+ * English at the one screen she cannot skip. The language comes from the
+ * device (localStorage azone-lang) via state rather than a module-scope
+ * getLang() read: /login is part of the STATIC EXPORT, so a direct read would
+ * render "en" into login.html and "ms" on the client and break hydration.
+ * Same shape as /account.
  */
 
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { getLang, type Lang } from "@/lib/i18n";
 import { inputClass, btnClassBlock as btnClass } from "@/lib/ui-styles";
 import { APP_VERSION } from "@/lib/version";
 
@@ -41,6 +50,9 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
+  const [lang, setLangState] = useState<Lang>("en");
+  useEffect(() => { setLangState(getLang()); }, []);
+  const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
 
   const verifyCode = async () => {
     setBusy(true);
@@ -53,9 +65,12 @@ export default function LoginPage() {
     if (res.ok && res.data?.user) {
       window.location.replace(destinationFor(res.data.user.role));
     } else if (res.status === 429) {
-      setError("Too many attempts — try again in 15 minutes.");
+      setError(L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit."));
     } else {
-      setError("That code is not correct. Check your authenticator app, or use a backup code.");
+      setError(L(
+        "That code is not correct. Check your authenticator app, or use a backup code.",
+        "Kod itu tidak betul. Semak aplikasi pengesah anda, atau gunakan kod sandaran.",
+      ));
     }
   };
   const [busy, setBusy] = useState(false);
@@ -65,6 +80,10 @@ export default function LoginPage() {
        the callback drops a 5-minute challenge cookie and lands here with
        ?2fa=1. Read it, clear it, and show the same code screen password
        sign-in uses. The session is created only after a valid code. */
+    /* This effect can fire before the `lang` state above has landed, so it
+       reads the device language directly rather than closing over "en". */
+    const lg = getLang();
+    const LE = (en: string, ms: string) => (lg === "ms" ? ms : en);
     const q = new URLSearchParams(window.location.search);
     if (q.get("2fa") === "1") {
       const m = document.cookie.match(/(?:^|; )twofa_challenge=([^;]*)/);
@@ -73,13 +92,13 @@ export default function LoginPage() {
         document.cookie = "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0";
         return; // no /auth/me probe — there is deliberately no session yet
       }
-      setError("This sign-in attempt expired — please sign in again.");
+      setError(LE("This sign-in attempt expired — please sign in again.", "Percubaan log masuk ini telah tamat tempoh — sila log masuk semula."));
     }
     // Already signed in? Route straight to the right place.
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data?.user) window.location.replace(destinationFor(r.data.user.role));
     });
-    if (q.get("error") === "oauth") setError("Google sign-in didn't complete — please try again.");
+    if (q.get("error") === "oauth") setError(LE("Google sign-in didn't complete — please try again.", "Log masuk Google tidak selesai — sila cuba lagi."));
   }, []);
 
   const submit = async () => {
@@ -95,17 +114,23 @@ export default function LoginPage() {
       if (res.ok && res.data?.user) {
         window.location.replace(destinationFor(res.data.user.role));
       } else if (res.status === 409) {
-        setError("An account with this email already exists — sign in instead.");
+        setError(L(
+          "An account with this email already exists — sign in instead.",
+          "Akaun dengan e-mel ini sudah wujud — sila log masuk.",
+        ));
       } else if (res.status === 429) {
-        setError("Too many registrations — try again later.");
+        setError(L("Too many registrations — try again later.", "Terlalu banyak pendaftaran — cuba lagi kemudian."));
       } else if (res.status === 400) {
         // Show the real reason from the API instead of guessing
         const msg = (res.data as { error?: { message?: string } } | null)?.error?.message;
-        setError(msg ?? "Please check the details and try again.");
+        setError(msg ?? L("Please check the details and try again.", "Sila semak butiran dan cuba lagi."));
       } else if (res.status === 0 || res.status === 404) {
-        setError("Can't reach the sign-up service. The API Worker may not be deployed yet — please contact your administrator.");
+        setError(L(
+          "Can't reach the sign-up service. The API Worker may not be deployed yet — please contact your administrator.",
+          "Tidak dapat menghubungi perkhidmatan pendaftaran. API Worker mungkin belum digunakan — sila hubungi pentadbir anda.",
+        ));
       } else {
-        setError("Sign-up failed — please try again in a moment.");
+        setError(L("Sign-up failed — please try again in a moment.", "Pendaftaran gagal — sila cuba lagi sebentar nanti."));
       }
       return;
     }
@@ -124,11 +149,17 @@ export default function LoginPage() {
     if (res.ok && res.data?.user) {
       window.location.replace(destinationFor(res.data.user.role));
     } else if (res.status === 429) {
-      setError("Too many attempts — try again in 15 minutes.");
+      setError(L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit."));
     } else if (res.status === 0) {
-      setError("Can't reach the server just now — please try again shortly.");
+      setError(L(
+        "Can't reach the server just now — please try again shortly.",
+        "Tidak dapat menghubungi pelayan buat masa ini — sila cuba lagi sebentar nanti.",
+      ));
     } else {
-      setError("Email or password is incorrect, or the account is inactive.");
+      setError(L(
+        "Email or password is incorrect, or the account is inactive.",
+        "E-mel atau kata laluan tidak betul, atau akaun tidak aktif.",
+      ));
     }
   };
 
@@ -136,14 +167,18 @@ export default function LoginPage() {
     <div className="mx-auto mt-24 w-full max-w-sm px-6 pb-16">
       <Link href="/" className="inline-block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="AZ ONE OFFICIAL" className="h-8 w-auto" />
+        <img src="/logo.png" alt="A2Z CREATIVE MARKETING" className="h-8 w-auto" />
       </Link>
       {challenge ? (
         <div className="mt-8">
-          <h1 className="text-2xl font-semibold tracking-tight">Two-factor verification</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {L("Two-factor verification", "Pengesahan dua faktor")}
+          </h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Enter the 6-digit code from your authenticator app. You can also use
-            one of your backup codes.
+            {L(
+              "Enter the 6-digit code from your authenticator app. You can also use one of your backup codes.",
+              "Masukkan kod 6 digit daripada aplikasi pengesah anda. Anda juga boleh menggunakan salah satu kod sandaran anda.",
+            )}
           </p>
           <input
             className="border-input bg-background mt-4 w-full rounded-lg border px-3 py-2 text-center text-lg tracking-[0.3em]"
@@ -161,29 +196,31 @@ export default function LoginPage() {
             className="bg-primary text-primary-foreground mt-4 w-full rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
             onClick={() => void verifyCode()}
           >
-            {busy ? "Verifying…" : "Verify and sign in"}
+            {busy ? L("Verifying…", "Mengesahkan…") : L("Verify and sign in", "Sahkan dan log masuk")}
           </button>
           <button
             type="button"
             className="text-muted-foreground mt-3 w-full text-xs underline"
             onClick={() => { setChallenge(""); setCode(""); setError(""); }}
           >
-            Back to sign in
+            {L("Back to sign in", "Kembali ke log masuk")}
           </button>
         </div>
       ) : (
       <>
       <h1 className="mt-8 text-2xl font-semibold tracking-tight">
-        {mode === "login" ? "Sign in" : "Create your account"}
+        {mode === "login" ? L("Sign in", "Log masuk") : L("Create your account", "Buat akaun anda")}
       </h1>
       <p className="text-muted-foreground mt-2 text-sm">
-        One login for everyone — you&apos;ll be taken to your own area
-        automatically.
+        {L(
+          "One login for everyone at A2Z CREATIVE MARKETING — you'll be taken to your own area automatically.",
+          "Satu log masuk untuk semua di A2Z CREATIVE MARKETING — anda akan dibawa ke ruangan anda sendiri secara automatik.",
+        )}
       </p>
 
       <div
         role="tablist"
-        aria-label="Sign in or create an account"
+        aria-label={L("Sign in or create an account", "Log masuk atau buat akaun")}
         className="mt-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-secondary p-1"
       >
         <button
@@ -197,7 +234,7 @@ export default function LoginPage() {
               : "text-muted-foreground rounded-md px-4 py-2 text-sm font-medium hover:text-foreground"
           }
         >
-          Sign in
+          {L("Sign in", "Log masuk")}
         </button>
         <button
           role="tab"
@@ -210,7 +247,7 @@ export default function LoginPage() {
               : "text-muted-foreground rounded-md px-4 py-2 text-sm font-medium hover:text-foreground"
           }
         >
-          Create account
+          {L("Create account", "Buat akaun")}
         </button>
       </div>
 
@@ -224,26 +261,26 @@ export default function LoginPage() {
           <path fill="#FBBC05" d="M10.4 28.7a14.6 14.6 0 0 1 0-9.2l-7.9-6.2a24 24 0 0 0 0 21.6l7.9-6.2z"/>
           <path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.7-6c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.7-4.1-13.6-9.9l-7.9 6.2C6.5 42.6 14.6 48 24 48z"/>
         </svg>
-        Continue with Google
+        {L("Continue with Google", "Teruskan dengan Google")}
       </a>
 
       <div className="my-6 flex items-center gap-3">
         <span className="h-px flex-1 bg-border" />
-        <span className="text-muted-foreground text-xs">or with email</span>
+        <span className="text-muted-foreground text-xs">{L("or with email", "atau dengan e-mel")}</span>
         <span className="h-px flex-1 bg-border" />
       </div>
 
       <div className="space-y-4">
         {mode === "register" && (
-          <input className={inputClass} placeholder="Your name" value={name}
+          <input className={inputClass} placeholder={L("Your name", "Nama anda")} value={name}
             onChange={(e) => setName(e.target.value)} autoComplete="name" />
         )}
-        <input className={inputClass} placeholder="Email" type="email" value={email}
+        <input className={inputClass} placeholder={L("Email", "E-mel")} type="email" value={email}
           onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
         <div className="relative">
           <input
             className={`${inputClass} pr-11`}
-            placeholder={mode === "register" ? "Password (10+ characters)" : "Password"}
+            placeholder={mode === "register" ? L("Password (10+ characters)", "Kata laluan (10+ aksara)") : L("Password", "Kata laluan")}
             type={showPw ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -253,7 +290,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => setShowPw((v) => !v)}
-            aria-label={showPw ? "Hide password" : "Show password"}
+            aria-label={showPw ? L("Hide password", "Sembunyikan kata laluan") : L("Show password", "Tunjukkan kata laluan")}
             aria-pressed={showPw}
             className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg focus:outline-none focus-visible:ring-2"
           >
@@ -273,8 +310,11 @@ export default function LoginPage() {
         {mode === "register" && password.length > 0 && (
           <p className={`text-xs ${password.length >= 10 ? "text-muted-foreground" : "text-destructive"}`}>
             {password.length >= 10
-              ? `Password length OK (${password.length} characters)`
-              : `${password.length} of 10 characters — ${10 - password.length} more needed`}
+              ? L(`Password length OK (${password.length} characters)`, `Panjang kata laluan OK (${password.length} aksara)`)
+              : L(
+                  `${password.length} of 10 characters — ${10 - password.length} more needed`,
+                  `${password.length} daripada 10 aksara — ${10 - password.length} lagi diperlukan`,
+                )}
           </p>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -289,13 +329,14 @@ export default function LoginPage() {
           }
           onClick={() => void submit()}
         >
-          {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+          {busy ? L("Please wait…", "Sila tunggu…") : mode === "login" ? L("Sign in", "Log masuk") : L("Create account", "Buat akaun")}
         </button>
         {mode === "register" && (
           <p className="text-muted-foreground text-xs">
-            Registration creates a customer account with access to your own
-            details and enquiries. Staff and admin access is assigned by AZ ONE
-            OFFICIAL administrators.
+            {L(
+              "Registration creates a customer account with access to your own details and enquiries. Staff and admin access is assigned by A2Z CREATIVE MARKETING administrators.",
+              "Pendaftaran mencipta akaun pelanggan dengan akses kepada butiran dan pertanyaan anda sendiri. Akses kakitangan dan admin diberikan oleh pentadbir A2Z CREATIVE MARKETING.",
+            )}
           </p>
         )}
       </div>

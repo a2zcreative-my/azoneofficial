@@ -17,6 +17,7 @@
    one template each; until then, three files mirror three templates. */
 
 import { Canvas, assemblePdf, COLOURS, GEOM, widthOf, type Img } from "@/lib/doc-pdf";
+import { resolveIssuer } from "@/lib/issuers";
 
 const { NAVY, GOLD, GREY, SLATE, HAIR } = COLOURS;
 const { PAGE_W, PAGE_H } = GEOM;
@@ -45,13 +46,23 @@ export interface PayslipData {
   note?: string | null;
   annual_bal?: number | null;
   sick_bal?: number | null;
+  /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
+     legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. The
+     letterhead and footer name the employer, so they follow this. */
+  issuer_code?: string | null;
 }
 
 const MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
   "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
 
+/** This one-line footer has always printed the registered address WITHOUT the
+    trailing country ("... 81200 Johor Bahru, Johor") — keep that exact form so
+    a legacy re-print stays byte-identical to the original. */
+const footerAddress = (a: string) => a.replace(/, Malaysia$/, "");
+
 export function drawPayslip(p: PayslipData): string {
   const c = new Canvas();
+  const issuer = resolveIssuer(p.issuer_code);
   const [yy, mm] = p.month.split("-");
   const lastDay = new Date(Number(yy), Number(mm), 0).getDate();
   const from = `01-${mm}-${yy}`;
@@ -59,7 +70,7 @@ export function drawPayslip(p: PayslipData): string {
 
   let y = M;
   c.rect(M, y, W, 3.75, GOLD); y += 3.75 + 8;
-  c.text("AZ ONE OFFICIAL", M, y + 11, 13.5, { bold: true, spacing: 0.4 });
+  c.text(issuer.name, M, y + 11, 13.5, { bold: true, spacing: 0.4 });
   /* SULIT sits opposite the name, as on the printed slip — a payslip that
      leaves the building should say what it is before anyone reads a figure. */
   c.text("SULIT / PRIVATE & CONFIDENTIAL", M + W, y + 10, 7.5, { bold: true, colour: "0.72 0.11 0.11", align: "r" });
@@ -150,7 +161,10 @@ export function drawPayslip(p: PayslipData): string {
 
   // ---- footer
   const fy = PAGE_H - M - 32;
-  c.wrap("AZ ONE OFFICIAL (SSM 202603168673 / JM1046169-H) - 34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor - Computer-generated payslip, no signature required.",
+  /* NB: this footer's "(SSM ... / ...)" slash style predates lib/issuers.ts's
+     combined `registration` string — compose it from ssm/oldReg to keep the
+     punctuation byte-identical. */
+  c.wrap(`${issuer.name} (SSM ${issuer.ssm} / ${issuer.oldReg}) - ${footerAddress(issuer.address)} - Computer-generated payslip, no signature required.`,
     M, fy, W, 6.5, 8.5, { colour: GREY });
   c.wrap("SULIT / PRIVATE & CONFIDENTIAL - issued to the named employee under the Employment Act 1955 and containing personal data protected by the PDPA 2010. Do not disclose, copy or share it without the employee's or the company's written consent.",
     M, fy + 20, W, 6, 8, { colour: GREY });

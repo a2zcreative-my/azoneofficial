@@ -8,7 +8,8 @@ import { PORTFOLIO_ITEMS } from "@/constants/pages";
 export const metadata: Metadata = {
   title: "Portfolio",
   description:
-    "Brands and live sessions produced by AZ ONE OFFICIAL.",
+    "Brands, campaigns, and live sessions produced by A2Z Creative Marketing.",
+  alternates: { canonical: "/portfolio" },
 };
 
 export default function PortfolioPage() {
@@ -16,7 +17,7 @@ export default function PortfolioPage() {
     <PageShell
       eyebrow="Portfolio"
       title="Work that sells, live"
-      intro="Brands and live sessions produced by AZ ONE OFFICIAL."
+      intro="Campaigns, brands, and live sessions produced by A2Z Creative Marketing. Clients are shown anonymised unless they have given us permission to name them."
     >
       <LivePortfolio
         fallback={

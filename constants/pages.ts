@@ -22,7 +22,7 @@ export const WHY_CHOOSE_US: readonly WhyItem[] = [
   {
     title: "Professional team",
     description:
-      "Hosts, producers, and strategists who treat every live like a campaign, not a webcam session.",
+      "Strategists, designers, producers, and hosts who treat every brief like a campaign, not a favour done between other jobs.",
     icon: UsersRound,
   },
   {
@@ -40,7 +40,7 @@ export const WHY_CHOOSE_US: readonly WhyItem[] = [
   {
     title: "Monthly reporting",
     description:
-      "GMV, viewers, and conversion in plain numbers — plus what we'll change next month.",
+      "Reach, GMV, viewers, and conversion in plain numbers — plus what we'll change next month.",
     icon: FileBarChart,
   },
   {
@@ -52,7 +52,7 @@ export const WHY_CHOOSE_US: readonly WhyItem[] = [
   {
     title: "Local Malaysian team",
     description:
-      "Based in Johor Bahru, selling in Bahasa Melayu and English to the audience you actually serve.",
+      "Based in Johor Bahru, marketing and selling in Bahasa Melayu and English to the audience you actually serve.",
     icon: MapPin,
   },
 ] as const;
@@ -71,14 +71,19 @@ export interface PortfolioItem {
   href?: string;
 }
 
+/*
+ * Client confidentiality (v1.27.0): entries are published anonymised unless
+ * the client has given written permission to be named. The capability story
+ * is ours to tell; the client's name is theirs. Do not add a client name, a
+ * store URL, or an outbound `href` here without that permission.
+ */
 export const PORTFOLIO_ITEMS: readonly PortfolioItem[] = [
   {
-    client: "ELFIA — premium hijab label",
+    client: "A premium modestwear label",
     summary:
       "Built the live selling channel from a standing start: session format, trained hosts, rundowns, and the creative that surrounds each drop.",
     result:
-      "A repeatable drop format the brand now runs on a schedule — visit elfiaofficialstore.com to see the brand live.",
-    href: "https://elfiaofficialstore.com",
+      "A repeatable drop format the brand now runs on a schedule, with short-form content cut from each session keeping the channel warm in between.",
   },
 ] as const;
 
@@ -90,12 +95,14 @@ export interface CaseStudy {
   result: string;
 }
 
+/* Same confidentiality rule as PORTFOLIO_ITEMS above: anonymised unless the
+   client has given written permission to be named. */
 export const CASE_STUDIES: readonly CaseStudy[] = [
   {
-    title: "Building a live channel for a premium hijab label",
-    client: "ELFIA",
+    title: "Building a live channel for a premium modestwear label",
+    client: "A premium modestwear label",
     challenge:
-      "ELFIA sells premium chiffon in a category where the decision is tactile — drape, weight, and true colour decide the sale, and none of them survive a flat product photo. The brand had product and a point of view, but no live presence, no host, and no repeatable session format.",
+      "The brand sells premium chiffon in a category where the decision is tactile — drape, weight, and true colour decide the sale, and none of them survive a flat product photo. It had product and a point of view, but no live presence, no host, and no repeatable session format.",
     approach:
       "We built the channel end to end: positioning and offer structure first, then a session format with a rundown, pinned-deal pacing, and comment moderation. Hosts were trained to sell fabric the way a shopper judges it — styling each piece on camera under real light and answering objections live. Every drop is run as a campaign, with creative before the session and short-form edits cut from the footage afterwards.",
     result:
@@ -156,11 +163,88 @@ export const BLOG_POSTS: readonly BlogPost[] = [
 
 export const CAREERS = {
   intro:
-    "AZ ONE OFFICIAL is a growing live commerce team based in Johor Bahru. We don't always have open roles listed — but we are always interested in meeting people who can sell, produce, or create.",
+    "A2Z CREATIVE MARKETING is a growing creative marketing team based in Johor Bahru, working across brand and campaign creative, digital marketing, content production, live commerce, and consultancy. We don't always have open roles listed — but we are always interested in meeting people who can sell, produce, or create.",
   interests: [
     "Live hosts — confident on camera in Bahasa Melayu, English, or both",
     "Live operations — moderation, order handling, session support",
     "Content & creative — short-form video editing, design, product styling",
+    "Digital marketing — social strategy, campaign planning, paid and organic",
   ],
-  cta: "Introduce yourself on WhatsApp with a short intro and, for hosts, any on-camera clip you have.",
+  cta: "Introduce yourself on WhatsApp with a short intro, a portfolio or showreel if you have one, and for hosts any on-camera clip.",
+} as const;
+
+/* ------------------------------------------------------------------ */
+/* Consultancy — AZ ONE OFFICIAL, the consultancy arm of A2Z (v1.27.0) */
+/*                                                                     */
+/* House rule: content lives here, never hard-coded in the component.  */
+/* Renders at /consultancy via app/consultancy/page.tsx.               */
+/* ------------------------------------------------------------------ */
+
+export interface ConsultancyService {
+  title: string;
+  description: string;
+}
+
+export const CONSULTANCY = {
+  eyebrow: "Consultancy",
+  /** The wording the CEO approved — use this lockup verbatim in headings. */
+  lockup: "AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing",
+  title: "AZ ONE OFFICIAL",
+  intro:
+    "A Consultancy Service by A2Z Creative Marketing. Advice from a team that runs live channels and campaigns every week — so what you get is a plan that has already survived contact with real buyers.",
+  /** Metadata description for the route; kept beside the copy it describes. */
+  metaDescription:
+    "AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing. Business consultation, live commerce consultancy, and brand and channel strategy for Malaysian brands, from operators who sell live every week.",
+  positioning: [
+    "AZ ONE OFFICIAL is the consultancy service of A2Z Creative Marketing. Where the rest of the group builds and runs campaigns and live channels for brands, this is where brand owners come for the decision before the work: what to sell, where to sell it, at what price, and whether a channel is worth entering at all.",
+    "It is a separate registered entity — 202603168673 (JM1046169-H) — and the entity that contracts, quotes, and invoices consultancy engagements. Everything else about it is A2Z: the same operators, the same standards, the same numbers.",
+  ],
+  servicesTitle: "What we advise on",
+  services: [
+    {
+      title: "Business consultation",
+      description:
+        "Positioning, pricing, margin, and offer structure. We start from your numbers, not a template — then agree what a realistic next twelve months looks like and what has to be true for it to happen.",
+    },
+    {
+      title: "Live commerce consultancy",
+      description:
+        "Whether live suits your product, what a viable session cadence costs, how to cast and train hosts, and what to measure. Includes an honest answer when live is the wrong channel for you.",
+    },
+    {
+      title: "Brand & channel strategy",
+      description:
+        "Which platforms deserve your effort, what the brand should stand for on each, and how creative, content, and commerce fit together instead of competing for the same budget.",
+    },
+    {
+      title: "Business & product development",
+      description:
+        "New product lines, bundle and range planning, and market-entry work for brands moving into a category or a channel for the first time — taken from idea to a plan someone can execute.",
+    },
+    {
+      title: "Team & capability building",
+      description:
+        "Training your in-house team on the selling techniques, session operations, and reporting rhythm our own team uses, so the capability stays with you when the engagement ends.",
+    },
+    {
+      title: "Performance review",
+      description:
+        "A read of what your channels are actually producing — reach, conversion, GMV, cost per sale — and a prioritised list of what to fix first, in the order that pays back fastest.",
+    },
+  ] as readonly ConsultancyService[],
+  credibilityTitle: "Operators, not observers",
+  credibility: [
+    "Most consultancies advise on live commerce from a deck. We run live sessions ourselves, every week, on the same platforms and against the same algorithm you are up against — including for a premium modestwear label whose channel we built from zero and still operate end to end.",
+    "That changes the advice. We know what a two-hour session actually costs to staff, how long a host takes to become good, what a realistic conversion rate looks like in month one versus month six, and which platform promises quietly do not hold. You get the version we would act on ourselves.",
+  ],
+  engagementTitle: "How an engagement works",
+  engagement: [
+    "A free first call on WhatsApp to understand the business and decide whether we are the right people for it.",
+    "A scoped proposal with a fixed fee, the questions the engagement will answer, and the deliverables you keep.",
+    "The work itself — sessions with you and your team, our own research, and access to our operators where relevant.",
+    "A written recommendation, a prioritised action plan, and an optional review after you have run with it.",
+  ],
+  ctaTitle: "Start with the free call",
+  ctaBody:
+    "Tell us about your brand, your products, and where you are stuck. If consultancy is not what you need, we will say so and point you at the service that is.",
 } as const;
