@@ -1,0 +1,11 @@
+# v1.28.0 — line-ending discipline for git.
+# git on Windows rewrote DEPLOY.bat to LF-only (observed 19-08-2026), which
+# can break batch execution. Batch files are ALWAYS CRLF; everything else
+# normalises to LF.
+* text=auto
+*.bat text eol=crlf
+*.png binary
+*.ico binary
+*.jpg binary
+*.svg text
+*.xlsm binary
