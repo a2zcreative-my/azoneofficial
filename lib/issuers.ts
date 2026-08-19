@@ -136,10 +136,17 @@ export const A2Z_CREATIVE: Issuer = {
   ],
   address:
     "34-02, Jalan Setia Tropika 1/1, Taman Setia Tropika, 81200 Johor Bahru, Johor, Malaysia",
+  /* The MAILBOX stays @azoneofficial.com — that is Google Workspace, and it
+     does not move with the website. The WEBSITE, however, is A2Z's own:
+     v1.28.0 shipped with azoneofficial.com here because no A2Z domain
+     existed yet, and that footer went stale the moment a2zcreative.my went
+     live. Worse than stale by v1.30.0: the old domain resolves to nothing,
+     so an A2Z invoice was printing a dead address for the client to type in.
+     AZ ONE's own issuer above keeps azoneofficial.com — that is ITS site. */
   email: "admin@azoneofficial.com",
   whatsapp: "+60 12-383 4821",
-  website: "azoneofficial.com",
-  websiteUrl: "https://azoneofficial.com",
+  website: "a2zcreative.my",
+  websiteUrl: "https://a2zcreative.my",
   slogan: "Empowering brands through creative marketing, digital growth, and live commerce",
   bank: "MAYBANK 5511 0086 5300",
   bankHolder: "A2Z CREATIVE MARKETING",

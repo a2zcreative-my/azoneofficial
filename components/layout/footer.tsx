@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Editable } from "@/components/live/editable";
 import { CONTACT, whatsappUrl } from "@/constants/content";
+import { OUR_COMPANIES, PUBLISHABLE_CLIENTS } from "@/constants/brands";
 import { CTA_LABEL, NAV_ITEMS, SITE_CONFIG } from "@/constants/site";
 
 const SOCIAL_LINKS = [
@@ -101,7 +102,75 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        {/* v1.30.0 — OUR COMPANIES. A2Z and AZ ONE OFFICIAL are separate
+            legal entities under one roof, each with its own website; a
+            visitor should be able to see that at a glance and jump straight
+            to the right one. Every link is generated from constants/brands.ts
+            — no domain is written into this file, so a move is one edit
+            there. Clients are a SEPARATE block below and only appear with
+            written permission on file: one shared row of logos would quietly
+            claim we own our clients too. */}
+        <div className="mt-10 border-t border-white/10 pt-6">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-white/40 uppercase">
+            Our companies
+          </p>
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+            {OUR_COMPANIES.map((b) => {
+              const isSelf = b.url === SITE_CONFIG.url;
+              const inner = (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={b.logo} alt={b.name} className="h-7 w-auto shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium text-white/90">{b.name}</span>
+                    <span className="block truncate text-[11px] text-white/50">{b.descriptor}</span>
+                  </span>
+                </>
+              );
+              return (
+                <li key={b.code}>
+                  {isSelf ? (
+                    <span
+                      className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5"
+                      aria-current="page"
+                    >
+                      {inner}
+                    </span>
+                  ) : (
+                    <a
+                      href={b.url}
+                      rel="noopener"
+                      className="flex items-center gap-3 rounded-lg border border-white/10 px-3 py-2.5 transition-colors hover:border-white/25 hover:bg-white/5"
+                    >
+                      {inner}
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {PUBLISHABLE_CLIENTS.length > 0 && (
+            <>
+              <p className="mt-6 text-[10px] font-semibold tracking-[0.14em] text-white/40 uppercase">
+                Clients
+              </p>
+              <ul className="mt-3 flex flex-wrap items-center gap-3">
+                {PUBLISHABLE_CLIENTS.map((b) => (
+                  <li key={b.code}>
+                    <a href={b.url} rel="noopener"
+                      className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 transition-colors hover:border-white/25 hover:bg-white/5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={b.logo} alt={b.name} className="h-6 w-auto" />
+                      <span className="text-xs text-white/80">{b.name}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-white/60">
             © {year} {SITE_CONFIG.legalName}. All rights reserved.
           </p>

@@ -61,6 +61,12 @@ export default function AccountPage() {
   // v1.6.0: order tracking
   const [orders, setOrders] = useState<{ docs: OrderDoc[]; lives: LiveSession[] } | null>(null);
   const [ordersLocked, setOrdersLocked] = useState(false);
+  /* v1.30.0 (CEO: "customer or client can have a option to click on their
+     logo then will redirecting to their own domain"): the client's OWN mark
+     and address, read from their customer record — not from any list in our
+     code. Null for a client with neither on file, and the area then looks
+     exactly as it did before. */
+  const [brand, setBrand] = useState<{ company: string; website: string | null; logo_key: string | null } | null>(null);
   const [sending, setSending] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
   // EN/BM chrome language — same per-device store as the staff portal.
@@ -85,9 +91,10 @@ export default function AccountPage() {
         void api<{ enquiries: Enquiry[] }>("/account/enquiries").then((e) =>
           setEnquiries(e.data?.enquiries ?? []),
         );
-        void api<{ locked: boolean; docs: OrderDoc[]; lives: LiveSession[] }>("/account/orders").then((o) => {
+        void api<{ locked: boolean; docs: OrderDoc[]; lives: LiveSession[]; brand?: { company: string; website: string | null; logo_key: string | null } | null }>("/account/orders").then((o) => {
           if (o.data?.locked) setOrdersLocked(true);
           setOrders({ docs: o.data?.docs ?? [], lives: o.data?.lives ?? [] });
+          setBrand(o.data?.brand ?? null);
         });
       } else {
         window.location.replace("/login");
@@ -244,7 +251,42 @@ export default function AccountPage() {
         {/* v1.27.0: the "ELFIA drops" card was removed. ELFIA is an
             independent client brand, not an A2Z product, and this card
             advertised one client's storefront to every signed-in customer —
-            including that client's competitors. */}
+            including that client's competitors.
+            v1.30.0 brings a brand card back, but inverted and safe: it shows
+            THIS client their OWN mark, read from their own customer record,
+            and links to THEIR domain. Nobody ever sees another client's
+            brand, which is exactly what went wrong the first time. */}
+        {brand && (
+          <div className={card}>
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
+              {L("Your brand", "Jenama anda")}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              {brand.logo_key && (
+                brand.website ? (
+                  <a href={brand.website} target="_blank" rel="noopener noreferrer"
+                    className="border-border rounded-lg border bg-white p-1.5 transition-colors hover:border-gold">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/api/v1/media/file/${encodeURIComponent(brand.logo_key)}`} alt={brand.company} className="h-10 w-auto" />
+                  </a>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`/api/v1/media/file/${encodeURIComponent(brand.logo_key)}`} alt={brand.company}
+                    className="border-border h-10 w-auto rounded-lg border bg-white p-1.5" />
+                )
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{brand.company}</p>
+                {brand.website && (
+                  <a href={brand.website} target="_blank" rel="noopener noreferrer"
+                    className="text-gold-deep truncate text-xs underline underline-offset-2">
+                    {brand.website.replace(/^https?:\/\//, "")}
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       )}

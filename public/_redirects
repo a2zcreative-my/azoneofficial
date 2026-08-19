@@ -8,3 +8,13 @@
 # 301 is what keeps any old inbound link or stale index entry landing on a
 # real page instead of a 404. Keep it.
 /portfolio/elfia  /portfolio  301
+
+# v1.30.0 — stable outbound short links for the group's brands. Anything we
+# print, WhatsApp or put in a document links to /go/<code>, never straight to
+# the far domain: if a brand ever moves, ONE line here redirects every link
+# ever sent instead of leaving dead paper behind. The targets must match
+# constants/brands.ts — tests/brands-guard.mjs fails the build if they drift.
+# 302, not 301: a permanent redirect is cached by browsers forever, which is
+# exactly what we do NOT want on a link whose destination may change.
+/go/azone  https://azoneofficial.com      302
+/go/elfia  https://elfiaofficialstore.my  302

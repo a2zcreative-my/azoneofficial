@@ -234,7 +234,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0073_document_issuer";
+const LATEST_MIGRATION = "0074_customer_brand";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -2753,6 +2753,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0071 (ERP core)", `SELECT id FROM gl_accounts LIMIT 1`],
       ["0072 (geofence seed)", `SELECT value FROM system_meta WHERE key = 'attendance_geofence' LIMIT 1`],
       ["0073 (document issuer)", `SELECT issuer_code FROM sales_documents LIMIT 1`],
+      ["0074 (client brand)", `SELECT website, logo_key FROM customers LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2840,6 +2841,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0071_erp_core",
       "0072_geofence_seed",
       "0073_document_issuer",
+      "0074_customer_brand",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -3038,14 +3040,25 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind(user.id).first<{ password_hash: string }>();
     const verified = acct?.password_hash.startsWith("oauth$") ?? false;
     if (!verified) {
-      return json({ locked: true, docs: [], lives: [] });
+      return json({ locked: true, docs: [], lives: [], brand: null });
     }
     const email = user.email.toLowerCase().trim();
     const { results: custRows } = await env.DB.prepare(
       `SELECT id FROM customers WHERE lower(email) = ?1`,
     ).bind(email).all<{ id: number }>();
     const ids = custRows.map((c) => c.id);
-    if (ids.length === 0) return json({ locked: false, docs: [], lives: [] });
+    if (ids.length === 0) return json({ locked: false, docs: [], lives: [], brand: null });
+    /* v1.30.0 — the client's OWN brand, sent back with their orders so their
+       area can show their mark and link home. Fails soft: a pre-0074
+       database, or a client with neither website nor logo, simply yields
+       null and the area renders exactly as it did before. */
+    let brand: { company: string; website: string | null; logo_key: string | null } | null = null;
+    try {
+      const b = await env.DB.prepare(
+        `SELECT company, website, logo_key FROM customers WHERE id = ?1`,
+      ).bind(ids[0]!).first<{ company: string; website: string | null; logo_key: string | null }>();
+      if (b && (b.website || b.logo_key)) brand = b;
+    } catch { /* pre-0074 — no brand columns yet */ }
     const placeholders = ids.map((_, i) => `?${i + 1}`).join(", ");
     let docs: unknown[] = [], lives: unknown[] = [];
     try {
@@ -3070,7 +3083,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
            ORDER BY session_date DESC LIMIT 50`,
       ).bind(...ids).all()).results;
     } catch { /* pre-live_sessions */ }
-    return json({ locked: false, docs, lives });
+    return json({ locked: false, docs, lives, brand });
   }
 
   /* ---- site content ---- */

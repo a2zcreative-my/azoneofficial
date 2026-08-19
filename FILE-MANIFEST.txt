@@ -1,4 +1,4 @@
-a2z-v1.29.5-FULL — 317 files
+a2z-v1.30.0-FULL — 323 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	560328
+CHANGELOG.md	564305
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	6995
@@ -30,7 +30,7 @@ USER_GUIDE.md	3947
 WORKFLOW.md	36227
 app/about/page.tsx	3445
 app/account/layout.tsx	469
-app/account/page.tsx	24180
+app/account/page.tsx	26701
 app/admin/layout.tsx	472
 app/admin/page.tsx	57660
 app/admin/permissions/page.tsx	3851
@@ -51,7 +51,7 @@ app/packages/page.tsx	4940
 app/page.tsx	957
 app/portal/error.tsx	3618
 app/portal/layout.tsx	597
-app/portal/page.tsx	385818
+app/portal/page.tsx	389198
 app/portfolio/page.tsx	3066
 app/privacy/page.tsx	5641
 app/report/page.tsx	4931
@@ -80,7 +80,7 @@ components/home/showcase.tsx	3393
 components/layout/.gitkeep	0
 components/layout/app-shell.tsx	3826
 components/layout/command-palette.tsx	6221
-components/layout/footer.tsx	5853
+components/layout/footer.tsx	9122
 components/layout/nav-icons.tsx	3465
 components/layout/navbar.tsx	3606
 components/layout/page-shell.tsx	3009
@@ -142,6 +142,7 @@ components/ui/skeleton.tsx	5590
 components/ui/stat-card.tsx	4458
 components/ui/stat-tile.tsx	2566
 components/ui/whatsapp-fab.tsx	3513
+constants/brands.ts	3887
 constants/content.ts	20474
 constants/pages.ts	13907
 constants/site.ts	3417
@@ -176,7 +177,7 @@ lib/event-ics.ts	7330
 lib/form-pdf.ts	17369
 lib/format.ts	2236
 lib/i18n.ts	6794
-lib/issuers.ts	7569
+lib/issuers.ts	8096
 lib/names.ts	1254
 lib/payslip-pdf.ts	8717
 lib/push-client.ts	2443
@@ -192,7 +193,9 @@ pnpm-lock.yaml	175690
 postcss.config.mjs	94
 public/.gitkeep	0
 public/_headers	1359
-public/_redirects	452
+public/_redirects	1077
+public/brands/azone-white.png	13122
+public/brands/azone.png	20777
 public/icon-192.png	6445
 public/icon-512.png	18141
 public/logo-white.png	21153
@@ -206,12 +209,14 @@ public/signatures/coo-sign.png	363474
 public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
+scratch/client-brand-e2e.mjs	3869
 scratch/login-mobile-shot.mjs	2368
 scratch/multi-host-e2e.mjs	6698
 scratch/public-form-origin-check.sh	2046
 scratch/roster-toast-e2e.mjs	5543
 styles/globals.css	15803
 tests/bm-coverage.mjs	5616
+tests/brands-guard.mjs	7844
 tests/csrf-guard.mjs	3856
 tests/doc-issuer-render.mjs	4816
 tests/document-issuer-guard.mjs	9726
@@ -302,17 +307,18 @@ worker/migrations/0070_selfie_clockin.sql	253
 worker/migrations/0071_erp_core.sql	9780
 worker/migrations/0072_geofence_seed.sql	1035
 worker/migrations/0073_document_issuer.sql	1343
+worker/migrations/0074_customer_brand.sql	1007
 worker/package-lock.json	50267
 worker/package.json	470
 worker/pnpm-lock.yaml	29008
 worker/pnpm-workspace.yaml	101
 worker/src/erp.ts	40519
-worker/src/index.ts	177974
+worker/src/index.ts	178834
 worker/src/m2e.ts	11123
 worker/src/permissions.ts	3168
 worker/src/shared.ts	6990
 worker/src/shift-sales.ts	4095
-worker/src/staff.ts	399471
+worker/src/staff.ts	402789
 worker/src/webpush.ts	6803
 worker/tsconfig.json	288
 worker/wrangler.toml	4242

@@ -3616,18 +3616,40 @@ export async function handleStaff(
       return json({ customers: results });
     }
     if (!body || !str(body.company, 200)) return err("invalid_input", "company is required", 400);
-    const res = await env.DB.prepare(
-      `INSERT INTO customers (company, contact_person, phone, email, address, notes, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
-    ).bind(
-      body.company,
-      str(body.contact_person, 120) ? body.contact_person : null,
-      str(body.phone, 40) ? body.phone : null,
-      str(body.email, 200) ? body.email : null,
-      str(body.address, 500) ? body.address : null,
-      str(body.notes, 2000) ? body.notes : null,
-      user.id,
-    ).first<{ id: number }>();
+    /* v1.30.0 — website travels with the customer from the first save; the
+       logo is uploaded afterwards (POST /customers/:id/logo) because it
+       needs the row's id for its object key. Pre-0074 databases have no
+       website column, so fall back to the old shape rather than 500. */
+    const website = str(body.website, 300) ? (body.website as string).trim() : null;
+    let res: { id: number } | null = null;
+    try {
+      res = await env.DB.prepare(
+        `INSERT INTO customers (company, contact_person, phone, email, address, notes, website, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+      ).bind(
+        body.company,
+        str(body.contact_person, 120) ? body.contact_person : null,
+        str(body.phone, 40) ? body.phone : null,
+        str(body.email, 200) ? body.email : null,
+        str(body.address, 500) ? body.address : null,
+        str(body.notes, 2000) ? body.notes : null,
+        website,
+        user.id,
+      ).first<{ id: number }>();
+    } catch {
+      res = await env.DB.prepare(
+        `INSERT INTO customers (company, contact_person, phone, email, address, notes, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+      ).bind(
+        body.company,
+        str(body.contact_person, 120) ? body.contact_person : null,
+        str(body.phone, 40) ? body.phone : null,
+        str(body.email, 200) ? body.email : null,
+        str(body.address, 500) ? body.address : null,
+        str(body.notes, 2000) ? body.notes : null,
+        user.id,
+      ).first<{ id: number }>();
+    }
     await audit(env, user.id, "customer.create", "customers", String(res?.id));
     return json({ id: res?.id }, 201);
   }
@@ -3636,7 +3658,10 @@ export async function handleStaff(
     if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
     /* v1.4.235: sending "" clears a field (→ NULL) — before, a field could
        never be emptied once set. company itself can't be cleared. */
-    const fields = ["company", "contact_person", "phone", "email", "address", "notes"] as const;
+    /* v1.30.0: website joins the editable set. logo_key is deliberately NOT
+       here — a logo is set by uploading bytes, not by typing a key, so
+       nobody can point a customer row at someone else's object. */
+    const fields = ["company", "contact_person", "phone", "email", "address", "notes", "website"] as const;
     const sets: string[] = [];
     const vals: (string | null)[] = [];
     for (const f of fields) {
@@ -3655,6 +3680,38 @@ export async function handleStaff(
     await audit(env, user.id, "customer.update", "customers", custMatch[1]!);
     return json({ ok: true });
   }
+  /* v1.30.0 — the client's own mark. Same shape as the staff-photo upload
+     (raw image body, type-checked, straight into R2, key on the row), with
+     one difference: this object must be readable WITHOUT a staff session.
+     The client sees it in their own area (role "customer", which the media
+     guard refuses for every non-public prefix) and it may ride along on a
+     report they forward to their boss. So it goes under uploads/ — the one
+     prefix the media guard already treats as public (v1.5.0 policy) —
+     rather than inventing a new public prefix and editing that guard.
+     Nothing sensitive lives in a company logo. */
+  const custLogo = path.match(/^\/customers\/(\d+)\/logo$/);
+  if (custLogo && method === "POST") {
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
+    const id = custLogo[1]!;
+    const target = await env.DB.prepare(`SELECT id FROM customers WHERE id = ?1`).bind(id).first<{ id: number }>();
+    if (!target) return err("not_found", "Customer not found", 404);
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const ct = request.headers.get("Content-Type") ?? "";
+    if (!["image/jpeg", "image/png", "image/webp", "image/svg+xml"].includes(ct)) {
+      return err("invalid_input", "Only JPEG/PNG/WEBP/SVG images are allowed", 400);
+    }
+    const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : ct.includes("svg") ? "svg" : "jpg";
+    const key = `uploads/client-logos/${id}-${Date.now()}.${ext}`;
+    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    try {
+      await env.DB.prepare(`UPDATE customers SET logo_key = ?1 WHERE id = ?2`).bind(key, id).run();
+    } catch {
+      return err("not_ready", "Run DEPLOY.bat in full — migration 0074 adds the client logo column", 409);
+    }
+    await audit(env, user.id, "customer.logo", "customers", id);
+    return json({ logo_key: key, url: `/api/v1/media/file/${encodeURIComponent(key)}` }, 201);
+  }
+
   if (custMatch && method === "DELETE") {
     /* v1.4.235 (CEO: "delete if require"): a customer with documents is
        NEVER deleted — quotations/invoices must keep their party for

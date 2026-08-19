@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.30.0] — 2026-08-19 — three brands, cleanly separated: one source of truth, and every client owns their own mark
+
+**CEO: "how to make sure that AZONE official and ELFIA is not in my A2Z system? I just want that customer or client can have a option to click on their logo then will redirecting to their own domain."** Two halves, and neither is a hardcoded link.
+
+### Half one — the group's brands live in ONE file
+`constants/brands.ts` now declares every brand once: name, kind, canonical domain, logo, descriptor, registration. The footer's new **"Our companies"** row is generated from it — A2Z CREATIVE MARKETING and AZ ONE OFFICIAL side by side, each linking to its own domain, the current site marked rather than linked. A domain move is one edit here plus one line in `public/_redirects`, not a hunt through components.
+
+**ELFIA is `kind: "client"`, and that word does real work.** Clients never appear in the companies row — a shared logo row silently claims ownership of a business you do not own. Clients render only through `PUBLISHABLE_CLIENTS`, which requires `permissionOnFile: true`; ELFIA's is **false**, so ELFIA appears nowhere on the public site today. That is your own standing rule since v1.27.0: client marks are published only with written permission on file.
+
+**Stable outbound short links.** `/go/azone` and `/go/elfia` (302, not 301 — a permanent redirect is cached by browsers forever) mean anything printed, WhatsApped or put in a document survives a future domain move: one line changes and every link ever sent follows.
+
+**New guard, `tests/brands-guard.mjs`,** fails the build if: ELFIA is reclassified as a company; the permission gate disappears; a `/go/` link stops matching the config; a sister or client domain is hardcoded anywhere in `app/`, `components/`, `lib/` or `constants/`; or A2Z's own identity starts leaning on a client's name. Both directions verified — it passes clean and it genuinely fails when a domain is planted in a component.
+
+**A real bug it caught on its first run:** A2Z's document letterhead was still printing `azoneofficial.com`. v1.28.0 shipped that because no A2Z domain existed yet; by today the old domain resolves to nothing, so **every A2Z invoice was showing a client a dead web address**. Fixed to `a2zcreative.my`. AZ ONE's letterhead keeps `azoneofficial.com` — that is its own site — and the A2Z mailbox stays `admin@azoneofficial.com` because Google Workspace has not moved. The guard now pins all three.
+
+### Half two — every client owns their brand, on their own record (migration 0074)
+`customers` gains **website** and **logo_key**. In Sales → customer form there is now *Their website* and an *Upload logo* button (PNG/JPG/WEBP/SVG, stored in R2 under the public `uploads/` prefix — the client must be able to see their own logo, and their role would be refused by every private prefix).
+
+In the client's own area, a **"Your brand"** card shows that client their own mark and links to their own domain. Note what it is not: v1.27.0 removed an "ELFIA drops" card because it advertised one client's storefront to every signed-in customer, including their competitors. This card is the inverse — each client sees only themselves, read from their own row. A client with neither website nor logo on file sees no card at all.
+
+This is what makes it **systematic** rather than a special case: ELFIA is simply the first client with a website and a mark on file, and the tenth client works identically with no deploy.
+
+Proven end-to-end on the built pages (`scratch/client-brand-e2e.mjs`): client with a brand sees the card and the link to their domain; client without one sees nothing; the public footer lists both companies and links AZ ONE exactly once; **zero links to ELFIA anywhere on the public site**.
+
+**Deploy notes:** site AND worker changed, **and there is a migration (0074)** — run `DEPLOY.bat` IN FULL; step 4 must apply it. Nothing to configure afterwards.
+
 ## [1.29.5] — 2026-08-19 — one slot, several hosts
 
 **CEO: "For host I need to have a multiple host pick if it is require."** New assignment now takes as many hosts as the slot needs. Pick the first in the Host box as always, then add more from **+ Add another host** underneath; each one appears as a removable chip.

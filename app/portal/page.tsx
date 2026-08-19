@@ -3001,7 +3001,7 @@ function Announcements({ user }: { user: User }) {
 
 /* ================= Sales (CRM + documents) ================= */
 
-interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; address?: string | null }
+interface Customer { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; address?: string | null; website?: string | null; logo_key?: string | null }
 interface SalesDoc {
   id: number; doc_type: string; doc_number: string; company: string; total_cents: number;
   payment_status: string | null; delivery_status: string | null; created_at: string;
@@ -3449,7 +3449,7 @@ function PackagesEditorCard({ role }: { role: string }) {
       <p className="text-sm font-semibold">📦 {L("Packages — public rate card", "Pakej — kadar harga awam")}</p>
       {toastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
-        {L("Shown on azoneofficial.com/packages with a WhatsApp button. The page stays a contact-us page until you save at least one tier here.", "Dipaparkan di azoneofficial.com/packages dengan butang WhatsApp. Halaman itu kekal sebagai halaman hubungi-kami sehingga anda menyimpan sekurang-kurangnya satu pakej di sini.")}
+        {L("Shown on a2zcreative.my/packages with a WhatsApp button. The page stays a contact-us page until you save at least one tier here.", "Dipaparkan di a2zcreative.my/packages dengan butang WhatsApp. Halaman itu kekal sebagai halaman hubungi-kami sehingga anda menyimpan sekurang-kurangnya satu pakej di sini.")}
       </p>
       <div className="mt-2 space-y-3">
         {tiers.map((t, i) => (
@@ -3835,7 +3835,11 @@ function Sales({ user }: { user: User }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "", address: "" });
+  const [cust, setCust] = useState({ company: "", contact_person: "", phone: "", email: "", address: "", website: "" });
+  /* v1.30.0 — the client's own mark. Uploading needs the row to exist (the
+     object key is built from its id), so the button only appears while
+     editing a saved customer. */
+  const [logoBusy, setLogoBusy] = useState<number | null>(null);
   const [editingCust, setEditingCust] = useState<{ id: number; company: string } | null>(null); // v1.4.235
   // customer_id: -1 = not chosen · 0 = walk-in/unidentified buyer.
   // salesperson_id: 0 = "me" (worker defaults to the creator).
@@ -3925,7 +3929,7 @@ function Sales({ user }: { user: User }) {
       await api(`/staff/customers`, { method: "POST", body: JSON.stringify(cust) });
       showToast(L("Saved", "Disimpan"), L(`${cust.company} added`, `${cust.company} ditambah`));
     }
-    setCust({ company: "", contact_person: "", phone: "", email: "", address: "" });
+    setCust({ company: "", contact_person: "", phone: "", email: "", address: "", website: "" });
     setEditingCust(null);
     void load();
   };
@@ -4044,7 +4048,7 @@ function Sales({ user }: { user: User }) {
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">
-            {editingCust ? <>{L("Editing", "Menyunting")} {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); }}>{L("cancel", "batal")}</button></> : L("Add customer", "Tambah pelanggan")}
+            {editingCust ? <>{L("Editing", "Menyunting")} {editingCust.company} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "", website: "" }); }}>{L("cancel", "batal")}</button></> : L("Add customer", "Tambah pelanggan")}
           </p>
           <div className="mt-3 space-y-3">
             <Sub t={L("Company *", "Syarikat *")}>
@@ -4065,6 +4069,50 @@ function Sales({ user }: { user: User }) {
               {/* v1.4.235: prints on the customer's documents. */}
               <textarea className={`${inputClass} min-h-16`} placeholder={"No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"} value={cust.address} onChange={(e) => setCust((c) => ({ ...c, address: e.target.value }))} />
             </Sub>
+            {/* v1.30.0 (CEO: "customer or client can have a option to click
+                on their logo then will redirecting to their own domain"):
+                the client's OWN address on the web, and their own mark. It
+                lives on the client record — not in our site's code — so the
+                tenth client works the same as the first with no deploy. */}
+            <Sub t={L("Their website", "Laman web mereka")}>
+              <input className={inputClass} placeholder="https://theirbrand.my" value={cust.website}
+                onChange={(e) => setCust((c) => ({ ...c, website: e.target.value }))} />
+            </Sub>
+            {editingCust && (
+              <Sub t={L("Their logo", "Logo mereka")}>
+                <span className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const row = customers.find((c) => c.id === editingCust.id);
+                    return row?.logo_key ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={`/api/v1/media/file/${encodeURIComponent(row.logo_key)}`} alt={row.company}
+                        className="border-border h-8 w-auto rounded border bg-white p-0.5" />
+                    ) : null;
+                  })()}
+                  <label className="border-border inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs hover:bg-secondary">
+                    {logoBusy === editingCust.id ? L("Uploading…", "Memuat naik…") : L("Upload logo", "Muat naik logo")}
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!f) return;
+                        setLogoBusy(editingCust.id);
+                        const r = await api<{ error?: { message?: string } }>(`/staff/customers/${editingCust.id}/logo`, {
+                          method: "POST", body: f, headers: { "Content-Type": f.type },
+                        });
+                        setLogoBusy(null);
+                        if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice"); return; }
+                        showToast(L("Saved", "Disimpan"), L(`${editingCust.company} logo updated`, `Logo ${editingCust.company} dikemas kini`));
+                        void load();
+                      }} />
+                  </label>
+                  <span className="text-muted-foreground text-[11px]">
+                    {L("PNG, JPG, WEBP or SVG. Shown to this client in their own area, linking to their website.",
+                       "PNG, JPG, WEBP atau SVG. Dipaparkan kepada klien ini di ruangan mereka, memaut ke laman web mereka.")}
+                  </span>
+                </span>
+              </Sub>
+            )}
             <button type="button" className={btnClass} onClick={() => void addCustomer()}>{editingCust ? L("Update customer", "Kemas kini pelanggan") : L("Save customer", "Simpan pelanggan")}</button>
           </div>
           <div className="mt-3 max-h-56 overflow-y-auto">
@@ -4094,7 +4142,7 @@ function Sales({ user }: { user: User }) {
                   <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs hover:bg-secondary"
                     onClick={() => {
                       setEditingCust({ id: c.id, company: c.company });
-                      setCust({ company: c.company, contact_person: c.contact_person ?? "", phone: c.phone ?? "", email: c.email ?? "", address: (c as { address?: string | null }).address ?? "" });
+                      setCust({ company: c.company, contact_person: c.contact_person ?? "", phone: c.phone ?? "", email: c.email ?? "", address: (c as { address?: string | null }).address ?? "", website: c.website ?? "" });
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}>✎ {L("Edit", "Sunting")}</button>
                   <button type="button" className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
@@ -4106,7 +4154,7 @@ function Sales({ user }: { user: User }) {
                         variant: "danger",
                       }))) return;
                       const res = await api<{ error?: { message?: string } }>(`/staff/customers/${c.id}`, { method: "DELETE" });
-                      if (res.ok) { showToast(L("Deleted", "Dipadam"), L(`${c.company} removed`, `${c.company} dibuang`)); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "" }); } void load(); }
+                      if (res.ok) { showToast(L("Deleted", "Dipadam"), L(`${c.company} removed`, `${c.company} dibuang`)); if (editingCust?.id === c.id) { setEditingCust(null); setCust({ company: "", contact_person: "", phone: "", email: "", address: "", website: "" }); } void load(); }
                       else showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Delete refused", "Padam ditolak"), "notice");
                     }}>{L("Delete", "Padam")}</button>
                 </span>
