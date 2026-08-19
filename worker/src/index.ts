@@ -2271,8 +2271,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      in the console. A request from a host we do not serve falls back to the
      primary origin. Start and callback both derive it the same way, so the
      pair always agrees. */
-  const reqUrl = new URL(request.url);
-  const selfOrigin = `${reqUrl.protocol}//${reqUrl.host}`;
+  /* v1.29.1 — PRODUCTION OUTAGE FIX (error_log 19-08 19:09-19:24, six rows,
+     all "url is not defined"). This line used to read `url.protocol`, but
+     `url` is a local of fetch(); route() receives only (request, env, path).
+     Nothing typechecks at deploy time — wrangler bundles with esbuild, which
+     strips types without resolving them — so the bare identifier shipped and
+     threw a ReferenceError on EVERY request whose handler sits BELOW this
+     line: /auth/me, /staff/*, /health, and the 404 fall-through. Sign-in
+     itself (line ~1947, above here) still succeeded, so the browser got its
+     cookies and then /auth/me 500'd — the portal read that as "not signed
+     in" and bounced back to /login. That is the login loop. Derive the
+     origin from `request`, which route() actually has. */
+  const selfUrl = new URL(request.url);
+  const selfOrigin = `${selfUrl.protocol}//${selfUrl.host}`;
   const oauthBase = allowedOrigins(env).includes(selfOrigin) ? selfOrigin : primaryOrigin(env);
   const redirectUri = `${oauthBase}/api/v1/auth/google/callback`;
 

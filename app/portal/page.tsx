@@ -3208,6 +3208,12 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
   interface Sess { id: number; session_date: string; start_time: string; end_time?: string | null; platform: string; client_company?: string | null; client_name?: string | null; host_user_id: number; host_name: string; notes?: string | null; status: string }
   interface Opt { id: number; name?: string | null; company?: string | null; role?: string }
   const manager = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
+  /* v1.29.1 — same complaint as the roster board's Mark completed: this
+     card's status dropdown changed a live session with no confirmation at
+     all, and a rejected PATCH left the select showing the NEW value while
+     the database still held the old one. It now reports through the shared
+     save toast and reloads from the server either way. */
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [sessions, setSessions] = useState<Sess[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [hosts, setHosts] = useState<Opt[]>([]);
@@ -3248,14 +3254,27 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
     void load();
   };
   const setStatus = async (id: number, status: string) => {
-    await api(`/staff/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    const sn = sessions.find((x) => x.id === id);
+    const r = await api<{ error?: { message?: string } }>(`/staff/live-sessions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    if (!r.ok) {
+      showToast(L("No change", "Tiada perubahan"),
+        r.data?.error?.message ?? L("Could not update the session", "Sesi tidak dapat dikemas kini"), "notice");
+      void load(); // pull the real value back so the dropdown stops lying
+      return;
+    }
+    showToast(
+      status === "completed" ? L("Session completed", "Sesi selesai")
+        : status === "cancelled" ? L("Session cancelled", "Sesi dibatalkan")
+        : L("Back to scheduled", "Kembali kepada dijadualkan"),
+      sn ? `${sn.client_company ?? sn.client_name ?? L("Live session", "Sesi LIVE")} · ${dmy(sn.session_date)} ${sn.start_time}` : "",
+    );
     void load();
   };
   
   /* v1.21.2 (CEO: "lives today seem overfloating"): the modal variant had
      NO padding — fields and the empty-state line sat flush against the
      dialog edges. It now carries the dialog's standard inner padding. */
-  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col px-4 pt-1 pb-4 sm:px-5 sm:pb-5">{node}</div> : (
+  const wrapCard = (node: ReactNode) => inModal ? <div className="flex flex-col px-4 pt-1 pb-4 sm:px-5 sm:pb-5">{node}{toastNode}</div> : (
     <div className={card}>
       <p className="text-sm font-semibold">📺 {L("Live session schedule", "Jadual sesi LIVE")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
@@ -3264,6 +3283,7 @@ function LiveScheduleCard({ user, inModal }: { user: User, inModal?: boolean }) 
           : L("Your upcoming live sessions — you are notified when a new one is assigned to you.", "Sesi LIVE anda yang akan datang — anda dimaklumkan apabila yang baharu ditugaskan kepada anda.")}
       </p>
       {node}
+      {toastNode}
     </div>
   );
 

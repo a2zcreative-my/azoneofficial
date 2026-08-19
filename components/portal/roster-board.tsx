@@ -147,6 +147,49 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     setAssignOpen(true);
   };
 
+  /* v1.29.1 (CEO: "when I click mark complete, there is no popup
+     notification, I want to use the same popup notification as the existing
+     globally!"): Mark completed / Cancel session were six copy-pasted inline
+     handlers that fired the PATCH and threw the result away —
+     `await api(...); setOpenSession(null); void load(week);`. Two faults in
+     that. The action confirmed nothing, so a manager closing off a live had
+     no signal it landed; and a FAILED PATCH (offline, CSRF, permission)
+     looked identical to a successful one — the card closed, the board
+     reloaded, and the session silently stayed "scheduled".
+     One handler now serves all six buttons and reports through the same
+     useSaveToast that Save, Reschedule and the PDF share already use, so the
+     whole portal confirms itself identically. The board only reloads when
+     the write actually succeeded. */
+  const setSessionStatus = useCallback(
+    async (s: RosterSession, status: "completed" | "cancelled") => {
+      const r = await api<{ error?: { message?: string } }>(`/live-sessions/${s.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setOpenSession(null);
+      const who = s.client ?? L("Live session", "Sesi LIVE");
+      const when = `${dmy(s.session_date)} ${s.start_time}`;
+      if (!r.ok) {
+        showToast(
+          L("No change", "Tiada perubahan"),
+          r.data?.error?.message ??
+            (status === "completed"
+              ? L("Could not mark that session completed — it is still scheduled", "Sesi itu tidak dapat ditanda selesai — ia masih dijadualkan")
+              : L("Could not cancel that session — it is still scheduled", "Sesi itu tidak dapat dibatalkan — ia masih dijadualkan")),
+          "notice",
+        );
+        return;
+      }
+      showToast(
+        status === "completed" ? L("Session completed", "Sesi selesai") : L("Session cancelled", "Sesi dibatalkan"),
+        `${who} · ${when}`,
+      );
+      void load(week);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- L is derived from lang
+    [load, week, showToast, lang],
+  );
+
   /* v1.22.6 — amend/typo-fix: the dialog opens prefilled from the session. */
   const openEdit = (s: RosterSession) => {
     setDraft({
@@ -530,13 +573,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                               )}
                               {sel.status === "scheduled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                                  onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                                  onClick={() => void setSessionStatus(sel, "completed")}>
                                   {L("✓ Mark completed", "✓ Tanda selesai")}
                                 </button>
                               )}
                               {sel.status !== "cancelled" && (
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                                  onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                                  onClick={() => void setSessionStatus(sel, "cancelled")}>
                                   {L("✕ Cancel session", "✕ Batalkan sesi")}
                                 </button>
                               )}
@@ -676,13 +719,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         )}
                         {sel.status === "scheduled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                            onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                            onClick={() => void setSessionStatus(sel, "completed")}>
                             {L("✓ Mark completed", "✓ Tanda selesai")}
                           </button>
                         )}
                         {sel.status !== "cancelled" && (
                           <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                            onClick={async () => { await api(`/live-sessions/${sel.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                            onClick={() => void setSessionStatus(sel, "cancelled")}>
                             {L("✕ Cancel session", "✕ Batalkan sesi")}
                           </button>
                         )}
@@ -754,13 +797,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                 )}
                                 {s.status === "scheduled" && (
                                   <button type="button" className={btnSm}
-                                    onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) }); setOpenSession(null); void load(week); }}>
+                                    onClick={() => void setSessionStatus(s, "completed")}>
                                     {L("✓ Mark completed", "✓ Tanda selesai")}
                                   </button>
                                 )}
                                 {s.status !== "cancelled" && (
                                   <button type="button" className={btnSm}
-                                    onClick={async () => { await api(`/live-sessions/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }); setOpenSession(null); void load(week); }}>
+                                    onClick={() => void setSessionStatus(s, "cancelled")}>
                                     {L("✕ Cancel session", "✕ Batalkan sesi")}
                                   </button>
                                 )}

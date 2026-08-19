@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.1] — 2026-08-19 — outage fix: "url is not defined" · Mark completed now confirms itself
+
+**This release exists because v1.29.0 broke sign-in on a2zcreative.my, and the fault was mine.** The domain work added host-aware Google OAuth to the API worker and referenced `url.protocol` at the top of the request router — but `url` only exists inside the outer handler; the router is handed `(request, env, path)` and nothing else. So a `ReferenceError` shipped to production, and every request whose handler sits below that line threw it: `/auth/me`, `/staff/*`, `/health`. Sign-in itself SUCCEEDED and then `/auth/me` returned 500, so the portal read "not signed in" and bounced straight back to `/login` — a loop that looked exactly like a wrong password. The error log said it plainly six times: `url is not defined`.
+
+**Why nothing caught it before it went live** — the important part:
+- The root `tsconfig.json` carries `"exclude": ["node_modules", "worker"]`. `pnpm typecheck` and `next build` never look at the API worker at all.
+- `wrangler deploy` bundles with esbuild, which strips TypeScript types **without resolving them**. An undefined identifier compiles perfectly and only fails when a real request reaches it.
+- The guard tests read the source as text; they confirmed the new OAuth logic was PRESENT, not that it could RUN.
+
+**Fixed here:**
+- The origin is derived from `request`, which the router actually has.
+- **New gate — `tests/worker-compile-gate.mjs`** runs the real TypeScript compiler over `worker/src` and fails the deploy on undefined names (TS2304/TS2552). It deliberately ignores the worker's ~28 pre-existing strict-mode warnings: a gate that cries wolf gets bypassed, and this one has to stay in the deploy path.
+- **DEPLOY.bat now runs that gate at step 3, before anything is published**, installs the API's own dependencies at step 2 so the gate can always run, refuses to run from a folder that is not this version, and **prints the live health of both domains at step 6** so the result is visible without asking anyone.
+
+**Also in this release — "when I click mark complete, there is no popup notification":**
+- Mark completed / Cancel session on the roster board were six copy-pasted inline handlers that fired the change and threw the answer away. Nothing confirmed the action, and a REJECTED change looked identical to a successful one — the card closed, the board reloaded, and the session quietly stayed scheduled. One shared handler now reports through the same centred confirmation used by Save, Reschedule and the PDF share ("Session completed — ELFIA · 19-08-2026 20:30"), says so when the change is refused, and only reloads the board when the write actually landed.
+- The Live session schedule card's status dropdown had the same silence, with a worse edge: a refused change left the dropdown showing the new value while the database held the old one. It now confirms, and re-reads from the server either way.
+- Both paths are proven end-to-end against the built portal (success and refusal) in `scratch/roster-toast-e2e.mjs`.
+
+**Deploy notes:** site AND worker changed, no migration. Run `DEPLOY.bat` IN FULL from the v1.29.1 folder. Step 3 must print `[OK] API code has no undefined names`; step 6 must print `"version":"1.29.1"`.
+
 ## [1.29.0] — 2026-08-19 — a2zcreative.my goes live alongside azoneofficial.com
 
 **Stage B: the domain. Zone confirmed in the production Cloudflare account (39fe816a…), Google OAuth entries added, so the cutover ships.** After this deploy plus two dashboard clicks, **a2zcreative.my and www.a2zcreative.my serve the complete system** — site, portal, admin, client area and API — while azoneofficial.com keeps working in full. Nothing is taken away; the new domain is added in front.
