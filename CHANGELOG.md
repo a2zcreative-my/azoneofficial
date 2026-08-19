@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.29.3] — 2026-08-19 — the three-brand shape: one back office, one cross-site door
+
+**Your three decisions, on record: one back office (not three databases) · ELFIA's canonical address is elfiaofficialstore.my · the consultancy site gets a working contact form.** This release is the API side of that shape; the two new websites follow.
+
+**One door, and it is exactly one door.** azoneofficial.com (AZ ONE OFFICIAL — a separate legal entity, its own website) may now POST the public enquiry form into the portal's Enquiries tab, and may do nothing else. That permission lives in its own setting, `PUBLIC_FORM_ORIGINS`, deliberately NOT in `ALLOWED_ORIGINS`: it is consulted at exactly one route (`POST /api/v1/enquiries`) and that route's CORS preflight. From the consultancy site, sign-in, registration and every other endpoint still answer 403. The reasoning is blast radius — a compromise of a marketing site for a different entity has to stop at "someone submitted a fake lead", not reach staff data.
+
+Verified against a running Worker, not just read: enquiry from azoneofficial.com → 201; from its www twin → 201; from A2Z itself → 201; from a stranger → 403; **login from azoneofficial.com → 403**; register → 403; preflight echoes the form origin only. Repeatable via `scratch/public-form-origin-check.sh`.
+
+**The guard now enforces the shape, not just the values.** `tests/origins-guard.mjs` fails the build if azoneofficial.com reappears in `ALLOWED_ORIGINS` (that would hand it sign-in again), if the exception widens beyond POST/OPTIONS on the enquiry route, or if ELFIA's store is ever added to the form allow-list — ELFIA is a **client**, and a client's shop does not post into A2Z's enquiry inbox.
+
+**Deploy notes:** worker only (site unchanged, no migration), but run `DEPLOY.bat` IN FULL as always. `PUBLIC_FORM_ORIGINS` ships in `worker/wrangler.toml`, so the deploy sets it — no dashboard step.
+
 ## [1.29.2] — 2026-08-19 — one domain · sign-in fits a phone
 
 **CEO's decision, in his words: "No more API under azoneofficial.com."** The API worker now carries exactly two routes — `a2zcreative.my/api/*` and `www.a2zcreative.my/api/*` — and `ALLOWED_ORIGINS` names only the new domain. `wrangler deploy` reconciles the route list, so the old domain's routes are removed from Cloudflare on the next deploy. This costs nothing today: azoneofficial.com has no DNS records at all and already serves nothing.

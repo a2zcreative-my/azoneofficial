@@ -21,6 +21,10 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
+  /** v1.29.3 — origins that may submit the PUBLIC enquiry form and nothing
+      else. The consultancy site (azoneofficial.com) posts leads into the one
+      back office; it can never mint a session or read staff data with this. */
+  PUBLIC_FORM_ORIGINS?: string;
   SETUP_TOKEN: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
@@ -174,6 +178,29 @@ function allowedOrigins(env: Env): string[] {
   return out;
 }
 
+/** v1.29.3 — origins allowed to POST the public enquiry form ONLY.
+ *
+ * The three brands are three separate websites over ONE back office. The
+ * consultancy site (azoneofficial.com) needs its contact form to land in the
+ * portal's Enquiries tab, but it must never be able to sign anyone in: it is
+ * a different legal entity's marketing site, and the blast radius of a
+ * compromise there has to stop at "someone submitted a fake lead".
+ *
+ * So this list is deliberately NOT part of allowedOrigins(): it is consulted
+ * at exactly one route (POST /api/v1/enquiries) and for that route's CORS
+ * preflight. Same www./apex twinning as the main list. */
+function publicFormOrigins(env: Env): string[] {
+  const bases = (env.PUBLIC_FORM_ORIGINS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const base of bases) {
+    const twin = base.includes("://www.")
+      ? base.replace("://www.", "://")
+      : base.replace("://", "://www.");
+    for (const o of [base, twin]) if (!out.includes(o)) out.push(o);
+  }
+  return out;
+}
+
 /** The canonical origin for links WE generate (share links, absolute URLs):
     the first configured origin — https://a2zcreative.my after the switch.
     Old-domain links keep resolving because the old routes stay bound. */
@@ -181,8 +208,8 @@ export function primaryOrigin(env: Env): string {
   return (env.ALLOWED_ORIGINS ?? env.ALLOWED_ORIGIN).split(",")[0]!.trim();
 }
 
-function corsHeaders(env: Env, request?: Request): HeadersInit {
-  const origins = allowedOrigins(env);
+function corsHeaders(env: Env, request?: Request, allowPublicForm = false): HeadersInit {
+  const origins = allowPublicForm ? [...allowedOrigins(env), ...publicFormOrigins(env)] : allowedOrigins(env);
   const reqOrigin = request?.headers.get("Origin");
   const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : origins[0];
   return {
@@ -1341,7 +1368,13 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    const cors = corsHeaders(env, request);
+    /* v1.29.3 — the ONE cross-site door: the public enquiry form, so the
+       consultancy site's contact page can drop a lead into the portal. Scoped
+       to this exact path and to POST/OPTIONS; everything else on the API
+       stays single-origin. */
+    const publicFormRoute =
+      path === "/api/v1/enquiries" && (request.method === "POST" || request.method === "OPTIONS");
+    const cors = corsHeaders(env, request, publicFormRoute);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: cors });
@@ -1352,7 +1385,10 @@ export default {
       const origin = request.headers.get("Origin");
       // v1.5.0: both apex and www. are legitimate (the Worker route binds
       // both) — the old exact-match check 403'd every sign-in from www.
-      if (origin && !allowedOrigins(env).includes(origin)) {
+      const permitted = publicFormRoute
+        ? [...allowedOrigins(env), ...publicFormOrigins(env)]
+        : allowedOrigins(env);
+      if (origin && !permitted.includes(origin)) {
         return errorResponse("forbidden_origin", "Origin not allowed", 403);
       }
       const hasSession = getCookie(request, SESSION_COOKIE);

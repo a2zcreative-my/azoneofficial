@@ -1,4 +1,4 @@
-a2z-v1.29.2-FULL — 315 files
+a2z-v1.29.3-FULL — 316 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	553952
+CHANGELOG.md	555896
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	5939
@@ -207,6 +207,7 @@ public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
 scratch/login-mobile-shot.mjs	2368
+scratch/public-form-origin-check.sh	2046
 scratch/roster-toast-e2e.mjs	5543
 styles/globals.css	15803
 tests/bm-coverage.mjs	5616
@@ -216,7 +217,7 @@ tests/document-issuer-guard.mjs	9726
 tests/leaderboard-sales-floor.mjs	7145
 tests/location-scenarios.mjs	3965
 tests/no-false-attendance.mjs	3679
-tests/origins-guard.mjs	4047
+tests/origins-guard.mjs	5283
 tests/permissions-policy.mjs	4063
 tests/shift-sales-split.mjs	4770
 tests/sql-schema-check.mjs	3876
@@ -305,7 +306,7 @@ worker/package.json	470
 worker/pnpm-lock.yaml	29008
 worker/pnpm-workspace.yaml	101
 worker/src/erp.ts	40519
-worker/src/index.ts	176009
+worker/src/index.ts	177974
 worker/src/m2e.ts	11123
 worker/src/permissions.ts	3168
 worker/src/shared.ts	6990
@@ -313,5 +314,5 @@ worker/src/shift-sales.ts	4095
 worker/src/staff.ts	399471
 worker/src/webpush.ts	6803
 worker/tsconfig.json	288
-worker/wrangler.toml	3749
+worker/wrangler.toml	4242
 wrangler.toml	573

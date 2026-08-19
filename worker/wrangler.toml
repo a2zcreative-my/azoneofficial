@@ -48,6 +48,13 @@ ALLOWED_ORIGIN     = "https://a2zcreative.my"
 # The legacy single-value ALLOWED_ORIGIN above is kept in step with it so an
 # older Worker build can never fall back to a domain we no longer serve.
 ALLOWED_ORIGINS    = "https://a2zcreative.my"
+# v1.29.3 — three brands, three websites, ONE back office. The consultancy
+# site (azoneofficial.com, AZ ONE OFFICIAL — a separate legal entity) may
+# submit its contact form into the portal's Enquiries tab and NOTHING else:
+# this list is consulted at exactly one route, POST /api/v1/enquiries, and
+# its CORS preflight. It grants no session, no staff data, no other endpoint.
+# ELFIA's store is a CLIENT site and is deliberately absent.
+PUBLIC_FORM_ORIGINS = "https://azoneofficial.com"
 # The staff EMAIL domain — deliberately NOT the website domain. Staff sign in
 # as name@azoneofficial.com (Google Workspace), and this gates who may hold a
 # staff/admin role. Changing it before the mailboxes move would lock every

@@ -43,6 +43,25 @@ if (legacy !== 'https://a2zcreative.my') {
   errors.push(`ALLOWED_ORIGIN (legacy single value) is "${legacy}" — it must match the primary origin, or an older Worker build mints links on a dead domain`);
 }
 
+/* v1.29.3 — the consultancy site's one door. It must be its OWN variable:
+   the day azoneofficial.com appears in ALLOWED_ORIGINS instead, that domain
+   can sign people in again, which is not what "separate entity, separate
+   site" means. */
+const formOrigins = /PUBLIC_FORM_ORIGINS\s*=\s*"([^"]*)"/.exec(toml)?.[1] ?? '';
+if (!formOrigins.includes('https://azoneofficial.com')) {
+  errors.push('PUBLIC_FORM_ORIGINS no longer admits https://azoneofficial.com — the consultancy site\'s contact form would 403');
+}
+if (origins.includes('azoneofficial.com')) {
+  errors.push('azoneofficial.com is back in ALLOWED_ORIGINS — that grants it sign-in, not just the enquiry form. Use PUBLIC_FORM_ORIGINS.');
+}
+if (formOrigins.includes('elfiaofficialstore')) {
+  errors.push('ELFIA is a CLIENT brand — its store must not be able to post into the A2Z enquiry inbox');
+}
+const idxForm = readFileSync('worker/src/index.ts', 'utf8');
+if (!/path === "\/api\/v1\/enquiries" && \(request\.method === "POST" \|\| request\.method === "OPTIONS"\)/.test(idxForm)) {
+  errors.push('the public-form origin exception is no longer scoped to POST/OPTIONS /api/v1/enquiries — it must never widen to the whole API');
+}
+
 const site = readFileSync('constants/site.ts', 'utf8');
 if (!site.includes('url: "https://a2zcreative.my"')) errors.push('SITE_CONFIG.url is not the canonical domain');
 
@@ -61,4 +80,4 @@ if (!/const oauthBase = allowedOrigins\(env\)\.includes\(selfOrigin\)/.test(idx)
 if (/^\s*const selfOrigin = `\$\{url\./m.test(idx)) errors.push('route() references `url`, which does not exist there — this is the v1.29.0 outage bug');
 
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }
-console.log('PASS — one domain routed (a2zcreative.my), origins agree, canonical set, COMPANY_DOMAIN untouched, .ics UID frozen, OAuth host-aware');
+console.log('PASS — one domain routed (a2zcreative.my), consultancy site limited to the enquiry form, canonical set, COMPANY_DOMAIN untouched, .ics UID frozen, OAuth host-aware');
