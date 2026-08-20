@@ -162,5 +162,32 @@ if (!existsSync(ISSUERS)) {
   }
 }
 
+/* ---- 5. v1.30.1 — the consultancy ('azoo') stamping contract ------------ */
+{
+  const staff = readFileSync('worker/src/staff.ts', 'utf8');
+  for (const [re, why] of [
+    [/code:\s*"a2z"\s*\|\s*"azoo"\s*=\s*OPERATING_ISSUER_CODE/,
+     'stampIssuer lost its entity parameter (default a2z) — the consultancy option cannot stamp'],
+    [/const issuerD[\s\S]{0,120}?body\.issuer\s*===\s*"azoo"\s*\?\s*"azoo"\s*:\s*"a2z"/,
+     'doc creation no longer honours body.issuer ("azoo" or A2Z default) — the Issued-by selector would silently save everything as A2Z'],
+    [/qtIssuer\s*===\s*"azoo"\s*\?\s*"azoo"\s*:\s*"a2z"/,
+     'QT→INV conversion no longer inherits the quotation\'s entity — a client with an AZ ONE quote would receive an A2Z invoice and a different bank account'],
+    [/invIssuerR\s*=\s*ir\?\.issuer_code\s*===\s*"azoo"/,
+     'receipts no longer inherit the invoice\'s entity — a receipt must acknowledge money paid into the account the INVOICE printed'],
+    [/invIssuerC\s*=\s*ic\?\.issuer_code\s*===\s*"azoo"/,
+     'credit notes no longer inherit the invoice\'s entity'],
+  ]) {
+    if (!re.test(staff)) errors.push(`worker/src/staff.ts: ${why}`);
+  }
+  /* HR paperwork is A2Z, always — "A2Z employs". These two calls must stay
+     on the default, never grow an entity argument. */
+  for (const [call, why] of [
+    ['stampIssuer(env, "claims", res?.id)', 'claims stamping changed — HR paper is issued by A2Z, always ("A2Z employs")'],
+    ['stampIssuer(env, "leave_requests", res?.id)', 'leave stamping changed — HR paper is issued by A2Z, always ("A2Z employs")'],
+  ]) {
+    if (!staff.includes(call)) errors.push(`worker/src/staff.ts: ${why}`);
+  }
+}
+
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }
-console.log(`PASS — ${scanned.length} generators free of SITE_CONFIG; DOCUMENT_ISSUER is A2Z CREATIVE MARKETING (SSM 202603003468, MAYBANK 5511 0086 5300); AZ_ONE legacy entry intact; resolveIssuer maps NULL -> AZ ONE`);
+console.log(`PASS — ${scanned.length} generators free of SITE_CONFIG; DOCUMENT_ISSUER is A2Z CREATIVE MARKETING (SSM 202603003468, MAYBANK 5511 0086 5300); AZ_ONE legacy entry intact; resolveIssuer maps NULL -> AZ ONE; consultancy 'azoo' stamps and inherits correctly`);

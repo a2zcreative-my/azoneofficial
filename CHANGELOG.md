@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.30.1] — 2026-08-19 — consultancy documents issue under AZ ONE, everything else stays A2Z
+
+**CEO: "letterhead should all under A2Z since A2Z is a main company. the invoice, Quotation and Delivery Order only will letterhead under AZ One if it is consultancy."** The 'azoo' code reserved in migration 0073 goes live — no new migration needed.
+
+- **Create document gains "Issued by (letterhead + bank account)"** — A2Z CREATIVE MARKETING by default; pick AZ ONE OFFICIAL for consultancy work. An amber line spells out what the choice really decides — the letterhead, the registration number, the SST clause AND the Maybank account the client is told to pay — before anyone presses Create. The choice is locked at creation: a document forever shows the entity that issued it, so the edit form never offers it and the worker ignores any attempt.
+- **The family stays with its entity.** Convert an AZ ONE quotation and the invoice is AZ ONE's; its receipt and any credit note inherit the same — a receipt acknowledges money paid into the account the INVOICE printed, so an A2Z-lettered receipt for an AZ ONE invoice would acknowledge money A2Z never received. Legacy (pre-v1.28) documents keep converting to A2Z invoices, exactly as decided then; legacy invoices' receipts now stay on AZ ONE paper, matching the letterhead the client already holds.
+- **HR paper never moves.** Claims, leave forms and payslips are A2Z's, always — "A2Z invoices, A2Z employs". The guard now fails the build if anyone gives those an entity argument.
+- **The document list tags the exception.** Rows issued under AZ ONE (legacy or consultancy) carry a small "AZ ONE" chip — one glance answers "whose bank account is this client paying?". A2Z rows stay clean; tagging the default on every row would be noise.
+- The WhatsApp payment chase, share links, PDFs, prints and the public document page all already resolve the letterhead per row, so 'azoo' flows through every surface with no further change.
+
+**Proven:** the render test now covers all three codes against the real template — NULL and 'azoo' produce **byte-identical** AZ ONE documents with zero A2Z contamination, 'a2z' produces A2Z paper with zero AZ ONE contamination. The issuer guard verifies the selector is honoured, conversion/receipt/credit-note inheritance is intact, and HR stamping is untouched — and it was checked in both directions (it genuinely fails when each contract is broken).
+
+**Deploy notes:** site AND worker changed, no migration. Run `DEPLOY.bat` IN FULL from the v1.30.1 folder.
+
 ## [1.30.0] — 2026-08-19 — three brands, cleanly separated: one source of truth, and every client owns their own mark
 
 **CEO: "how to make sure that AZONE official and ELFIA is not in my A2Z system? I just want that customer or client can have a option to click on their logo then will redirecting to their own domain."** Two halves, and neither is a hardcoded link.

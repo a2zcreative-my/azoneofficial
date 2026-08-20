@@ -285,15 +285,26 @@ function todayKL(): string {
    rather than a column in each INSERT so a pre-0073 database keeps working
    (0062 lesson: never let an optional column take down a critical write). */
 const OPERATING_ISSUER_CODE = "a2z";
+/* v1.30.1 (CEO: "letterhead should all under A2Z since A2Z is a main
+   company... only will letterhead under AZ One if it is consultancy"):
+   the 'azoo' code reserved in migration 0073 goes live. stampIssuer now
+   takes the code to stamp; every existing call keeps the A2Z default, and
+   only three flows ever pass something else — QT/DO/INV creation (the
+   operator chose consultancy), QT→INV conversion (the invoice inherits the
+   quotation's entity), and receipts/credit notes (they inherit their
+   invoice's entity, because they acknowledge money paid into the bank
+   account THAT letterhead printed). HR paperwork — claims, leave,
+   payslips — is untouched: A2Z employs, so A2Z issues those, always. */
 async function stampIssuer(
   env: Env,
   table: "sales_documents" | "receipts" | "credit_notes" | "claims" | "leave_requests",
   id: number | null | undefined,
+  code: "a2z" | "azoo" = OPERATING_ISSUER_CODE,
 ): Promise<void> {
   if (!id) return;
   try {
     await env.DB.prepare(`UPDATE ${table} SET issuer_code = ?1 WHERE id = ?2`)
-      .bind(OPERATING_ISSUER_CODE, id).run();
+      .bind(code, id).run();
   } catch { /* pre-0073 schema: the document stays legacy-labelled (AZ ONE) */ }
 }
 
@@ -3873,7 +3884,12 @@ export async function handleStaff(
         }
       } else throw e;
     }
-    await stampIssuer(env, "sales_documents", res?.id);
+    /* v1.30.1 — the operator's entity choice, decided AT CREATION and never
+       editable after (a document forever shows the entity that issued it).
+       Anything that is not exactly "azoo" falls to the A2Z default, so a
+       stale client or a typo can never mint a third entity. */
+    const issuerD: "a2z" | "azoo" = body.issuer === "azoo" ? "azoo" : "a2z";
+    await stampIssuer(env, "sales_documents", res?.id, issuerD);
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
     if (docType === "INV" && body.paid_received === true && res?.id) {
@@ -4046,7 +4062,13 @@ export async function handleStaff(
     if (((qt as { kind?: string | null }).kind ?? "product") !== "service" && resC?.id) {
       stockMoveC = await deductForInvoice(env, resC.id, numberC, String(qt.items ?? "[]"), null, user.id);
     }
-    await stampIssuer(env, "sales_documents", resC?.id);
+    /* v1.30.1 — the invoice INHERITS the quotation's entity. A client who
+       accepted an AZ ONE consultancy quotation must not receive an A2Z
+       invoice pointing at a different company's bank account. Legacy
+       quotations (NULL, pre-v1.28) keep converting to A2Z invoices — the
+       v1.28.0 "A2Z invoices" decision, unchanged. */
+    const qtIssuer = (qt as { issuer_code?: string | null }).issuer_code;
+    await stampIssuer(env, "sales_documents", resC?.id, qtIssuer === "azoo" ? "azoo" : "a2z");
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
     return json({ id: resC?.id, doc_number: numberC, stock: stockMoveC }, 201);
   }
@@ -6699,7 +6721,20 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           `INSERT INTO receipts (receipt_number, invoice_id, invoice_number, customer_id, amount_cents, payment_method, payment_ref, paid_at, share_token, created_by)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
         ).bind(number, invId, inv.doc_number, inv.customer_id, inv.total_cents, inv.payment_method, inv.payment_ref, inv.paid_at, token, user.id).first<{ id: number }>();
-        await stampIssuer(env, "receipts", res?.id);
+        /* v1.30.1 — a receipt INHERITS its invoice's entity. It acknowledges
+           money paid into the bank account printed on THAT invoice: an
+           AZ ONE consultancy invoice points at AZ ONE's Maybank, so an
+           A2Z-lettered receipt for it would acknowledge money A2Z never
+           received. A legacy (NULL) invoice's receipt stays unstamped and
+           renders AZ ONE — same letterhead the client already holds.
+           Best-effort separate query: pre-0073 it simply yields null. */
+        let invIssuerR: "a2z" | "azoo" | null = null;
+        try {
+          const ir = await env.DB.prepare(`SELECT issuer_code FROM sales_documents WHERE id = ?1`)
+            .bind(invId).first<{ issuer_code: string | null }>();
+          invIssuerR = ir?.issuer_code === "azoo" ? "azoo" : ir?.issuer_code === "a2z" ? "a2z" : null;
+        } catch { /* pre-0073 */ }
+        if (invIssuerR) await stampIssuer(env, "receipts", res?.id, invIssuerR);
         await audit(env, user.id, "receipt.issue", "receipts", String(res?.id), { invoice: inv.doc_number, amount: inv.total_cents });
         return json({ id: res?.id, receipt_number: number }, 201);
       } catch (e) {
@@ -6725,7 +6760,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           `INSERT INTO credit_notes (cn_number, invoice_id, invoice_number, customer_id, amount_cents, reason, share_token, created_by)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
         ).bind(number, invId, inv.doc_number, inv.customer_id, cents, reason || null, token, user.id).first<{ id: number }>();
-        await stampIssuer(env, "credit_notes", res?.id);
+        /* v1.30.1 — same inheritance as receipts: a credit note reverses
+           money on the entity that invoiced it. */
+        let invIssuerC: "a2z" | "azoo" | null = null;
+        try {
+          const ic = await env.DB.prepare(`SELECT issuer_code FROM sales_documents WHERE id = ?1`)
+            .bind(invId).first<{ issuer_code: string | null }>();
+          invIssuerC = ic?.issuer_code === "azoo" ? "azoo" : ic?.issuer_code === "a2z" ? "a2z" : null;
+        } catch { /* pre-0073 */ }
+        if (invIssuerC) await stampIssuer(env, "credit_notes", res?.id, invIssuerC);
         await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents });
         return json({ id: res?.id, cn_number: number }, 201);
       } catch (e) {

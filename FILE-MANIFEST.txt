@@ -1,4 +1,4 @@
-a2z-v1.30.0-FULL — 323 files
+a2z-v1.30.1-FULL — 324 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	564305
+CHANGELOG.md	566870
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	6995
@@ -51,7 +51,7 @@ app/packages/page.tsx	4940
 app/page.tsx	957
 app/portal/error.tsx	3618
 app/portal/layout.tsx	597
-app/portal/page.tsx	389198
+app/portal/page.tsx	392319
 app/portfolio/page.tsx	3066
 app/privacy/page.tsx	5641
 app/report/page.tsx	4931
@@ -210,6 +210,7 @@ public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
 scratch/client-brand-e2e.mjs	3869
+scratch/issuer-choice-e2e.mjs	7137
 scratch/login-mobile-shot.mjs	2368
 scratch/multi-host-e2e.mjs	6698
 scratch/public-form-origin-check.sh	2046
@@ -218,8 +219,8 @@ styles/globals.css	15803
 tests/bm-coverage.mjs	5616
 tests/brands-guard.mjs	7844
 tests/csrf-guard.mjs	3856
-tests/doc-issuer-render.mjs	4816
-tests/document-issuer-guard.mjs	9726
+tests/doc-issuer-render.mjs	5947
+tests/document-issuer-guard.mjs	11472
 tests/leaderboard-sales-floor.mjs	7145
 tests/location-scenarios.mjs	3965
 tests/no-false-attendance.mjs	3679
@@ -318,7 +319,7 @@ worker/src/m2e.ts	11123
 worker/src/permissions.ts	3168
 worker/src/shared.ts	6990
 worker/src/shift-sales.ts	4095
-worker/src/staff.ts	402789
+worker/src/staff.ts	405830
 worker/src/webpush.ts	6803
 worker/tsconfig.json	288
 worker/wrangler.toml	4242

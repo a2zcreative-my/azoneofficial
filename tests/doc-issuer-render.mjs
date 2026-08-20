@@ -3,6 +3,9 @@
 
      issuer_code NULL/absent  -> AZ ONE OFFICIAL letterhead, AZ ONE bank
      issuer_code 'a2z'        -> A2Z CREATIVE MARKETING letterhead, A2Z bank
+     issuer_code 'azoo'       -> AZ ONE OFFICIAL letterhead, AZ ONE bank
+                                 (v1.30.1 — consultancy QT/DO/INV, chosen at
+                                 creation; reserved in 0073, live now)
 
    and — the part that matters in court — ZERO cross-contamination: a legacy
    invoice must not contain one byte of A2Z identity, and an A2Z invoice must
@@ -44,6 +47,7 @@ ok("A2Z bank is the CEO-supplied account", DOCUMENT_ISSUER.bank === "MAYBANK 551
 ok("resolveIssuer(null) -> AZ ONE (legacy)", resolveIssuer(null) === AZ_ONE && resolveIssuer(undefined) === AZ_ONE);
 ok("resolveIssuer('a2z') -> A2Z", resolveIssuer("a2z") === A2Z_CREATIVE);
 ok("resolveIssuer(unknown) fails toward history", resolveIssuer("garbage") === AZ_ONE);
+ok("resolveIssuer('azoo') -> AZ ONE (consultancy)", resolveIssuer("azoo") === AZ_ONE);
 
 // ---- render both variants of the SAME invoice ----
 const baseDoc = {
@@ -54,6 +58,7 @@ const baseDoc = {
 };
 const legacyHtml = buildDocHtml({ ...baseDoc }, false);
 const a2zHtml = buildDocHtml({ ...baseDoc, issuer_code: "a2z" }, false);
+const azooHtml = buildDocHtml({ ...baseDoc, issuer_code: "azoo" }, false);
 
 // legacy = AZ ONE everywhere
 ok("legacy: AZ ONE letterhead", legacyHtml.includes("AZ ONE OFFICIAL"));
@@ -75,10 +80,21 @@ ok("a2z: ZERO AZ ONE name", !a2zHtml.includes("AZ ONE OFFICIAL"));
 ok("a2z: ZERO AZ ONE SSM", !a2zHtml.includes("202603168673"));
 ok("a2z: ZERO AZ ONE bank", !a2zHtml.includes("5516 2328 7032"));
 
+// azoo (consultancy) = AZ ONE everywhere, exactly like legacy — a client
+// must not be able to tell a v1.30.1 consultancy invoice from AZ ONE's own
+// paper, and it must not leak one byte of A2Z identity or A2Z's bank.
+ok("azoo: AZ ONE letterhead", azooHtml.includes("AZ ONE OFFICIAL"));
+ok("azoo: AZ ONE registration", azooHtml.includes("SSM 202603168673 (JM1046169-H)"));
+ok("azoo: AZ ONE bank account", azooHtml.includes("MAYBANK 5516 2328 7032"));
+ok("azoo: ZERO A2Z name", !azooHtml.includes("A2Z CREATIVE MARKETING"));
+ok("azoo: ZERO A2Z SSM", !azooHtml.includes("202603003468"));
+ok("azoo: ZERO A2Z bank", !azooHtml.includes("5511 0086 5300"));
+ok("azoo renders byte-identical to legacy", azooHtml === legacyHtml);
+
 // the customer-facing fields are identical in both — only the issuer moved
 for (const probe of ["INV-AZOO190826-1", "ELFIA", "Live hosting"]) {
   ok(`both variants keep customer field "${probe}"`, legacyHtml.includes(probe) && a2zHtml.includes(probe));
 }
 
 if (failed) { console.log(`\nFAIL — ${failed} check(s) failed`); process.exit(1); }
-console.log("\nPASS — legacy documents stay AZ ONE OFFICIAL, new documents are A2Z, no cross-contamination");
+console.log("\nPASS — legacy + consultancy documents render AZ ONE OFFICIAL, A2Z documents render A2Z, no cross-contamination");

@@ -3847,9 +3847,13 @@ function Sales({ user }: { user: User }) {
     doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[];
     discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean;
     reference: string; delivery_address: string;
+    /* v1.30.1 — which entity issues this document: "a2z" (default) or
+       "azoo" (AZ ONE OFFICIAL, consultancy work). Set at creation only;
+       the worker ignores it on edit. */
+    issuer: string;
   }>({
     doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }],
-    discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "",
+    discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "", issuer: "a2z",
   });
   const [staffList, setStaffList] = useState<{ id: number; name: string; role: string }[]>([]);
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -3935,7 +3939,7 @@ function Sales({ user }: { user: User }) {
   };
   const resetDocForm = () => {
     setDoc({ doc_type: "QT", customer_id: -1, salesperson_id: 0, kind: "product", items: [{ name: "", qty: 1, unit_price_cents: 0 }],
-      discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "" });
+      discount_cents: 0, tax_percent: 0, delivery_cents: 0, paid_received: false, reference: "", delivery_address: "", issuer: "a2z" });
     setDocDate(""); setPaidDate(""); setEditingDoc(null);
   };
 
@@ -4192,7 +4196,7 @@ function Sales({ user }: { user: User }) {
                   {canInvoice && <option value="INV">{L("Invoice", "Invois")}</option>}
                 </select>
               </label>
-              <label className="block">
+                            <label className="block">
                 <span className="text-muted-foreground mb-1 block text-xs">{L("Customer", "Pelanggan")}</span>
                 <select className={inputClass} value={doc.customer_id} onChange={(e) => setDoc((d) => ({ ...d, customer_id: Number(e.target.value) }))}>
                   <option value={-1}>{L("Choose customer…", "Pilih pelanggan…")}</option>
@@ -4200,6 +4204,28 @@ function Sales({ user }: { user: User }) {
                   {customers.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
                 </select>
               </label>
+              {/* v1.30.1 (CEO: "letterhead should all under A2Z since A2Z is
+                  a main company... only under AZ ONE if it is consultancy"):
+                  the entity choice, at creation only. It decides the
+                  letterhead, the registration number, the SST clause AND the
+                  bank account the client is told to pay — which is why the
+                  amber line spells that out before anyone presses Create,
+                  and why the choice is locked once the document exists. */}
+              {!editingDoc && (
+                <label className="col-span-2 block">
+                  <span className="text-muted-foreground mb-1 block text-xs">{L("Issued by (letterhead + bank account)", "Dikeluarkan oleh (kepala surat + akaun bank)")}</span>
+                  <select className={inputClass} value={doc.issuer} onChange={(e) => setDoc((d) => ({ ...d, issuer: e.target.value }))}>
+                    <option value="a2z">{L("A2Z CREATIVE MARKETING — default", "A2Z CREATIVE MARKETING — lalai")}</option>
+                    <option value="azoo">{L("AZ ONE OFFICIAL — consultancy work", "AZ ONE OFFICIAL — kerja perundingan")}</option>
+                  </select>
+                  {doc.issuer === "azoo" && (
+                    <span className="text-warning mt-1 block text-[11px] leading-snug">
+                      {L("This document will carry AZ ONE OFFICIAL's letterhead and instruct payment to AZ ONE's Maybank account. Use only for consultancy work done as AZ ONE.",
+                         "Dokumen ini akan membawa kepala surat AZ ONE OFFICIAL dan mengarahkan bayaran ke akaun Maybank AZ ONE. Guna hanya untuk kerja perundingan sebagai AZ ONE.")}
+                    </span>
+                  )}
+                </label>
+              )}
             </div>
             <label className="block">
               <span className="text-muted-foreground mb-1 block text-xs">{L("This document is for", "Dokumen ini untuk")}</span>
@@ -4418,6 +4444,17 @@ function Sales({ user }: { user: User }) {
             <span className="min-w-0 flex-1 basis-64">
               <RecordToggle open={openDoc === d.id} title={L("Payment, dates and reference", "Bayaran, tarikh dan rujukan")}
                 onToggle={() => setOpenDoc(openDoc === d.id ? null : d.id)}>{d.doc_number}</RecordToggle>
+              {/* v1.30.1 — which entity's letterhead this document carries.
+                  Only the exception is tagged: A2Z is the default and a chip
+                  on every row would be noise. NULL (legacy) and "azoo" both
+                  render AZ ONE, so both get the tag — one glance answers
+                  "whose bank account is this client paying?". */}
+              {(d.issuer_code ?? null) !== "a2z" && (
+                <span className="bg-secondary ml-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium"
+                  title={L("Issued under AZ ONE OFFICIAL — AZ ONE letterhead and bank account", "Dikeluarkan di bawah AZ ONE OFFICIAL — kepala surat dan akaun bank AZ ONE")}>
+                  AZ ONE
+                </span>
+              )}
               {d.kind && <span title={d.kind === "service" ? L("Service document", "Dokumen perkhidmatan") : L("Product document", "Dokumen produk")}> {d.kind === "service" ? "🛠" : "📦"}</span>} · {d.company} · {fmtRM(d.total_cents)}
             </span>
             <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
@@ -4505,6 +4542,9 @@ function Sales({ user }: { user: User }) {
                   kind: (full as { kind?: string | null }).kind ?? "product",
                   reference: (full as { reference?: string | null }).reference ?? "",
                   delivery_address: (full as { delivery_address?: string | null }).delivery_address ?? "",
+                  /* the entity never changes after creation — carried only so
+                     the state shape stays complete; the worker ignores it. */
+                  issuer: (full as { issuer_code?: string | null }).issuer_code === "azoo" ? "azoo" : "a2z",
                 });
                 setDocDate(full.created_at.slice(0, 10));
                 setEditingDoc({ id: d.id, doc_number: d.doc_number });
