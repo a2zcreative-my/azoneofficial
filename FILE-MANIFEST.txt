@@ -1,4 +1,4 @@
-a2z-v1.30.1-FULL — 324 files
+a2z-v1.31.0-FULL — 324 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	566870
+CHANGELOG.md	567937
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	6995
@@ -314,7 +314,7 @@ worker/package.json	470
 worker/pnpm-lock.yaml	29008
 worker/pnpm-workspace.yaml	101
 worker/src/erp.ts	40519
-worker/src/index.ts	178834
+worker/src/index.ts	180264
 worker/src/m2e.ts	11123
 worker/src/permissions.ts	3168
 worker/src/shared.ts	6990

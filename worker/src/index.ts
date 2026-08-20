@@ -26,6 +26,10 @@ export interface Env {
       back office; it can never mint a session or read staff data with this. */
   PUBLIC_FORM_ORIGINS?: string;
   SETUP_TOKEN: string;
+  /** v1.31.0 — shared secret for the ELFIA store's read-only stock bridge.
+      Optional: unset = the bridge endpoint answers 501 and nothing is
+      exposed. Set the SAME value as BRIDGE_KEY on the store's worker. */
+  ELFIA_BRIDGE_KEY?: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
@@ -1466,6 +1470,27 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   /* v1.5.0: this token-gated probe used to be registered at /api/v1/health,
      shadowing the public monitor endpoint further down (first match wins) —
      the external uptime monitor got a permanent 401. Moved to /health/detail. */
+  /* v1.31.0 (CEO: "how to update all the inventory to match with inventory
+     in A2Zcreative??"): the ELFIA store's stock-sync bridge. READ-ONLY by
+     construction — one SELECT, no parameters reach SQL, nothing is written —
+     and DOUBLY scoped: only rows whose SKU belongs to the ELFIA families
+     (ELFIA### live-session stock, LUMI### store collection) ever leave, so
+     the client's store can never see A2Z's other inventory. Requires the
+     shared secret; unset secret = endpoint off (501), wrong key = 401. */
+  if (path === "/api/v1/bridge/elfia-inventory" && method === "GET") {
+    if (!env.ELFIA_BRIDGE_KEY) return errorResponse("not_configured", "Bridge is not enabled", 501);
+    const given = request.headers.get("X-Bridge-Key") ?? "";
+    if (!timingSafeEqual(given, env.ELFIA_BRIDGE_KEY)) {
+      return errorResponse("unauthorized", "Bad bridge key", 401);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT sku, name, stock FROM inventory_items
+       WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
+       ORDER BY sku LIMIT 500`,
+    ).all();
+    return json({ items: results, as_of: new Date().toISOString() });
+  }
+
   if (path === "/api/v1/health/detail" && method === "GET") {
     const auth = request.headers.get("Authorization");
     if (!env.SETUP_TOKEN || !timingSafeEqual(auth ?? "", `Bearer ${env.SETUP_TOKEN}`)) {

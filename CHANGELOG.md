@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.31.0] — 2026-08-20 — read-only stock bridge for the ELFIA store
+
+**CEO: "how to update all the inventory to match with inventory in A2Zcreative??"** The ELFIA store (its own separate system) can now pull stock counts from this portal's inventory.
+
+- New endpoint `GET /api/v1/bridge/elfia-inventory` — READ-ONLY by construction (one SELECT, nothing written) and doubly scoped: only SKUs in the ELFIA families (`ELFIA…`, `LUMI…`) ever leave, so the client store can never see A2Z's other inventory. Off (501) until `wrangler secret put ELFIA_BRIDGE_KEY` is set; wrong key = 401 (timing-safe compare).
+- Direction is deliberate: the portal is the counting house (live-session stock, stocktakes), the store is a consumer. The store's admin presses "Sync stock from portal" — nothing here pushes, nothing runs on a timer.
+- To enable: `wrangler secret put ELFIA_BRIDGE_KEY` here, the same value as `BRIDGE_KEY` on the store's worker, then redeploy both.
+
+**Deploy notes:** worker only, no migration, no site change. Run `DEPLOY.bat` IN FULL as always.
+
 ## [1.30.1] — 2026-08-19 — consultancy documents issue under AZ ONE, everything else stays A2Z
 
 **CEO: "letterhead should all under A2Z since A2Z is a main company. the invoice, Quotation and Delivery Order only will letterhead under AZ One if it is consultancy."** The 'azoo' code reserved in migration 0073 goes live — no new migration needed.
