@@ -14,17 +14,29 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
+    <header className="border-border/60 bg-background/80 fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md">
       <nav
         aria-label="Main"
         className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6"
       >
-        <Link href="/" onClick={() => setOpen(false)} className="flex shrink-0 items-center">
+        <Link
+          href="/"
+          onClick={() => setOpen(false)}
+          className="flex shrink-0 items-center"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* v1.33.0 — h-7 → h-9/h-10. The new mark is a STACKED lockup
+              (A2Z over CREATIVE, 991×547); at 28px in a 64px bar the word
+              CREATIVE rendered about 4px tall and read as a grey smudge. At
+              40px it is legible and the bar still has 12px of breathing room
+              top and bottom. The extra ~22px of width is affordable: BM — the
+              tighter language — had 141px of slack at 1280 after v1.32.1
+              (scratch/nav-fit-measure.mjs), and nav-fit-e2e re-checks it at
+              eight widths in both languages. */}
           <img
             src="/logo.png"
             alt={SITE_CONFIG.name}
-            className="h-7 w-auto"
+            className="h-9 w-auto sm:h-10"
           />
         </Link>
 
@@ -42,7 +54,7 @@ export function Navbar() {
             <li key={item.href}>
               <Link
                 href={item.href}
-                className="text-muted-foreground text-sm whitespace-nowrap transition-colors hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors"
               >
                 {item.label}
               </Link>
@@ -54,7 +66,7 @@ export function Navbar() {
           <LangToggle />
           <Link
             href="/login"
-            className="text-muted-foreground text-sm whitespace-nowrap transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors"
           >
             Login
           </Link>
@@ -69,25 +81,25 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2 xl:hidden">
-        <LangToggle />
-        <button
-          type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md"
-          aria-expanded={open}
-          aria-controls="mobile-menu"
-          aria-label={open ? "Close menu" : "Open menu"}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+          <LangToggle />
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md"
+            aria-expanded={open}
+            aria-controls="mobile-menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </nav>
 
       <div
         id="mobile-menu"
         className={cn(
-          "max-h-[calc(100svh-4rem)] overflow-y-auto border-b border-border bg-background xl:hidden",
-          open ? "block" : "hidden",
+          "border-border bg-background max-h-[calc(100svh-4rem)] overflow-y-auto border-b xl:hidden",
+          open ? "block" : "hidden"
         )}
       >
         <ul className="flex flex-col gap-1 px-6 py-4">

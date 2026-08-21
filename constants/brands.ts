@@ -36,8 +36,13 @@ export interface Brand {
   kind: BrandKind;
   /** Canonical domain, no trailing slash. The one address that owns the SEO. */
   url: string;
-  /** Logo in /public. Companies use the white mark (the footer is navy). */
+  /** Logo in /public, for LIGHT surfaces (the portfolio cards). */
   logo: string;
+  /** v1.33.0 — the same mark for DARK surfaces (the navy footer). A single
+      logo field forced a choice: the white file vanished on the portfolio
+      page, the coloured one vanished in the footer. ELFIA's maroon wordmark
+      on navy was the version that shipped, and it was nearly unreadable. */
+  logoOnDark: string;
   /** One line, plain language — what this business does. */
   descriptor: string;
   /** Registration, for companies. Clients carry none: they are not ours. */
@@ -55,7 +60,8 @@ export const BRANDS: readonly Brand[] = [
     name: "A2Z CREATIVE MARKETING",
     kind: "company",
     url: "https://a2zcreative.my",
-    logo: "/logo-white.png",
+    logo: "/logo.png",
+    logoOnDark: "/logo-white.png",
     descriptor: "Creative marketing, digital growth and live commerce",
     registration: "202603003468 (CA0414729-A)",
   },
@@ -64,7 +70,8 @@ export const BRANDS: readonly Brand[] = [
     name: "AZ ONE OFFICIAL",
     kind: "company",
     url: "https://azoneofficial.com",
-    logo: "/brands/azone-white.png",
+    logo: "/brands/azone.png",
+    logoOnDark: "/brands/azone-white.png",
     descriptor: "Business consultancy and development",
     registration: "202603168673 (JM1046169-H)",
   },
@@ -74,6 +81,7 @@ export const BRANDS: readonly Brand[] = [
     kind: "client",
     url: "https://elfiaofficialstore.my",
     logo: "/brands/elfia.png",
+    logoOnDark: "/brands/elfia-white.png",
     descriptor: "Live commerce client",
     /* v1.30.0 shipped this false: no permission, so ELFIA rendered nowhere
        public. v1.32.0 flips it on the CEO's explicit instruction of
@@ -86,15 +94,19 @@ export const BRANDS: readonly Brand[] = [
 ] as const;
 
 /** The businesses you own — safe to show together, in this order. */
-export const OUR_COMPANIES: readonly Brand[] = BRANDS.filter((b) => b.kind === "company");
+export const OUR_COMPANIES: readonly Brand[] = BRANDS.filter(
+  (b) => b.kind === "company"
+);
 
 /** Clients cleared for publication. Empty until a permission is on file. */
 export const PUBLISHABLE_CLIENTS: readonly Brand[] = BRANDS.filter(
-  (b) => b.kind === "client" && b.permissionOnFile === true,
+  (b) => b.kind === "client" && b.permissionOnFile === true
 );
 
 /** Everything except us — the "other companies" a visitor can jump to. */
-export const SISTER_COMPANIES: readonly Brand[] = OUR_COMPANIES.filter((b) => b.code !== "a2z");
+export const SISTER_COMPANIES: readonly Brand[] = OUR_COMPANIES.filter(
+  (b) => b.code !== "a2z"
+);
 
 export function brandByCode(code: string): Brand | undefined {
   return BRANDS.find((b) => b.code === code);

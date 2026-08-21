@@ -2,6 +2,166 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.33.3] — 2026-08-21 — you can type a space in a sales document
+
+**CEO: "The desc on sales cant be space?! Whyyy"** — he typed `Testing Testing` into a line's detail box and got `TestingTesting`.
+
+### Why
+
+The detail box holds a `string[]` (one entry per line) but shows it as text, so it round-trips through `join("\n")` / `split("\n")` on **every keystroke**. The change handler tidied the value on the way _in_:
+
+| the code                | what it did to someone typing                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.map((s) => s.trim())` | ate the space the instant it was pressed — a trailing space is leading/trailing on its own line, so `trim()` removes it before the next letter arrives |
+| `.filter(Boolean)`      | deleted the new blank line the instant Enter was pressed                                                                                               |
+| `.slice(0, 10)`         | silently dropped a pasted line 11 and beyond                                                                                                           |
+
+So he could not type a space, could not start a second line, and would have lost a long paste without being told. Tidying input is right; doing it on every keystroke is what broke it.
+
+### The fix
+
+**Typing is now a pure `split("\n")`** — what he types is exactly what is in state. The tidying moved to `createDoc`, the one moment it matters: each detail line trimmed, blank lines dropped, the item name trimmed at the ends only (`Spaced  Service Name` keeps its inner spacing). Over ten detail lines is now **refused out loud** with the offending item named, instead of being silently cut.
+
+### Two more things this turned up
+
+- **`printDoc` could crash the screen right after a successful save.** A 200 response carrying no `doc` threw inside `buildDocHtml`. The invoice existed — but the person saw the screen fall over instead of their PDF, would assume it failed, and create the invoice **a second time**. A duplicate invoice is far worse than a missing preview, so it now returns quietly.
+- Swept every other prose field on the document form for the same pattern. The item description and the rest are clean; this handler was the only one.
+
+### The test
+
+`scratch/sales-desc-typing-e2e.mjs` — and it **types**, one character at a time with a real delay. That matters: setting a value programmatically does not reproduce this at all, which is how it survived. Against the previous build it reproduces his exact result:
+
+```
+typedDetail: "TestingTesting"                    ← his bug, reproduced
+twoLines:    "TestingTestingSecondlinehere"      ← Enter was being eaten too
+```
+
+After the fix all of it passes, and the test additionally submits a document and reads the **actual POST body** to prove the tidying moved rather than vanished — `"  Line one  \n\n   \n  Line two  "` is saved as `["Line one", "Line two"]`.
+
+Full guard suite 13/13, typecheck clean, footer / nav-fit / BM / portfolio suites re-run.
+
+**Deploy notes:** portal only, no worker change, no migration. Service worker cache v29 → v30 (the portal shell is cached, so the bump is what puts the fix on already-installed phones).
+
+## [1.33.2] — 2026-08-21 — the left-aligned footer, kept small
+
+**CEO sent a phone photo of the live footer: "I more prefer like this!"**
+
+The photo is the pre-v1.33 layout — brand block on the left, **EXPLORE** and **FOLLOW US** as two headed columns. That is what is back. v1.33.1's centred rows are gone.
+
+The size instruction from the message before it still stands, so the same layout is arranged to cost less than it used to:
+
+- **The brand block and the link columns share a row from `md` up** instead of stacking. That stacking was most of the original 1080px.
+- Company and client marks stay a compact row rather than bordered description cards.
+- The secondary pages (FAQ, Case Studies, Careers, Privacy, Terms, Login) ride on the legal bar instead of forming a third column.
+- Type and spacing tightened throughout — the slogan and address at `text-xs`, list spacing 8px → 6px, section gaps trimmed.
+
+### Where that lands
+
+| width  | v1.32.1 (the original) | v1.33.1 (centred) | **v1.33.2 (this)** |
+| ------ | ---------------------- | ----------------- | ------------------ |
+| 1280px | 1080px                 | 433px             | **458px** (−58%)   |
+| 768px  | 1080px                 | 451px             | **491px** (−55%)   |
+| 390px  | 1208px                 | 647px             | **839px** (−31%)   |
+
+Being straight about the phone number: **839px is a full screen, and the centred version was 647px.** That gap is inherent to the layout, not sloppiness — at 390px a left-aligned brand block and its link columns cannot share a row, so they stack, and stacking is what costs the height. This is the layout you picked, tuned as far as it goes; if the phone specifically matters more than the look, v1.33.1 is the smaller one and I can put it back.
+
+### One deliberate difference from the photo
+
+The email has moved out of the FOLLOW US column into the brand block, under the address. In the photo it is rendering as **"admin@azoneofficial.c / om"** — half a phone column is not enough room for it. With the other contact details it has the width it needs and reads in one piece.
+
+### The guard
+
+`scratch/footer-e2e.mjs` carries over from v1.33.1 with two assertions flipped to match the chosen design, rather than left passing by luck:
+
+- the mark must sit on the container's **left edge** (it asserted _centre_ yesterday) — same principle, opposite axis: deliberately placed, never drifting;
+- the social links must each have an **accessible name from whichever source is in use** — visible text now, `aria-label` when they were icon-only. Counting `aria-label`s would have reported 0/3 and failed a correct footer.
+
+Budgets re-baselined to 500 / 540 / 890. Everything else holds: all thirteen destinations linked, address / email / CTA present, the mark loaded and legible, every navy-panel mark a `-white` variant, the email never split mid-word, no sideways scroll, ELFIA under Clients and never under Our companies. Full guard suite 13/13, typecheck clean, `nav-fit-e2e` / `a2z-bm-e2e` / `portfolio-click-e2e` re-run.
+
+**Deploy notes:** site only, no worker change, no migration. Service worker cache v28 → v29.
+
+## [1.33.1] — 2026-08-21 — the footer, minus two thirds of it
+
+**CEO: "footer web should minimalist instead of consume so much space."**
+
+Fair. I centred the footer in v1.33.0 and made it _prettier_ without asking whether it should be that big at all. Measured before touching anything:
+
+| width  | footer height | share of the page |
+| ------ | ------------- | ----------------- |
+| 1280px | 1080px        | 32%               |
+| 768px  | 1080px        | 39%               |
+| 390px  | 1208px        | 37%               |
+
+More than a full screen of scrolling, on every page, to reach a list of links.
+
+**Now: 433px / 451px / 647px — 60%, 58% and 46% smaller.**
+
+### What went
+
+- **The two headed columns.** "Explore" and "Follow us" became two quiet wrapped rows. Headings over a seven-item list are furniture; the links are the content.
+- **The social labels.** The icons carry the meaning. The words TikTok / Instagram / Facebook live on as `aria-label` and `title`, so nothing was lost for screen readers or on hover.
+- **The bordered company cards.** Two boxes with logos and one-line descriptions became a single row of small marks. The descriptions moved into the link's accessible name and tooltip.
+- **The standalone address block.** It rides on the legal line now — the full NAP is still on every page, at the cost of one line instead of a block.
+
+### What stayed, deliberately
+
+The mark, **every destination** (all seven nav pages plus FAQ, Case Studies, Careers, Privacy, Terms and Login), the address, the email, the WhatsApp CTA, and the editable `footer.slogan` slot. Minimal means fewer boxes, not fewer facts.
+
+**Our companies and Clients are still two labelled groups**, now with a rule between them. Merging them into one row of logos would be smaller still — and would quietly claim we own our clients. The v1.27.0 permission rule is unchanged.
+
+### One thing I nearly "fixed" that was never broken
+
+The floating WhatsApp button looked, in my screenshots, like it was sitting on the legal line. I was about to spend ~90px of padding clearing it — the exact opposite of what was asked. It turned out the button already fades itself out whenever the footer is on screen (v1.2.18, because the footer carries the same CTA); my screenshot had simply been taken mid-fade. **The first version of my own overlap test also passed for the wrong reason** — it compared the button against a footer that was still 2000px below the fold. Both are now honest: the test scrolls to the true end of the page, asserts it got there, and treats the button's box as real only when it is actually visible.
+
+### The guard
+
+`scratch/footer-e2e.mjs` was rewritten to hold both halves of "minimal" at once, at 1280 / 768 / 390:
+
+- **a hard height budget** (470 / 500 / 700px) — the easiest thing to lose one commit at a time;
+- **and completeness** — all thirteen destinations still linked, address / email / CTA present, three social links with accessible names, the mark loaded, centred and legible, every mark on the navy panel a `-white` variant, the email never split mid-word, no sideways scroll, ELFIA under Clients and never under Our companies, and exactly one client shown.
+
+`scratch/footer-height.mjs` prints the before/after numbers on demand. Full guard suite 13/13, typecheck clean, `nav-fit-e2e` / `a2z-bm-e2e` / `portfolio-click-e2e` all re-run.
+
+**Deploy notes:** site only, no worker change, no migration. Service worker cache v27 → v28.
+
+## [1.33.0] — 2026-08-21 — the new A2Z mark, and a footer built around it
+
+**CEO: "change to this logo for A2Z Creative. make the footer a centralise a bit to ensure that the logo nice to see."**
+
+### The mark
+
+- The supplied artwork replaces the old one everywhere it appears: `public/logo.png`, `public/logo-white.png`, the browser tab icon (`app/icon.png`) and both PWA icons (`icon-192.png`, `icon-512.png`).
+- It arrived as navy-on-white. Cutting the white out with a hard threshold leaves a jagged, halo'd edge at small sizes, so the alpha channel is a **luminance ramp** instead — every pixel keeps the exact softness of its own anti-aliasing, and the colour is flattened to the brand navy `#1a2946`. The result sits cleanly on the white header and on the navy footer alike.
+- **The service worker cache is bumped v26 → v27 deliberately.** `SHELL_URLS` caches `/logo.png` and `/icon-192.png`; without the bump, every already-installed device would keep showing the _old_ mark indefinitely. `activate` deletes any key that is not the current one, so the first visit after this deploy evicts them.
+
+### The footer
+
+- Rebuilt on a **single centre line**: mark → tagline → slogan → address → the WhatsApp action, each centred on the same axis, with the mark raised to `h-14 / sm:h-16` so the stacked A2Z / CREATIVE lockup is legible rather than decorative.
+- The Explore and Follow-us columns are now a centred pair (`max-w-lg`, centred text) instead of being pushed to the right-hand edge, and Our Companies, Clients and the legal bar all sit on the same axis.
+- **In the header the mark went `h-7` → `h-9 / sm:h-10`.** The new artwork is a stacked lockup; at 28px in a 64px bar the word CREATIVE came out about 4px tall and read as a grey smudge. Re-measured first: Bahasa Melayu — the wider language — wants 1033px of a 1152px row at 1280, so the extra ~22px was affordable, and `nav-fit-e2e.mjs` re-confirms all 16 width × language combinations.
+
+### Three more defects I found in my own screenshots
+
+Not asked for, but visible the moment the footer was rendered at full size, and all three were already live:
+
+- **"ELFIA ELFIA".** The client chips printed the brand name beside a mark that _is_ the brand name. The mark now stands alone; the name survives as the `alt` text and an `aria-label`, so screen readers and anyone whose images fail still get it.
+- **A truncated descriptor.** A2Z's line read "Creative marketing, digital growth and live com…" — an ellipsis in the one place whose whole job is to say what each company does. It wraps now, and the two chips stretch to equal height.
+- **A split email address.** At 390px the address sat in half a column and broke as "admin@azoneofficial.c / om". It has its own full-width centred row and no longer needs to be breakable at all.
+
+### A contrast bug found on the way, and closed
+
+Reviewing my own screenshot of the new footer, ELFIA's **maroon** wordmark on the navy panel was all but invisible — a defect live since v1.30.0 that no existing test could have caught, because the image loaded perfectly. It was simply the wrong file for that surface.
+
+- `constants/brands.ts` gains a required **`logoOnDark`** on the Brand type, so a brand cannot be registered without stating which mark to use on a dark surface. `public/brands/elfia-white.png` and `azone-white.png` were generated to match.
+- The footer now reads `src={b.logoOnDark}` for every chip.
+- **`tests/brands-guard.mjs` enforces it**: an `<img>` in the footer that uses `b.logo` instead of `b.logoOnDark` fails the build. Verified in both directions — reverting the footer line makes the guard fail, restoring it makes it pass.
+
+**Tested:** `scratch/footer-e2e.mjs` (new) asserts, at 1280px, that the mark is present, loaded, at least 50px tall and centred on the container axis within 2px, that the link columns are centred, that every footer image loads, that every `/brands/` mark used there is a `-white` variant, that no company descriptor is clipped, and that each client chip shows no duplicate name while keeping its accessible one — then repeats at 390px for the email on a single line, the mark still centred and no sideways scroll. The two new rules were checked in the **failing** direction as well (`scratch/neg.mjs` re-introduces both defects in the live DOM and confirms each rule fires).
+
+`nav-fit-e2e.mjs` re-run at 8 widths × 2 languages after the mark grew (16/16), plus `a2z-bm-e2e.mjs` and `portfolio-click-e2e.mjs`. Full guard suite 13/13, typecheck clean.
+
+**Deploy notes:** site only, no worker change, no migration.
+
 ## [1.32.1] — 2026-08-20 — the BM navbar no longer collides
 
 **CEO's screenshot of a2zcreative.my/portfolio in BM: "Tentang Kami" printed through the A2Z logo, "Log Masuk" broken over two lines, and the CTA wrapped inside its button.**
@@ -24,6 +184,7 @@ My fault, and a predictable one: Bahasa Melayu labels are about 15% wider than t
 **CEO: "include portfolio AZ one and ELFIA, then put a toggle for EN BM so that client can choose their preferences."** Scope confirmed by him as every public page, and both brands named with their logos.
 
 ### EN / BM toggle
+
 - A pill in the navbar (desktop and inside the mobile menu) switches the whole public site between English and Bahasa Melayu. The choice is remembered per device under the SAME key the staff portal already uses, so someone who works in BM in the portal gets BM on the site too.
 - **410 strings** translated into Malaysian business BM — the marketing copy, the packages and services detail, the FAQ, careers, case studies, and the privacy policy and terms in a formal register. Brand names, tier names (Starter/Growth/Scale/Enterprise), registration numbers, the address and the taglines deliberately stay as they are.
 - **How it is applied, and why:** the public pages are Server Components (they export `metadata`), so they cannot call a hook. Rather than split all twelve pages into server+client halves and edit thirty files of a live site at once, the BM layer is applied to the rendered DOM — one walk over the text nodes, whole-node matches only, with every original remembered so switching back to English is exact rather than a reverse lookup. A string with no entry, or one whose English has since been reworded, simply stays English.
@@ -32,6 +193,7 @@ My fault, and a predictable one: Bahasa Melayu labels are about 15% wider than t
 - **Honest limit:** the HTML served to crawlers stays English, so English remains the indexed language. BM is a reader convenience. Real BM SEO would be a different job — `/ms` routes rendered at build time.
 
 ### Portfolio
+
 - **ELFIA** and **AZ ONE OFFICIAL** are now named entries with their marks, a one-line description of the relationship, and a link to each brand's own site.
 - The confidentiality rule from v1.27.0 stands for everyone else: a client is named only with permission. The CEO's instruction of 20-08-2026 is that permission, on the record, for these two entries and no others — a third named entry still needs written permission from that client.
 
@@ -66,6 +228,7 @@ My fault, and a predictable one: Bahasa Melayu labels are about 15% wider than t
 **CEO: "how to make sure that AZONE official and ELFIA is not in my A2Z system? I just want that customer or client can have a option to click on their logo then will redirecting to their own domain."** Two halves, and neither is a hardcoded link.
 
 ### Half one — the group's brands live in ONE file
+
 `constants/brands.ts` now declares every brand once: name, kind, canonical domain, logo, descriptor, registration. The footer's new **"Our companies"** row is generated from it — A2Z CREATIVE MARKETING and AZ ONE OFFICIAL side by side, each linking to its own domain, the current site marked rather than linked. A domain move is one edit here plus one line in `public/_redirects`, not a hunt through components.
 
 **ELFIA is `kind: "client"`, and that word does real work.** Clients never appear in the companies row — a shared logo row silently claims ownership of a business you do not own. Clients render only through `PUBLISHABLE_CLIENTS`, which requires `permissionOnFile: true`; ELFIA's is **false**, so ELFIA appears nowhere on the public site today. That is your own standing rule since v1.27.0: client marks are published only with written permission on file.
@@ -77,7 +240,8 @@ My fault, and a predictable one: Bahasa Melayu labels are about 15% wider than t
 **A real bug it caught on its first run:** A2Z's document letterhead was still printing `azoneofficial.com`. v1.28.0 shipped that because no A2Z domain existed yet; by today the old domain resolves to nothing, so **every A2Z invoice was showing a client a dead web address**. Fixed to `a2zcreative.my`. AZ ONE's letterhead keeps `azoneofficial.com` — that is its own site — and the A2Z mailbox stays `admin@azoneofficial.com` because Google Workspace has not moved. The guard now pins all three.
 
 ### Half two — every client owns their brand, on their own record (migration 0074)
-`customers` gains **website** and **logo_key**. In Sales → customer form there is now *Their website* and an *Upload logo* button (PNG/JPG/WEBP/SVG, stored in R2 under the public `uploads/` prefix — the client must be able to see their own logo, and their role would be refused by every private prefix).
+
+`customers` gains **website** and **logo_key**. In Sales → customer form there is now _Their website_ and an _Upload logo_ button (PNG/JPG/WEBP/SVG, stored in R2 under the public `uploads/` prefix — the client must be able to see their own logo, and their role would be refused by every private prefix).
 
 In the client's own area, a **"Your brand"** card shows that client their own mark and links to their own domain. Note what it is not: v1.27.0 removed an "ELFIA drops" card because it advertised one client's storefront to every signed-in customer, including their competitors. This card is the inverse — each client sees only themselves, read from their own row. A client with neither website nor logo on file sees no card at all.
 
@@ -94,7 +258,7 @@ Proven end-to-end on the built pages (`scratch/client-brand-e2e.mjs`): client wi
 **What it actually creates, and why:** one session per host. A session row carries exactly ONE host — that single fact is what makes the staff grid, the per-person hour totals, leave-clash detection and individual notifications work. Inventing a shared multi-host row would have quietly broken all four. So three hosts on tonight's 20:30 slot become three sessions at 20:30: three rows on the grid, three sets of hours, three notifications, and each one can be completed or cancelled on its own.
 
 - **The button promises exactly what the press will do.** It counts dates × hosts, not dates: two hosts on a five-day repeat reads "Schedule 10 sessions" before you click, and the repeat preview line spells out the multiplication.
-- **A stated ceiling, never a silent one.** One press creates at most 120 sessions. Ask for more (say 4 hosts across a 62-day run) and it queues the first 120 and *says so* — a silent truncation would read as "scheduled everything" when it did not.
+- **A stated ceiling, never a silent one.** One press creates at most 120 sessions. Ask for more (say 4 hosts across a 62-day run) and it queues the first 120 and _says so_ — a silent truncation would read as "scheduled everything" when it did not.
 - **Every chip is removable, including the one in the Host box** — removing it promotes the next host into the picker rather than emptying the form. The hosts are equals here; a chip you cannot remove would just look broken.
 - **Editing is untouched.** An amendment still concerns exactly one session, so the multi-host row is hidden in Edit mode and cleared when the dialog opens, and cannot leak into the next create.
 - **No new CSS.** The chips and the picker use the portal's shared style helpers (`chipNeutral`, `inputClassSm`, `fieldLabel`), so they inherit field sizing, radius, spacing and dark mode automatically — as asked.
@@ -144,16 +308,19 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 **This release exists because v1.29.0 broke sign-in on a2zcreative.my, and the fault was mine.** The domain work added host-aware Google OAuth to the API worker and referenced `url.protocol` at the top of the request router — but `url` only exists inside the outer handler; the router is handed `(request, env, path)` and nothing else. So a `ReferenceError` shipped to production, and every request whose handler sits below that line threw it: `/auth/me`, `/staff/*`, `/health`. Sign-in itself SUCCEEDED and then `/auth/me` returned 500, so the portal read "not signed in" and bounced straight back to `/login` — a loop that looked exactly like a wrong password. The error log said it plainly six times: `url is not defined`.
 
 **Why nothing caught it before it went live** — the important part:
+
 - The root `tsconfig.json` carries `"exclude": ["node_modules", "worker"]`. `pnpm typecheck` and `next build` never look at the API worker at all.
 - `wrangler deploy` bundles with esbuild, which strips TypeScript types **without resolving them**. An undefined identifier compiles perfectly and only fails when a real request reaches it.
 - The guard tests read the source as text; they confirmed the new OAuth logic was PRESENT, not that it could RUN.
 
 **Fixed here:**
+
 - The origin is derived from `request`, which the router actually has.
 - **New gate — `tests/worker-compile-gate.mjs`** runs the real TypeScript compiler over `worker/src` and fails the deploy on undefined names (TS2304/TS2552). It deliberately ignores the worker's ~28 pre-existing strict-mode warnings: a gate that cries wolf gets bypassed, and this one has to stay in the deploy path.
 - **DEPLOY.bat now runs that gate at step 3, before anything is published**, installs the API's own dependencies at step 2 so the gate can always run, refuses to run from a folder that is not this version, and **prints the live health of both domains at step 6** so the result is visible without asking anyone.
 
 **Also in this release — "when I click mark complete, there is no popup notification":**
+
 - Mark completed / Cancel session on the roster board were six copy-pasted inline handlers that fired the change and threw the answer away. Nothing confirmed the action, and a REJECTED change looked identical to a successful one — the card closed, the board reloaded, and the session quietly stayed scheduled. One shared handler now reports through the same centred confirmation used by Save, Reschedule and the PDF share ("Session completed — ELFIA · 19-08-2026 20:30"), says so when the change is refused, and only reloads the board when the write actually landed.
 - The Live session schedule card's status dropdown had the same silence, with a worse edge: a refused change left the dropdown showing the new value while the database held the old one. It now confirms, and re-reads from the server either way.
 - Both paths are proven end-to-end against the built portal (success and refusal) in `scratch/roster-toast-e2e.mjs`.
@@ -184,6 +351,7 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 **Stage C of the migration: the legal document layer. Your decisions on record: "A2Z invoices, A2Z employs"; registered address 34-02 Jalan Setia Tropika 1/1; Maybank 5511 0086 5300 in A2Z's name; A2Z not SST-registered.**
 
 **One rule governs everything: a document forever shows the entity that ISSUED it.**
+
 - Every quotation, invoice, delivery order, receipt, credit note, claim and leave form created FROM THIS DEPLOY ONWARDS is issued by **A2Z CREATIVE MARKETING (SSM 202603003468 / CA0414729-A)** and instructs payment to **MAYBANK 5511 0086 5300 (A2Z CREATIVE MARKETING)**.
 - Every document created BEFORE this deploy keeps **AZ ONE OFFICIAL's letterhead and AZ ONE's bank account, forever** — reprints, shares and the customer's saved links all still show the entity that was legally liable and the account they were told to pay. History is never rewritten.
 - Payslips switch at RELEASE time: months you release from now on are A2Z payslips (A2Z is the employer of record); already-released months stay AZ ONE.
@@ -196,6 +364,7 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 **Proof, not promises:** a new render test (`tests/doc-issuer-render.mjs`) builds the SAME invoice both ways from the real shipped code and asserts 22 checks — including that a legacy invoice contains ZERO bytes of A2Z identity and an A2Z invoice never names AZ ONE's bank. A browser test renders the customer share page under both codes. The tripwire guard now enforces the A2Z contract: the exact account number, holder name and SST status cannot drift without failing the build, and AZ ONE's legacy entry may never be edited.
 
 **Also in this release**
+
 - **Your official A2Z Creative logo is live** — navbar, hero, white-on-navy variant, app icons, favicon and the social share card were all rebuilt from the artwork you sent. (The staff app icon shows the mark on the navy plate with gold CREATIVE.)
 - The deploy-health check no longer lies: it tracked migration 0070 as "latest" forever; it now tracks the real latest (0073) from one constant, and migrations 0071/0072/0073 joined the health-card ledger and probes.
 - The floating WhatsApp button's screen-reader label still said AZ ONE — fixed.
@@ -208,9 +377,10 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 
 **The company you see is now A2Z CREATIVE MARKETING** (202603003468 / CA0414729-A). The public website, the Staff Portal, the Admin Portal and the Client Portal all belong to A2Z. Live commerce is now presented as one strong service line among creative marketing, digital marketing, content creation, consultancy, business development and product development — it is no longer the whole identity.
 
-**AZ ONE OFFICIAL is now a consultancy business unit with its own page.** A new `/consultancy` route presents it as *"AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing"*, names it as a separate registered entity (202603168673 / JM1046169-H), and sets out what it advises on. Search engines are told the same thing: A2Z is the parent Organization and AZ ONE OFFICIAL is a sub-organization pointing back to it.
+**AZ ONE OFFICIAL is now a consultancy business unit with its own page.** A new `/consultancy` route presents it as _"AZ ONE OFFICIAL — A Consultancy Service by A2Z Creative Marketing"_, names it as a separate registered entity (202603168673 / JM1046169-H), and sets out what it advises on. Search engines are told the same thing: A2Z is the parent Organization and AZ ONE OFFICIAL is a sub-organization pointing back to it.
 
 **ELFIA is no longer visible anywhere on the public site.** The case-study page, product photographs, wordmark, gallery, homepage client strip, FAQ entry, search-description mentions and the SEO keyword are all gone. The capability story survives, anonymised as "a premium modestwear label", so we keep the sales argument without naming a client. Two things were removed that mattered more than presentation:
+
 - **The Terms page claimed the ELFIA name belonged to us.** That is a claim over an independent client's trademark. It is gone, replaced with an explicit line disclaiming any right in client marks.
 - **The customer portal was advertising ELFIA's store to every logged-in customer** — including, potentially, their competitors. The card and its outbound link are deleted.
 
@@ -219,7 +389,8 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 **Your invoices, payslips, receipts and HR forms have deliberately NOT changed.** A2Z is a separate legal entity, and its registered address and bank account are not yet on file. Putting A2Z's name on an invoice while payment still goes to `MAYBANK 5516 2328 7032 (AZ ONE OFFICIAL)` would get transfers rejected. Every statutory and commercial document therefore still issues as AZ ONE OFFICIAL, and this is now **enforced**: a new `lib/issuers.ts` holds issuer identity as data, no document generator may read the marketing name any more, and a guard test fails the build if that changes. Switching the issuer to A2Z is deliberately a compile error until the address and bank account are supplied.
 
 **Also in this release**
-- The Android location self-help said *"find AZ ONE in Settings → Apps"*. The installed app is now captioned **A2Z Staff**, so that instruction would have sent staff hunting for an app that no longer exists. Fixed, and a guard test now keeps the two in lockstep.
+
+- The Android location self-help said _"find AZ ONE in Settings → Apps"_. The installed app is now captioned **A2Z Staff**, so that instruction would have sent staff hunting for an app that no longer exists. Fixed, and a guard test now keeps the two in lockstep.
 - **Canonical URLs added site-wide** — there were none. This had to land before any future domain move or the search index would fragment.
 - Every screen that was still English-only got its Bahasa Malaysia twin: the whole sign-in page, the crash-recovery screen, the admin console header and the portal version stamp.
 - The service-worker cache key was bumped so old app shells are evicted on this deploy.
@@ -233,7 +404,8 @@ Verified against a running Worker, not just read: enquiry from azoneofficial.com
 **The fix is one word:** `geolocation=(self)` — our own pages may ask for location; embedded third-party content still cannot. Camera and microphone stay fully locked (nothing in the system uses them). IZZUDIN's and NURFARAH's phones will start giving real distances on their next clock-in after deploy — no phone settings to change, nothing for staff to do.
 
 **Why three releases hunted the wrong suspect:** a policy-blocked build produces the exact same error as a user pressing "Block", so v1.25.2/v1.25.3 read it as a phone problem. That mislabelling is now impossible:
-- The portal checks the build's own policy FIRST. If a build ever forbids location again, staff see *"Location is blocked by the website build itself — NOT your phone"* (EN/BM), the punch records `NO LOCATION (site build blocked it — redeploy)` in red, and you know in one glance it's a deploy problem.
+
+- The portal checks the build's own policy FIRST. If a build ever forbids location again, staff see _"Location is blocked by the website build itself — NOT your phone"_ (EN/BM), the punch records `NO LOCATION (site build blocked it — redeploy)` in red, and you know in one glance it's a deploy problem.
 - A new guard (`tests/permissions-policy.mjs`) fails the build if `geolocation=()` ever reappears on a live header line, or if the self-diagnosis is removed.
 
 **Proven in a real browser:** a simulated policy-blocked build records the punch as `no_location: policy` with the build-blame message; with the fixed header and permission granted, the same tap sends real coordinates (1.4927, 103.7414 → "at office"). The full BM sweep still passes.

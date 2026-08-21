@@ -12,57 +12,95 @@ const SOCIAL_LINKS = [
   { label: "Facebook", href: CONTACT.socials.facebook, icon: Facebook },
 ] as const;
 
+/* The bottom bar. Real pages, but not the main journey — they belong on the
+   legal line beside the copyright, not in a column of their own. */
+const SECONDARY_LINKS = [
+  { href: "/faq", label: "FAQ" },
+  { href: "/case-studies", label: "Case Studies" },
+  { href: "/careers", label: "Careers" },
+  { href: "/privacy", label: "Privacy Policy" },
+  { href: "/terms", label: "Terms & Conditions" },
+  { href: "/login", label: "Login" },
+] as const;
+
 export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer id="site-footer" className="bg-brand px-6 py-12 text-white">
+    /* v1.33.2 (CEO sent a phone photo of the live footer: "I more prefer like
+       this!") — back to the LEFT-ALIGNED brand block with the two headed
+       columns, EXPLORE and FOLLOW US, which is the layout he was pointing at.
+       v1.33.1's centred rows are gone.
+
+       The size constraint from the message before it still stands, so the
+       same layout is arranged to cost less: the brand block and the link
+       columns sit SIDE BY SIDE from md up instead of stacking (that stacking
+       was most of the old 1080px), the company/client cards stay as a compact
+       row of marks, and the secondary pages ride on the legal bar rather than
+       forming a third column. Left-aligned costs a little more than centred
+       rows did — it is still far below where this started.
+
+       Reference numbers, all measured, at 1280 / 768 / 390:
+         original (v1.32.1)   1080 / 1080 / 1208
+         centred (v1.33.1)     433 /  451 /  647
+         this                  see scratch/footer-e2e.mjs — budgeted.
+
+       One deliberate difference from the photo: the email has moved OUT of
+       the FOLLOW US column and into the brand block under the address. In the
+       photo it is rendering as "admin@azoneofficial.c / om" — half a phone
+       column is not enough room for it, and an address you cannot read in one
+       piece is not much of an address. It sits with the other contact
+       details now, where it has the width it needs. */
+    <footer id="site-footer" className="bg-brand px-6 py-10 text-white">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="grid grid-cols-1 gap-10 md:grid-cols-4 md:gap-8">
-          <div className="max-w-sm md:col-span-2">
-            {/*
-              Lockup: an inline-block wrapper shrinks to the logo's width, so
-              centring the strapline inside it centres it under the mark —
-              rather than against the left edge of the whole footer column.
-            */}
-            <div className="inline-block">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo-white.png"
-                alt={SITE_CONFIG.name}
-                className="h-12 w-auto"
-              />
-              <p className="text-gold mt-2.5 text-center text-[9px] font-medium tracking-[0.08em] uppercase">
-                {SITE_CONFIG.brandTagline}
-              </p>
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-white/60">
+        <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_auto] md:gap-16">
+          {/* --- brand block, left --- */}
+          <div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-white.png"
+              alt={SITE_CONFIG.name}
+              className="h-11 w-auto"
+            />
+            <p className="text-gold mt-2.5 text-[10px] font-medium tracking-[0.18em] uppercase">
+              {SITE_CONFIG.brandTagline}
+            </p>
+            <p className="mt-3 max-w-lg text-xs leading-relaxed text-white/60">
               <Editable k="footer.slogan" fallback={SITE_CONFIG.slogan} />
             </p>
-            <p className="mt-4 text-xs leading-relaxed text-white/50">
+            <p className="mt-2 max-w-lg text-xs leading-relaxed text-white/50">
               {SITE_CONFIG.address}
+            </p>
+            <p className="mt-1.5">
+              <a
+                href={`mailto:${CONTACT.email}`}
+                className="text-xs text-white/50 transition-colors hover:text-white"
+              >
+                {CONTACT.email}
+              </a>
             </p>
             <a
               href={whatsappUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gold mt-5 inline-flex items-center text-sm font-medium hover:underline"
+              className="text-gold mt-4 inline-flex items-center text-sm font-medium hover:underline"
             >
               {CTA_LABEL} →
             </a>
           </div>
 
-          <div className="grid min-w-0 grid-cols-2 gap-6 sm:gap-8 md:col-span-2">
+          {/* --- the two columns, right --- */}
+          <div className="grid grid-cols-2 gap-10 sm:gap-16">
             <nav aria-label="Footer" className="min-w-0">
               <p className="text-xs font-medium tracking-[0.2em] text-white/60 uppercase">
                 Explore
               </p>
-              <ul className="mt-4 space-y-2">
+              <ul className="mt-3 space-y-1.5">
                 {NAV_ITEMS.map((item) => (
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className="text-sm text-white/70 transition-colors hover:text-white"
+                      className="text-sm whitespace-nowrap text-white/70 transition-colors hover:text-white"
                     >
                       {item.label}
                     </Link>
@@ -71,158 +109,132 @@ export function Footer() {
               </ul>
             </nav>
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium tracking-[0.2em] text-white/60 uppercase">
                 Follow us
               </p>
-              <ul className="mt-4 space-y-2">
+              <ul className="mt-3 space-y-1.5">
                 {SOCIAL_LINKS.map(({ label, href, icon: Icon }) => (
                   <li key={label}>
                     <a
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm text-white/70 transition-colors hover:text-white"
+                      className="inline-flex items-center gap-2 text-sm whitespace-nowrap text-white/70 transition-colors hover:text-white"
                     >
-                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                       {label}
                     </a>
                   </li>
                 ))}
-                <li>
-                  <a
-                    href={`mailto:${CONTACT.email}`}
-                    className="text-sm break-words text-white/70 transition-colors hover:text-white [overflow-wrap:anywhere]"
-                  >
-                    {CONTACT.email}
-                  </a>
-                </li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* v1.30.0 — OUR COMPANIES. A2Z and AZ ONE OFFICIAL are separate
-            legal entities under one roof, each with its own website; a
-            visitor should be able to see that at a glance and jump straight
-            to the right one. Every link is generated from constants/brands.ts
-            — no domain is written into this file, so a move is one edit
-            there. Clients are a SEPARATE block below and only appear with
-            written permission on file: one shared row of logos would quietly
-            claim we own our clients too. */}
-        <div className="mt-10 border-t border-white/10 pt-6">
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-white/40 uppercase">
-            Our companies
-          </p>
-          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-            {OUR_COMPANIES.map((b) => {
-              const isSelf = b.url === SITE_CONFIG.url;
-              const inner = (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={b.logo} alt={b.name} className="h-7 w-auto shrink-0" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-xs font-medium text-white/90">{b.name}</span>
-                    <span className="block truncate text-[11px] text-white/50">{b.descriptor}</span>
-                  </span>
-                </>
-              );
-              return (
-                <li key={b.code}>
-                  {isSelf ? (
-                    <span
-                      className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5"
-                      aria-current="page"
-                    >
-                      {inner}
-                    </span>
-                  ) : (
-                    <a
-                      href={b.url}
-                      rel="noopener"
-                      className="flex items-center gap-3 rounded-lg border border-white/10 px-3 py-2.5 transition-colors hover:border-white/25 hover:bg-white/5"
-                    >
-                      {inner}
-                    </a>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+        {/* v1.30.0 — OUR COMPANIES and CLIENTS are separate labelled groups on
+            purpose. A2Z and AZ ONE OFFICIAL are two legal entities under one
+            roof; ELFIA is a client who gave permission to be named. One shared
+            row of logos would quietly claim we own our clients too. Kept as a
+            compact row of marks rather than bordered cards — the descriptions
+            live in each link's accessible name and tooltip. Every URL comes
+            from constants/brands.ts; no domain is written into this file. */}
+        <div
+          data-footer="brands"
+          className="mt-8 flex flex-col gap-x-10 gap-y-4 border-t border-white/10 pt-5 sm:flex-row sm:items-center"
+        >
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] font-semibold tracking-[0.14em] whitespace-nowrap text-white/35 uppercase">
+              Our companies
+            </span>
+            <ul data-footer="companies" className="flex items-center gap-4">
+              {OUR_COMPANIES.map((b) => {
+                const isSelf = b.url === SITE_CONFIG.url;
+                const mark = (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={b.logoOnDark}
+                    alt={b.name}
+                    title={`${b.name} — ${b.descriptor}`}
+                    className="h-6 w-auto max-w-[110px] object-contain"
+                  />
+                );
+                return (
+                  <li key={b.code}>
+                    {isSelf ? (
+                      <span aria-current="page" className="block opacity-60">
+                        {mark}
+                      </span>
+                    ) : (
+                      <a
+                        href={b.url}
+                        rel="noopener"
+                        aria-label={`${b.name} — ${b.descriptor}`}
+                        className="block opacity-70 transition-opacity hover:opacity-100"
+                      >
+                        {mark}
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
           {PUBLISHABLE_CLIENTS.length > 0 && (
             <>
-              <p className="mt-6 text-[10px] font-semibold tracking-[0.14em] text-white/40 uppercase">
-                Clients
-              </p>
-              <ul className="mt-3 flex flex-wrap items-center gap-3">
-                {PUBLISHABLE_CLIENTS.map((b) => (
-                  <li key={b.code}>
-                    <a href={b.url} rel="noopener"
-                      className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 transition-colors hover:border-white/25 hover:bg-white/5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={b.logo} alt={b.name} className="h-6 w-auto" />
-                      <span className="text-xs text-white/80">{b.name}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              {/* A visible rule between the two groups. With only a gap, the
+                  eye could bracket "AZ ONE" together with "CLIENTS" — the one
+                  reading of this row that must never happen. */}
+              <span
+                className="hidden h-5 w-px bg-white/15 sm:block"
+                aria-hidden="true"
+              />
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-semibold tracking-[0.14em] whitespace-nowrap text-white/35 uppercase">
+                  Clients
+                </span>
+                <ul data-footer="clients" className="flex items-center gap-4">
+                  {PUBLISHABLE_CLIENTS.map((b) => (
+                    <li key={b.code}>
+                      <a
+                        href={b.url}
+                        rel="noopener"
+                        aria-label={b.name}
+                        className="block opacity-70 transition-opacity hover:opacity-100"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={b.logoOnDark}
+                          alt={b.name}
+                          className="h-6 w-auto max-w-[110px] object-contain"
+                        />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </>
           )}
         </div>
 
-        <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-white/60">
+        {/* Legal bar: copyright left, the secondary pages right. They used to
+            be a stacked block of their own; on one line they cost nothing. */}
+        <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-5 md:flex-row md:items-center md:justify-between">
+          <p className="text-xs text-white/50">
             © {year} {SITE_CONFIG.legalName}. All rights reserved.
           </p>
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
-            <li>
-              <Link
-                href="/faq"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                FAQ
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/case-studies"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Case Studies
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/careers"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Careers
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/privacy"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Privacy Policy
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/terms"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Terms &amp; Conditions
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/login"
-                className="text-xs text-white/60 transition-colors hover:text-white"
-              >
-                Login
-              </Link>
-            </li>
+          <ul className="flex flex-wrap gap-x-3.5 gap-y-1.5 md:justify-end">
+            {SECONDARY_LINKS.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className="text-[11px] whitespace-nowrap text-white/50 transition-colors hover:text-white"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
       </div>

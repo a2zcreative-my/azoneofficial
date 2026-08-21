@@ -137,5 +137,27 @@ if (!/email:\s*"admin@azoneofficial\.com"/.test(a2zBlock)) {
 const siteConfig = readFileSync('constants/site.ts', 'utf8');
 if (/elfia/i.test(siteConfig)) errors.push("constants/site.ts names a client — A2Z's own identity must not lean on a client brand");
 
+/* v1.33.0 — every brand needs BOTH a light-surface and a dark-surface mark,
+   and the footer must use the dark-surface one. ELFIA's maroon wordmark
+   shipped onto the navy footer once and was nearly invisible. */
+{
+  const brands = readFileSync('constants/brands.ts', 'utf8');
+  if (!/logoOnDark:\s*string;/.test(brands)) {
+    errors.push('constants/brands.ts: the logoOnDark field is gone — a coloured mark would end up on the navy footer');
+  }
+  const entries = (brands.match(/logo:\s*"/g) || []).length;
+  const darks = (brands.match(/logoOnDark:\s*"/g) || []).length;
+  if (entries !== darks) {
+    errors.push(`constants/brands.ts: ${entries} logo entries but ${darks} logoOnDark — every brand needs both`);
+  }
+  for (const [file, why] of [
+    ['components/layout/footer.tsx', 'the navy footer must render b.logoOnDark, not b.logo'],
+  ]) {
+    let src = '';
+    try { src = readFileSync(file, 'utf8'); } catch { /* file gone — other checks cover that */ }
+    if (/src=\{b\.logo\}/.test(src)) errors.push(`${file}: ${why}`);
+  }
+}
+
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }
 console.log(`PASS — ${entries.length} brands from one source, ELFIA is a client, permission gate intact, /go short links match, no hardcoded domains`);
