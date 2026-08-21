@@ -30,8 +30,18 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
--e 
 # Wrangler local secrets
 worker/.dev.vars
 worker/node_modules/
 worker/.wrangler/
+
+# --- v1.34.0: automatic deploys ----------------------------------------
+# The build now runs in Cloudflare from this repository, so anything that
+# is generated must stay out of it, and a stray credential file must never
+# be committable by accident.
+.wrangler/
+.dev.vars
+*.key
+*.p12
+id_rsa*
+Thumbs.db

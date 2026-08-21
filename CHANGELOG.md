@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.34.0] — 2026-08-21 — deploys itself
+
+**CEO: "I want vibecode for A2Z which is automatically done without I need to manual."**
+
+The manual part was never the coding — it was the delivery: zip → download → unzip into a new folder → `DEPLOY.bat`. That is gone. The code now lives in a private GitHub repository, and Cloudflare builds and publishes it.
+
+**Chosen shape:** GitHub + Cloudflare's own build service, preview on every change, one tap to production. Setup is in **`AUTO-DEPLOY.md`** — about 15 minutes, once.
+
+### The gate
+
+`npm run ci` = typecheck → **9 guards** → build, and it is Cloudflare's build command. A non-zero exit stops the deploy; the live site keeps serving the previous version. Verified in both directions: a deliberate contrast regression exits 1, the restored file exits 0.
+
+`scripts/run-guards.mjs` treats a guard that **cannot run** as a failure, never a skip. A skipped check reads exactly like a passing one in a build log, and "it went green" is what people remember. It also prints, on every run, the five browser-based suites it does **not** cover, so their absence is on the record rather than quietly forgotten.
+
+### Migrations cannot run from a preview
+
+There is one database. A Cloudflare preview gets its own URL but is still bound to the **real** `azoneofficial` D1 — the one holding today's invoices. So `scripts/deploy-api.sh` applies migrations **only** from the production branch, and preview builds are switched off for the API worker entirely. The website preview stays on: it is static files.
+
+### A stale lockfile that was a live trap
+
+`worker/pnpm-lock.yaml` was dated 14-08 and pinned `@cloudflare/workers-types` **4.x** while `package.json` asks for `^5`. That is the exact ERESOLVE mismatch `DEPLOY.bat` carries a retry hack for. Harmless while `DEPLOY.bat` used npm — but an automated builder picks its package manager from whichever lockfile it finds, so this would have reproduced the failure on a schedule. Deleted; `worker/` installs from `package-lock.json`.
+
+### Honest limits, also written into `AUTO-DEPLOY.md`
+
+- The four Playwright guards need a browser Cloudflare's builder does not have. They still run here before a release.
+- `app/layout.tsx` fetches Poppins from Google **at build time**. A Google outage fails the build — safely, but it fails. Self-hosting the font would remove the dependency.
+- The two workers deploy independently and can land a minute apart.
+
+`DEPLOY.bat` stays as the emergency path, with the caveat at the top: Cloudflare refuses a CLI deploy over a git-connected worker, so the repo must be disconnected **and reconnected afterwards**.
+
+### ⚠️ Found while preparing the repository — not fixed here
+
+**Five real handwritten signatures are publicly downloadable from the live site.** `public/signatures/{ceo,coo,cco,hr-admin,sales-marketing}-sign.png` are plain static assets: `https://a2zcreative.my/signatures/ceo-sign.png` returns the CEO's signature as a clean PNG to anyone, no login. No `_headers` rule restricts them, and the paths appear in the markup of approved leave and claim forms.
+
+This predates automatic deploys and is unchanged by them. It is not fixed in this release because the fix is not cosmetic: `lib/doc-pdf.ts` and `lib/form-pdf.ts` fetch these by URL from the browser, so they need an authenticated endpoint (`/api/v1/staff/signature/:role`) and both PDF builders repointed at it. That is its own release, with its own tests. Flagged rather than quietly patched.
+
 ## [1.33.3] — 2026-08-21 — you can type a space in a sales document
 
 **CEO: "The desc on sales cant be space?! Whyyy"** — he typed `Testing Testing` into a line's detail box and got `TestingTesting`.
