@@ -75,9 +75,13 @@ export const BRANDS: readonly Brand[] = [
     url: "https://elfiaofficialstore.my",
     logo: "/brands/elfia.png",
     descriptor: "Live commerce client",
-    // No signed permission on file — so ELFIA renders nowhere public. Ask,
-    // get it in writing, THEN flip this. Do not flip it "temporarily".
-    permissionOnFile: false,
+    /* v1.30.0 shipped this false: no permission, so ELFIA rendered nowhere
+       public. v1.32.0 flips it on the CEO's explicit instruction of
+       20-08-2026 — "include portfolio AZ one and ELFIA", named, with logos —
+       which is the permission, recorded here rather than in a chat log.
+       For any OTHER client this stays false until something signed exists;
+       do not flip one "temporarily". */
+    permissionOnFile: true,
   },
 ] as const;
 

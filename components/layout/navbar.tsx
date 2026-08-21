@@ -1,6 +1,8 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
+
+import { LangToggle } from "@/components/live/lang-runtime";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -17,7 +19,7 @@ export function Navbar() {
         aria-label="Main"
         className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6"
       >
-        <Link href="/" onClick={() => setOpen(false)} className="flex items-center">
+        <Link href="/" onClick={() => setOpen(false)} className="flex shrink-0 items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
@@ -26,12 +28,21 @@ export function Navbar() {
           />
         </Link>
 
-        <ul className="hidden items-center gap-8 md:flex">
+        {/* v1.32.1 — the desktop row appears at xl, not md.
+            Measured (scratch/nav-fit-measure.mjs): in Bahasa Melayu the seven
+            labels plus the toggle, Login and the CTA want 1067px, and the row
+            is only 961–1057px wide between 1024 and 1120. That is why the CEO
+            saw "Tentang Kami" printed through the logo and the CTA on two
+            lines. Below xl the hamburger takes over — the language toggle
+            stays outside it so a BM reader never has to open a menu to find
+            their own language. whitespace-nowrap is the belt: a longer label
+            in future overflows visibly rather than folding into its neighbour. */}
+        <ul className="hidden items-center gap-6 xl:flex">
           {NAV_ITEMS.map((item) => (
             <li key={item.href}>
               <Link
                 href={item.href}
-                className="text-muted-foreground text-sm transition-colors hover:text-foreground"
+                className="text-muted-foreground text-sm whitespace-nowrap transition-colors hover:text-foreground"
               >
                 {item.label}
               </Link>
@@ -39,10 +50,11 @@ export function Navbar() {
           ))}
         </ul>
 
-        <div className="hidden items-center gap-5 md:flex">
+        <div className="hidden items-center gap-4 xl:flex">
+          <LangToggle />
           <Link
             href="/login"
-            className="text-muted-foreground text-sm transition-colors hover:text-foreground"
+            className="text-muted-foreground text-sm whitespace-nowrap transition-colors hover:text-foreground"
           >
             Login
           </Link>
@@ -50,15 +62,17 @@ export function Navbar() {
             href={whatsappUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium transition-colors"
+            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium whitespace-nowrap transition-colors"
           >
             {CTA_LABEL}
           </a>
         </div>
 
+        <div className="flex items-center gap-2 xl:hidden">
+        <LangToggle />
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md"
           aria-expanded={open}
           aria-controls="mobile-menu"
           aria-label={open ? "Close menu" : "Open menu"}
@@ -66,12 +80,13 @@ export function Navbar() {
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
+        </div>
       </nav>
 
       <div
         id="mobile-menu"
         className={cn(
-          "max-h-[calc(100svh-4rem)] overflow-y-auto border-b border-border bg-background md:hidden",
+          "max-h-[calc(100svh-4rem)] overflow-y-auto border-b border-border bg-background xl:hidden",
           open ? "block" : "hidden",
         )}
       >

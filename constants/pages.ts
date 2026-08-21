@@ -1,3 +1,8 @@
+/* v1.32.0 — the two named portfolio entries link out via the brand
+   registry, so a domain is never written twice (tests/brands-guard.mjs
+   enforces that). */
+import { brandByCode } from "./brands";
+
 import {
   Building2,
   Clock4,
@@ -69,21 +74,43 @@ export interface PortfolioItem {
   result: string;
   /** External link to the client's own site; card becomes clickable. */
   href?: string;
+  /** v1.32.0 — logo in /public/brands. Only for entries cleared to be named. */
+  logo?: string;
+  /** Short line under the name: what the relationship actually is. */
+  role?: string;
 }
 
 /*
  * Client confidentiality (v1.27.0): entries are published anonymised unless
  * the client has given written permission to be named. The capability story
- * is ours to tell; the client's name is theirs. Do not add a client name, a
- * store URL, or an outbound `href` here without that permission.
+ * is ours to tell; the client's name is theirs.
+ *
+ * v1.32.0 — the CEO's instruction of 20-08-2026 ("include portfolio AZ one
+ * and ELFIA", named, with logos) is that permission, on the record, for the
+ * two entries below and no others. AZ ONE OFFICIAL is our own sister
+ * company; ELFIA is a client, named here on his authority. Anyone adding a
+ * THIRD named entry still needs written permission from that client first.
  */
 export const PORTFOLIO_ITEMS: readonly PortfolioItem[] = [
   {
-    client: "A premium modestwear label",
+    client: "ELFIA",
+    role: "Modestwear brand — live commerce client",
+    logo: "/brands/elfia.png",
+    href: brandByCode("elfia")?.url,
     summary:
-      "Built the live selling channel from a standing start: session format, trained hosts, rundowns, and the creative that surrounds each drop.",
+      "Built the live selling channel from a standing start: session format, trained hosts, rundowns, and the creative that surrounds each drop. We also built and run the brand's own online store.",
     result:
-      "A repeatable drop format the brand now runs on a schedule, with short-form content cut from each session keeping the channel warm in between.",
+      "A repeatable drop format the brand now runs on a schedule, with short-form content cut from each session keeping the channel warm in between — and a direct-to-customer storefront taking orders between lives.",
+  },
+  {
+    client: "AZ ONE OFFICIAL",
+    role: "Business consultancy — sister company",
+    logo: "/brands/azone.png",
+    href: brandByCode("azone")?.url,
+    summary:
+      "Brand, website and enquiry pipeline for the group's consultancy arm: positioning, the full site, and a lead desk that turns an enquiry into a quotation without anything falling through the gaps.",
+    result:
+      "A consultancy that presents as seriously as it works — every enquiry tracked from first message to signed proposal, on its own domain and its own letterhead.",
   },
 ] as const;
 

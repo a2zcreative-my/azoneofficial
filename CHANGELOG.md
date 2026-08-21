@@ -2,6 +2,41 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.32.1] — 2026-08-20 — the BM navbar no longer collides
+
+**CEO's screenshot of a2zcreative.my/portfolio in BM: "Tentang Kami" printed through the A2Z logo, "Log Masuk" broken over two lines, and the CTA wrapped inside its button.**
+
+My fault, and a predictable one: Bahasa Melayu labels are about 15% wider than their English originals, and the desktop nav row switched on at `md` (768px) — sized when every label was English. I shipped the translation without re-checking the header at the widths in between.
+
+**Measured, not guessed** (`scratch/nav-fit-measure.mjs`): in BM the seven links plus the toggle, Login and the CTA want **1067px**, while the row is only **961–1057px** wide between 1024 and 1120. English wants 915px and fits, which is exactly why it looked fine to me and broke for him.
+
+- **The desktop row now appears at `xl` (1280px)** instead of `md`. Below that the hamburger takes over — with every destination inside it, including Login and the CTA.
+- **The language toggle stays OUTSIDE the hamburger** at every width. A Bahasa Melayu reader should never have to open a menu to find their own language.
+- **`whitespace-nowrap`** on every nav link, Login and the CTA, plus `shrink-0` on the logo: a future label that is too long now overflows visibly instead of folding into its neighbour or over the mark.
+- Gaps tightened (8 → 6 in the link row, 5 → 4 on the right), which leaves BM 141px of slack at 1280 rather than 85px.
+
+**Now a permanent test** (`scratch/nav-fit-e2e.mjs`): eight widths (390 → 1600, including 1279/1280 either side of the breakpoint) × both languages, asserting no link wraps to a second line, no two header groups overlap, no sideways scroll, exactly one language toggle is visible, all seven links show at desktop width, and the hamburger menu carries all nine destinations below it. 16/16 pass.
+
+**Deploy notes:** site only, no worker change, no migration.
+
+## [1.32.0] — 2026-08-20 — Bahasa Melayu across the public site, and a named portfolio
+
+**CEO: "include portfolio AZ one and ELFIA, then put a toggle for EN BM so that client can choose their preferences."** Scope confirmed by him as every public page, and both brands named with their logos.
+
+### EN / BM toggle
+- A pill in the navbar (desktop and inside the mobile menu) switches the whole public site between English and Bahasa Melayu. The choice is remembered per device under the SAME key the staff portal already uses, so someone who works in BM in the portal gets BM on the site too.
+- **410 strings** translated into Malaysian business BM — the marketing copy, the packages and services detail, the FAQ, careers, case studies, and the privacy policy and terms in a formal register. Brand names, tier names (Starter/Growth/Scale/Enterprise), registration numbers, the address and the taglines deliberately stay as they are.
+- **How it is applied, and why:** the public pages are Server Components (they export `metadata`), so they cannot call a hook. Rather than split all twelve pages into server+client halves and edit thirty files of a live site at once, the BM layer is applied to the rendered DOM — one walk over the text nodes, whole-node matches only, with every original remembered so switching back to English is exact rather than a reverse lookup. A string with no entry, or one whose English has since been reworded, simply stays English.
+- **No flash and no hydration mismatch.** Swapping the text in an inline script before React boots was tried and rejected: React then hydrates against text it did not write, repairs the DOM back to English and logs error #418. The inline script now touches no text — it only holds the body invisible (`html.ms-pending`) for the few frames until React mounts and the swap lands. Failsafed twice: the script lifts the veil after 1.2s regardless, and the runtime lifts it on mount even if the swap throws. Proven with every script file blocked — the page still ends up visible.
+- The staff portal, admin, account, login, doc and report surfaces are explicitly excluded; they own their own language handling.
+- **Honest limit:** the HTML served to crawlers stays English, so English remains the indexed language. BM is a reader convenience. Real BM SEO would be a different job — `/ms` routes rendered at build time.
+
+### Portfolio
+- **ELFIA** and **AZ ONE OFFICIAL** are now named entries with their marks, a one-line description of the relationship, and a link to each brand's own site.
+- The confidentiality rule from v1.27.0 stands for everyone else: a client is named only with permission. The CEO's instruction of 20-08-2026 is that permission, on the record, for these two entries and no others — a third named entry still needs written permission from that client.
+
+**Deploy notes:** site only, no worker change, no migration. Run `DEPLOY.bat` IN FULL as always.
+
 ## [1.31.0] — 2026-08-20 — read-only stock bridge for the ELFIA store
 
 **CEO: "how to update all the inventory to match with inventory in A2Zcreative??"** The ELFIA store (its own separate system) can now pull stock counts from this portal's inventory.

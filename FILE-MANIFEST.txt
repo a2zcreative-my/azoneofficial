@@ -1,4 +1,4 @@
-a2z-v1.31.0-FULL — 324 files
+a2z-v1.32.1-FULL — 331 files
 
 .gitattributes	312
 .gitignore	366
@@ -8,7 +8,7 @@ ADMIN_GUIDE.md	30309
 API.md	7298
 ARCHITECTURE.md	5369
 AUDIT-REPORT-v1.5.0.md	9171
-CHANGELOG.md	567937
+CHANGELOG.md	572804
 CONTRIBUTING.md	3920
 DATABASE.md	10175
 DEPLOY.bat	6995
@@ -44,7 +44,7 @@ app/doc/page.tsx	6557
 app/faq/page.tsx	1005
 app/favicon.ico	6072
 app/icon.png	18141
-app/layout.tsx	7234
+app/layout.tsx	7575
 app/login/layout.tsx	485
 app/login/page.tsx	17469
 app/packages/page.tsx	4940
@@ -52,7 +52,7 @@ app/page.tsx	957
 app/portal/error.tsx	3618
 app/portal/layout.tsx	597
 app/portal/page.tsx	392319
-app/portfolio/page.tsx	3066
+app/portfolio/page.tsx	3853
 app/privacy/page.tsx	5641
 app/report/page.tsx	4931
 app/robots.ts	417
@@ -82,12 +82,13 @@ components/layout/app-shell.tsx	3826
 components/layout/command-palette.tsx	6221
 components/layout/footer.tsx	9122
 components/layout/nav-icons.tsx	3465
-components/layout/navbar.tsx	3606
+components/layout/navbar.tsx	4537
 components/layout/page-shell.tsx	3009
 components/layout/section.tsx	1450
 components/layout/side-nav.tsx	6786
 components/layout/sidebar-nav.tsx	3148
 components/live/editable.tsx	1608
+components/live/lang-runtime.tsx	8805
 components/live/live-content.tsx	3242
 components/portal/assets-panel.tsx	16340
 components/portal/commission-panels.tsx	20151
@@ -142,9 +143,10 @@ components/ui/skeleton.tsx	5590
 components/ui/stat-card.tsx	4458
 components/ui/stat-tile.tsx	2566
 components/ui/whatsapp-fab.tsx	3513
-constants/brands.ts	3887
+constants/brands.ts	4153
 constants/content.ts	20474
-constants/pages.ts	13907
+constants/ms.ts	72505
+constants/pages.ts	15367
 constants/site.ts	3417
 docs/ADMIN_GUIDE.md	30309
 docs/API.md	4052
@@ -196,6 +198,7 @@ public/_headers	1359
 public/_redirects	1077
 public/brands/azone-white.png	13122
 public/brands/azone.png	20777
+public/brands/elfia.png	21125
 public/icon-192.png	6445
 public/icon-512.png	18141
 public/logo-white.png	21153
@@ -209,13 +212,17 @@ public/signatures/coo-sign.png	363474
 public/signatures/hr-admin-sign.png	233047
 public/signatures/sales-marketing-sign.png	276903
 public/sw.js	2811
+scratch/a2z-bm-e2e.mjs	6955
 scratch/client-brand-e2e.mjs	3869
 scratch/issuer-choice-e2e.mjs	7137
 scratch/login-mobile-shot.mjs	2368
 scratch/multi-host-e2e.mjs	6698
+scratch/nav-fit-e2e.mjs	5098
+scratch/nav-fit-measure.mjs	3071
+scratch/portfolio-click-e2e.mjs	2922
 scratch/public-form-origin-check.sh	2046
 scratch/roster-toast-e2e.mjs	5543
-styles/globals.css	15803
+styles/globals.css	16190
 tests/bm-coverage.mjs	5616
 tests/brands-guard.mjs	7844
 tests/csrf-guard.mjs	3856
@@ -231,7 +238,7 @@ tests/sql-schema-check.mjs	3876
 tests/worker-compile-gate.mjs	4159
 tsconfig.base.json	618
 tsconfig.json	725
-tsconfig.tsbuildinfo	159901
+tsconfig.tsbuildinfo	164386
 types/index.ts	1099
 worker/.dev.vars.example	370
 worker/README.md	3056

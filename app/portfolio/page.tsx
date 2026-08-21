@@ -17,7 +17,7 @@ export default function PortfolioPage() {
     <PageShell
       eyebrow="Portfolio"
       title="Work that sells, live"
-      intro="Campaigns, brands, and live sessions produced by A2Z Creative Marketing. Clients are shown anonymised unless they have given us permission to name them."
+      intro="Campaigns, brands, and live sessions produced by A2Z Creative Marketing. Named with each brand’s permission; everyone else stays anonymous."
     >
       <LivePortfolio
         fallback={
@@ -54,10 +54,24 @@ export default function PortfolioPage() {
               {PORTFOLIO_ITEMS.map((item) => {
                 const card = (
                   <article className="h-full rounded-xl border border-border p-5 transition-colors group-hover:bg-secondary/40">
+                    {/* v1.32.0 — named entries carry their mark. The logo box
+                        keeps a fixed height so cards line up whether or not an
+                        entry has one. */}
+                    {item.logo && (
+                      <div className="mb-3 flex h-10 items-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.logo} alt={item.client} className="max-h-9 w-auto max-w-[190px] object-contain" />
+                      </div>
+                    )}
                     <h2 className="text-lg font-semibold text-foreground">
                       {item.client}
                     </h2>
-                    <p className="mt-1 text-sm">{item.summary}</p>
+                    {item.role && (
+                      <p className="text-muted-foreground mt-0.5 text-xs font-medium tracking-wide uppercase">
+                        {item.role}
+                      </p>
+                    )}
+                    <p className="mt-2 text-sm">{item.summary}</p>
                     <p className="text-gold-deep mt-3 text-sm font-medium">
                       {item.result}
                     </p>

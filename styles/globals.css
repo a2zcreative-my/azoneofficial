@@ -425,3 +425,10 @@ html[data-theme="plum"].dark {
   --ring: #e7b9cd;
   --brand-accent-deep: #e0a1bd;
 }
+
+/* v1.32.0 — EN/BM veil. Held for the few frames between the inline boot
+   script and React mounting, so a visitor who chose Bahasa Melayu never sees
+   the English copy blink past. Lifted by LangRuntime on mount, and by a hard
+   1.2s timeout in the boot script itself — a translation must never be able
+   to leave the site blank. */
+html.ms-pending body { visibility: hidden; }

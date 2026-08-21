@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { LangRuntime, MsBoot } from "@/components/live/lang-runtime";
 import { PwaRegister } from "@/components/pwa-register";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 
@@ -146,6 +147,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable}>
       <body className={`${poppins.variable} bg-background text-foreground min-h-screen font-sans antialiased selection:bg-primary/20`}>
+        <MsBoot />
         <OfflineBanner />
         <PwaRegister />
         {/*
@@ -201,6 +203,10 @@ export default function RootLayout({ children }: RootLayoutProps) {
           />
         )}
         {children}
+        {/* v1.32.0 — EN/BM. LangRuntime applies the BM layer once React has
+            mounted; MsBoot (in <head>) holds the page invisible for those few
+            frames so a BM visitor never sees English blink past. */}
+        <LangRuntime />
         <ScrollMemory />
         <WhatsAppFab />
         <ScrollToTop />
