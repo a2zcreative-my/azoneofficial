@@ -72,9 +72,24 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 #   SETUP_TOKEN             — random 32+ chars; one-time super admin bootstrap
 #   TIKTOK_APP_SECRET       — from Partner Center → your app (NEVER commit)
 #   TIKTOK_WEBHOOK_SECRET   — optional; only for a relay (Make/Zapier) path
+#   ELFIA_BRIDGE_KEY        — shared with the ELFIA store's BRIDGE_KEY (same
+#                             value both sides); unset = bridge answers 501
+#   ELFIA_ORDERS_URL        — the store's orders feed, e.g.
+#                             https://<store-domain>/api/v1/bridge/orders —
+#                             a SECRET so the client's domain never enters a
+#                             committed file; unset = 5-min poller silently off
+#   VAPID_PUBLIC_KEY        — optional trio for Web Push (v1.6.0); push is
+#   VAPID_PRIVATE_KEY         silently off while any of the three is unset
+#   VAPID_SUBJECT           — mailto: contact for the push service
+#   NOTIFY_WEBHOOK          — optional; relays every notification as JSON
+# (v1.35.0: this list was missing the last five — every secret the code
+#  reads is now on the record here, the one place people look.)
 
 # Crons: TikTok auto-sync every 30 minutes (v1.4.66; harmless no-op until the
 # TikTok setup completes) + nightly database backup to R2 at 03:20 MYT
-# (19:20 UTC, v1.4.72 — keeps the newest 30 under backups/ in the bucket).
+# (19:20 UTC, v1.4.72 — keeps the newest 30 under backups/ in the bucket)
+# + ELFIA web-orders poll every 5 minutes (v1.37.0; silent no-op until
+# ELFIA_ORDERS_URL and ELFIA_BRIDGE_KEY are set — its handler RETURNS
+# immediately so 5-min firings never fall into the 30-min chain).
 [triggers]
-crons = ["*/30 * * * *", "20 19 * * *", "0 1 * * *"] # 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings
+crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *"] # 5-min ELFIA orders / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings

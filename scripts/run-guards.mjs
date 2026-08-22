@@ -35,6 +35,9 @@ const GUARDS = [
   ["origins-guard", "CORS origins match the deployed domains"],
   ["permissions-policy", "Android location permission policy is intact"],
   ["shift-sales-split", "sales are attributed to the right shift"],
+  ["bridge-feed-guard", "the ELFIA feed sends the right price and nothing else"],
+  ["bridge-idempotency", "a store movement applies exactly once, however often it retries"],
+  ["no-public-signatures", "no real signature image is publicly downloadable"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
 ];

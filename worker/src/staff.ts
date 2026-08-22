@@ -10,6 +10,7 @@ import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
 import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
+import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
 
 import { Role, can } from "./permissions";
 
@@ -490,6 +491,20 @@ async function revenueLines(env: Env): Promise<Record<string, Record<string, num
     ).all<{ m: string; cents: number }>();
     for (const r of results) add("stokis", r.m, r.cents);
   } catch { /* pre-0069 */ }
+  try {
+    /* v1.38.0: ELFIA web orders join the lines — payment-received basis like
+       everything else (paid_seen_at = when THIS portal first saw it paid,
+       stamped by the 5-min poller). Cancelled orders never get a
+       paid_seen_at wiped — a paid-then-cancelled order is a refund decision,
+       visible in Web Orders, not silently vanished revenue. Deliberately NOT
+       part of attributedSalesByUser(): no live session, no shift, nobody's
+       commission — asserted by tests/bridge-idempotency.mjs. */
+    const { results } = await env.DB.prepare(
+      `SELECT strftime('%Y-%m', paid_seen_at, '+8 hours') AS m, COALESCE(SUM(total_cents), 0) AS cents
+       FROM web_orders WHERE paid_seen_at IS NOT NULL GROUP BY m`,
+    ).all<{ m: string; cents: number }>();
+    for (const r of results) add("elfia", r.m, r.cents);
+  } catch { /* pre-0077 */ }
   return lines;
 }
 
@@ -640,8 +655,10 @@ export async function handleStaff(
   // v1.7.0: the claims receipt upload is /claims/:id/receipt (binary); the new
   // /docs/:id/receipt is JSON, so exclude only the claims one, not any /receipt.
   const isClaimsReceipt = path.endsWith("/receipt") && path.startsWith("/claims/");
+  // v1.38.0: signature uploads are a raw PNG body, same family as /photo.
+  const isSignatureUpload = path.startsWith("/signatures/");
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -5581,6 +5598,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     } catch {
       return err("conflict", "An item with this SKU already exists", 409);
     }
+    /* v1.36.0: maintain the bridge match key (UPPER, spaces stripped) in the
+       same breath as every sku write. A stale sku_key looks exactly like an
+       unknown_sku from the store — worth this one extra statement. */
+    try {
+      await env.DB.prepare(
+        `UPDATE inventory_items SET sku_key = UPPER(REPLACE(sku, ' ', '')) WHERE sku = ?1`,
+      ).bind(body.sku).run();
+    } catch { /* pre-0076 — the migration backfills every key on apply */ }
     await audit(env, user.id, "inventory.create");
     return json({ ok: true }, 201);
   }
@@ -5621,6 +5646,231 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       await checkLowStock(Number(invMatch[1]));
     return json({ ok: true });
   }
+  /* v1.35.0 (CEO: "sync the prices and inventory to ELFIA"): per-item bridge
+     controls — whether the ELFIA store may see this item, and the web price
+     it must charge. Two rules worth reading before touching this:
+     1. elfia_price is the NET price the web customer pays, in RM (stored in
+        sen). Empty/null clears it and the feed falls back to unit_price_cents.
+        The TikTok live rebate never applies online — a web discount is set
+        HERE, explicitly, never inherited from a live session's rebate.
+     2. bridge_enabled is the ONLY thing that scopes the feed — the old
+        ELFIA%/LUMI% SKU LIKE is gone from the live path, so unticking this
+        is how an item is withdrawn from the shop. */
+  const invBridge = path.match(/^\/inventory\/(\d+)\/bridge$/);
+  if (invBridge && method === "PATCH") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const hasEnabled = typeof body?.bridge_enabled === "boolean";
+    const priceGiven = body?.elfia_price !== undefined; // "" or null clears the web price
+    if (!hasEnabled && !priceGiven) {
+      return err("invalid_input", "Provide bridge_enabled and/or elfia_price", 400);
+    }
+    let priceC: number | null = null;
+    if (priceGiven && body!.elfia_price !== null && `${body!.elfia_price}` !== "") {
+      const v = Number(body!.elfia_price);
+      if (!Number.isFinite(v) || v <= 0) {
+        return err("invalid_input", "elfia_price must be a positive amount in RM — or empty to clear it", 400);
+      }
+      priceC = Math.round(v * 100);
+    }
+    try {
+      if (hasEnabled && priceGiven) {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET bridge_enabled = ?1, elfia_price_cents = ?2,
+             updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+        ).bind(body!.bridge_enabled ? 1 : 0, priceC, user.id, invBridge[1]).run();
+      } else if (hasEnabled) {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET bridge_enabled = ?1,
+             updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+        ).bind(body!.bridge_enabled ? 1 : 0, user.id, invBridge[1]).run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET elfia_price_cents = ?1,
+             updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+        ).bind(priceC, user.id, invBridge[1]).run();
+      }
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0075_bridge_pricing)", 500);
+      }
+      throw e;
+    }
+    await audit(env, user.id, "inventory.bridge", "inventory_items", invBridge[1], {
+      ...(hasEnabled ? { bridge_enabled: body!.bridge_enabled ? 1 : 0 } : {}),
+      ...(priceGiven ? { elfia_price_cents: priceC } : {}),
+    });
+    return json({ ok: true });
+  }
+  /* v1.36.0: the bridge's pulse for the Inventory tab — last movement in,
+     24-hour applied/ignored counts (ignored > 0 = the dedupe working, not a
+     fault), and the unknown_sku list that MUST be actioned by a human. */
+  if (path === "/inventory/bridge-health" && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    /* Dedupe hits ("ignored") leave no second row BY DESIGN, so this card
+       reports what the table can honestly answer: applied and unknown. */
+    const out: Record<string, unknown> = { key_configured: false, last_event_at: null, applied_24h: 0, unknown_24h: 0, unknown: [] };
+    out.key_configured = !!(env as unknown as { ELFIA_BRIDGE_KEY?: string }).ELFIA_BRIDGE_KEY;
+    try {
+      out.last_event_at = (await env.DB.prepare(`SELECT MAX(received_at) AS t FROM bridge_events`)
+        .first<{ t: string | null }>())?.t ?? null;
+      const counts = await env.DB.prepare(
+        `SELECT outcome, COUNT(*) AS n FROM bridge_events
+         WHERE received_at > datetime('now', '-1 day') GROUP BY outcome`,
+      ).all<{ outcome: string; n: number }>();
+      for (const c of counts.results) {
+        if (c.outcome === "applied") out.applied_24h = c.n;
+        if (c.outcome === "unknown_sku") out.unknown_24h = c.n;
+      }
+      const unk = await env.DB.prepare(
+        `SELECT sku, COUNT(*) AS n, MAX(received_at) AS last_at FROM bridge_events
+         WHERE outcome = 'unknown_sku' GROUP BY sku_key ORDER BY last_at DESC LIMIT 20`,
+      ).all<{ sku: string; n: number; last_at: string }>();
+      out.unknown = unk.results;
+    } catch { /* pre-0076 — the card shows "not migrated yet" */ out.pending_migration = true; }
+    try {
+      out.last_poll_at = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_last_poll'`)
+        .first<{ value: string }>())?.value ?? null;
+    } catch { out.last_poll_at = null; }
+    return json(out);
+  }
+  /* v1.37.0: web orders pulled from the store — read-only surface. The store
+     owns the order; the portal monitors it. */
+  if (path === "/web-orders" && method === "GET") {
+    if (!can(user.role, "sales") && !can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Sales access required", 403);
+    }
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status");
+    const q = url.searchParams.get("q");
+    try {
+      let sql = `SELECT * FROM web_orders`;
+      const conds: string[] = [];
+      const binds: unknown[] = [];
+      if (status && /^[a-z_]+$/.test(status)) { conds.push(`status = ?${binds.length + 1}`); binds.push(status); }
+      if (q && q.trim() !== "") {
+        conds.push(`(order_number LIKE ?${binds.length + 1} OR phone LIKE ?${binds.length + 1} OR customer_name LIKE ?${binds.length + 1})`);
+        binds.push(`%${q.trim().slice(0, 60)}%`);
+      }
+      if (conds.length) sql += ` WHERE ` + conds.join(" AND ");
+      sql += ` ORDER BY COALESCE(placed_at, first_seen_at) DESC LIMIT 200`;
+      const { results } = await env.DB.prepare(sql).bind(...binds).all();
+      return json({ orders: results });
+    } catch {
+      return json({ orders: [], pending_migration: true });
+    }
+  }
+  const webOrderMatch = path.match(/^\/web-orders\/(\d+)$/);
+  if (webOrderMatch && method === "GET") {
+    if (!can(user.role, "sales") && !can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Sales access required", 403);
+    }
+    try {
+      const order = await env.DB.prepare(`SELECT * FROM web_orders WHERE id = ?1`)
+        .bind(webOrderMatch[1]).first();
+      if (!order) return err("not_found", "Web order not found", 404);
+      const { results: lines } = await env.DB.prepare(
+        `SELECT * FROM web_order_lines WHERE order_id = ?1`,
+      ).bind(webOrderMatch[1]).all();
+      /* The portal-side movements for this order, joined via the store's
+         order number — "what did this order do to my count" in one click. */
+      let movements: unknown[] = [];
+      try {
+        const ref = (order as { order_number?: string }).order_number ?? "";
+        const { results: mv } = await env.DB.prepare(
+          `SELECT sku, delta, outcome, received_at FROM bridge_events WHERE reference = ?1 ORDER BY id`,
+        ).bind(ref).all();
+        movements = mv;
+      } catch { /* pre-0076 */ }
+      return json({ order, lines, movements });
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0077_web_orders)", 500);
+    }
+  }
+  if (path === "/web-orders/sync" && method === "POST") {
+    if (!can(user.role, "sales") && !can(user.role, "inventory")) {
+      return err("forbidden", "Sales access required", 403);
+    }
+    /* Manual "pull now" — rate-limited to once a minute so a stuck spinner
+       cannot hammer the store. */
+    try {
+      const last = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_manual_sync'`)
+        .first<{ value: string }>())?.value;
+      if (last && Date.now() - Date.parse(last + "Z") < 60_000) {
+        return err("rate_limited", "A sync just ran — the store is polled every 5 minutes anyway", 429);
+      }
+      await env.DB.prepare(
+        `INSERT INTO system_meta (key, value) VALUES ('elfia_manual_sync', datetime('now'))
+         ON CONFLICT (key) DO UPDATE SET value = datetime('now')`,
+      ).run();
+    } catch { /* pre-0057 — allow */ }
+    await pollElfiaOrders(env);
+    await audit(env, user.id, "bridge.manual_sync");
+    return json({ ok: true });
+  }
+  /* v1.38.0: the daily reconciliation report — for each published SKU, the
+     day's movements by source from the append-only ledger, against the
+     current count. Any disagreement is listed first. Until Track E routes
+     the other mutation sites through stock_ledger, the ledger carries ELFIA
+     movements only — the response says so rather than implying full
+     coverage (the run-guards "no silent caps" rule, applied to data). */
+  if (path === "/bridge/reconcile" && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    const url = new URL(request.url);
+    const date = url.searchParams.get("date") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err("invalid_input", "date must be YYYY-MM-DD", 400);
+    try {
+      const { results: items } = await env.DB.prepare(
+        `SELECT id, sku, name, stock FROM inventory_items WHERE bridge_enabled = 1 ORDER BY sku`,
+      ).all<{ id: number; sku: string; name: string; stock: number }>();
+      const { results: moves } = await env.DB.prepare(
+        `SELECT item_id, source, SUM(delta) AS delta, COUNT(*) AS n FROM stock_ledger
+         WHERE date(created_at, '+8 hours') = ?1 GROUP BY item_id, source`,
+      ).bind(date).all<{ item_id: number; source: string; delta: number; n: number }>();
+      const byItem = new Map<number, { source: string; delta: number; n: number }[]>();
+      for (const m of moves) {
+        const arr = byItem.get(m.item_id) ?? [];
+        arr.push({ source: m.source, delta: m.delta, n: m.n });
+        byItem.set(m.item_id, arr);
+      }
+      return json({
+        date,
+        coverage: "ledger carries ELFIA bridge movements only until Track E unifies all sources",
+        items: items.map((it) => ({ ...it, movements: byItem.get(it.id) ?? [] })),
+      });
+    } catch {
+      return json({ date, items: [], pending_migration: true });
+    }
+  }
+  /* v1.38.0 (IMPLEMENTATION-PLAN.md S-1): signatures come from the vault,
+     not from the public site. Serve: any signed-in staff member (the people
+     who could already print the signed documents). Upload: admin tier only.
+     R2 keys are deterministic — private/signatures/<role>-sign.png — so no
+     table is needed; audit_log records every upload. */
+  const sigServe = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  if (sigServe && method === "GET") {
+    const obj = await env.MEDIA.get(`private/signatures/${sigServe[1]}`);
+    if (!obj) return err("not_found", "This signature has not been uploaded to the vault yet — /admin → Staff → Signatures", 404);
+    return new Response(obj.body, {
+      headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private" },
+    });
+  }
+  const sigUpload = path.match(/^\/signatures\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  if (sigUpload && method === "POST") {
+    if (!["super_admin", "admin", "ceo"].includes(user.role)) {
+      return err("forbidden", "Only an admin or the CEO can upload signatures", 403);
+    }
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const ct = request.headers.get("Content-Type") ?? "";
+    if (ct !== "image/png") return err("invalid_input", "Signatures must be PNG (transparent background)", 400);
+    const key = `private/signatures/${sigUpload[1]}`;
+    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    await audit(env, user.id, "staff.signature_upload", "r2", key);
+    return json({ ok: true, key }, 201);
+  }
   /* v1.4.162 (CEO): fix a wrongly inserted item — edit SKU/name, or delete
      the row entirely. Deletion is blocked once shipment history exists
      (postage_items) or a supplier return references it: those records join
@@ -5645,6 +5895,13 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       `UPDATE inventory_items SET sku = COALESCE(?1, sku), name = COALESCE(?2, name),
          updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
     ).bind(newSku, newName, user.id, target.id).run();
+    /* v1.36.0: a SKU rename must move the bridge match key with it — a stale
+       sku_key silently breaks store matching (looks like unknown_sku). */
+    try {
+      await env.DB.prepare(
+        `UPDATE inventory_items SET sku_key = UPPER(REPLACE(sku, ' ', '')) WHERE id = ?1`,
+      ).bind(target.id).run();
+    } catch { /* pre-0076 */ }
     await audit(env, user.id, "inventory.edit", "inventory_items", String(target.id),
       { from: { sku: target.sku, name: target.name }, to: { sku: newSku ?? target.sku, name: newName ?? target.name } });
     return json({ ok: true });

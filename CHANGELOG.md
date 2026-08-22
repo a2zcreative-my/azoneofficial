@@ -2,6 +2,87 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.38.0] — 2026-08-22 — the bridge is whole, and the signatures are off the internet
+
+**CEO: "Do everything at one go. I dont want to hold anymore since I need to make my system live and publish completely."**
+
+Track A of `IMPLEMENTATION-PLAN.md` is code-complete: web revenue, cash booking, a reconciliation report, bridge health in the public probe — plus the three security/debt items the plan marked urgent. Ships together with 1.36.0 and 1.37.0 below as one deploy.
+
+### The signatures (S-1) — the item that could not wait
+
+Five real handwritten signatures (`ceo, coo, cco, hr-admin, sales-marketing`) were plain files under `/signatures/` — downloadable by anyone on the internet, no login, since the day they were added. Flagged in v1.34.0 as found-but-not-fixed because **nine** call sites fetch them by URL (the v1.34.0 entry knew about two): `lib/doc-pdf.ts`, `lib/form-pdf.ts` ×6, `lib/doc-template.ts`, the printable leave form in `app/portal/page.tsx` ×3 and the claim form in `role-panels.tsx` ×3.
+
+Now: the PNGs live in **private R2** (`private/signatures/`), served only through two routes — `GET /api/v1/staff/signature/<role>-sign.png` (signed-in staff; the session cookie rides along on the print window's `<img>`) and `GET /api/v1/public/doc-signature?t=<share-token>` (a customer's shared document — the signature rides the SAME credential the document itself does, so revoking the link revokes the signature). All nine call sites repointed. The public files are replaced by 1×1 transparent placeholders so stale cached HTML renders blank instead of broken. **Guard #12 (`no-public-signatures`)** fails any build where a real image returns to `public/signatures/` or any client file references the old path again.
+
+**One action needed from you** (in the app, no terminal): /admin → Staff → **Signatures** — upload the five PNGs once. Until then, documents print a blank signing zone (the graceful path that already existed). And because the old files were public for an unknown period, upload **fresh scans**, not the leaked images — then a saved copy of the leak no longer matches any new document.
+
+### The orphan pipeline reminder (S-2)
+
+The 30-min cron was still bell-notifying staff "📞 Follow up today — Pipeline tab" — a tab deleted in v1.21.0 on your own words ("Sales pipeline is really needed?? I dont think so"). A notification that leads nowhere trains people to ignore notifications, so the block is gone. The `prospects` data stays; the reminder returns with Track C-2 only if you approve rebuilding the pipeline at all.
+
+### Goods receipt recorded backwards (S-3)
+
+`erp.ts` wrote every PO goods-receipt trail row without a `direction`, so the 0064 default recorded every stock **in** as an **out**. The insert now says `'in'` explicitly, and migration `0078_fix_po_direction` corrects the historical rows (scoped to the exact `Goods receipt PO-…` remark the code writes, so no genuine stock-out can be touched).
+
+### Web revenue, booked like everything else
+
+- `revenueLines()` gains an **`elfia`** bucket — paid web orders on a payment-received basis (`paid_seen_at`, stamped the first time the poller sees an order paid). Because `/revenue`, `/finance/pnl` and the business-lines card all derive from this one function, they cannot disagree.
+- A first-seen-paid order books one cashflow money-in + one balanced journal entry, **idempotent by ref `ELF-<order_number>`** — the recordBankMovement rule (post twice, book once).
+- Web orders are deliberately **NOT** in `attributedSalesByUser()` — no live session, no shift, nobody's commission — and guard #11 asserts that so nobody "fixes" it later.
+- `GET /api/v1/health` now carries an `elfia_bridge` block (configured, orders_configured, last movement, last poll) — the mirror of the store's own probe, per its checklist step 4.
+- `GET /staff/bridge/reconcile?date=` — per published SKU, the day's ledger movements by source against the current count. It says out loud that the ledger carries only ELFIA movements until Track E unifies the other sources.
+
+### Also in this deploy
+
+`bridge_events` retention on the 30-min cron (applied events kept 400 days; `unknown_sku` rows kept forever — each is an unresolved business problem), and `docs/BRIDGE-RUNBOOK.md` — key rotation without losing a movement, resolving unknown SKUs, replaying a cursor, correcting a clamped count.
+
+## [1.37.0] — 2026-08-22 — every web order, visible from the portal
+
+**"Everything is monitored in one place."** — the store's own spec, feed C, now consumed.
+
+### What changed
+
+- **Migration `0077_web_orders`** — `web_orders` (upsert key `(store, order_number)`) + `web_order_lines` (a snapshot, replaced whole on every update; `price_cents` is the price **actually charged at purchase** — the frozen number reports must use even after a price changes).
+- **A 5-minute poller** (`worker/src/bridge.ts`, its own cron trigger so a bridge failure can never swallow the clock-out reminders or the TikTok sync). Cursor in `system_meta`, persisted only after a page is fully written — a crash mid-page re-reads the page and the upsert makes that harmless. ≤10 pages per tick, 20 s timeout, and after 3 consecutive failed polls it bells super_admin + CEO once per day. The store's URL is the **`ELFIA_ORDERS_URL` secret** — the client's domain never enters a committed file, the same posture the store takes toward ours.
+- **The poller touches `web_orders` only.** A cancelled order's pieces already came back through the movements feed; guard #11 asserts the orders path can never write `inventory_items` or `stock_ledger`.
+- **New "Web Orders" tab** (sales/inventory tier + executives, BM: "Pesanan Web") — status chips, search by order no/phone/name, and a detail drawer showing the frozen prices AND the portal-side stock movements for that order, joined through the bridge events. Plus a rate-limited "Pull now" button for the impatient (the cron pulls every 5 minutes anyway).
+
+## [1.36.0] — 2026-08-22 — the store's sales finally reach the count
+
+Until now the bridge was one-way: the store read our numbers, and every web sale drifted the two systems apart. This is the other half — the half where a mistake costs real stock.
+
+### What changed
+
+- **Migration `0076_bridge_movements`** — `bridge_events` (the idempotency store: `UNIQUE(source, event_id)`), `stock_ledger` (append-only; every movement writes one row with the APPLIED delta and the balance after — corrections are compensating rows, never edits), and `inventory_items.sku_key` (normalised match key: the store's `LUMI001` finds our `LUMI 001`, maintained by both routes that write a SKU).
+- **`POST /api/v1/bridge/elfia-movements`** — up to 50 movements per call, same shared key. Response is exactly the spec's three lists (`applied` / `ignored` / `unknown_sku` — **event ids, not SKUs**). The store treats any id in NO list as undelivered and resends it: silence means retry, so the lists are truthful — a movement that fails mid-flight is simply left out and the retry is safe.
+- **The one rule:** `INSERT … ON CONFLICT (source, event_id) DO NOTHING` — zero rows changed means already applied, answer `ignored`, apply nothing. **Guard #11 (`bridge-idempotency`) replays the same event five times against the real schema and the real INSERT (extracted from the shipped source) and proves stock moves exactly once.** Loses a sale? Never — the store retries. Deducts twice? Never — this guard.
+- **Clamped, and loud.** A movement that would push a count below zero applies down to 0 (the pieces already physically left the shop; refusing would retry forever), records the APPLIED delta in the ledger, and bells sales + CEO — the shop sold pieces the portal did not think existed, and a human reconciles.
+- **`unknown_sku` is a human's job.** Nothing is applied and nothing retries; the new **ELFIA bridge card** on the Inventory tab lists them in amber with the fix (rename the SKU to match, or add the item). The card also shows the key state, last sale reported, applied-24h and last orders poll.
+- Every applied movement also writes the familiar `manual_stockouts` row (`ELFIA order ELF-…`), so the Inventory tab's movement list shows web sales alongside everything else.
+
+## [1.35.0] — 2026-08-22 — the portal now sets ELFIA's prices
+
+**CEO: "I want my system a2zcreative sync the prices and inventory to ELFIA which is all the system is automatically recorded and trace."**
+
+The store has been ready since its side shipped: its 5-minute pull already accepts an optional `price_cents` per SKU and puts that number straight on the shop's price tag (`PORTAL-BRIDGE-SPEC.md`, feed A). Our feed just never sent it. From this release, prices are controlled here — change a price in Inventory and the shop shows it within five minutes. This is release 1 of 4 on the bridge track in **`IMPLEMENTATION-PLAN.md`** (new file, the living plan for the bridge, HRM, CRM and the rest); movements in (B) and the orders feed (C) are the next two releases.
+
+### What changed
+
+- **Migration `0075_bridge_pricing`** — two columns on `inventory_items`: `bridge_enabled` (which items the store may see) and `elfia_price_cents` (the web price, in sen, nullable).
+- **The feed grew a price and lost a hack.** `GET /api/v1/bridge/elfia-inventory` now sends `price_cents` = the web price when set, else the list price/unit — and omits the key entirely when there is neither, which the store reads as "my own price stands". Scoping moved off the `ELFIA%`/`LUMI%` SKU prefix match onto the explicit `bridge_enabled` flag: renaming a SKU can no longer silently add or remove a product from a client's shop. 0075 backfills the flag from the old match, so the store sees exactly the same items on day one.
+- **The live rebate never touches the web.** `live_rebate_cents` is a TikTok LIVE mechanic (v1.4.164, auto-computed). If it fed the web price, every rebate a host earned would silently discount the website. A web discount is typed into the web-price box, explicitly, as the net figure the customer pays — the spec's own rule.
+- **Inventory tab: one new column, "ELFIA web".** A checkbox (publish / withdraw, saves at once, toast confirms) and — when published — a web-price box that saves on blur, with the list price greyed in as the placeholder so you can see what the shop will charge either way. Empty box = list price. New endpoint `PATCH /api/v1/staff/inventory/{id}/bridge`, audited as `inventory.bridge`.
+- **Guard #10, `bridge-feed-guard`** — 16 checks on the shipped serialiser (`worker/src/bridge-feed.ts`, a pure module the guard imports directly, the `shift-sales.ts` pattern): price precedence, the omit-when-absent rule, stock never negative, discontinued/unpublished never leave, the rebate never applies, and **no key beyond `{sku, name, stock, price_cents}` can ever leak** — even if someone widens the SELECT later.
+- **`worker/wrangler.toml` secrets list completed.** It documented five secrets; the code reads ten. `ELFIA_BRIDGE_KEY`, the VAPID trio and `NOTIFY_WEBHOOK` are now on the record — `ELFIA_BRIDGE_KEY` unset is why a fresh deploy answers 501.
+
+### Proved
+
+`npm run ci` order: typecheck ok → **all 10 guards ok** (the new guard caught a real mistake in review: the store's domain hardcoded in a UI tooltip — `brands-guard` refused it, the copy now says "the ELFIA store") → build. `sql-schema-check` verifies 634 queries against the 75-migration schema, including the feed's fallback pair.
+
+### Still manual (deliberately)
+
+Before this is live for the store: set the secret (`npx wrangler secret put ELFIA_BRIDGE_KEY`, same value as the store's `BRIDGE_KEY`), deploy, then run spec checklist steps 5 and 8 — the store's "Sync with portal now" report clean, and a portal price change visible on the shop within 5 minutes.
+
 ## [1.34.0] — 2026-08-21 — deploys itself
 
 **CEO: "I want vibecode for A2Z which is automatically done without I need to manual."**

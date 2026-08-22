@@ -245,9 +245,9 @@ export async function buildClaimPdf(c: ClaimLike, claimNo: string): Promise<Blob
     ? (c.pre_approved_by_role === "coo" ? "coo-sign.png" : "cco-sign.png") : null;
   const ceoFile = c.status === "approved" ? "ceo-sign.png" : null;
   const loaded = await Promise.all([
-    empFile ? loadImage(`/signatures/${empFile}`, "Im0") : null,
-    preFile ? loadImage(`/signatures/${preFile}`, "Im1") : null,
-    ceoFile ? loadImage(`/signatures/${ceoFile}`, "Im2") : null,
+    empFile ? loadImage(`/api/v1/staff/signature/${empFile}`, "Im0", true) : null,
+    preFile ? loadImage(`/api/v1/staff/signature/${preFile}`, "Im1", true) : null,
+    ceoFile ? loadImage(`/api/v1/staff/signature/${ceoFile}`, "Im2", true) : null,
     c.receipt_key ? loadImage(`/api/v1/staff/claims/${c.id}/receipt`, "Im3", true) : null,
   ]);
   const images = loaded.filter(Boolean) as Img[];
@@ -322,9 +322,9 @@ export async function buildLeavePdf(l: LeaveLike, lvNo: string): Promise<Blob> {
     ? (l.preapp_by_role === "coo" ? "coo-sign.png" : "cco-sign.png") : null;
   const ceoFile = (l.stage ?? l.status) === "approved" ? "ceo-sign.png" : null;
   const loaded = await Promise.all([
-    empFile ? loadImage(`/signatures/${empFile}`, "Im0") : null,
-    preFile ? loadImage(`/signatures/${preFile}`, "Im1") : null,
-    ceoFile ? loadImage(`/signatures/${ceoFile}`, "Im2") : null,
+    empFile ? loadImage(`/api/v1/staff/signature/${empFile}`, "Im0", true) : null,
+    preFile ? loadImage(`/api/v1/staff/signature/${preFile}`, "Im1", true) : null,
+    ceoFile ? loadImage(`/api/v1/staff/signature/${ceoFile}`, "Im2", true) : null,
   ]);
   const images = loaded.filter(Boolean) as Img[];
   const present: Placed = {};

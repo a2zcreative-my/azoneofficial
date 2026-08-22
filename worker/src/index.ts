@@ -2,6 +2,11 @@
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, type StaffUser } from "./staff";
+// v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
+// bridge-feed guard imports the shipped code, never a copy.
+import { serializeBridgeItems, type BridgeRow } from "./bridge-feed";
+// v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
+import { handleElfiaMovements, pollElfiaOrders, bridgeHousekeeping, bridgeHealth } from "./bridge";
 
 /**
  * A2Z CREATIVE MARKETING — Admin/API Worker (Phase 3, v0)
@@ -26,10 +31,15 @@ export interface Env {
       back office; it can never mint a session or read staff data with this. */
   PUBLIC_FORM_ORIGINS?: string;
   SETUP_TOKEN: string;
-  /** v1.31.0 — shared secret for the ELFIA store's read-only stock bridge.
-      Optional: unset = the bridge endpoint answers 501 and nothing is
+  /** v1.31.0 — shared secret for the ELFIA store's stock bridge.
+      Optional: unset = the bridge endpoints answer 501 and nothing is
       exposed. Set the SAME value as BRIDGE_KEY on the store's worker. */
   ELFIA_BRIDGE_KEY?: string;
+  /** v1.37.0 — the store's orders feed (feed C), e.g.
+      https://<store-domain>/api/v1/bridge/orders. A SECRET, not a var —
+      the client's domain never enters a committed file (same posture the
+      store takes toward ours). Unset = the 5-min poller is silently off. */
+  ELFIA_ORDERS_URL?: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
@@ -238,7 +248,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0074_customer_brand";
+const LATEST_MIGRATION = "0078_fix_po_direction";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1160,6 +1170,15 @@ export default {
       in the error log — "not configured / not authorized" are expected until
       the TikTok setup completes and stay silent. */
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    // v1.37.0: the ELFIA orders poller gets its OWN 5-minute trigger — a web
+    // order should not wait half an hour, and a bridge failure must never be
+    // able to swallow the 30-min chain (clock-out reminders, TikTok sync).
+    // It returns immediately, so 5-minute firings never fall through into
+    // the 30-min work below.
+    if (event.cron === "*/5 * * * *") {
+      await pollElfiaOrders(env);
+      return;
+    }
     if (event.cron === "20 19 * * *") {
       await runBackup(env, null);
       return;
@@ -1269,35 +1288,23 @@ export default {
     } catch (e) {
       if (!String(e).includes("no such column")) await logError(env, "lowstock_cron", e instanceof Error ? e.message : String(e));
     }
-    /* v1.7.0: the Sales Pipeline (rebuilt from the retained prospects table)
-       has its follow-up reminders back — each pass bell-notifies (and web-
-       pushes) whoever owns a lead due today, once per due date. */
-    try {
-      const todayMY = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-      const { results: due } = await env.DB.prepare(
-        `SELECT id, brand_name, next_followup, assigned_to, created_by FROM prospects
-         WHERE next_followup IS NOT NULL AND next_followup <= ?1
-           AND stage NOT IN ('won', 'lost')
-           AND (followup_notified_on IS NULL OR followup_notified_on < ?1)
-         LIMIT 50`,
-      ).bind(todayMY).all<{ id: number; brand_name: string; next_followup: string; assigned_to: number | null; created_by: number | null }>();
-      for (const p of due) {
-        const who = p.assigned_to ?? p.created_by;
-        if (who) {
-          const late = p.next_followup < todayMY ? ` (was due ${p.next_followup})` : "";
-          await notify(env, who, "prospect", `📞 Follow up today: ${p.brand_name}${late} — Pipeline tab`, `prospect:${p.id}`);
-        }
-        await env.DB.prepare(`UPDATE prospects SET followup_notified_on = ?1 WHERE id = ?2`).bind(todayMY, p.id).run();
-      }
-    } catch (e) {
-      if (!String(e).includes("no such table")) console.error("pipeline_cron", e);
-    }
+    /* v1.38.0 (IMPLEMENTATION-PLAN.md S-2): the prospects follow-up reminder
+       is GONE — the Pipeline tab it pointed people at was deleted in v1.21.0
+       ("Sales pipeline is really needed?? I dont think so"), so for months
+       this block bell-notified staff toward a screen that does not exist. A
+       notification that leads nowhere trains people to ignore notifications.
+       The prospects TABLE keeps its data (append-only rule); the reminder
+       returns with Track C-2, pointing at a tab that exists — and only after
+       the CEO signs off on rebuilding the pipeline at all. */
     /* v1.5.0 housekeeping: expired 2FA challenges and stale rate-limit rows
-       used to accumulate forever. */
+       used to accumulate forever. v1.38.0: + bridge_events retention (applied
+       events older than 400 days; unknown_sku rows are kept — each one is an
+       unresolved business problem). */
     try {
       await env.DB.prepare(`DELETE FROM twofa_challenges WHERE expires_at <= datetime('now')`).run();
       await env.DB.prepare(`DELETE FROM rate_limits WHERE window_start <= datetime('now', '-1 day')`).run();
     } catch { /* pre-migration — silent */ }
+    await bridgeHousekeeping(env);
     /* v1.4.265 (CEO: "Errors are logged but nobody is told"): every 30-min
        cron pass checks whether error_log grew since the last pass and bell-
        notifies super_admin + ceo. A watermark in system_meta stops repeats —
@@ -1472,23 +1479,53 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      the external uptime monitor got a permanent 401. Moved to /health/detail. */
   /* v1.31.0 (CEO: "how to update all the inventory to match with inventory
      in A2Zcreative??"): the ELFIA store's stock-sync bridge. READ-ONLY by
-     construction — one SELECT, no parameters reach SQL, nothing is written —
-     and DOUBLY scoped: only rows whose SKU belongs to the ELFIA families
-     (ELFIA### live-session stock, LUMI### store collection) ever leave, so
-     the client's store can never see A2Z's other inventory. Requires the
-     shared secret; unset secret = endpoint off (501), wrong key = 401. */
+     construction — one SELECT, no parameters reach SQL, nothing is written.
+     Requires the shared secret; unset secret = endpoint off (501), wrong
+     key = 401.
+
+     v1.35.0 (CEO: "sync the prices and inventory to ELFIA"): the feed now
+     carries price_cents — the number that goes straight onto the shop's
+     price tag (elfia_price_cents when set, else unit_price_cents; the
+     TikTok live rebate NEVER applies online). Scoping moved from the SKU
+     LIKE hack to the explicit bridge_enabled flag: renaming a SKU must not
+     silently add or drop a product from a client-facing store. 0075
+     backfills the flag from the old LIKE so the visible set is unchanged.
+     Shaping/filtering lives in bridge-feed.ts, proven by guard #10. */
   if (path === "/api/v1/bridge/elfia-inventory" && method === "GET") {
     if (!env.ELFIA_BRIDGE_KEY) return errorResponse("not_configured", "Bridge is not enabled", 501);
     const given = request.headers.get("X-Bridge-Key") ?? "";
     if (!timingSafeEqual(given, env.ELFIA_BRIDGE_KEY)) {
       return errorResponse("unauthorized", "Bad bridge key", 401);
     }
-    const { results } = await env.DB.prepare(
-      `SELECT sku, name, stock FROM inventory_items
-       WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
-       ORDER BY sku LIMIT 500`,
-    ).all();
-    return json({ items: results, as_of: new Date().toISOString() });
+    let rows: BridgeRow[];
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
+         FROM inventory_items WHERE bridge_enabled = 1
+         ORDER BY sku LIMIT 1000`,
+      ).all();
+      rows = results as unknown as BridgeRow[];
+    } catch {
+      /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
+         serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
+      const { results } = await env.DB.prepare(
+        `SELECT sku, name, stock FROM inventory_items
+         WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
+         ORDER BY sku LIMIT 500`,
+      ).all();
+      rows = results as unknown as BridgeRow[];
+    }
+    const items = serializeBridgeItems(rows);
+    return json({ items, as_of: new Date().toISOString(), count: items.length });
+  }
+
+  /* v1.36.0 (feed B): the store reports every web sale as a signed movement
+     and RETRIES anything not acknowledged. Idempotent by event_id — the one
+     rule that must not be got wrong. Same key, same server-to-server posture
+     as the feed above (no cookie → the CSRF gate does not engage; verified
+     by tests/bridge-idempotency.mjs). Handler in bridge.ts. */
+  if (path === "/api/v1/bridge/elfia-movements" && method === "POST") {
+    return handleElfiaMovements(request, env);
   }
 
   if (path === "/api/v1/health/detail" && method === "GET") {
@@ -2002,6 +2039,39 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         "X-Robots-Tag": "noindex, nofollow", // a customer's prices stay out of search
         ...corsHeaders(env),
       },
+    });
+  }
+
+  /* v1.38.0 (IMPLEMENTATION-PLAN.md S-1): the signature on a SHARED document
+     rides the same credential the document itself does — the 32-hex share
+     token. Before this, five real handwritten signatures were plain static
+     files anyone on the internet could download; now the public path knows
+     only this route, which serves exactly the signer's PNG for exactly the
+     documents that were deliberately shared, from the private R2 vault.
+     Revoking the share link revokes the signature with it. */
+  if (path === "/api/v1/public/doc-signature" && method === "GET") {
+    const token = new URL(request.url).searchParams.get("t") ?? "";
+    if (!/^[a-f0-9]{32}$/.test(token)) return errorResponse("not_found", "Unknown document", 404);
+    let sigDoc: { doc_type: string; created_by_role: string | null } | null = null;
+    try {
+      sigDoc = await env.DB.prepare(
+        `SELECT d.doc_type, cb.role AS created_by_role
+         FROM sales_documents d LEFT JOIN users cb ON cb.id = d.created_by
+         WHERE d.share_token = ?1`,
+      ).bind(token).first<{ doc_type: string; created_by_role: string | null }>();
+    } catch { sigDoc = null; }
+    if (!sigDoc) return errorResponse("not_found", "Unknown document", 404);
+    // Same signer rule as everywhere (v1.4.233): officer's doc → their chop;
+    // anyone else's INV → CEO; anything else is signed in ink (no image).
+    const MGMT = ["ceo", "coo", "cco"];
+    const role = MGMT.includes(sigDoc.created_by_role ?? "")
+      ? (sigDoc.created_by_role as string)
+      : (sigDoc.doc_type === "INV" ? "ceo" : null);
+    if (!role) return errorResponse("not_found", "This document is signed in ink", 404);
+    const obj = await env.MEDIA.get(`private/signatures/${role}-sign.png`);
+    if (!obj) return errorResponse("not_found", "Signature not on file", 404);
+    return new Response(obj.body, {
+      headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private", "X-Robots-Tag": "noindex" },
     });
   }
 
@@ -2704,7 +2774,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* v1.23.5: version in the public probe — one glance (or one fetch)
        answers "which build is the WORKER on?" the same way the site's
        visible stamp answers it for the pages. */
-    return new Response(JSON.stringify({ ok: db, db, version: WORKER_VERSION }), {
+    /* v1.38.0: + the ELFIA bridge block, mirroring the store's own health
+       probe (its checklist step 4 reads ours the same way it reads theirs).
+       Configuration booleans and two timestamps — nothing sensitive. */
+    const elfia_bridge = db ? await bridgeHealth(env) : { configured: !!env.ELFIA_BRIDGE_KEY };
+    return new Response(JSON.stringify({ ok: db, db, version: WORKER_VERSION, elfia_bridge }), {
       status: db ? 200 : 503,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
@@ -2867,6 +2941,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0072_geofence_seed",
       "0073_document_issuer",
       "0074_customer_brand",
+      "0075_bridge_pricing",
+      "0076_bridge_movements",
+      "0077_web_orders",
+      "0078_fix_po_direction",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -307,7 +307,15 @@ interface InvItem {
   status: string;
   unit_price_cents?: number; // v1.4.101
   live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
+  bridge_enabled?: number | null; // v1.35.0 — published to the ELFIA web store
+  elfia_price_cents?: number | null; // v1.35.0 — explicit web price (empty = list price)
   updated_by_name?: string;
+}
+interface BridgeHealth { // v1.36.0 — the ELFIA bridge's pulse
+  key_configured: boolean; last_event_at?: string | null; last_poll_at?: string | null;
+  applied_24h: number; unknown_24h: number;
+  unknown: { sku: string; n: number; last_at: string }[];
+  pending_migration?: boolean;
 }
 interface ManualOut { // v1.4.170 — traceability row for a manual stock out
   id: number; item_id: number; sku: string; item_name: string; qty: number;
@@ -510,6 +518,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "" });
+  const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null); // v1.36.0
   const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "", order_amount: "" }); // v1.4.169 += amount
   const [postLines, setPostLines] = useState<{ inventory_item_id: number; qty: number }[]>([]);
   const [postMsg, setPostMsg] = useState("");
@@ -648,13 +657,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   });
 
   const load = useCallback(async () => {
-    const [i, p, m, r, t, mo] = await Promise.all([
+    const [i, p, m, r, t, mo, bh] = await Promise.all([
       api<{ items: InvItem[] }>(`/inventory`),
       api<{ records: PostRec[] }>(`/postage`),
       api<{ materials: Material[] }>(`/materials`),
       api<{ returns: SupplierReturn[]; totals: { total_cents: number; credited_cents: number; replaced_cents?: number; outstanding_cents: number } }>(`/inventory/returns`),
       api<{ items: TtOut[] }>(`/inventory/tiktok-out`), // v1.4.165
       api<{ outs: ManualOut[] }>(`/inventory/manual-outs`), // v1.4.170
+      api<BridgeHealth>(`/inventory/bridge-health`), // v1.36.0
     ]);
     /* v1.22.7 (a staff member's Inventory tab white-screened: "Application
        error: a client-side exception"): D1 can hand back NULL in columns the
@@ -670,6 +680,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     }
     if (t.data?.items) setTtOut(t.data.items.map((x) => ({ ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, today_qty: Number(x.today_qty) || 0, month_qty: Number(x.month_qty) || 0, total_qty: Number(x.total_qty) || 0 })));
     if (mo.data?.outs) setManualOuts(mo.data.outs.map((x) => ({ ...x, sku: x.sku ?? "", item_name: x.item_name ?? "", qty: Number(x.qty) || 0, remark: x.remark ?? "", created_at: x.created_at ?? "" })));
+    if (bh.data) setBridgeHealth(bh.data);
   }, []);
   useEffect(() => {
     void load();
@@ -679,6 +690,57 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     <div className="space-y-4 md:space-y-6">
       {invConfirmNode}
       {invToastNode}
+      {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
+          it last report a sale, and (the part a human must act on) SKUs it
+          sent that the portal does not hold. Compact strip, reads before the
+          table like the status strip above it. */}
+      {bridgeHealth && (
+        <div className={card}>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
+            {!bridgeHealth.key_configured && (
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
+              </span>
+            )}
+            {bridgeHealth.key_configured && bridgeHealth.pending_migration && (
+              <span className="text-muted-foreground">{L("Waiting for migration 0076", "Menunggu migrasi 0076")}</span>
+            )}
+            {bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
+              <>
+                <span className="text-muted-foreground">
+                  {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
+                  {bridgeHealth.last_event_at ? bridgeHealth.last_event_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Applied 24h:", "Digunakan 24j:")} {bridgeHealth.applied_24h}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Orders pulled:", "Pesanan ditarik:")}{" "}
+                  {bridgeHealth.last_poll_at ? bridgeHealth.last_poll_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+              </>
+            )}
+          </div>
+          {bridgeHealth.unknown.length > 0 && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+              <p className="font-medium text-amber-800 dark:text-amber-300">
+                {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {bridgeHealth.unknown.map((u) => (
+                  <li key={u.sku} className="rounded border border-amber-300 px-1.5 py-0.5 font-mono text-xs dark:border-amber-700">
+                    {u.sku} ×{u.n}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {L("Fix: rename the item's SKU here to match the store (Edit), or add the item — the store retries nothing; reconcile the count manually after.", "Penyelesaian: namakan semula SKU barang di sini agar sepadan dengan kedai (Sunting), atau tambah barang itu — kedai tidak mencuba semula; selaraskan kiraan secara manual selepas itu.")}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       {/* v1.4.170 (CEO): manual stock-out MODAL — pick SKU/item, quantity,
           optional Sold @ (makes it a sale in the totals), and a MANDATORY
           remark for traceability. House card pattern + save-toast. */}
@@ -867,7 +929,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         {/* v1.4.199 (CEO): pills removed — click the SKU / Item headers to
             sort, click again to reverse. */}
         <div className="mt-3 max-h-96 overflow-x-auto overflow-y-auto pr-1">
-          <table className="tbl-sticky w-full min-w-[780px] border-collapse">
+          <table className="tbl-sticky w-full min-w-[920px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 {/* v1.4.281: all columns are sortable — click to asc, click again to desc */}
@@ -893,6 +955,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   title={L("Sort by net (live) price — click again to reverse", "Susun ikut harga bersih (live) — klik lagi untuk terbalik")}
                   onClick={() => cycleInv("net")}>
                   {L("Net (live)", "Bersih (live)")}{invSort.col === "net" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                </th>
+                {/* v1.35.0: which items the ELFIA store sees, and its web
+                    price. Tick = published (stock + price sync every 5 min);
+                    price empty = the shop charges the list price/unit. The
+                    live rebate NEVER applies online. */}
+                <th className={th} title={L("Publish to the ELFIA web store — it pulls stock and price every 5 minutes", "Terbit ke kedai web ELFIA — ia menarik stok dan harga setiap 5 minit")}>
+                  {L("ELFIA web", "Web ELFIA")}
                 </th>
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
                   title={L("Sort by stock qty — click again to reverse", "Susun ikut kuantiti stok — klik lagi untuk terbalik")}
@@ -942,6 +1011,52 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                   <td className={`${tdR2} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
                     title={L("Effective price during TikTok Live = price/unit − live rebate", "Harga efektif semasa TikTok Live = harga/unit − rebat live")}>
                     {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return rmBare(n); })()}
+                  </td>
+                  {/* v1.35.0: ELFIA bridge controls. The checkbox saves at
+                      once; the web-price box saves on blur like the price
+                      column, and shows the LIST price greyed as a placeholder
+                      so "what will the shop charge" is answered either way. */}
+                  <td className={td}>
+                    <span className="flex items-center gap-1.5">
+                      <input type="checkbox" checked={(it.bridge_enabled ?? 0) === 1}
+                        title={L("Publish this item to the ELFIA web store", "Terbitkan barang ini ke kedai web ELFIA")}
+                        onChange={async (e) => {
+                          const on = e.target.checked;
+                          const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/bridge`, {
+                            method: "PATCH", body: JSON.stringify({ bridge_enabled: on }),
+                          });
+                          if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+                          invToast(L("Saved", "Disimpan"), on
+                            ? `${it.sku} ${L("now published to the ELFIA store", "kini diterbitkan ke kedai ELFIA")}`
+                            : `${it.sku} ${L("withdrawn from the ELFIA store", "ditarik daripada kedai ELFIA")}`);
+                          void load();
+                        }} />
+                      {(it.bridge_enabled ?? 0) === 1 && (
+                        <input type="number" min={0} step="0.01"
+                          className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
+                          placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
+                          title={L("Web price (RM) — what the ELFIA store charges. Empty = the list price/unit. The live rebate never applies online.", "Harga web (RM) — yang dicaj oleh kedai ELFIA. Kosong = harga senarai/unit. Rebat live tidak sekali-kali terpakai dalam talian.")}
+                          defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
+                          onBlur={async (e) => {
+                            const raw = e.target.value.trim();
+                            const cur = it.elfia_price_cents ?? null;
+                            const next = raw === "" ? null : Math.round(Number(raw) * 100);
+                            if (raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
+                              invToast(L("Not saved", "Tidak disimpan"), L("Web price must be a positive RM amount — or empty to use the list price", "Harga web mesti amaun RM positif — atau kosong untuk guna harga senarai"), "notice");
+                              return;
+                            }
+                            if (next === cur) return;
+                            const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/bridge`, {
+                              method: "PATCH", body: JSON.stringify({ elfia_price: raw === "" ? "" : Number(raw) }),
+                            });
+                            if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+                            invToast(L("Saved", "Disimpan"), next === null
+                              ? `${it.sku} — ${L("web price cleared, the shop charges the list price", "harga web dikosongkan, kedai mencaj harga senarai")}`
+                              : `${it.sku} — ${L("web price", "harga web")} RM ${rmBare(next)}`);
+                            void load();
+                          }} />
+                      )}
+                    </span>
                   </td>
                   {/* v1.4.270: the stock figure becomes comparable at a
                       glance — bar vs the list's own largest stock, red ≤5
@@ -1045,6 +1160,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                       title={L("Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates", "Σ stok × bersih (live) — hasil jika semuanya dijual habis di TikTok Live selepas rebat auto")}>
                       RM {rmBare(tot.net)}
                     </td>
+                    <td className={td}></td>{/* v1.35.0: ELFIA column */}
                     <td className={tdR2}>{tot.units}</td>
                     <td className={td} colSpan={3}></td>
                   </tr>
@@ -2193,16 +2309,16 @@ async function printClaimForm(c: Claim) {
     <tr>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
         <div class="sg">Signature:${empSig
-          ? `<img class="sigimg" src="/signatures/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+          ? `<img class="sigimg" src="/api/v1/staff/signature/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
           : ` <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
         <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
         ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img class="sigimg" src="/signatures/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/signature/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
         : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
-        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/signatures/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/api/v1/staff/signature/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>

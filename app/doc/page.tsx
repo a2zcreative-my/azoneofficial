@@ -46,7 +46,9 @@ export default function PublicDocPage() {
         const res = await fetch(`/api/v1/public/doc/${token}`);
         if (!res.ok) { setState("gone"); return; }
         const { doc } = (await res.json()) as { doc: DocFull };
-        setHtml(buildDocHtml(doc, false)); // never auto-print at the customer
+        // v1.38.0 (S-1): the signature rides the same credential the document
+        // itself does — the share token. No token, no signature.
+        setHtml(buildDocHtml(doc, false, `${location.origin}/api/v1/public/doc-signature?t=${token}`)); // never auto-print at the customer
         setLabel(`${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[doc.doc_type] ?? "Document"} ${doc.doc_number}`);
         /* v1.28.0: page chrome follows the document's own issuer — a legacy
            link stays AZ ONE OFFICIAL, a new one reads A2Z CREATIVE MARKETING,

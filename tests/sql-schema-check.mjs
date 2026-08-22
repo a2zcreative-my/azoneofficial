@@ -16,7 +16,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 const MIG = "worker/migrations";
-const SRC = ["worker/src/index.ts", "worker/src/staff.ts", "worker/src/erp.ts", "worker/src/m2e.ts", "worker/src/webpush.ts"];
+const SRC = ["worker/src/index.ts", "worker/src/staff.ts", "worker/src/erp.ts", "worker/src/m2e.ts", "worker/src/webpush.ts", "worker/src/bridge.ts"]; // v1.36.0: + the ELFIA bridge module
 
 /* ---- 1. the real schema, migration by migration ---- */
 const db = new DatabaseSync(":memory:");

@@ -566,7 +566,9 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
     blank zone, exactly as the HTML template does. */
 export async function buildDocPdf(doc: DocFull): Promise<Blob> {
   const role = doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo");
-  const img = doc.signer_role === null ? null : await loadImage(`/signatures/${role}-sign.png`, "Im0");
+  // v1.38.0 (S-1): the vault route, with the session cookie — the public
+  // /signatures/ files are gone.
+  const img = doc.signer_role === null ? null : await loadImage(`/api/v1/staff/signature/${role}-sign.png`, "Im0", true);
   const content = drawDoc(doc, !!img);
   return new Blob([assemblePdf(content, img ? [img] : [], doc.doc_number) as BlobPart], { type: "application/pdf" });
 }

@@ -16,6 +16,7 @@ import { SystemHealthCard } from "@/components/admin/system-health";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import { StaffPanel } from "@/components/admin/staff-panel";
+import { SignaturesPanel } from "@/components/admin/signatures-panel"; // v1.38.0 (S-1)
 import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
@@ -1247,6 +1248,7 @@ export default function AdminPage() {
             <StaffDirectory canAmend />
             <HrAdminPanel />
             <StaffPanel />
+            <SignaturesPanel />
           </div>
         )}
         {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && (

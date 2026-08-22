@@ -557,9 +557,13 @@ export async function handleErp(
                 stocked++;
                 // The same traceability trail manual stock-ins use, with the
                 // PO number as the remark — receipt is findable from both ends.
+                // v1.38.0 (S-3): direction 'in', explicitly. This insert used
+                // to omit the column, so the 0064 DEFAULT recorded every
+                // goods RECEIPT as an 'out' — every report reading direction
+                // was wrong for every PO ever received. 0078 fixes history.
                 await env.DB.prepare(
-                  `INSERT INTO manual_stockouts (item_id, item_name, qty, remark, created_by)
-                   VALUES (?1, ?2, ?3, ?4, ?5)`,
+                  `INSERT INTO manual_stockouts (item_id, item_name, qty, remark, direction, created_by)
+                   VALUES (?1, ?2, ?3, ?4, 'in', ?5)`,
                 ).bind(it.inventory_item_id, it.title, Math.round(it.qty), `Goods receipt ${prev.po_no}`, user.id).run();
               }
             }

@@ -117,6 +117,7 @@ import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
+import { WebOrdersPanel } from "@/components/portal/web-orders-panel"; // v1.37.0
 import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -4871,19 +4872,19 @@ function printLeaveForm(l: LeaveReq, meName: string) {
       <td class="body"><div class="cw"><div class="nm">Name: ${applicant}</div>
         <div class="sg">Signature:${
           empSig
-            ? `<img class="sigimg" src="/signatures/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+            ? `<img class="sigimg" src="/api/v1/staff/signature/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
             : ` <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span>`
         }</div>
         <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${
         l.preapp_by_full || l.preapp_by_name
           ? `<div class="nm">Name: ${(l.preapp_by_full || l.preapp_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img class="sigimg" src="/signatures/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/signature/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
           : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`
       }</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : ""}</div>
-        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/signatures/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/api/v1/staff/signature/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
@@ -10584,6 +10585,7 @@ const ALL_TABS = [
   "Attendance",
   "Ecommerce",
   "Inventory",
+  "Web Orders",
   "Sales",
   "Announcements",
   "HR",
@@ -10660,6 +10662,18 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
      the revenue/orders view, and its data routes were already gated to
      this tier server-side. */
     Ecommerce: [
+      "super_admin",
+      "admin",
+      "ceo",
+      "coo",
+      "cco",
+      "hr_admin",
+      "sales_marketing",
+      "marketing",
+    ],
+    /* v1.37.0: ELFIA web orders — the sales/inventory tier plus executives.
+     Mirrors the /staff/web-orders permission check (sales|inventory|exec). */
+    "Web Orders": [
       "super_admin",
       "admin",
       "ceo",
@@ -12007,6 +12021,9 @@ export default function PortalPage() {
               {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
               <InventoryPanel role={user.role} />
             </div>
+          )}
+          {activeTab === "Web Orders" && (
+            <WebOrdersPanel />
           )}
           {activeTab === "Ecommerce" && (
             <div className="space-y-3 md:space-y-6">

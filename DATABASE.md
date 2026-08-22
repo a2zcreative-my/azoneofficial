@@ -3,6 +3,28 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.36.0–v1.38.0 — `0076_bridge_movements.sql`, `0077_web_orders.sql`, `0078_fix_po_direction.sql`
+
+**0076** (feed B): `bridge_events` — the movements idempotency store, `UNIQUE(source, event_id)`; a repeated event answers `ignored` and applies zero times. `stock_ledger` — append-only movement trail (applied delta + `balance_after`; never UPDATEd/DELETEd, corrections are compensating rows; Track E will route all seven mutation sites through it and backfill). `inventory_items.sku_key` — `UPPER(REPLACE(sku,' ',''))`, backfilled and index-supported, maintained by both SKU-writing routes.
+
+**0077** (feed C): `web_orders` (upsert key `(store, order_number)`; `paid_seen_at` = revenue month, stamped when the poller first sees paid) + `web_order_lines` (snapshot, replaced whole; `price_cents` frozen at purchase).
+
+**0078** (S-3 data fix): flips `manual_stockouts.direction` to `'in'` for rows matching `Goods receipt PO-%` — the erp.ts insert omitted the column and the 0064 default recorded every receipt as an out.
+
+| Date | Version | Change |
+| --- | --- | --- |
+| 2026-08-22 | 1.36.0 | `bridge_events`, `stock_ledger`, `inventory_items.sku_key` + backfill + indexes. |
+| 2026-08-22 | 1.37.0 | `web_orders`, `web_order_lines` + indexes. |
+| 2026-08-22 | 1.38.0 | Data fix: PO goods-receipt trail rows re-marked `direction = 'in'`. |
+
+## v1.35.0 — `0075_bridge_pricing.sql`
+
+Two additive columns on `inventory_items` for the ELFIA store bridge (feed A of `IMPLEMENTATION-PLAN.md` Track A): `bridge_enabled INTEGER NOT NULL DEFAULT 0` — the explicit publish flag that replaced the `ELFIA%`/`LUMI%` SKU-prefix scoping — and `elfia_price_cents INTEGER` (nullable; the web selling price in sen, `NULL` = feed falls back to `unit_price_cents`). The migration backfills `bridge_enabled = 1` for every SKU the old prefix match published, so the store-visible set is unchanged, and adds `idx_inventory_bridge`. The TikTok `live_rebate_cents` is deliberately not part of the web price.
+
+| Date | Version | Change |
+| --- | --- | --- |
+| 2026-08-22 | 1.35.0 | `inventory_items.bridge_enabled`, `inventory_items.elfia_price_cents`, backfill from the legacy SKU prefixes, `idx_inventory_bridge`. |
+
 Target: **Cloudflare D1 (SQLite)**. Media binaries in **R2**, referenced by key.
 
 ## Schema draft v1

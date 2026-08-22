@@ -47,7 +47,7 @@ export interface DocFull {
 /* autoPrint: the portal's popup should raise the print dialog the moment it
    opens (that is what the PDF button is for). The customer's shared link must
    NOT — they get a Save as PDF button instead. */
-export function buildDocHtml(doc: DocFull, autoPrint = true): string {
+export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: string): string {
   /* v1.28.0: a document forever shows the entity that ISSUED it — legacy
      rows (issuer_code NULL) stay AZ ONE OFFICIAL, new rows are A2Z. */
   const issuer = resolveIssuer(doc.issuer_code);
@@ -143,7 +143,14 @@ export function buildDocHtml(doc: DocFull, autoPrint = true): string {
 
   /* ---- signer (v1.4.233 rule kept verbatim) ---- */
   const manualSig = doc.signer_role === null;
-  const sigSrc = `${location.origin}/signatures/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
+  /* v1.38.0 (S-1): signatures moved out of /public into the vault. The
+     portal's print window fetches the staff-authenticated route (same
+     origin, the session cookie rides along on the <img> request); the
+     customer's shared link passes its own token-scoped URL via
+     sigSrcOverride. The old /signatures/<role>-sign.png files are gone —
+     they were downloadable by anyone on the internet. */
+  const sigSrc = sigSrcOverride
+    ?? `${location.origin}/api/v1/staff/signature/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
   /* The zone is the same height signed or not — that is what holds the two
      columns level once the auto signature drops in. */
   const zone = (img: boolean) =>
