@@ -316,6 +316,9 @@ interface BridgeHealth { // v1.36.0 — the ELFIA bridge's pulse
   applied_24h: number; unknown_24h: number;
   unknown: { sku: string; n: number; last_at: string }[];
   pending_migration?: boolean;
+  /** v1.38.1 — the route could not be reached or refused us; every field
+      above then means nothing and MUST NOT be reported as bridge state. */
+  unavailable?: boolean;
 }
 interface ManualOut { // v1.4.170 — traceability row for a manual stock out
   id: number; item_id: number; sku: string; item_name: string; qty: number;
@@ -680,7 +683,19 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     }
     if (t.data?.items) setTtOut(t.data.items.map((x) => ({ ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, today_qty: Number(x.today_qty) || 0, month_qty: Number(x.month_qty) || 0, total_qty: Number(x.total_qty) || 0 })));
     if (mo.data?.outs) setManualOuts(mo.data.outs.map((x) => ({ ...x, sku: x.sku ?? "", item_name: x.item_name ?? "", qty: Number(x.qty) || 0, remark: x.remark ?? "", created_at: x.created_at ?? "" })));
-    if (bh.data) setBridgeHealth(bh.data);
+    /* v1.38.1: `if (bh.data)` was wrong — an ERROR body is truthy too, so a
+       404 (the API worker being older than this page: the two workers deploy
+       independently, AUTO-DEPLOY.md) or a 403 landed here with
+       key_configured undefined, and the card announced "Key not set" — a
+       specific, confident, WRONG diagnosis that sends someone off to set a
+       secret that may already be set. Only a real payload counts as health;
+       anything else is "could not ask", said out loud (the run-guards rule:
+       a check that cannot run must never read like one that ran). */
+    setBridgeHealth(
+      bh.ok && bh.data && typeof (bh.data as BridgeHealth).key_configured === "boolean"
+        ? (bh.data as BridgeHealth)
+        : { unavailable: true, key_configured: false, applied_24h: 0, unknown_24h: 0, unknown: [] },
+    );
   }, []);
   useEffect(() => {
     void load();
@@ -698,15 +713,21 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         <div className={card}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
-            {!bridgeHealth.key_configured && (
+            {bridgeHealth.unavailable && (
+              <span className="text-muted-foreground">
+                {L("Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site (they deploy separately): deploy azoneofficial-api, then reload.",
+                   "Status tidak tersedia — halaman ini tidak dapat menghubungi laluan jambatan. Biasanya pekerja API lebih lama daripada laman (ia digunakan secara berasingan): deploy azoneofficial-api, kemudian muat semula.")}
+              </span>
+            )}
+            {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
               <span className="font-medium text-amber-700 dark:text-amber-400">
                 {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
               </span>
             )}
-            {bridgeHealth.key_configured && bridgeHealth.pending_migration && (
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
               <span className="text-muted-foreground">{L("Waiting for migration 0076", "Menunggu migrasi 0076")}</span>
             )}
-            {bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
               <>
                 <span className="text-muted-foreground">
                   {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}

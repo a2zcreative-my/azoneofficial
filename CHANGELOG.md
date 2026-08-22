@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.38.1] — 2026-08-22 — the bridge card stops guessing
+
+**CEO: "How to get ELFIA bridgeKey not set — the store cannot connect (ELFIA_BRIDGE_KEY)"**
+
+He was reading the new bridge card, and the card was overconfident. `if (bh.data)` treated an **error body as health data**: a 404 or 403 from `/staff/inventory/bridge-health` is still an object, so `key_configured` came back `undefined`, which is falsy, and the card announced *"Key not set"* — a specific, confident, possibly wrong diagnosis that sends someone to set a secret which may already be set.
+
+The 404 case is not hypothetical: the site worker and the API worker **deploy independently** (AUTO-DEPLOY.md), so the new Inventory page can be live while the API is still on a build without that route. That is exactly the window in which the card lied.
+
+**Now:** only a real payload (`key_configured` actually a boolean) counts as health. Anything else renders *"Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site: deploy azoneofficial-api, then reload."* The run-guards rule applied to a UI: **a check that cannot run must never read like one that ran.**
+
+### Verified against production while diagnosing
+
+- `https://a2zcreative.my/api/v1/health` reports **version 1.32.1** — the live API worker is behind the repo (which was 1.34.0 before this work). v1.33.x–v1.38.x have never reached the API.
+- An unauthenticated `GET /api/v1/bridge/elfia-inventory` returns **501 `not_configured`**, which is the portal's own "the secret is unset" answer. So `ELFIA_BRIDGE_KEY` is genuinely not set on the live worker — the card's message happened to be true this time, for a reason it could not actually see.
+- The **store is fully configured**: `bridge_pull_configured: true`, `bridge_push_configured: true`. It has been pulling our feed and getting 501 on every attempt, and holding its movements in its outbox. Nothing is lost — but nothing has ever synced either.
+
 ## [1.38.0] — 2026-08-22 — the bridge is whole, and the signatures are off the internet
 
 **CEO: "Do everything at one go. I dont want to hold anymore since I need to make my system live and publish completely."**
