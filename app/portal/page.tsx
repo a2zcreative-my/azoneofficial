@@ -7950,17 +7950,31 @@ function Sales({ user }: { user: User }) {
     void load();
   };
 
+  /* v1.41.2 (CEO: "I saw total was not deduct when there is discount
+     insert"): this preview and the Worker MUST compute the same number.
+     Line discounts shipped in v1.4.243 and the server has subtracted them
+     ever since — but this preview never did, so two RM 11.70 lines with
+     RM 1.70 off each showed "Total: RM 23.40" while the created document
+     said RM 20.00. Staff read one number, the customer got another.
+     The formula below now mirrors staff.ts POST /docs term for term:
+     per-line discount capped at the line's own value, then the document
+     discount, then tax, then delivery — which the server zeroes on a DO
+     AND on a service document (v1.4.238), not just on a DO. */
   const subtotal = doc.items.reduce(
-    (s, i) => s + i.qty * i.unit_price_cents,
+    (s, i) =>
+      s +
+      i.qty * i.unit_price_cents -
+      Math.min(i.disc_cents ?? 0, i.qty * i.unit_price_cents),
     0
   );
   // v1.4.160: delivery / postage fee — added after discount + tax (pass-through
-  // charge, not taxable goods value); never applies to a Delivery Order.
+  // charge, not taxable goods value); never on a Delivery Order or a service.
   const total =
     Math.max(
       0,
       Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100))
-    ) + (doc.doc_type === "DO" ? 0 : doc.delivery_cents);
+    ) +
+    (doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents);
 
   return (
     <div className="space-y-4 md:space-y-6">

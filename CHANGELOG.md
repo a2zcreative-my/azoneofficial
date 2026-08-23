@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.41.2] — 2026-08-23 — the total on screen is the total on the document
+
+**CEO: "I saw total was not deduct when there is discount insert"** — two RM 11.70 lines with RM 1.70 off each showed **Total: RM 23.40**.
+
+He caught a real and old one. Per-line discounts shipped in v1.4.243, and the Worker has subtracted them from the subtotal ever since — but the on-screen preview never did. So the document being CREATED was right (RM 20.00 here) while the number staff read before pressing the button was wrong. A preview that disagrees with the ledger is worse than no preview: it teaches staff to distrust the screen, and v1.41.0 made it bite daily by steering every price reduction into the Disc field.
+
+The preview now mirrors `staff.ts` term for term: each line's discount capped at the line's own value, then the document discount, then tax, then delivery — which the server zeroes on a Delivery Order AND on a service document (v1.4.238), a second quiet preview drift fixed in the same pass.
+
+**Guard extended:** `registry-parity` now trips if either side loses a term of the formula — the preview omitting line discounts (this bug), the preview losing the service-delivery exclusion, or the Worker losing the discount subtraction.
+
 ## [1.41.1] — 2026-08-23 — sales people get their whole name back
 
 **CEO: "the name of sales person to short, I dont need their roles there. their name is require instead"**

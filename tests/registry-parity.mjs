@@ -150,5 +150,24 @@ if (pinM.length === 0) {
   if (batOk) ok(`DEPLOY.bat version gate matches package.json (${pinM.length} pin(s) at ${pkg.version})`);
 }
 
+/* ---- E. totals parity (v1.41.2) — the preview and the Worker must
+   compute the same document total. The line-discount term was in the server
+   for 40+ releases while the preview omitted it: staff read RM 23.40, the
+   customer's document said RM 20.00. String-level tripwires on both files —
+   crude, but each fails if its side loses a term of the formula. */
+{
+  const previewStart = page.indexOf("const subtotal = doc.items.reduce");
+  const preview = previewStart >= 0 ? page.slice(previewStart, previewStart + 900) : "";
+  if (!preview.includes("i.disc_cents ?? 0")) {
+    fail("the doc-form preview subtotal no longer subtracts per-line discounts (page.tsx) — it will disagree with the Worker again");
+  } else ok("preview subtotal subtracts line discounts");
+  if (!preview.includes('doc.kind === "service"')) {
+    fail("the doc-form preview delivery term lost the service-document exclusion — the server zeroes delivery on service docs");
+  } else ok("preview delivery term matches the server's DO+service rule");
+  if (!staff.includes("i.qty * i.unit_price_cents - (i.disc_cents ?? 0)")) {
+    fail("the Worker's document subtotal no longer subtracts per-line discounts (staff.ts)");
+  } else ok("worker subtotal subtracts line discounts");
+}
+
 if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); process.exit(1); }
 console.log("\nregistry-parity: all registries agree.");
