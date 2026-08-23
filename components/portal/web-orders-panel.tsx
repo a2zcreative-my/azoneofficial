@@ -102,7 +102,7 @@ export function WebOrdersPanel() {
       </div>
       {pending && (
         <p className="text-muted-foreground mt-2 text-sm">
-          {L("Waiting for migration 0077 — run the deploy and this fills by itself.", "Menunggu migrasi 0077 — jalankan deploy dan senarai ini terisi sendiri.")}
+          {L("Waiting for migration 0081 — run the deploy and this fills by itself.", "Menunggu migrasi 0081 — jalankan deploy dan senarai ini terisi sendiri.")}
         </p>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-1.5">

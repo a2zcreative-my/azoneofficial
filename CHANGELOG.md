@@ -2,6 +2,77 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.41.0] — 2026-08-22 — product lines come from the catalogue
+
+**CEO: "For the sales, I want to have a list of the product with the prices auto filled and if there is any discount staff will insert the discount amount. SKU need to be filled for the products. This is only for Product."**
+
+### What changed
+
+- **Product documents pick, they don't type.** On a Product QT/DO/INV, the item line is now a dropdown of Inventory items — `SKU — name — RM price`, sorted by SKU. One tap fills the name, the SKU (shown under the field), the list price, and defaults UOM to PCS. Service documents are untouched: agency work has no catalogue and stays free text. The old type-to-match datalist (which only filled the price on an exact name match, and only if the price box was empty) is gone.
+- **The price box locks on a picked line.** The list price comes from Inventory; changing it happens *there*, or the reduction goes in **Disc** — per line, or the document-level discount — where it is visible on the printed document instead of hidden inside a hand-edited price.
+- **The Worker decides the price, not the browser.** On create, every product line's SKU is resolved against Inventory (the bridge's matching rule — case- and whitespace-insensitive, with a fallback for stale keys) and the catalogue's name and `unit_price_cents` **overwrite** whatever the client sent; the line discount is re-capped against the authoritative price. A product line with no SKU, an unknown SKU, or a catalogue item with no price set is refused with the line named. **Edits cannot bypass it**: any product line carrying a SKU is re-resolved and re-priced on every edit, so a tampered price quietly reverts. Legacy documents (pre-v1.41 lines without SKUs) still edit freely.
+- **Side benefit:** `deductForInvoice` matches lines by SKU first — now that every new product line carries one, invoice stock deduction stops depending on exact name matches.
+
+### Proved
+
+Typecheck, `next lint`, worker compile gate, `sql-schema-check` (677 queries, including the new resolver's both-shapes lookup) and `registry-parity` all green; full 13-guard suite run before delivery.
+
+## [1.40.1] — 2026-08-22 — the pipeline stops trusting itself
+
+Closes audit findings M16–M19 and B5 (release integrity). The theme: every check that could pass while proving nothing now fails instead.
+
+- **Guard #13, `registry-parity`** — the hand-maintained lists that "standing rules" in comments were supposed to keep in sync are now build-enforced: `ALL_TABS` ↔ the tab-access whitelist ↔ the override card ↔ the icon map ↔ the i18n dictionary; `worker/migrations/` ↔ `EXPECTED_MIGRATIONS` ↔ `LATEST_MIGRATION` ↔ the health-probe set; wrangler crons ↔ `scheduled()` branches; the 0082 data-fix's remark literal ↔ what erp.ts actually writes; DEPLOY.bat's gate ↔ package.json. Its first run caught its own draft passing vacuously on DEPLOY.bat (batch files escape quotes — the regex matched nothing and `every([])` is true), which is the point of the whole exercise.
+- **The health-probe set knows 0075–0081** (M16) — before this, `/system/health` reported zero pending migrations on a database missing all of them and the ⛔ banner stayed dark.
+- **`bm-coverage` derives its tab walk from `ALL_TABS` + the dictionary** (M17) instead of a hardcoded 23-item list that silently skipped the 24th tab while printing "every tab renders fully in BM". A tab without a BM dictionary entry now fails before the browser even launches.
+- **`deploy-api.sh` asserts instead of hoping** (M18, B5): the schema guard runs on the API build itself (the build that applies migrations — previously only the *website* build checked schema agreement); after publish it polls `/api/v1/health` until the live worker reports THIS build's version, and fails the build if it never does — the exact blindness that left production on 1.32.1 while everyone believed main was live. And a non-production branch now deploys **nothing** (the old else-branch skipped migrations but still published code — the audit's worst deploy state).
+- **`DEPLOY.bat` gates on the package NAME, not a version** (B5) — the hardcoded `1.34.0` pin meant the emergency path refused to run the moment the version bumped, i.e. exactly when it would be needed.
+- **Node pinned** (`engines` + `.nvmrc`) — two guards silently depended on ≥22.18 type-stripping with nothing declaring it.
+
+## [1.40.0] — 2026-08-22 — the tabs agree with themselves
+
+Closes audit findings M11–M15 (tab and navigation integrity).
+
+- **"Web Orders" is now fully registered** (M11): in the worker's tab-access whitelist (the CEO could not grant or revoke it — the only ungovernable tab), in the override card with its default roles, in the icon map (it rendered as an anonymous blank square on the icon-only desktop rail — it gets the Globe), and the BM guard reaches it via derivation.
+- **A tab-access override on Sales no longer renders a blank page** (M12): the render branch's independent `SALES_ROLES` re-check is gone — visibility is decided once, in the tabs filter, like every other tab. An override-granted role now sees the panel and any server refusals surface as errors instead of nothing.
+- **The override card tells the truth** (M15): only `super_admin` is implicit; the old note claiming admin was "always allowed" was false and hid real lockouts. The card also now says plainly that granting a tab does not grant its data permissions (M13).
+- **Client and server permission maps reconciled** (M14): `Users` gains `admin` client-side (the server always allowed it); `task_reports` gains `ceo` server-side — **the CEO's HR task report used to clear the draft and be silently discarded on a 403.** The submit now also keeps the draft and says why when it fails, whoever you are.
+- The 🔒 access-denied placeholder is bilingual (F8).
+
+## [1.39.1] — 2026-08-22 — a signature is earned per document, not per login
+
+Closes audit finding B3 (and decision OD-15a). The v1.38.0 vault route had **no role check** — any staff login, including editor, marketing and live host, could download the CEO's handwritten signature at full fidelity, unaudited. That was a narrower leak than the public folder it replaced, and still a leak.
+
+Access is now earned, through three doors, narrowest first:
+
+- **Document-scoped** (new): `GET /staff/claims/:id/signature/(emp|pre|ceo)` and `GET /staff/leave/:id/signature/(emp|pre|ceo)` — the requester must OWN the document or sit in its approval chain, and the SERVER decides which chop applies at the document's stage (the pre-approver's only once pre-approved, the CEO's only once approved). This is how an editor prints their OWN approved claim — which legitimately carries the approvers' signatures — without being able to fetch any chop at will. The claim/leave print forms and both PDF builders now use these routes.
+- **Role-scoped** (tightened): the `<role>-sign.png` route now requires the `sales` or `hr_manage` permission — the set of people who can already open every signed sales document. Used by the QT/DO/INV print paths.
+- **Token-scoped** (unchanged): a customer's shared document serves its signer's chop against the share token, and revoking the link revokes the signature.
+
+**Every serve is audited** (`signature.serve`, with the document context) — an exfiltration now leaves a trace. And `no-public-signatures` (guard #12) grew teeth to match: it asserts the permission gates and ownership checks EXIST in the shipped source, not merely that the routes do — the v1.38.0 guard could not fail on the exact regression it was written for.
+
+## [1.39.0] — 2026-08-22 — the bridge is rebuilt to survive failure
+
+**CEO: "Audit everything … make this system powerful and the bridge of between both are working well and no bugs."** The audit (`AUDIT-2026-08-22.md`) found 5 blockers and 15 majors — the worst in the bridge code shipped earlier today, all in failure and concurrency paths that 12 green guards never exercised. This release closes B1, B2, B4 and bridge majors M1–M10.
+
+### The two that mattered most
+
+- **B1 — a lost sale can no longer masquerade as an applied one.** Every movement now applies in ONE `db.batch()` transaction, stock moves by an atomic SQL expression (`MAX(0, stock + ?)` — never a JS read-modify-write, closing the concurrent-loss race M1), and the idempotency gate is **outcome-aware**: a conflicting `pending` row means a previous attempt died mid-flight, so the retry APPLIES — the old code answered "ignored", which the store reads as *already applied, stop retrying*, permanently losing the sale. Guard #11 now replays exactly that scenario, plus the expression-fallback SKU match and the discontinued-item case.
+- **B2 — the cash booking actually books.** `cashflow_entries.created_by` is NOT NULL and the old code bound NULL — every single web order's cash-in and journal entry failed inside an empty catch, forever. Now: a real system actor, booking gated on the atomic `paid_seen_at` claim (`meta.changes` — one concurrent booker wins, closing the double-book race M2), the claim RELEASED on failure so the next poll retries, and failures logged, never swallowed. `booked_cents` records what was booked, and revenue reads it, so a store-side amendment cannot make `/revenue` and cash flow disagree (M3).
+
+### The rest of Q-1
+
+- **Refunds are a human decision** (M3, OD-17b): a paid order the store later cancels is flagged (`refund_flagged_at`) and the CEO is notified — revenue stays booked until a person decides, matching the existing "paid invoices cannot be silently cancelled" rule.
+- **The first poll seeds its cursor to now** (M4, OD-16a) — months of store history can no longer avalanche into the deployment month's revenue. Importing history is a deliberate one-off, if ever wanted.
+- **Nothing is silently dropped** (M5): an unparseable order is counted, logged, and shown on the bridge health card; a failing order gets one retry then is counted — one poison pill no longer wedges the feed forever.
+- **A stuck cursor aborts loudly** (M6) instead of re-fetching the same page ten times per tick behind a green health card.
+- **`reason` is informational, per the spec** (M7): the order/cancel whitelist was a poison pill — one new store-side string would have silently frozen a SKU's sync forever. Structural fields still validate strictly.
+- **One SKU normalisation** (M8): the key is computed in JS by the same function the matcher uses and bound as a value; a stale/NULL key degrades to an expression-match fallback, never a lost sale; collisions and missing keys surface on the bridge health card.
+- **`discontinued` survives a movement** (M9) — a sale no longer silently republishes a withdrawn item.
+- **Migration skew refuses loudly** (M10): the movements endpoint answers 503 on a pre-0078 database instead of 200-with-empty-lists — the store holds and retries, per the contract.
+- **The migrations themselves are restructured** (B4): the four never-applied drafts became eight files — one non-idempotent ALTER per file, everything else convergent — so a half-apply can never wedge the deploy pipeline. *Note for the reader of the 1.35.0–1.38.0 entries below: the migration names cited there (0075_bridge_pricing … 0078_fix_po_direction) were superseded by this restructuring before anything was ever applied; the current set is `0075_bridge_enabled` … `0082_fix_po_direction`, documented in DATABASE.md.*
+- The public `/api/v1/health` bridge block is env-only again — no DB work, no business-activity timestamps for anonymous callers; the detail lives behind the authenticated bridge-health route, which now also reports rejected orders, pending refund decisions, missing keys and collisions.
+- The `manual_stockouts` **revert** action now respects `direction` — reverting a stock-IN subtracts, with a stock check; the old unconditional add double-stocked every 'in' row (pre-existing, but the bridge now feeds that path machine-written rows).
+
 ## [1.38.1] — 2026-08-22 — the bridge card stops guessing
 
 **CEO: "How to get ELFIA bridgeKey not set — the store cannot connect (ELFIA_BRIDGE_KEY)"**

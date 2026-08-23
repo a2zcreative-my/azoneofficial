@@ -77,3 +77,11 @@ Document numbering on `POST /docs` now issues `{TYPE}-AZOO{DDMMYY}-{X}`.
 - `GET /api/v1/staff/web-orders?status=&q=` · `GET /web-orders/:id` (order + frozen lines + linked bridge movements) · `POST /web-orders/sync` (rate-limited pull-now). Perms `sales`/`inventory`/`exec_view`.
 - `GET /api/v1/staff/bridge/reconcile?date=YYYY-MM-DD` — per published SKU, the day's ledger movements by source vs the current count.
 - `GET /api/v1/staff/revenue` family — `revenueLines()` gains the `elfia` bucket (paid web orders, payment-received basis, ref `ELF-<order_number>` in cashflow/GL).
+
+## v1.39.0–v1.40.1 corrections (2026-08-22, post-audit)
+
+- Migration numbers cited in the v1.35–v1.38 sections above were superseded before first apply: the current set is `0075_bridge_enabled` … `0082_fix_po_direction` (see DATABASE.md).
+- `POST /api/v1/bridge/elfia-movements` — response semantics hardened: a conflicting **pending** event is applied (a retry after a mid-flight failure), never answered `ignored`; a pre-0078 database answers **503** (whole-request failure → the store holds and retries) instead of 200-with-empty-lists; `reason` accepts free text.
+- `GET /api/v1/health` — `elfia_bridge` is configuration booleans only (env-derived, no DB reads, no timestamps).
+- `GET /api/v1/staff/signature/<role>-sign.png` — now requires `sales` or `hr_manage`. NEW document-scoped routes: `GET /staff/claims/:id/signature/(emp|pre|ceo)` and `GET /staff/leave/:id/signature/(emp|pre|ceo)` — owner or approval chain only; the server decides which chop applies at the document's stage. Every serve audited as `signature.serve`.
+- `GET /api/v1/staff/inventory/bridge-health` — adds `rejected_orders`, `refunds_pending`, `sku_key_missing`, `sku_key_collisions`.

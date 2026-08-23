@@ -4872,19 +4872,19 @@ function printLeaveForm(l: LeaveReq, meName: string) {
       <td class="body"><div class="cw"><div class="nm">Name: ${applicant}</div>
         <div class="sg">Signature:${
           empSig
-            ? `<img class="sigimg" src="/api/v1/staff/signature/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+            ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/emp" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
             : ` <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span>`
         }</div>
         <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${
         l.preapp_by_full || l.preapp_by_name
           ? `<div class="nm">Name: ${(l.preapp_by_full || l.preapp_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/signature/${l.preapp_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/pre" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
           : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`
       }</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : ""}</div>
-        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/api/v1/staff/signature/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
@@ -7706,6 +7706,20 @@ function Sales({ user }: { user: User }) {
       );
       return;
     }
+    /* v1.41.0: a product document's lines come from the catalogue — the
+       server refuses a product line without a SKU, so stop it here with a
+       friendlier message than a 400. */
+    if (doc.kind !== "service" && doc.items.some((i) => !(i.sku ?? "").trim())) {
+      showToast(
+        L("No changes", "Tiada perubahan"),
+        L(
+          "Pick each product from the list — product lines need a SKU",
+          "Pilih setiap produk daripada senarai — baris produk memerlukan SKU"
+        ),
+        "notice"
+      );
+      return;
+    }
     if (doc.items.every((i) => !i.unit_price_cents)) {
       showToast(
         L("No changes", "Tiada perubahan"),
@@ -8604,38 +8618,79 @@ function Sales({ user }: { user: User }) {
                   key={i}
                   className="border-border grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_66px_66px_100px_100px_auto] sm:border-0 sm:p-0"
                 >
-                  <input
-                    className={`${inputClass} col-span-2 sm:col-span-1`}
-                    placeholder={
-                      doc.kind === "service"
-                        ? L(
-                            "e.g. TikTok LIVE hosting — 8 sessions",
-                            "cth. Pengacaraan TikTok LIVE — 8 sesi"
-                          )
-                        : L(
-                            "e.g. Tudung Bawal Premium",
-                            "cth. Tudung Bawal Premium"
-                          )
-                    }
-                    value={item.name}
-                    list={
-                      doc.kind === "service"
-                        ? undefined
-                        : "inv-item-suggestions"
-                    }
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      const hit = invItems.find((it) => it.name === v);
-                      patch({
-                        name: v,
-                        sku: hit?.sku ?? item.sku,
-                        unit_price_cents:
-                          hit?.unit_price_cents && !item.unit_price_cents
-                            ? hit.unit_price_cents
-                            : item.unit_price_cents,
-                      });
-                    }}
-                  />
+                  {doc.kind === "service" ? (
+                    <input
+                      className={`${inputClass} col-span-2 sm:col-span-1`}
+                      placeholder={L(
+                        "e.g. TikTok LIVE hosting — 8 sessions",
+                        "cth. Pengacaraan TikTok LIVE — 8 sesi"
+                      )}
+                      value={item.name}
+                      onChange={(e) => patch({ name: e.target.value })}
+                    />
+                  ) : (
+                    /* v1.41.0 (CEO: "a list of the product with the prices
+                       auto filled … SKU need to be filled for the products"):
+                       product lines are PICKED, not typed. Choosing an item
+                       fills name + SKU + the list price in one tap; the price
+                       box locks (the Worker re-resolves it from Inventory
+                       anyway) and any reduction goes in Disc, where it is
+                       visible on the document instead of hidden inside a
+                       hand-edited price. */
+                    <div className="col-span-2 flex flex-col gap-0.5 sm:col-span-1">
+                      <select
+                        className={inputClass}
+                        value={item.sku ?? ""}
+                        title={L(
+                          "Pick the product — price and SKU fill automatically from Inventory",
+                          "Pilih produk — harga dan SKU diisi automatik daripada Inventori"
+                        )}
+                        onChange={(e) => {
+                          const hit = invItems.find(
+                            (it) => it.sku === e.target.value
+                          );
+                          if (!hit) {
+                            patch({ sku: "", name: "", unit_price_cents: 0 });
+                            return;
+                          }
+                          patch({
+                            name: hit.name,
+                            sku: hit.sku,
+                            unit_price_cents: hit.unit_price_cents ?? 0,
+                            uom: item.uom || "PCS",
+                          });
+                        }}
+                      >
+                        <option value="">
+                          {invItems.some((it) => it.sku)
+                            ? L("— pick a product —", "— pilih produk —")
+                            : L(
+                                "No products in Inventory yet — add them on the Inventory tab",
+                                "Tiada produk dalam Inventori — tambah di tab Inventori"
+                              )}
+                        </option>
+                        {invItems
+                          .filter((it) => it.sku)
+                          .slice()
+                          .sort((a, b) => a.sku.localeCompare(b.sku))
+                          .map((it) => (
+                            <option key={it.sku} value={it.sku}>
+                              {it.sku} — {it.name} — RM{" "}
+                              {((it.unit_price_cents ?? 0) / 100).toFixed(2)}
+                            </option>
+                          ))}
+                      </select>
+                      {item.sku ? (
+                        <span className="text-muted-foreground text-xs">
+                          SKU <span className="font-mono">{item.sku}</span> ·{" "}
+                          {L(
+                            "list price locked — use Disc for any reduction",
+                            "harga senarai dikunci — guna Diskaun untuk potongan"
+                          )}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                   <input
                     className={inputClass}
                     placeholder="UOM"
@@ -8660,8 +8715,17 @@ function Sales({ user }: { user: User }) {
                     type="number"
                     min={0}
                     step="0.01"
-                    className={inputClass}
+                    className={`${inputClass} ${doc.kind !== "service" && item.sku ? "opacity-70" : ""}`}
                     placeholder="0.00"
+                    readOnly={doc.kind !== "service" && !!item.sku}
+                    title={
+                      doc.kind !== "service" && item.sku
+                        ? L(
+                            "List price from Inventory — change it there, or use Disc for a reduction on this document",
+                            "Harga senarai daripada Inventori — ubah di sana, atau guna Diskaun untuk potongan pada dokumen ini"
+                          )
+                        : undefined
+                    }
                     value={
                       item.unit_price_cents
                         ? (item.unit_price_cents / 100).toString()
@@ -8743,14 +8807,9 @@ function Sales({ user }: { user: User }) {
                 </div>
               );
             })}
-            <datalist id="inv-item-suggestions">
-              {invItems.map((it) => (
-                <option
-                  key={it.sku}
-                  value={it.name}
-                >{`SKU ${it.sku}${it.unit_price_cents ? ` · ${fmtRM(it.unit_price_cents)}` : ""}`}</option>
-              ))}
-            </datalist>
+            {/* v1.41.0: the name-datalist is gone — product lines are picked
+                from the catalogue select above (SKU + list price fill
+                automatically), services are free text. */}
             <button
               type="button"
               className="text-xs underline"
@@ -10653,7 +10712,7 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
     "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
     // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
     Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
-    Users: ["super_admin", "ceo", "coo"],
+    Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14): the server already allowed admin
     /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
      worker matrix is the one actually enforced. */
     /* v1.22.0 (CEO: "without anyone populate or access tabs that not
@@ -11941,7 +12000,11 @@ export default function PortalPage() {
             </div>
           )}
           {activeTab === "Announcements" && <Announcements user={user} />}
-          {activeTab === "Sales" && SALES_ROLES.includes(user.role) && (
+          {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter
+              (role default + tab-access override). The extra role re-check here
+              made Sales the only tab where an override granted by the CEO
+              rendered a completely blank page. */}
+          {activeTab === "Sales" && (
             <div className="space-y-4 md:space-y-6">
               {/* v1.21.0: enquiries moved here from the retired Pipeline tab —
                 the inbound funnel sits with the documents it turns into. */}

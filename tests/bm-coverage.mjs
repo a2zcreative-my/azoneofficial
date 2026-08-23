@@ -26,7 +26,29 @@ await p.route('**/api/v1/**', async (route) => {
 });
 await p.goto('http://localhost:8931/portal.html',{waitUntil:'domcontentloaded'});
 await p.waitForTimeout(3500);
-const TABS=(process.argv[2]||"").length ? process.argv.slice(2) : ["Papan Pemuka","Kehadiran","E-dagang","Inventori","Jualan","Berita","HR","Kakitangan","Cuti","Tuntutan","Gaji","Kewangan","Tugasan","Kandungan","Penyelarasan","Komisen","Dana Iklan","Pembelian","Perakaunan","Stokis","Aset","Profil","Pengguna"];
+/* v1.40.1 (AUDIT M17): the tab list is DERIVED from ALL_TABS + the i18n
+   dictionary instead of hardcoded. The old 23-item list silently skipped the
+   24th tab ("Web Orders" / "Pesanan Web") and printed "every tab renders
+   fully in BM" over a tab it never visited — exactly the reads-like-it-ran
+   failure this suite exists to prevent. A tab missing a DICT entry fails
+   here, before the browser even launches. */
+import { readFileSync } from 'node:fs';
+function derivedTabs() {
+  const page = readFileSync('app/portal/page.tsx', 'utf8');
+  const m = page.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/);
+  if (!m) { console.error('FAIL: ALL_TABS not found in app/portal/page.tsx'); process.exit(1); }
+  const names = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  const dict = readFileSync('lib/i18n.ts', 'utf8');
+  const ms = [];
+  for (const name of names) {
+    const dm = dict.match(new RegExp(`"${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}":\\s*\\{\\s*en:[^,]+,\\s*ms:\\s*"([^"]+)"`));
+    if (!dm) { console.error(`FAIL: tab "${name}" has no ms entry in lib/i18n.ts DICT`); process.exit(1); }
+    ms.push(dm[1]);
+  }
+  console.log(`walking ${ms.length} tabs (derived from ALL_TABS): ${ms.join(' · ')}`);
+  return ms;
+}
+const TABS=(process.argv[2]||"").length ? process.argv.slice(2) : derivedTabs();
 const findings={};
 for (const tab of TABS) {
   console.log('TAB:', tab, new Date().toISOString());

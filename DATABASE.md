@@ -3,27 +3,24 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
-## v1.36.0–v1.38.0 — `0076_bridge_movements.sql`, `0077_web_orders.sql`, `0078_fix_po_direction.sql`
+## v1.39.0–v1.40.1 — the ELFIA bridge migrations, restructured after AUDIT-2026-08-22 (`0075`–`0082`)
 
-**0076** (feed B): `bridge_events` — the movements idempotency store, `UNIQUE(source, event_id)`; a repeated event answers `ignored` and applies zero times. `stock_ledger` — append-only movement trail (applied delta + `balance_after`; never UPDATEd/DELETEd, corrections are compensating rows; Track E will route all seven mutation sites through it and backfill). `inventory_items.sku_key` — `UPPER(REPLACE(sku,' ',''))`, backfilled and index-supported, maintained by both SKU-writing routes.
+The audit's finding B4: a migration file mixing a non-idempotent `ALTER TABLE ADD COLUMN` with trailing statements can, on a half-apply, become permanently unappliable — and `deploy-api.sh` runs under `set -e`, so one such file wedges every future API deploy. The four original bridge migrations (drafted as 0075–0078, **never applied or pushed anywhere**) were therefore restructured before first contact with the real database: **one non-idempotent statement per file, everything else convergent or `IF NOT EXISTS`.** `tests/registry-parity.mjs` now asserts the file list ↔ `EXPECTED_MIGRATIONS` ↔ `LATEST_MIGRATION` ↔ health-probe coverage on every build.
 
-**0077** (feed C): `web_orders` (upsert key `(store, order_number)`; `paid_seen_at` = revenue month, stamped when the poller first sees paid) + `web_order_lines` (snapshot, replaced whole; `price_cents` frozen at purchase).
-
-**0078** (S-3 data fix): flips `manual_stockouts.direction` to `'in'` for rows matching `Goods receipt PO-%` — the erp.ts insert omitted the column and the 0064 default recorded every receipt as an out.
+| File | Contents | Replay-safe because |
+| --- | --- | --- |
+| `0075_bridge_enabled.sql` | `inventory_items.bridge_enabled` (publish flag, replaces the ELFIA%/LUMI% LIKE) | single ALTER — half-apply = no-apply |
+| `0076_elfia_price.sql` | `inventory_items.elfia_price_cents` (web price, sen; NULL → feed falls back to `unit_price_cents`; the TikTok live rebate never applies) | single ALTER |
+| `0077_bridge_pricing_backfill.sql` | backfill `bridge_enabled = 1` for the old LIKE set + `idx_inventory_bridge` | convergent UPDATE + `IF NOT EXISTS` |
+| `0078_bridge_movements.sql` | `bridge_events` (idempotency store, `UNIQUE(source, event_id)`, outcome `'pending' \| 'applied' \| 'unknown_sku'`) + `stock_ledger` (append-only) + 5 indexes incl. `idx_bridge_events_ref` | all `IF NOT EXISTS` |
+| `0079_inventory_sku_key.sql` | `inventory_items.sku_key` (normalised match key, computed in JS by `bridge-core.skuKey` at every SKU write) | single ALTER |
+| `0080_sku_key_backfill.sql` | backfill `WHERE sku_key IS NULL` + non-unique `idx_inventory_sku_key` (unique would refuse to build over pre-existing collisions and wedge the deploy; collisions surface on the bridge health card instead) | convergent + `IF NOT EXISTS` |
+| `0081_web_orders.sql` | `web_orders` (upsert key `(store, order_number)`; `paid_seen_at` stamped only WITH a successful cash booking; `booked_cents`; `refund_flagged_at` for the human refund decision) + `web_order_lines` (frozen purchase prices) | all `IF NOT EXISTS` |
+| `0082_fix_po_direction.sql` | data fix: PO goods-receipt trail rows re-marked `direction = 'in'` (scoped to the exact `Goods receipt PO-%` remark; literal guard-asserted) | convergent UPDATE |
 
 | Date | Version | Change |
 | --- | --- | --- |
-| 2026-08-22 | 1.36.0 | `bridge_events`, `stock_ledger`, `inventory_items.sku_key` + backfill + indexes. |
-| 2026-08-22 | 1.37.0 | `web_orders`, `web_order_lines` + indexes. |
-| 2026-08-22 | 1.38.0 | Data fix: PO goods-receipt trail rows re-marked `direction = 'in'`. |
-
-## v1.35.0 — `0075_bridge_pricing.sql`
-
-Two additive columns on `inventory_items` for the ELFIA store bridge (feed A of `IMPLEMENTATION-PLAN.md` Track A): `bridge_enabled INTEGER NOT NULL DEFAULT 0` — the explicit publish flag that replaced the `ELFIA%`/`LUMI%` SKU-prefix scoping — and `elfia_price_cents INTEGER` (nullable; the web selling price in sen, `NULL` = feed falls back to `unit_price_cents`). The migration backfills `bridge_enabled = 1` for every SKU the old prefix match published, so the store-visible set is unchanged, and adds `idx_inventory_bridge`. The TikTok `live_rebate_cents` is deliberately not part of the web price.
-
-| Date | Version | Change |
-| --- | --- | --- |
-| 2026-08-22 | 1.35.0 | `inventory_items.bridge_enabled`, `inventory_items.elfia_price_cents`, backfill from the legacy SKU prefixes, `idx_inventory_bridge`. |
+| 2026-08-22 | 1.39.0–1.40.1 | The eight files above, replacing the four never-applied drafts 0075–0078 from earlier the same day. |
 
 Target: **Cloudflare D1 (SQLite)**. Media binaries in **R2**, referenced by key.
 

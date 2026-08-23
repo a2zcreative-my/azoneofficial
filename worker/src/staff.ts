@@ -11,6 +11,7 @@ import { createPasswordHash, primaryOrigin } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
 import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
+import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, computed in JS and bound as a value (AUDIT M8)
 
 import { Role, can } from "./permissions";
 
@@ -3340,7 +3341,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"];
+  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Web Orders", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {
@@ -3775,6 +3776,33 @@ export async function handleStaff(
     const { results } = await (typed ? stmt.bind(typed) : stmt).all();
     return json({ docs: results });
   }
+  /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
+     there is any discount staff will insert the discount amount. SKU need to
+     be filled for the products. This is only for Product"): a PRODUCT line's
+     price is decided by the CATALOGUE, not by what the browser sent. The
+     form picks from Inventory; the Worker re-resolves the SKU and overwrites
+     name + unit price from the item record, so a tampered or stale payload
+     cannot invoice below list — any reduction is an explicit, visible
+     discount (per line or per document). Services stay free-text: agency
+     work has no catalogue. Matching is the bridge's rule — case- and
+     whitespace-insensitive, with an expression fallback for stale keys. */
+  const resolveCatalogueLine = async (skuRaw: string): Promise<{ sku: string; name: string; unit_price_cents: number } | null> => {
+    const key = skuKey(skuRaw);
+    try {
+      const hit = await env.DB.prepare(
+        `SELECT sku, name, unit_price_cents FROM inventory_items
+         WHERE sku_key = ?1 OR UPPER(REPLACE(sku, ' ', '')) = ?1 ORDER BY id LIMIT 1`,
+      ).bind(key).first<{ sku: string; name: string; unit_price_cents: number }>();
+      if (hit) return hit;
+    } catch { /* pre-0079 — no sku_key column; the expression query below still works */ }
+    try {
+      return await env.DB.prepare(
+        `SELECT sku, name, unit_price_cents FROM inventory_items
+         WHERE UPPER(REPLACE(sku, ' ', '')) = ?1 ORDER BY id LIMIT 1`,
+      ).bind(key).first<{ sku: string; name: string; unit_price_cents: number }>();
+    } catch { return null; }
+  };
+
   if (path === "/docs" && method === "POST") {
     if (!body || typeof body.doc_type !== "string" || !["QT", "DO", "INV"].includes(body.doc_type)) {
       return err("invalid_input", "doc_type must be QT, DO, or INV", 400);
@@ -3836,6 +3864,31 @@ export async function handleStaff(
         ...lineExtras(i, i.qty as number, i.unit_price_cents as number),
       }));
     if (items.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
+
+    /* v1.41.0: product lines are catalogue lines. SKU required, item must
+       exist, price must be set — and then the CATALOGUE price and name
+       replace whatever the client sent. Every stop names its line. */
+    if (kindD === "product") {
+      for (let li = 0; li < items.length; li++) {
+        const line = items[li]!;
+        if (!line.sku) {
+          return err("invalid_input", `Line ${li + 1} ("${line.name.slice(0, 40)}") has no SKU — pick the product from the list`, 400);
+        }
+        const cat = await resolveCatalogueLine(line.sku);
+        if (!cat) {
+          return err("invalid_input", `Line ${li + 1}: no inventory item matches SKU "${line.sku}" — pick from the list, or add the item on the Inventory tab first`, 400);
+        }
+        if (!(cat.unit_price_cents > 0)) {
+          return err("invalid_input", `${cat.sku} has no price set — set its price/unit on the Inventory tab first`, 400);
+        }
+        line.sku = cat.sku;
+        line.name = cat.name;
+        line.unit_price_cents = cat.unit_price_cents;
+        // the discount cap was computed against the client's price — re-cap
+        // against the authoritative one
+        if (line.disc_cents) line.disc_cents = Math.min(line.disc_cents, line.qty * line.unit_price_cents);
+      }
+    }
 
     // Line discounts come off before the document-level discount.
     const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
@@ -4216,6 +4269,26 @@ export async function handleStaff(
         ...extrasE(i, i.qty as number, i.unit_price_cents as number),
       }));
     if (itemsE.length === 0) return err("invalid_input", "Each item needs name, qty, unit_price_cents", 400);
+    /* v1.41.0: an EDIT cannot become the bypass around catalogue pricing —
+       any product line carrying a SKU is re-resolved and re-priced from
+       Inventory, so tampering with the price in an edit quietly reverts.
+       Lines WITHOUT a SKU are legacy (pre-v1.41 documents) and pass
+       unchanged; every new product document is born all-SKU, so its prices
+       stay catalogue-locked through every later edit. */
+    if (docE.kind === "product") {
+      for (let li = 0; li < itemsE.length; li++) {
+        const line = itemsE[li]!;
+        if (!line.sku) continue;
+        const cat = await resolveCatalogueLine(line.sku);
+        if (!cat) {
+          return err("invalid_input", `Line ${li + 1}: no inventory item matches SKU "${line.sku}" — pick from the list, or fix the SKU on the Inventory tab`, 400);
+        }
+        line.sku = cat.sku;
+        line.name = cat.name;
+        if (cat.unit_price_cents > 0) line.unit_price_cents = cat.unit_price_cents;
+        if (line.disc_cents) line.disc_cents = Math.min(line.disc_cents, line.qty * line.unit_price_cents);
+      }
+    }
     const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
     const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
@@ -5404,7 +5477,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (isReverted) return err("invalid_state", "Already reverted — the stock is back on the shelf", 400);
       const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
       if (!item) return err("not_found", "The inventory item behind this record no longer exists", 409);
-      const back = item.stock + row.qty;
+      /* v1.39.0 (AUDIT minor): revert must respect the row's DIRECTION.
+         Reverting an OUT puts pieces back; reverting an IN (a goods receipt,
+         a bridge cancel) takes them off again — the old unconditional "+qty"
+         double-added stock for every 'in' row. */
+      const rowDir = (row as { direction?: string | null }).direction === "in" ? "in" : "out";
+      if (rowDir === "in" && item.stock < row.qty) {
+        return err("insufficient_stock", `Reverting this stock-IN removes ${row.qty}, but only ${item.stock} remain`, 409);
+      }
+      const back = rowDir === "in" ? item.stock - row.qty : item.stock + row.qty;
       await env.DB.prepare(
         `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
       ).bind(back, stockStatus(back), user.id, row.item_id).run();
@@ -5598,14 +5679,17 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     } catch {
       return err("conflict", "An item with this SKU already exists", 409);
     }
-    /* v1.36.0: maintain the bridge match key (UPPER, spaces stripped) in the
-       same breath as every sku write. A stale sku_key looks exactly like an
-       unknown_sku from the store — worth this one extra statement. */
+    /* v1.36.0/v1.39.0 (AUDIT M8): maintain the bridge match key in the same
+       breath as every sku write — computed by the SAME JS function the
+       movements handler matches with (Unicode uppercase, ALL whitespace
+       stripped), bound as a value. The old SQL expression disagreed with the
+       JS on tabs/NBSP/non-ASCII, and a stale key looks exactly like an
+       unknown_sku from the store. */
     try {
       await env.DB.prepare(
-        `UPDATE inventory_items SET sku_key = UPPER(REPLACE(sku, ' ', '')) WHERE sku = ?1`,
-      ).bind(body.sku).run();
-    } catch { /* pre-0076 — the migration backfills every key on apply */ }
+        `UPDATE inventory_items SET sku_key = ?1 WHERE sku = ?2`,
+      ).bind(skuKey(body.sku as string), body.sku).run();
+    } catch { /* pre-0079 — the migration backfills every key on apply */ }
     await audit(env, user.id, "inventory.create");
     return json({ ok: true }, 201);
   }
@@ -5691,7 +5775,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       }
     } catch (e) {
       if (String(e).includes("no such column")) {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0075_bridge_pricing)", 500);
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0075-0077, bridge pricing)", 500);
       }
       throw e;
     }
@@ -5733,6 +5817,30 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       out.last_poll_at = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_last_poll'`)
         .first<{ value: string }>())?.value ?? null;
     } catch { out.last_poll_at = null; }
+    /* v1.39.0 (AUDIT M5/M8): the counters that make silent paths visible —
+       orders the poller had to reject, paid-then-cancelled orders awaiting a
+       refund decision, items whose match key is missing, and normalised-key
+       collisions (two SKUs that would answer to the same store code). */
+    try {
+      out.rejected_orders = Number((await env.DB.prepare(
+        `SELECT value FROM system_meta WHERE key = 'elfia_orders_rejected'`,
+      ).first<{ value: string }>())?.value) || 0;
+    } catch { out.rejected_orders = 0; }
+    try {
+      out.refunds_pending = (await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM web_orders WHERE refund_flagged_at IS NOT NULL AND status = 'cancelled'`,
+      ).first<{ n: number }>())?.n ?? 0;
+    } catch { out.refunds_pending = 0; }
+    try {
+      out.sku_key_missing = (await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM inventory_items WHERE sku_key IS NULL`,
+      ).first<{ n: number }>())?.n ?? 0;
+      const { results: coll } = await env.DB.prepare(
+        `SELECT sku_key, COUNT(*) AS n FROM inventory_items
+         WHERE sku_key IS NOT NULL GROUP BY sku_key HAVING n > 1 LIMIT 10`,
+      ).all<{ sku_key: string; n: number }>();
+      out.sku_key_collisions = coll;
+    } catch { out.sku_key_missing = 0; out.sku_key_collisions = []; }
     return json(out);
   }
   /* v1.37.0: web orders pulled from the store — read-only surface. The store
@@ -5785,7 +5893,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       } catch { /* pre-0076 */ }
       return json({ order, lines, movements });
     } catch {
-      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0077_web_orders)", 500);
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0081_web_orders)", 500);
     }
   }
   if (path === "/web-orders/sync" && method === "POST") {
@@ -5845,18 +5953,85 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return json({ date, items: [], pending_migration: true });
     }
   }
-  /* v1.38.0 (IMPLEMENTATION-PLAN.md S-1): signatures come from the vault,
-     not from the public site. Serve: any signed-in staff member (the people
-     who could already print the signed documents). Upload: admin tier only.
-     R2 keys are deterministic — private/signatures/<role>-sign.png — so no
-     table is needed; audit_log records every upload. */
-  const sigServe = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
-  if (sigServe && method === "GET") {
-    const obj = await env.MEDIA.get(`private/signatures/${sigServe[1]}`);
+  /* v1.38.0/v1.39.1 (AUDIT B3, OD-15a): signatures come from the vault, and
+     access is EARNED, not ambient. Three doors, narrowest first:
+
+     1. Document-scoped (below): /claims/:id/signature/:which and
+        /leave/:id/signature/:which — the requester must OWN that document or
+        sit in its approval chain. This is how an editor or live host prints
+        their OWN approved claim, which legitimately carries the approvers'
+        chops, without being able to fetch any signature at will.
+     2. Role-file (here): only roles that can already open every signed
+        sales document (`sales`) or run HR paperwork (`hr_manage`). The
+        v1.38.0 version had NO check — any staff login, including editor/
+        marketing/live_host, could pull the CEO's chop unaudited.
+     3. Token-scoped public route in index.ts, for shared documents.
+
+     Every serve is audited — an exfiltration must leave a trace. */
+  const SIG_ROLE_FILE: Record<string, string> = {
+    ceo: "ceo-sign.png", coo: "coo-sign.png", cco: "cco-sign.png",
+    hr_admin: "hr-admin-sign.png", sales_marketing: "sales-marketing-sign.png",
+  };
+  const serveSignature = async (file: string, context: string): Promise<Response> => {
+    const obj = await env.MEDIA.get(`private/signatures/${file}`);
     if (!obj) return err("not_found", "This signature has not been uploaded to the vault yet — /admin → Staff → Signatures", 404);
+    await audit(env, user.id, "signature.serve", "r2", file, { context });
     return new Response(obj.body, {
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private" },
     });
+  };
+  const sigServe = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  if (sigServe && method === "GET") {
+    if (!can(user.role, "sales") && !can(user.role, "hr_manage")) {
+      return err("forbidden", "Signature access is limited to document and HR roles", 403);
+    }
+    return serveSignature(sigServe[1]!, "role-file");
+  }
+  /* Claim-scoped: emp = the claimant's own chop (only officers have one),
+     pre = the pre-approver's, ceo = only once the claim is APPROVED. */
+  const sigClaim = path.match(/^\/claims\/(\d+)\/signature\/(emp|pre|ceo)$/);
+  if (sigClaim && method === "GET") {
+    const cl = await env.DB.prepare(
+      `SELECT c.user_id, c.status, c.pre_approved_by, u.role AS claimant_role, p.role AS pre_role
+       FROM claims c JOIN users u ON u.id = c.user_id
+       LEFT JOIN users p ON p.id = c.pre_approved_by
+       WHERE c.id = ?1`,
+    ).bind(sigClaim[1]).first<{ user_id: number; status: string; pre_approved_by: number | null; claimant_role: string; pre_role: string | null }>();
+    if (!cl) return err("not_found", "Claim not found", 404);
+    const inChain = can(user.role, "hr_manage") || can(user.role, "claims_decide") || ["coo", "cco"].includes(user.role);
+    if (cl.user_id !== user.id && !inChain) {
+      return err("forbidden", "Only the claimant or the approval chain may fetch this claim's signatures", 403);
+    }
+    const which = sigClaim[2]!;
+    let file: string | null = null;
+    if (which === "emp") file = SIG_ROLE_FILE[cl.claimant_role] ?? null;
+    if (which === "pre") file = cl.pre_approved_by ? (SIG_ROLE_FILE[cl.pre_role ?? ""] ?? null) : null;
+    if (which === "ceo") file = cl.status === "approved" ? SIG_ROLE_FILE.ceo! : null;
+    if (!file) return err("not_found", "No signature applies at this stage", 404);
+    return serveSignature(file, `claim:${sigClaim[1]}`);
+  }
+  /* Leave-scoped: same shape — owner or chain, and the CEO chop only on an
+     APPROVED application. */
+  const sigLeave = path.match(/^\/leave\/(\d+)\/signature\/(emp|pre|ceo)$/);
+  if (sigLeave && method === "GET") {
+    const lv = await env.DB.prepare(
+      `SELECT l.user_id, l.status, l.preapp_by, u.role AS owner_role, p.role AS pre_role
+       FROM leave_requests l JOIN users u ON u.id = l.user_id
+       LEFT JOIN users p ON p.id = l.preapp_by
+       WHERE l.id = ?1`,
+    ).bind(sigLeave[1]).first<{ user_id: number; status: string; preapp_by: number | null; owner_role: string; pre_role: string | null }>();
+    if (!lv) return err("not_found", "Leave request not found", 404);
+    const inChain = can(user.role, "hr_manage") || ["coo", "cco", "ceo"].includes(user.role);
+    if (lv.user_id !== user.id && !inChain) {
+      return err("forbidden", "Only the applicant or the approval chain may fetch this form's signatures", 403);
+    }
+    const which = sigLeave[2]!;
+    let file: string | null = null;
+    if (which === "emp") file = SIG_ROLE_FILE[lv.owner_role] ?? null;
+    if (which === "pre") file = lv.preapp_by ? (SIG_ROLE_FILE[lv.pre_role ?? ""] ?? null) : null;
+    if (which === "ceo") file = lv.status === "approved" ? SIG_ROLE_FILE.ceo! : null;
+    if (!file) return err("not_found", "No signature applies at this stage", 404);
+    return serveSignature(file, `leave:${sigLeave[1]}`);
   }
   const sigUpload = path.match(/^\/signatures\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
   if (sigUpload && method === "POST") {
@@ -5895,13 +6070,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       `UPDATE inventory_items SET sku = COALESCE(?1, sku), name = COALESCE(?2, name),
          updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
     ).bind(newSku, newName, user.id, target.id).run();
-    /* v1.36.0: a SKU rename must move the bridge match key with it — a stale
-       sku_key silently breaks store matching (looks like unknown_sku). */
+    /* v1.36.0/v1.39.0 (AUDIT M8): a SKU rename must move the bridge match
+       key with it, computed by the same JS normalisation the movements
+       handler uses. */
     try {
+      const finalSku = newSku ?? target.sku;
       await env.DB.prepare(
-        `UPDATE inventory_items SET sku_key = UPPER(REPLACE(sku, ' ', '')) WHERE id = ?1`,
-      ).bind(target.id).run();
-    } catch { /* pre-0076 */ }
+        `UPDATE inventory_items SET sku_key = ?1 WHERE id = ?2`,
+      ).bind(skuKey(finalSku), target.id).run();
+    } catch { /* pre-0079 */ }
     await audit(env, user.id, "inventory.edit", "inventory_items", String(target.id),
       { from: { sku: target.sku, name: target.name }, to: { sku: newSku ?? target.sku, name: newName ?? target.name } });
     return json({ ok: true });

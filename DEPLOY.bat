@@ -60,20 +60,25 @@ if not exist worker\wrangler.toml (
   exit /b 1
 )
 
-findstr /C:"\"version\": \"1.34.0\"" package.json >nul
+REM  v1.40.1 (AUDIT B5): the gate used to pin ONE version number, so the
+REM  moment package.json was bumped this emergency path refused to run -
+REM  exactly when it was needed. It now gates on the package NAME (which
+REM  never changes) and reads the version for display. The original point
+REM  ("am I in the right folder?") is preserved; the rot is not.
+findstr /C:"\"name\": \"azone-official\"" package.json >nul
 if %errorlevel% neq 0 (
   echo.
-  echo [X] THIS IS NOT THE v1.34.0 FOLDER.
-  echo     Deploying an older folder is what broke the new domain.
-  echo     Unzip a2z-v1.34.0-FULL.zip into a NEW EMPTY folder and
-  echo     run the DEPLOY.bat that is inside it.
+  echo [X] THIS IS NOT THE A2Z PORTAL FOLDER.
+  echo     package.json here is not the azone-official project.
+  echo     Open the a2zcreative-official folder and run ITS DEPLOY.bat.
   echo.
   pause
   exit /b 1
 )
+for /f "tokens=2 delims=:, " %%v in ('findstr /C:"\"version\"" package.json') do set "PKG_VERSION=%%~v"
 
 echo ============================================
-echo  A2Z CREATIVE - one-click deploy  v1.34.0
+echo  A2Z CREATIVE - one-click deploy  v%PKG_VERSION%
 echo  Folder: %CD%
 echo ============================================
 echo.
@@ -160,7 +165,7 @@ echo    --- https://a2zcreative.my/api/v1/health
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
 echo.
 echo.
-echo    Expected: {"ok":true,"db":true,"version":"1.34.0"}
+echo    Expected: "version":"%PKG_VERSION%" inside the JSON above.
 echo    That line means a2zcreative.my can sign in NOW.
 echo    A blank line or an error means the domain is not routed to
 echo    this worker - copy this window and send it over.

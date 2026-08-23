@@ -39,14 +39,21 @@ export function parseMovement(raw: unknown): MovementInput | null {
   if (typeof m.event_id !== "string" || m.event_id.trim() === "" || m.event_id.length > 64) return null;
   if (typeof m.sku !== "string" || m.sku.trim() === "" || m.sku.length > 60) return null;
   if (typeof m.delta !== "number" || !Number.isInteger(m.delta) || m.delta === 0) return null;
-  if (m.reason !== undefined && m.reason !== null && m.reason !== "order" && m.reason !== "cancel") return null;
+  /* AUDIT M7 (v1.39.0): `reason` is INFORMATIONAL per the spec — "delta
+     already carries the direction". The earlier order|cancel whitelist was a
+     poison pill: one new reason string on the store side ("refund",
+     "adjustment") would have been silently dropped from every response list,
+     retried forever, and — because the store skips SKUs with undelivered
+     movements — would have frozen that SKU's stock/price sync permanently.
+     Any string is accepted and truncated; only the STRUCTURAL fields
+     (event_id, sku, integer delta) can refuse a movement. */
   if (m.reference !== undefined && m.reference !== null && typeof m.reference !== "string") return null;
   if (m.occurred_at !== undefined && m.occurred_at !== null && typeof m.occurred_at !== "string") return null;
   return {
     event_id: m.event_id.trim(),
     sku: m.sku.trim(),
     delta: m.delta,
-    reason: (m.reason as string | null | undefined) ?? null,
+    reason: typeof m.reason === "string" && m.reason.trim() !== "" ? m.reason.trim().slice(0, 30) : null,
     reference: typeof m.reference === "string" && m.reference.length <= 60 ? m.reference : null,
     occurred_at: typeof m.occurred_at === "string" && m.occurred_at.length <= 30 ? m.occurred_at : null,
   };

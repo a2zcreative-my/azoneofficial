@@ -19,7 +19,7 @@ Health at a glance: `https://a2zcreative.my/api/v1/health` → `elfia_bridge` bl
 
 ## Switching it on (one time)
 
-Portal (this repo — after the deploy that carries migrations 0075–0078):
+Portal (this repo — after the deploy that carries migrations 0075–0082):
 
 ```
 cd worker
@@ -101,6 +101,34 @@ number), not the requested one.
 the day's ledger movements by source. Until Track E routes every mutation site
 through `stock_ledger`, it carries ELFIA movements only, and says so in the
 response — do not read it as full coverage yet.
+
+## Pending refunds (bell: "PAID and is now CANCELLED")
+
+A paid web order the store later cancelled. Its revenue stays booked — by
+design (OD-17b, the same rule as "paid invoices cannot be silently
+cancelled"). The Web Orders tab shows the order; decide the refund, then
+correct the books the way you would any refund (credit note / manual
+cashflow adjustment naming `ELF-<order_number>`). The flag and count sit on
+the bridge health card until the cancelled orders are dealt with.
+
+## First run & importing history
+
+The very first poll SEEDS its cursor to "now" — the store's back catalogue
+is deliberately NOT imported (it would land months of revenue in one day's
+books). If you ever want history in the portal, that is a one-off decision:
+clear `system_meta.elfia_orders_cursor` **and** accept that every historical
+paid order will book cash on the day you do it — or ask for a proper
+backdated import instead.
+
+## A movement stuck at outcome 'pending'
+
+Normal for seconds (a retry in flight), never for days. A pending row means
+an apply-batch failed after the event was recorded; the store WILL retry it
+and the retry applies cleanly (guard #11 proves this exact path). If one is
+old, the store may have been told a whole-request failure and be holding the
+batch — check `error_log` under `bridge_movements` and the store's outbox.
+Never hand-flip a pending row to 'applied': that recreates audit finding B1
+(the store stops retrying a sale that never landed).
 
 ## What is deliberately NOT automatic
 

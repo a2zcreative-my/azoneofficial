@@ -248,7 +248,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0078_fix_po_direction";
+const LATEST_MIGRATION = "0082_fix_po_direction";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -2777,7 +2777,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* v1.38.0: + the ELFIA bridge block, mirroring the store's own health
        probe (its checklist step 4 reads ours the same way it reads theirs).
        Configuration booleans and two timestamps — nothing sensitive. */
-    const elfia_bridge = db ? await bridgeHealth(env) : { configured: !!env.ELFIA_BRIDGE_KEY };
+    /* v1.39.0 (AUDIT minor): configuration booleans only, computed from
+       env — no DB work and no business-activity timestamps on the one
+       endpoint anyone on the internet can hammer. */
+    const elfia_bridge = bridgeHealth(env);
     return new Response(JSON.stringify({ ok: db, db, version: WORKER_VERSION, elfia_bridge }), {
       status: db ? 200 : 503,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
@@ -2853,6 +2856,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0072 (geofence seed)", `SELECT value FROM system_meta WHERE key = 'attendance_geofence' LIMIT 1`],
       ["0073 (document issuer)", `SELECT issuer_code FROM sales_documents LIMIT 1`],
       ["0074 (client brand)", `SELECT website, logo_key FROM customers LIMIT 1`],
+      // v1.39.0 (AUDIT M16: 0075–0078 missed this list and the pending
+      // banner stayed dark on a database missing four migrations — the
+      // standing rule has THREE places, not two)
+      ["0075-0077 (ELFIA bridge pricing)", `SELECT bridge_enabled, elfia_price_cents FROM inventory_items LIMIT 1`],
+      ["0078 (bridge movements + stock ledger)", `SELECT id FROM bridge_events LIMIT 1`],
+      ["0079-0080 (SKU match key)", `SELECT sku_key FROM inventory_items LIMIT 1`],
+      ["0081 (web orders)", `SELECT id FROM web_orders LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2941,10 +2951,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0072_geofence_seed",
       "0073_document_issuer",
       "0074_customer_brand",
-      "0075_bridge_pricing",
-      "0076_bridge_movements",
-      "0077_web_orders",
-      "0078_fix_po_direction",
+      "0075_bridge_enabled",
+      "0076_elfia_price",
+      "0077_bridge_pricing_backfill",
+      "0078_bridge_movements",
+      "0079_inventory_sku_key",
+      "0080_sku_key_backfill",
+      "0081_web_orders",
+      "0082_fix_po_direction",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

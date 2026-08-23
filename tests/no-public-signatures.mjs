@@ -50,12 +50,39 @@ const scan = (dir) => {
 for (const d of ["app", "components", "lib"]) scan(d);
 if (failed === 0) ok("no client code references the public /signatures/ path");
 
-/* 3. The vault routes exist in the worker (a rename would silently blank
-   every signed document). */
-const worker = readFileSync("worker/src/staff.ts", "utf8") + readFileSync("worker/src/index.ts", "utf8");
+/* 3. The vault routes exist AND ARE GATED (v1.39.1, AUDIT B3: the v1.38.0
+   version of this guard checked only that the route existed — it could not
+   fail on the exact regression it was written for, a vault route any staff
+   login could read). String-level assertions on the shipped source: crude,
+   but they fail on the removal of any gate. */
+const staffSrc = readFileSync("worker/src/staff.ts", "utf8");
+const indexSrc = readFileSync("worker/src/index.ts", "utf8");
+const worker = staffSrc + indexSrc;
 if (!worker.includes("private/signatures/") || !worker.includes("sigServe")) {
   fail("the staff signature vault route is missing from the worker");
 } else ok("staff vault route present");
+
+// the role-file serve block must check a permission before touching R2
+const sigBlock = staffSrc.slice(staffSrc.indexOf("const sigServe"), staffSrc.indexOf("const sigServe") + 600);
+if (!/can\(user\.role, "sales"\)/.test(sigBlock) || !/can\(user\.role, "hr_manage"\)/.test(sigBlock)) {
+  fail("the role-file signature route lost its permission gate — any staff login could fetch any officer's chop (AUDIT B3)");
+} else ok("role-file route is permission-gated");
+
+// document-scoped routes exist with ownership checks
+for (const [name, marker, owner] of [
+  ["claim", "/claims\\/(\\d+)\\/signature\\/", "cl.user_id !== user.id"],
+  ["leave", "/leave\\/(\\d+)\\/signature\\/", "lv.user_id !== user.id"],
+]) {
+  if (!staffSrc.includes(marker)) { fail(`the ${name}-scoped signature route is missing`); continue; }
+  if (!staffSrc.includes(owner)) { fail(`the ${name}-scoped signature route lost its ownership check`); continue; }
+  ok(`${name}-scoped route present with ownership check`);
+}
+
+// every serve is audited — exfiltration must leave a trace
+if (!staffSrc.includes('"signature.serve"')) {
+  fail("signature serves are no longer audited");
+} else ok("signature serves are audited");
+
 if (!worker.includes("/api/v1/public/doc-signature")) {
   fail("the token-scoped public doc-signature route is missing");
 } else ok("token-scoped public route present");

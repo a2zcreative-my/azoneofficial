@@ -44,7 +44,26 @@ const dedupeMatch = bridgeSrc.match(/INSERT INTO bridge_events[\s\S]*?ON CONFLIC
 if (!dedupeMatch) { console.log("FAIL the dedupe INSERT is no longer in bridge.ts — this guard must be updated WITH the code"); process.exit(1); }
 const dedupeSql = dedupeMatch[0].replace(/\?\d/g, "?");
 
-/* ---- a tiny replica of the handler loop, decisions from bridge-core ---- */
+/* ---- a replica of the handler loop, decisions from bridge-core ----
+   v1.39.0: mirrors the PENDING-AWARE gate (audit B1). A conflict does NOT
+   mean "ignored" — it means "recorded"; the stored outcome decides:
+   applied → ignored, unknown_sku → unknown_sku, pending → this retry is the
+   real first attempt and MUST apply. The apply itself is the shipped SQL
+   shape: ledger + trail computed from the pre-update row with the same
+   clamped expression the update uses (transactional in the real handler;
+   sequential here, which is equivalent single-threaded). */
+const NEW_STOCK = "MAX(0, stock + ?)";
+function applyOne(m, key, itemId) {
+  db.prepare(`INSERT INTO stock_ledger (item_id, sku, delta, balance_after, source, ref_type, ref_id, reason)
+    SELECT id, sku, ${NEW_STOCK} - stock, ${NEW_STOCK}, 'elfia', 'bridge_event', ?, ? FROM inventory_items WHERE id = ?`)
+    .run(m.delta, m.delta, m.event_id, m.reason ?? "movement", itemId);
+  db.prepare(`UPDATE inventory_items SET stock = ${NEW_STOCK},
+      status = CASE WHEN status = 'discontinued' THEN 'discontinued'
+                    WHEN ${NEW_STOCK} <= 0 THEN 'out_of_stock'
+                    WHEN ${NEW_STOCK} <= 5 THEN 'low' ELSE 'in_stock' END
+    WHERE id = ?`).run(m.delta, m.delta, m.delta, itemId);
+  db.prepare("UPDATE bridge_events SET outcome = 'applied', item_id = ? WHERE source = 'elfia' AND event_id = ?").run(itemId, m.event_id);
+}
 function applyMovements(movements) {
   const applied = [], ignored = [], unknown_sku = [];
   const batch = parseBatch({ movements });
@@ -53,18 +72,19 @@ function applyMovements(movements) {
     if (!m) continue;
     const key = skuKey(m.sku);
     const ins = db.prepare(dedupeSql).run(m.event_id, m.sku, key, m.delta, m.reason, m.reference, m.occurred_at);
-    if (ins.changes === 0) { ignored.push(m.event_id); continue; }
-    const item = db.prepare("SELECT id, sku, stock FROM inventory_items WHERE sku_key = ? LIMIT 1").get(key);
+    if (ins.changes === 0) {
+      const prev = db.prepare("SELECT outcome FROM bridge_events WHERE source = 'elfia' AND event_id = ?").get(m.event_id);
+      if (prev?.outcome === "applied") { ignored.push(m.event_id); continue; }
+      if (prev?.outcome === "unknown_sku") { unknown_sku.push(m.event_id); continue; }
+      /* pending → fall through: this retry is the real first attempt */
+    }
+    let item = db.prepare("SELECT id, sku FROM inventory_items WHERE sku_key = ? ORDER BY id LIMIT 1").get(key);
+    if (!item) item = db.prepare("SELECT id, sku FROM inventory_items WHERE UPPER(REPLACE(sku, ' ', '')) = ? ORDER BY id LIMIT 1").get(key);
     if (!item) {
       db.prepare("UPDATE bridge_events SET outcome = 'unknown_sku' WHERE source = 'elfia' AND event_id = ?").run(m.event_id);
       unknown_sku.push(m.event_id); continue;
     }
-    const plan = planApply(item.stock, m.delta);
-    db.prepare("UPDATE inventory_items SET stock = ?, status = ? WHERE id = ?")
-      .run(plan.newStock, bridgeStockStatus(plan.newStock), item.id);
-    db.prepare("INSERT INTO stock_ledger (item_id, sku, delta, balance_after, source, ref_type, ref_id) VALUES (?, ?, ?, ?, 'elfia', 'bridge_event', ?)")
-      .run(item.id, item.sku, plan.appliedDelta, plan.newStock, m.event_id);
-    db.prepare("UPDATE bridge_events SET outcome = 'applied', item_id = ? WHERE source = 'elfia' AND event_id = ?").run(item.id, m.event_id);
+    applyOne(m, key, item.id);
     applied.push(m.event_id);
   }
   return { applied, ignored, unknown_sku };
@@ -112,11 +132,39 @@ eq("zero-delta and missing-id movements answered with silence", r7, { applied: [
 eq("…51-movement batches are refused outright",
   applyMovements(Array.from({ length: 51 }, (_, i) => ({ event_id: `x${i}`, sku: "LUMI001", delta: -1 }))), null);
 
+/* 7b. THE AUDIT-B1 CASE: a movement whose first attempt died AFTER the
+       event insert but BEFORE the apply (outcome stuck at 'pending'). The
+       v1.36.0 handler answered "ignored" — permanently losing the sale while
+       telling the store it was applied. The retry must APPLY. */
+db.prepare("INSERT INTO inventory_items (sku, sku_key, name, stock, status, bridge_enabled) VALUES ('LUMI 002', 'LUMI002', 'Periwinkle', 6, 'in_stock', 1)").run();
+db.prepare("INSERT INTO bridge_events (source, event_id, sku, sku_key, delta, outcome) VALUES ('elfia', 'ev-pending', 'LUMI002', 'LUMI002', -2, 'pending')").run();
+const rp = applyMovements([{ event_id: "ev-pending", sku: "LUMI002", delta: -2, reason: "order" }]);
+eq("a stuck-pending event is APPLIED on retry, never answered ignored", rp, { applied: ["ev-pending"], ignored: [], unknown_sku: [] });
+eq("…and the stock actually moved", stockOf("LUMI 002"), 4);
+const rp2 = applyMovements([{ event_id: "ev-pending", sku: "LUMI002", delta: -2, reason: "order" }]);
+eq("…and only once — the second retry is a true ignore", rp2, { applied: [], ignored: ["ev-pending"], unknown_sku: [] });
+eq("…stock unchanged by the true ignore", stockOf("LUMI 002"), 4);
+
+/* 7c. AUDIT M8: a stale/NULL sku_key degrades to the expression fallback,
+       never to a lost sale. */
+db.prepare("INSERT INTO inventory_items (sku, sku_key, name, stock, status, bridge_enabled) VALUES ('LUMI 003', NULL, 'Sage', 5, 'in_stock', 1)").run();
+const rf = applyMovements([{ event_id: "ev-fallback", sku: "lumi003", delta: -1 }]);
+eq("NULL sku_key still matches via the expression fallback", rf.applied, ["ev-fallback"]);
+eq("…and deducted", stockOf("LUMI 003"), 4);
+
+/* 7d. AUDIT M9: a movement must not un-discontinue an item. */
+db.prepare("INSERT INTO inventory_items (sku, sku_key, name, stock, status, bridge_enabled) VALUES ('LUMI 004', 'LUMI004', 'Slate', 3, 'discontinued', 0)").run();
+applyMovements([{ event_id: "ev-disc", sku: "LUMI004", delta: -1 }]);
+eq("discontinued survives a movement", db.prepare("SELECT status FROM inventory_items WHERE sku = 'LUMI 004'").get().status, "discontinued");
+
 /* 8. parse helpers hold the line. */
 eq("parseMovement trims and validates", parseMovement({ event_id: " e1 ", sku: " LUMI001 ", delta: -1 }),
   { event_id: "e1", sku: "LUMI001", delta: -1, reason: null, reference: null, occurred_at: null });
 eq("fractional delta refused", parseMovement({ event_id: "e", sku: "S", delta: -1.5 }), null);
-eq("bad reason refused", parseMovement({ event_id: "e", sku: "S", delta: -1, reason: "refund" }), null);
+/* AUDIT M7: reason is informational per the spec — a new store-side string
+   must NOT poison the movement. */
+eq("free-text reason accepted (informational per spec)",
+  parseMovement({ event_id: "e", sku: "S", delta: -1, reason: "refund" })?.reason, "refund");
 
 /* ---- feed C: upsert by order number ---- */
 const upsert = (o) => {

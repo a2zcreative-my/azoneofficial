@@ -21,7 +21,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   expenses: ["super_admin", "admin", "ceo", "coo"],
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
-  task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco"],
+  task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   task_view: ["super_admin", "admin", "coo", "cco"],
   payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],

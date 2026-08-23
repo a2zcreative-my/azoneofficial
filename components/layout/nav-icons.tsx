@@ -46,6 +46,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Payroll: Wallet,
   Expenses: TrendingDown,
   Sales: FileText,
+  "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule); ShoppingBag would have duplicated Purchasing on the SAME rail.
   Inventory: Package,
   Stokis: Store,
   Ecommerce: ShoppingCart,

@@ -240,14 +240,14 @@ function placeSignatures(cv: Canvas, sigTop: number, imgs: Placed) {
 }
 
 export async function buildClaimPdf(c: ClaimLike, claimNo: string): Promise<Blob> {
-  const empFile = SIG_FILE[c.claimant_role ?? ""] ?? null;
-  const preFile = (c.pre_approved_by_full || c.pre_approved_by_name)
-    ? (c.pre_approved_by_role === "coo" ? "coo-sign.png" : "cco-sign.png") : null;
-  const ceoFile = c.status === "approved" ? "ceo-sign.png" : null;
+  /* v1.39.1 (AUDIT B3): DOCUMENT-scoped fetches — the server decides which
+     chop applies at this claim's stage and whether THIS requester may see
+     it (owner or approval chain). A 404/403 loads as null and the zone
+     prints blank, exactly as before. */
   const loaded = await Promise.all([
-    empFile ? loadImage(`/api/v1/staff/signature/${empFile}`, "Im0", true) : null,
-    preFile ? loadImage(`/api/v1/staff/signature/${preFile}`, "Im1", true) : null,
-    ceoFile ? loadImage(`/api/v1/staff/signature/${ceoFile}`, "Im2", true) : null,
+    loadImage(`/api/v1/staff/claims/${c.id}/signature/emp`, "Im0", true),
+    loadImage(`/api/v1/staff/claims/${c.id}/signature/pre`, "Im1", true),
+    loadImage(`/api/v1/staff/claims/${c.id}/signature/ceo`, "Im2", true),
     c.receipt_key ? loadImage(`/api/v1/staff/claims/${c.id}/receipt`, "Im3", true) : null,
   ]);
   const images = loaded.filter(Boolean) as Img[];
@@ -317,14 +317,12 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
 }
 
 export async function buildLeavePdf(l: LeaveLike, lvNo: string): Promise<Blob> {
-  const empFile = SIG_FILE[l.user_role ?? ""] ?? null;
-  const preFile = (l.preapp_by_full || l.preapp_by_name)
-    ? (l.preapp_by_role === "coo" ? "coo-sign.png" : "cco-sign.png") : null;
-  const ceoFile = (l.stage ?? l.status) === "approved" ? "ceo-sign.png" : null;
+  // v1.39.1: which chop applies is now the SERVER's decision (document-scoped routes).
   const loaded = await Promise.all([
-    empFile ? loadImage(`/api/v1/staff/signature/${empFile}`, "Im0", true) : null,
-    preFile ? loadImage(`/api/v1/staff/signature/${preFile}`, "Im1", true) : null,
-    ceoFile ? loadImage(`/api/v1/staff/signature/${ceoFile}`, "Im2", true) : null,
+    /* v1.39.1 (AUDIT B3): document-scoped — see buildClaimPdf. */
+    loadImage(`/api/v1/staff/leave/${l.id}/signature/emp`, "Im0", true),
+    loadImage(`/api/v1/staff/leave/${l.id}/signature/pre`, "Im1", true),
+    loadImage(`/api/v1/staff/leave/${l.id}/signature/ceo`, "Im2", true),
   ]);
   const images = loaded.filter(Boolean) as Img[];
   const present: Placed = {};

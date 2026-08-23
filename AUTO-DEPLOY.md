@@ -58,7 +58,7 @@ Cloudflare dashboard → **Workers & Pages** → **azoneofficial** → **Setting
 | Deploy command                           | `npx wrangler deploy`       |
 | Build previews / non-production branches | **ON**                      |
 
-`npm run ci` is typecheck → **9 guards** → build. If any guard fails the build
+`npm run ci` is typecheck → the full guard suite (13 at v1.40.1 — run-guards.mjs is the authoritative list) → build. If any guard fails the build
 stops with a non-zero exit code and **nothing is published** — the live site
 keeps running the previous version.
 
@@ -75,6 +75,8 @@ Same dashboard, worker **azoneofficial-api** → **Settings** → **Build** →
 | Root directory                           | `worker`                                                                    |
 | Build command                            | `npm install --no-audit --no-fund && node ../tests/worker-compile-gate.mjs` |
 | Deploy command                           | `sh ../scripts/deploy-api.sh`                                               |
+
+v1.40.1: `deploy-api.sh` now also runs `tests/sql-schema-check.mjs` itself (the build that applies migrations must be the one that checks them — audit M18), refuses to publish from a non-production branch at all (new code against an un-migrated database silently breaks the ELFIA movements feed — audit M10), and **fails the build unless the live `/api/v1/health` reports this build's version** (the live API sat at 1.32.1 for days with every build green — audit B5).
 | Build previews / non-production branches | **OFF** — see the warning below                                             |
 
 ### Why previews are OFF for the API, and must stay off

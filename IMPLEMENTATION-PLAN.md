@@ -1,12 +1,12 @@
 # IMPLEMENTATION PLAN — A2Z portal ⇄ ELFIA, and the road to a full business system
 
-**Status:** Active — Track A code-complete (v1.35.0–v1.38.0 built, awaiting one push + secrets); Track B next
+**Status:** Active — **Track Q remediation BUILT** (v1.39.0–v1.40.1, 22-08-2026 evening): all 5 blockers and the 15 majors closed in code, 13 guards green. Go-live now waits only on the push + secrets. Track B (HRM) is next.
 **Owner:** Alīf
 **Target system:** `azoneofficial` (website) + `azoneofficial-api` (Worker) + D1 `azoneofficial`
 **Portal version at time of writing:** v1.34.0 · 74 migrations (latest `0074_customer_brand`)
 **Counterpart system:** ELFIA OFFICIAL STORE (`elfiaofficialstore.my`) — Next.js + Worker `elfia-api` + D1 `elfia-store` + R2 `elfia-media`
 **Created:** 22 August 2026
-**Last revised:** 22 August 2026 · rev 0.4 (see [Revision log](#revision-log))
+**Last revised:** 22 August 2026 · rev 0.7 (see [Revision log](#revision-log))
 
 ---
 
@@ -27,6 +27,8 @@ This is a **living document**. It is not a one-off proposal — it is the file w
 | Decisions get recorded | Anything with two defensible answers goes in [§13 Open decisions](#13-open-decisions), not in someone's head. |
 
 **Sequencing decision already taken (22-08-2026):** Track A (ELFIA bridge) and Track B (HRM) run **in parallel**. Everything else queues behind them.
+
+**Sequencing amended (22-08-2026, after audit):** Track A is code-complete but **must not be switched on** until Track Q closes its blockers. A full QA + engineering audit found 5 blockers, 15 majors and 12 minors — three blockers are in the bridge code itself, one silently losing stock and one silently losing money. Full findings, evidence and severity in **`AUDIT-2026-08-22.md`**; the remediation releases are summarised as Track Q below. **Five decisions are waiting on the CEO** — see §13 OD-15 to OD-19.
 
 ---
 
@@ -50,6 +52,7 @@ The plan below is **seven tracks over roughly six months**, expressed as release
 | **A** | ELFIA bridge — two-way stock, price, orders | **P0** | v1.35 → v1.38 | — |
 | **B** | HRM — statutory payroll, org chart, leave v2, appraisal, ATS | **P0** | v1.39 → v1.46 | — |
 | **S** | Security & tech-debt (runs alongside, small) | **P0** | v1.35.1, v1.40.1 | — |
+| **Q** | **Audit remediation — bridge correctness, tab integrity, release integrity** | **P0 — BLOCKS GO-LIVE** | v1.39.0 → v1.40.1 | A (fixes its defects) |
 | **C** | CRM — customer 360, pipeline, quotation lifecycle | P1 | v1.47 → v1.51 | A (web orders land as customers) |
 | **D** | Accounting & finance — payments, AR/AP, e-Invoice | P1 | v1.52 → v1.57 | C |
 | **E** | Warehouse & purchasing — one stock ledger, locations, stock take | P1 | v1.58 → v1.62 | A (ledger is shared) |
@@ -891,6 +894,38 @@ Self-service today is one editable field: phone number (`Profile()`, `app/portal
 
 ---
 
+## 6A. Track Q — audit remediation (P0, blocks go-live)
+
+Full evidence in **`AUDIT-2026-08-22.md`**. Summary of what must change and in what order. Nothing in this track is built yet.
+
+### Q-1 · Bridge correctness — *release v1.39.0* ☑ built 22-08-2026 — atomic batches, pending-aware idempotency, booking fixed & claimed atomically, poller seeded/progress-checked, migrations restructured to 0075–0082 (one ALTER per file)
+
+| Item | Fixes | Shape |
+|---|---|---|
+| Atomic movement application | B1, M1 | One `db.batch()` per movement; `UPDATE … SET stock = MAX(0, stock + ?) … RETURNING stock`; the `pending` state eliminated. On conflict, read the stored outcome — `pending` means **retry**, never `ignored`. Today a mid-flight D1 blip makes the portal tell the store "already applied" for a sale it never applied. |
+| Cash booking | B2, M2 | Real `created_by` (0 = system), `paid_seen_at` stamped only **after** a successful booking, `logError` in place of the silent catch, and a **unique index on `cashflow_entries.ref` and `journal_entries.ref`** so the database — not a check-then-insert race — enforces post-twice-book-once. |
+| Poller hardening | M4, M5, M6 | Cursor-progress assertion (abort + alert when the cursor does not advance); per-order try/catch with a dropped-order counter on the health card; first-run cursor seed per OD-16; correct `?`/`&` joining. |
+| Validation loosened to the spec | M7 | `reason` is *informational* per the contract — accept free text. A `rejected` counter replaces silent drops. Today one new reason string on the store side would silently kill a SKU's sync forever. |
+| SKU key consistency | M8 | One normalisation shared by JS and SQL (today: Unicode-vs-ASCII uppercase, all-whitespace vs literal-space), a **unique** index, and a collision report. |
+| `discontinued` preserved | M9 | A movement must not silently un-discontinue an item and start republishing it. |
+| Loud migration skew | M10 | The movements handler gains a pre-0076 branch returning 503. Today, worker-new/migrations-old answers `200` with empty lists while deducting nothing. |
+| Migrations split | B4 | ALTER-only and data-only files, each individually replayable. Today a half-apply wedges every future API deploy (`set -e`). |
+| New guards | — | Failure injection between statements (assert the retry applies exactly once); a poller test with pages, a stuck cursor, a store 500 and a poison-pill order; a NOT NULL bind test. |
+
+### Q-2 · Signature access model — *release v1.39.1* ☑ built 22-08-2026 per OD-15(a) — document-scoped claim/leave routes with ownership checks, role route gated to sales/hr_manage, every serve audited, guard asserts the gates
+
+The vault route has **no role check**: any signed-in staff member, including `editor`, `marketing` and `live_host`, can fetch the CEO's handwritten signature, unaudited. The public leak is closed; the internal one is open. Correct fix is document-scoped access (verify the requester may see *that* document), which also preserves ordinary staff printing their own approved leave forms. Plus a guard that asserts an unauthorised role **gets 403**, not merely that the route exists.
+
+### Q-3 · Tab & navigation integrity — *release v1.40.0* ☑ built 22-08-2026 — Web Orders registered everywhere + Globe icon, Sales-override blank fixed, Users/task_reports reconciled, submit failures surface, card copy honest
+
+Register "Web Orders" in all five registries it is missing from (tab-access whitelist, nav icons, BM guard list, and the two client mirrors); fix the Sales-override blank screen; reconcile `payroll_export`↔`PAYROLL_PROC`, `Users`, and `task_reports`↔CEO (**the CEO's HR task report is silently discarded today**); make failed submits surface their own error; correct the tab-access card's false "admin is always allowed" promise; and add **one guard asserting `ALL_TABS` parity across every registry**, which alone would have caught the whole class.
+
+### Q-4 · Release integrity — *release v1.40.1* ☑ built 22-08-2026 — probes complete, DEPLOY.bat name-gated, deploy-api.sh asserts live version + runs schema check + refuses non-prod publishes, bm-coverage derived, guard #13 registry-parity, Node pinned
+
+Probe set updated for 0075+ (**the ⛔ migrations-pending banner cannot fire today**); `DEPLOY.bat`'s version gate fixed (**the emergency deploy path currently hard-exits**); post-deploy version assertion in `deploy-api.sh`; `sql-schema-check` added to the API build; `bm-coverage`'s tab list derived from `ALL_TABS` instead of hardcoded; registry-parity guards for migrations and crons; Node version pinned (`engines` + `.nvmrc`) — two guards silently depend on Node ≥ 22.18.
+
+---
+
 ## 7. Track C — CRM (P1)
 
 **Goal:** stop treating `customers` as an address book. Know who a client is, what they have bought, what was said last, and what is due next — including the web buyers arriving from ELFIA.
@@ -1181,6 +1216,16 @@ Nothing here should be settled by whoever writes the code first. Each needs your
 | **OD-11** | WhatsApp Business API | (a) Adopt (templates need Meta approval, per-message cost). (b) Stay with manual `wa.me` links. | Volume decides. Manual links are working today; revisit at C-4. |
 | **OD-12** | **Outbound email provider** — the oldest open decision in the repo (`MILESTONES.md:89`) | Resend · Postmark · Amazon SES · Cloudflare Email Routing (receive only) | **Resend.** It unblocks the two features the milestone names (forgot-password, verified registration) and makes emailed documents and the D-2 dunning ladder possible. One choice, four things move. |
 | **OD-13** | Which location's stock does ELFIA see once E-2 lands? | (a) One nominated location. (b) Total across all. | **(a).** Publishing the total oversells the web shop the moment stock sits in a studio or with a stokis. |
+| **OD-15** | **Signature access model** (audit B3) | (a) Document-scoped route. (b) Role-restrict now, accept staff cannot print their own leave form. (c) Leave open to any staff login. | **(a)**. (c) is not acceptable — it re-opens a leak you were just told about.  **Decided 22-08-2026: (a)** — built in v1.39.1. |
+
+| **OD-16** | **Historical web revenue on first poll** (audit M4) | (a) Seed the cursor to now — only orders from go-live count. (b) Import history, backdated to each order's real date. | **(a)** for go-live, then (b) as a deliberate one-off if you want the history. Do not let (b) happen by accident on the first poll.  **Decided 22-08-2026: (a)** — cursor seeds to now; history import stays a deliberate one-off (runbook). |
+
+| **OD-17** | **Refunded web orders** (audit M3) | (a) Auto-reverse revenue and cash on `cancelled`. (b) Flag for a human decision. | **(b)** — it matches your existing "paid invoices cannot be silently cancelled" rule. A refund is a money decision.  **Decided 22-08-2026: (b)** — refund_flagged_at + CEO bell; revenue holds until a human acts. |
+
+| **OD-18** | **Web Orders tab placement** (audit M11) | It is 5th, so behind "More" on mobile for every role, and an unlabelled square on desktop. (a) Icon + register, keep position. (b) Also promote it above Inventory into the thumb row. | **(a)** now; revisit (b) once real web volume exists.  **Decided 22-08-2026: (a)** — Globe icon + full registration; placement revisited on real volume. |
+
+| **OD-19** | **Fix scope before go-live** | (a) Blockers only. (b) Blockers + bridge majors M1–M10. (c) Everything. | **(b)**. The bridge majors are all silent-failure modes on money and stock — production is the most expensive place to find them.  **Decided 22-08-2026: (b)** — blockers + all ten bridge majors closed before go-live; tabs and release integrity done in the same batch. |
+
 | **OD-14** | Google OAuth sign-in bypasses the mandatory TOTP challenge | (a) Accept (Google account is itself 2FA-protected). (b) Enforce TOTP after OAuth for staff roles. | Needs your call. If (a), write it into `SECURITY.md` as a deliberate decision rather than leaving it as a footnote. |
 
 ---
@@ -1238,6 +1283,9 @@ Newest first. One line per change; say what changed and why, not just that somet
 
 | Date | Rev | Change | By |
 |---|---|---|---|
+| 2026-08-22 | 0.7 | **v1.41.0 — catalogue-priced product lines** (CEO request, brings Track C-3's document discipline forward): product QT/DO/INV lines are picked from Inventory (SKU required, list price auto-filled and locked; reductions live in the visible Disc fields); the Worker re-resolves SKU→price on create AND edit so the browser can never invoice below list; services stay free-text; legacy no-SKU documents still edit. This also makes invoice stock deduction SKU-matched for all new documents. | Claude |
+| 2026-08-22 | 0.6 | **Track Q built** (v1.39.0–v1.40.1): every audit blocker and major closed. Migrations restructured to `0075_bridge_enabled`…`0082_fix_po_direction` (one non-idempotent statement per file — B4). Movements handler rebuilt: one transaction per movement, atomic stock expression, pending-aware idempotency (B1/M1); cash booking fixed and atomically claimed, refunds flagged for humans, cursor seeded, stuck-cursor abort, reason free-text, JS-computed sku_key with expression fallback, discontinued preserved, 503 on skew (B2, M2–M10). Signatures document-scoped per OD-15(a) (B3). Tabs: Web Orders registered in all five registries, Sales-override blank fixed, CEO task-report 403 fixed (M11–M15). Release: probes complete, deploy-api.sh asserts the live version and refuses non-prod publishes, DEPLOY.bat name-gated, bm-coverage derived from ALL_TABS, **guard #13 registry-parity** (which caught its own first draft passing vacuously), Node pinned (M16–M19, B5). 13 guards + typecheck green. OD-15…OD-19 decided per recommendation. | Claude |
+| 2026-08-22 | 0.5 | **Audit — go-live gated.** Four independent QA/engineering passes over the bridge, the tab system and the release pipeline: **5 blockers, 15 majors, 12 minors** (`AUDIT-2026-08-22.md`). Three blockers are mine: a mid-flight failure makes the portal answer "already applied" for a sale it never applied (permanent silent stock loss); every web order's cash + GL booking fails on a NOT NULL violation swallowed by an empty catch (permanent silent money loss); the signature vault route has no role check. Also: migrations 0075/0076 can wedge the API deploy pipeline, and nothing is pushed — the live API is still 1.32.1. New **Track Q** added, precedes go-live and Track B. Five new decisions OD-15…OD-19. | Claude |
 | 2026-08-22 | 0.4 | **A-2, A-3, A-4, S-1, S-2, S-3 built** (v1.36.0–v1.38.0, one deploy): migrations `0076`–`0078`, `bridge-core.ts`/`bridge.ts`, movements endpoint with the ON-CONFLICT dedupe, 5-min orders poller + Web Orders tab, `elfia` revenue bucket + `ELF-` cash booking, health block, reconcile report, signature vault (nine call sites repointed — six more than the CHANGELOG knew of), orphan cron deleted, PO direction fixed. Guards #11 `bridge-idempotency` (same event ×5 → one deduction, proven against the real schema and the shipped INSERT) and #12 `no-public-signatures`. All 12 guards + typecheck green. Migration numbering: S-1 needed no table, so `0078` is the PO fix and `0079` is free again. | Claude |
 | 2026-08-22 | 0.3 | **A-1 built** (v1.35.0): migration `0075_bridge_pricing`, `worker/src/bridge-feed.ts` pure serialiser, feed rewrite with skew fallback, `PATCH /staff/inventory/{id}/bridge`, "ELFIA web" column on the Inventory tab, guard #10 (16 checks), wrangler secrets list completed (all four gaps). All 10 guards + typecheck green; build blocked only by the sandbox's Google-Fonts fetch (known AUTO-DEPLOY.md limitation). Status ☐ → ◐ pending deploy + spec checklist 5/8. | Claude |
 | 2026-08-22 | 0.2 | Fact-check pass over every file:line citation and every "does not exist" claim. Corrected: permission key count (26, not 28), the `inventory` permission's real role list, the net-pay formula line, the `sku_key` write sites (`/inventory/{id}/edit`, not `PATCH /inventory/{id}`), the CSRF claim (no bypass exists or is needed), a **third** file fetching signature PNGs (`lib/doc-template.ts:146`), the undocumented-secrets list (four, not one), and the MILESTONES email quote. | Claude |

@@ -50,6 +50,7 @@ const TABS: { name: string; label: string; hint: string }[] = [
   { name: "Ecommerce", label: "Ecommerce", hint: "TikTok + map" },
   { name: "Inventory", label: "Inventory", hint: "" },
   { name: "Sales", label: "Sales", hint: "enquiries + documents" },
+  { name: "Web Orders", label: "Web Orders", hint: "ELFIA store orders" }, // v1.40.0 (AUDIT M11)
   { name: "Announcements", label: "News", hint: "feed + publish" },
   { name: "HR", label: "HR", hint: "docs, leave admin" },
   { name: "Staff Details", label: "Staff", hint: "records + birthdays" },
@@ -82,8 +83,13 @@ const ROLES: [string, string][] = [
 ];
 
 /** Built-in defaults, mirrored from TAB_ROLES/SALES_ROLES in page.tsx so the
-    card can show what "default" means. super_admin/admin are implicit here
-    (always allowed) — the chips list the assignable staff roles only.
+    card can show what "default" means. v1.40.0 (AUDIT M15): only SUPER_ADMIN
+    is implicit — an override that omits "admin" removes the tab from admins
+    too, exactly as it does for every other role; the old note claiming admin
+    was always allowed was false and hid real lockouts. Granting a tab shows
+    it; it does NOT grant the tab's data permissions — a role without the
+    underlying server permission sees the tab and gets "access required" on
+    its data (AUDIT M13).
     v1.21.4: resynced with the v1.21 tab set. */
 const DEFAULTS: Record<string, string[] | null> = {
   Announcements: null,
@@ -95,6 +101,7 @@ const DEFAULTS: Record<string, string[] | null> = {
   Payroll: ["ceo", "coo", "admin"],
   Finance: ["ceo", "coo", "admin"],
   Sales: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "admin"],
+  "Web Orders": ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"], // v1.40.0
   Reconciliation: ["admin", "ceo", "coo", "sales_marketing"],
   Commission: ["admin", "ceo", "coo", "cco", "hr_admin"],
   "Ads Fund": ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],

@@ -158,7 +158,14 @@ export function HrPanel() {
 
   const submitReport = async () => {
     if (!draft.content.trim()) return;
-    await api(`/task-reports`, { method: "POST", body: JSON.stringify(draft) });
+    /* v1.40.0 (AUDIT M14): a 403 here used to clear the draft and say
+       nothing — the CEO typed a report and it silently vanished. A failed
+       submit now KEEPS the draft and says why. */
+    const res = await api<{ error?: { message?: string } }>(`/task-reports`, { method: "POST", body: JSON.stringify(draft) });
+    if (!res.ok) {
+      window.alert(res.data?.error?.message ?? L("Report was not saved — you may not have access to task reports.", "Laporan tidak disimpan — anda mungkin tiada akses kepada laporan tugasan."));
+      return;
+    }
     setDraft((d) => ({ ...d, content: "" }));
     void load();
   };
@@ -725,7 +732,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               </span>
             )}
             {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
-              <span className="text-muted-foreground">{L("Waiting for migration 0076", "Menunggu migrasi 0076")}</span>
+              <span className="text-muted-foreground">{L("Waiting for migration 0078", "Menunggu migrasi 0078")}</span>
             )}
             {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
               <>
@@ -2330,16 +2337,16 @@ async function printClaimForm(c: Claim) {
     <tr>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
         <div class="sg">Signature:${empSig
-          ? `<img class="sigimg" src="/api/v1/staff/signature/${empSig}" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
+          ? `<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/emp" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
           : ` <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
         <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
         ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
-           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/signature/${c.pre_approved_by_role === "coo" ? "coo" : "cco"}-sign.png" alt="" onerror="this.style.display='none'"/></div>
+           <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/pre" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
         : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
       <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
-        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/api/v1/staff/signature/ceo-sign.png" alt="" onerror="this.style.display='none'"/>` : ""}</div>
+        <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
