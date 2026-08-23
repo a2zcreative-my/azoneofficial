@@ -8525,17 +8525,25 @@ function Sales({ user }: { user: User }) {
                   "Diambil daripada log masuk anda secara automatik — tukar hanya apabila membuat bagi pihak orang lain"
                 )}
               >
+                {/* v1.41.1 (CEO: "the name of sales person to short, I dont
+                    need their roles there. their name is require instead"):
+                    the FULL name, nothing else. /staff-list already sends
+                    full_name (falling back to the account name), so the
+                    truncation to a first name + role was purely cosmetic —
+                    and ambiguous the moment two staff shared a first name.
+                    The "me" row keeps its auto-from-login hint because that
+                    is function, not decoration. */}
                 <option value={0}>
                   {L(
-                    `${firstName(user.name)} — me (auto from login)`,
-                    `${firstName(user.name)} — saya (auto dari log masuk)`
+                    `${user.name} — me (auto from login)`,
+                    `${user.name} — saya (auto dari log masuk)`
                   )}
                 </option>
                 {staffList
                   .filter((u) => u.name !== user.name)
                   .map((u) => (
                     <option key={u.id} value={u.id}>
-                      {firstName(u.name)} — {u.role.replace(/_/g, " ")}
+                      {u.name}
                     </option>
                   ))}
               </select>

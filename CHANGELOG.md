@@ -2,6 +2,12 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.41.1] — 2026-08-23 — sales people get their whole name back
+
+**CEO: "the name of sales person to short, I dont need their roles there. their name is require instead"**
+
+The Sales-person dropdown showed `Nur — live host`, `Mohamad — cco`. Two problems: the role was noise he never asked for, and the first-name truncation was genuinely ambiguous — two staff named Nur were distinguishable only BY that noise. `/staff-list` has sent the full name (`full_name`, falling back to the account name) since v1.4.93; the shortening was purely client-side cosmetics. The dropdown now shows the full name, nothing else. The "— me (auto from login)" hint stays on the first row because it is function, not decoration: it tells staff the attribution is captured automatically.
+
 ## [1.41.0] — 2026-08-22 — product lines come from the catalogue
 
 **CEO: "For the sales, I want to have a list of the product with the prices auto filled and if there is any discount staff will insert the discount amount. SKU need to be filled for the products. This is only for Product."**
