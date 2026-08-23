@@ -28,6 +28,8 @@ const stockLabel = (s: string) => L(s.replace(/_/g, " "), STOCK_MS[s] ?? s.repla
 
 interface OverviewData {
   task_summary?: { status: string; n: number }[];
+  task_overdue?: number | null;   // v1.42.0 — absent pre-0083
+  task_unacked?: number | null;
   task_by_staff?: { name: string; role: string; open_tasks: number; done_tasks: number }[];
   inventory_status?: { status: string; n: number }[];
 }
@@ -48,13 +50,28 @@ export function TaskProgressCard() {
   return (
     <div className={card}>
       <p className="text-sm font-semibold">{L("Task progress — company-wide", "Kemajuan tugasan — seluruh syarikat")}</p>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center sm:grid-cols-5">
         {([["open", "Open", "Terbuka"], ["in_progress", "Pending", "Menunggu"], ["completed", "Closed", "Ditutup"]] as const).map(([k, lbl, lblMs]) => (
           <div key={k} className="border-border rounded-lg border py-2">
             <p className="text-xl font-semibold tabular-nums">{data.task_summary?.find((t) => t.status === k)?.n ?? 0}</p>
             <p className="text-muted-foreground text-[11px]">{L(lbl, lblMs)}</p>
           </div>
         ))}
+        {/* v1.42.0 (CEO: "monitor closely"): the two numbers that demand a
+            manager's action — deadlines already missed, and assignments
+            nobody has confirmed seeing. Red/amber when above zero. */}
+        {typeof data.task_overdue === "number" && (
+          <div className={`rounded-lg border py-2 ${data.task_overdue > 0 ? "border-danger bg-danger-soft" : "border-border"}`}>
+            <p className={`text-xl font-semibold tabular-nums ${data.task_overdue > 0 ? "text-danger" : ""}`}>{data.task_overdue}</p>
+            <p className="text-muted-foreground text-[11px]">{L("Overdue", "Tertunggak")}</p>
+          </div>
+        )}
+        {typeof data.task_unacked === "number" && (
+          <div className={`rounded-lg border py-2 ${data.task_unacked > 0 ? "border-warning bg-warning-soft" : "border-border"}`}>
+            <p className={`text-xl font-semibold tabular-nums ${data.task_unacked > 0 ? "text-warning" : ""}`}>{data.task_unacked}</p>
+            <p className="text-muted-foreground text-[11px]">{L("Not acknowledged", "Belum diakui")}</p>
+          </div>
+        )}
       </div>
       {staff.length > 0 && (
         <div className="mt-4 max-h-64 overflow-x-auto overflow-y-auto">

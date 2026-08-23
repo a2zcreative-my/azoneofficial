@@ -334,11 +334,21 @@ interface Notification {
 interface Task {
   id: number;
   title: string;
+  description?: string | null;
   priority: string;
   deadline: string | null;
   status: string;
   progress: number;
   assignee?: string;
+  assigned_to?: number;
+  created_by?: number | null;
+  // v1.42.0 — scope tally + acknowledgement, present post-0083
+  item_count?: number;
+  item_done?: number;
+  acknowledged?: number;
+}
+interface TaskItem { // v1.42.0 — one scope deliverable
+  id: number; title: string; done: number; done_at?: string | null; done_by_name?: string | null;
 }
 interface Announcement {
   id: number;
@@ -5299,11 +5309,15 @@ function Tasks({ user }: { user: User }) {
   const [draft, setDraft] = useState({
     title: "",
     description: "",
+    scope: "", // v1.42.0 — one deliverable per line → tickable task_items
     assigned_to: 0,
     priority: "normal",
     deadline: "",
   });
+  const [openTask, setOpenTask] = useState<number | null>(null);
+  const [items, setItems] = useState<TaskItem[] | null>(null);
   const canManage = MANAGE_ROLES.includes(user.role);
+  const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
   const load = useCallback(async () => {
     const r = await api<{ tasks: Task[] }>(
@@ -5329,7 +5343,12 @@ function Tasks({ user }: { user: User }) {
   const create = async () => {
     if (!draft.title) return;
     // Staff self-assign; managers may pick someone. 0 = self on the server.
-    const payload = { ...draft, assigned_to: draft.assigned_to || undefined };
+    const payload = {
+      ...draft,
+      assigned_to: draft.assigned_to || undefined,
+      // v1.42.0: the scope, one line per deliverable
+      items: draft.scope.split("\n").map((l) => l.trim()).filter(Boolean),
+    };
     await api(`/staff/tasks`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -5337,10 +5356,32 @@ function Tasks({ user }: { user: User }) {
     setDraft({
       title: "",
       description: "",
+      scope: "",
       assigned_to: 0,
       priority: "normal",
       deadline: "",
     });
+    void load();
+  };
+  const openChecklist = async (id: number) => {
+    if (openTask === id) { setOpenTask(null); setItems(null); return; }
+    setOpenTask(id); setItems(null);
+    const r = await api<{ items: TaskItem[] }>(`/staff/tasks/${id}/items`);
+    if (r.ok && r.data) setItems(r.data.items ?? []);
+  };
+  const toggleItem = async (taskId: number, itemId: number) => {
+    const r = await api<{ done: number; progress: number }>(
+      `/staff/tasks/${taskId}/items/${itemId}/toggle`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    if (r.ok) {
+      const rr = await api<{ items: TaskItem[] }>(`/staff/tasks/${taskId}/items`);
+      if (rr.ok && rr.data) setItems(rr.data.items ?? []);
+      void load();
+    }
+  };
+  const acknowledge = async (id: number) => {
+    await api(`/staff/tasks/${id}/ack`, { method: "POST", body: JSON.stringify({}) });
     void load();
   };
   const update = async (id: number, patch: Record<string, unknown>) => {
@@ -5389,6 +5430,26 @@ function Tasks({ user }: { user: User }) {
                 setDraft((d) => ({ ...d, description: e.target.value }))
               }
             />
+          </Sub>
+          <Sub t={L("Scope — one deliverable per line", "Skop — satu hasil kerja setiap baris")}>
+            <textarea
+              className={inputClass}
+              rows={3}
+              placeholder={L(
+                "e.g.\nDraft the catalogue layout\nCollect product photos\nSend PDF for approval",
+                "cth.\nDraf susun atur katalog\nKumpul foto produk\nHantar PDF untuk kelulusan"
+              )}
+              value={draft.scope}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, scope: e.target.value }))
+              }
+            />
+            <p className="text-muted-foreground mt-1 text-xs">
+              {L(
+                "Each line becomes a tickable item — progress counts itself as the staff tick them off.",
+                "Setiap baris menjadi item boleh ditanda — kemajuan dikira sendiri apabila kakitangan menandanya."
+              )}
+            </p>
           </Sub>
           {canManage && (
             <Sub t={L("Assign to", "Agihkan kepada")}>
@@ -5462,27 +5523,63 @@ function Tasks({ user }: { user: User }) {
           </p>
         )}
         <div className="max-h-96 overflow-y-auto">
-          {tasks.map((t) => (
+          {tasks.map((t) => {
+            /* v1.42.0: the list is a monitoring surface — an overdue task is
+               RED before anyone reads a date, an unacknowledged assignment
+               wears an amber badge, and the scope tally shows how far along
+               the work actually is. */
+            const overdue = !!t.deadline && t.deadline < todayISO && t.status !== "completed";
+            const mine = t.assigned_to === undefined || t.assigned_to === user.id;
+            const assigned = t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
+            return (
             <div
               key={t.id}
               className="border-border border-b py-2 text-sm last:border-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  <span className="font-medium">{t.title}</span>
+                  <span className={`font-medium ${overdue ? "text-danger" : ""}`}>{t.title}</span>
                   {t.assignee ? (
                     <span className="text-muted-foreground">
                       {" "}
                       · {t.assignee}
                     </span>
                   ) : null}
-                  <span className="text-muted-foreground">
+                  <span className={overdue ? "text-danger font-medium" : "text-muted-foreground"}>
                     {" "}
                     · {priorityL(t.priority)}
                     {t.deadline
-                      ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`)
+                      ? overdue
+                        ? L(` · OVERDUE — was due ${t.deadline}`, ` · TERTUNGGAK — sepatutnya ${t.deadline}`)
+                        : L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`)
                       : ""}
                   </span>
+                  {(t.item_count ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      className="border-border hover:bg-secondary ml-2 rounded-full border px-2 py-0.5 text-xs"
+                      title={L("Open the scope checklist", "Buka senarai semak skop")}
+                      onClick={() => void openChecklist(t.id)}
+                    >
+                      ✓ {t.item_done ?? 0}/{t.item_count} {L("scope", "skop")}
+                    </button>
+                  )}
+                  {assigned && t.acknowledged === 0 && t.status !== "completed" && (
+                    mine ? (
+                      <button
+                        type="button"
+                        className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
+                        onClick={() => void acknowledge(t.id)}
+                        title={L("Confirm you have seen and understood this task — your assigner is notified", "Sahkan anda telah melihat dan memahami tugasan ini — pemberi tugasan dimaklumkan")}
+                      >
+                        {L("Acknowledge", "Akui terima")}
+                      </button>
+                    ) : (
+                      <span className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
+                        {L("Not acknowledged", "Belum diakui")}
+                      </span>
+                    )
+                  )}
                 </span>
                 <span className="flex items-center gap-2">
                   <select
@@ -5518,8 +5615,37 @@ function Tasks({ user }: { user: User }) {
                   </span>
                 </span>
               </div>
+              {openTask === t.id && (
+                <div className="border-border mt-2 rounded-lg border p-2">
+                  {!items && (
+                    <p className="text-muted-foreground text-xs">{L("Loading…", "Memuatkan…")}</p>
+                  )}
+                  {items && items.length === 0 && (
+                    <p className="text-muted-foreground text-xs">{L("No scope items on this task.", "Tiada item skop pada tugasan ini.")}</p>
+                  )}
+                  {items && items.map((it) => (
+                    <label key={it.id} className="flex items-start gap-2 py-1 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={it.done === 1}
+                        disabled={!mine && !canManage}
+                        onChange={() => void toggleItem(t.id, it.id)}
+                      />
+                      <span className={it.done ? "text-muted-foreground line-through" : ""}>
+                        {it.title}
+                        {it.done === 1 && it.done_by_name ? (
+                          <span className="text-muted-foreground ml-1 text-xs no-underline">
+                            — {it.done_by_name}{it.done_at ? ` · ${it.done_at.slice(0, 10)}` : ""}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
     </div>

@@ -248,7 +248,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0082_fix_po_direction";
+const LATEST_MIGRATION = "0083_task_tracking";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1305,6 +1305,59 @@ export default {
       await env.DB.prepare(`DELETE FROM rate_limits WHERE window_start <= datetime('now', '-1 day')`).run();
     } catch { /* pre-migration — silent */ }
     await bridgeHousekeeping(env);
+    /* v1.42.0 (CEO: "everyone is alert on their task and the task being
+       track properly") — three task sweeps per 30-min pass, each firing at
+       most once per task per day (deduped by a task_events row, so a redeploy
+       or a second pass can never double-bell anyone):
+       1. OVERDUE — deadline passed, not closed → both the assignee and the
+          assigner hear it, every day until it moves.
+       2. DUE today/tomorrow → the assignee is reminded before it is late,
+          not after.
+       3. UNACKNOWLEDGED — assigned by someone else, older than a day, never
+          acknowledged → nudge the assignee, tell the assigner. A task nobody
+          confirmed seeing is not "assigned" in any real sense.
+       Armored: pre-0083 the whole block is silent. */
+    try {
+      const todayT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const tomorrowT = new Date(Date.now() + 32 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results: overdueT } = await env.DB.prepare(
+        `SELECT t.id, t.title, t.deadline, t.assigned_to, t.created_by FROM tasks t
+         WHERE t.status != 'completed' AND t.deadline IS NOT NULL AND t.deadline < ?1
+           AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'overdue_alert' AND e.on_date = ?1)
+         LIMIT 25`,
+      ).bind(todayT).all<{ id: number; title: string; deadline: string; assigned_to: number; created_by: number | null }>();
+      for (const t of overdueT) {
+        await notify(env, t.assigned_to, "task", `⏰ OVERDUE: ${t.title} — was due ${t.deadline}. Update it on the Tasks tab now.`, `task:${t.id}:od:${todayT}`);
+        if (t.created_by && t.created_by !== t.assigned_to) {
+          await notify(env, t.created_by, "task", `⏰ Task you assigned is OVERDUE: ${t.title} (was due ${t.deadline})`, `task:${t.id}:odc:${todayT}`);
+        }
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, on_date) VALUES (?1, 'overdue_alert', ?2)`).bind(t.id, todayT).run();
+      }
+      const { results: dueT } = await env.DB.prepare(
+        `SELECT t.id, t.title, t.deadline, t.assigned_to FROM tasks t
+         WHERE t.status != 'completed' AND t.deadline IN (?1, ?2)
+           AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'due_reminder' AND e.on_date = ?1)
+         LIMIT 25`,
+      ).bind(todayT, tomorrowT).all<{ id: number; title: string; deadline: string; assigned_to: number }>();
+      for (const t of dueT) {
+        const when = t.deadline === todayT ? "TODAY" : "tomorrow";
+        await notify(env, t.assigned_to, "task", `⏳ Due ${when}: ${t.title}`, `task:${t.id}:due:${todayT}`);
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, on_date) VALUES (?1, 'due_reminder', ?2)`).bind(t.id, todayT).run();
+      }
+      const { results: unackT } = await env.DB.prepare(
+        `SELECT t.id, t.title, t.assigned_to, t.created_by FROM tasks t
+         WHERE t.status = 'open' AND t.created_by IS NOT NULL AND t.created_by != t.assigned_to
+           AND t.created_at < datetime('now', '-1 day')
+           AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'ack')
+           AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'ack_nudge' AND e.on_date = ?1)
+         LIMIT 25`,
+      ).bind(todayT).all<{ id: number; title: string; assigned_to: number; created_by: number }>();
+      for (const t of unackT) {
+        await notify(env, t.assigned_to, "task", `👋 Please acknowledge your task: ${t.title} — press Acknowledge on the Tasks tab so your assigner knows you have seen it.`, `task:${t.id}:nudge:${todayT}`);
+        await notify(env, t.created_by, "task", `⚠ Not yet acknowledged: ${t.title}`, `task:${t.id}:nudgec:${todayT}`);
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, on_date) VALUES (?1, 'ack_nudge', ?2)`).bind(t.id, todayT).run();
+      }
+    } catch { /* pre-0083 — silent until migrated */ }
     /* v1.4.265 (CEO: "Errors are logged but nobody is told"): every 30-min
        cron pass checks whether error_log grew since the last pass and bell-
        notifies super_admin + ceo. A watermark in system_meta stops repeats —
@@ -2863,6 +2916,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0078 (bridge movements + stock ledger)", `SELECT id FROM bridge_events LIMIT 1`],
       ["0079-0080 (SKU match key)", `SELECT sku_key FROM inventory_items LIMIT 1`],
       ["0081 (web orders)", `SELECT id FROM web_orders LIMIT 1`],
+      ["0083 (task scope + tracking)", `SELECT id FROM task_items LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -2959,6 +3013,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0080_sku_key_backfill",
       "0081_web_orders",
       "0082_fix_po_direction",
+      "0083_task_tracking",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

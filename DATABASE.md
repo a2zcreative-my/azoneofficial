@@ -3,6 +3,14 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.42.0 — `0083_task_tracking.sql`
+
+`task_items` — a task's scope, itemised and tickable; `tasks.progress` becomes derived (done/total) for any task that has items. `task_events` — the tracking trail: `'ack'` (the assignee's timestamped "seen and understood"), `'status:<v>'`, `'scope_done'`, and the daily-alert dedupe rows (`'ack_nudge'` / `'due_reminder'` / `'overdue_alert'`, keyed by `on_date`). Zero ALTERs — fully replayable (audit B4 rule).
+
+| Date | Version | Change |
+| --- | --- | --- |
+| 2026-08-23 | 1.42.0 | `task_items`, `task_events` + indexes. |
+
 ## v1.39.0–v1.40.1 — the ELFIA bridge migrations, restructured after AUDIT-2026-08-22 (`0075`–`0082`)
 
 The audit's finding B4: a migration file mixing a non-idempotent `ALTER TABLE ADD COLUMN` with trailing statements can, on a half-apply, become permanently unappliable — and `deploy-api.sh` runs under `set -e`, so one such file wedges every future API deploy. The four original bridge migrations (drafted as 0075–0078, **never applied or pushed anywhere**) were therefore restructured before first contact with the real database: **one non-idempotent statement per file, everything else convergent or `IF NOT EXISTS`.** `tests/registry-parity.mjs` now asserts the file list ↔ `EXPECTED_MIGRATIONS` ↔ `LATEST_MIGRATION` ↔ health-probe coverage on every build.

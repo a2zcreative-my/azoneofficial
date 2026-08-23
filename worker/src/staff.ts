@@ -3424,6 +3424,26 @@ export async function handleStaff(
         ? `SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to ORDER BY t.created_at DESC LIMIT 200`
         : `SELECT * FROM tasks WHERE assigned_to = ?1 ORDER BY created_at DESC LIMIT 100`,
     ).bind(...(all ? [] : [user.id])).all();
+    /* v1.42.0: each task carries its scope tally (done/total items) and
+       whether the assignee has ACKNOWLEDGED it — the two facts the list
+       needs to be a monitoring surface instead of a list of titles.
+       Armored: pre-0083 the tasks render exactly as before. */
+    try {
+      const { results: agg } = await env.DB.prepare(
+        `SELECT task_id, COUNT(*) AS n, COALESCE(SUM(done), 0) AS d FROM task_items GROUP BY task_id`,
+      ).all<{ task_id: number; n: number; d: number }>();
+      const { results: acks } = await env.DB.prepare(
+        `SELECT DISTINCT task_id FROM task_events WHERE kind = 'ack'`,
+      ).all<{ task_id: number }>();
+      const byId = new Map(agg.map((a) => [a.task_id, a]));
+      const acked = new Set(acks.map((a) => a.task_id));
+      for (const t of results as Record<string, unknown>[]) {
+        const a = byId.get(t.id as number);
+        t.item_count = a?.n ?? 0;
+        t.item_done = a?.d ?? 0;
+        t.acknowledged = acked.has(t.id as number) ? 1 : 0;
+      }
+    } catch { /* pre-0083 */ }
     return json({ tasks: results });
   }
   if (path === "/tasks" && method === "POST") {
@@ -3446,8 +3466,27 @@ export async function handleStaff(
       typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
       str(body.deadline, 10) ? body.deadline : null,
     ).first<{ id: number }>();
+    /* v1.42.0: the SCOPE — one deliverable per line from the form, stored as
+       tickable items. Progress is then derived, not typed. */
+    let itemCount = 0;
+    if (res?.id && Array.isArray(body.items)) {
+      const lines = (body.items as unknown[])
+        .filter((x) => str(x, 200)).map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
+      try {
+        for (let si = 0; si < lines.length; si++) {
+          await env.DB.prepare(
+            `INSERT INTO task_items (task_id, title, sort) VALUES (?1, ?2, ?3)`,
+          ).bind(res.id, lines[si], si).run();
+        }
+        itemCount = lines.length;
+      } catch { /* pre-0083 — the task still exists, scope stays in description */ }
+    }
     if (assignedTo !== user.id) {
-      await notify(env, assignedTo, "task", `New task assigned: ${body.title as string}`, `task:${res?.id}`);
+      const due = str(body.deadline, 10) ? ` (due ${body.deadline as string})` : "";
+      const scope = itemCount > 0 ? ` — ${itemCount} scope item${itemCount === 1 ? "" : "s"}` : "";
+      await notify(env, assignedTo, "task",
+        `📋 New task assigned: ${body.title as string}${due}${scope}. Open the Tasks tab and press Acknowledge.`,
+        `task:${res?.id}`);
     }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
     return json({ id: res?.id }, 201);
@@ -3455,8 +3494,8 @@ export async function handleStaff(
   const taskMatch = path.match(/^\/tasks\/(\d+)$/);
   if (taskMatch && method === "PATCH") {
     const id = taskMatch[1]!;
-    const row = await env.DB.prepare(`SELECT assigned_to FROM tasks WHERE id = ?1`)
-      .bind(id).first<{ assigned_to: number }>();
+    const row = await env.DB.prepare(`SELECT title, assigned_to, created_by FROM tasks WHERE id = ?1`)
+      .bind(id).first<{ title: string; assigned_to: number; created_by: number | null }>();
     if (!row) return err("not_found", "Task not found", 404);
     if (row.assigned_to !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "Not your task", 403);
@@ -3472,7 +3511,110 @@ export async function handleStaff(
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
       .bind(...vals, id).run();
+    /* v1.42.0: every status move leaves a trail row, and the OTHER party is
+       told — the assigner monitors without asking, the assignee is never
+       surprised by a manager's change. Armored (pre-0083 keeps old shape). */
+    if (typeof body?.status === "string") {
+      const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      try {
+        await env.DB.prepare(
+          `INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, ?2, ?3, ?4)`,
+        ).bind(id, `status:${body.status}`, user.id, todayS).run();
+      } catch { /* pre-0083 */ }
+      const statusLbl = body.status === "completed" ? "Closed" : body.status === "in_progress" ? "Pending" : "Open";
+      if (user.id === row.assigned_to && row.created_by && row.created_by !== user.id) {
+        await notify(env, row.created_by, "task", `📋 ${row.title} → ${statusLbl} (by the assignee)`, `task:${id}:st:${body.status}`);
+      } else if (user.id !== row.assigned_to) {
+        await notify(env, row.assigned_to, "task", `📋 Your task was set to ${statusLbl}: ${row.title}`, `task:${id}:st:${body.status}`);
+      }
+    }
     return json({ ok: true });
+  }
+  /* v1.42.0 — the scope checklist. Reading it: assignee, creator, or a
+     manager. Ticking it: assignee or a manager — ticking IS the progress
+     report, tasks.progress becomes derived (done/total). */
+  const taskItems = path.match(/^\/tasks\/(\d+)\/items$/);
+  if (taskItems && method === "GET") {
+    const t = await env.DB.prepare(`SELECT assigned_to, created_by FROM tasks WHERE id = ?1`)
+      .bind(taskItems[1]).first<{ assigned_to: number; created_by: number | null }>();
+    if (!t) return err("not_found", "Task not found", 404);
+    if (t.assigned_to !== user.id && t.created_by !== user.id && !can(user.role, "team_manage")) {
+      return err("forbidden", "Not your task", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT i.id, i.title, i.done, i.done_at, u.name AS done_by_name
+         FROM task_items i LEFT JOIN users u ON u.id = i.done_by
+         WHERE i.task_id = ?1 ORDER BY i.sort, i.id`,
+      ).all();
+      return json({ items: results });
+    } catch { return json({ items: [], pending_migration: true }); }
+  }
+  const taskItemToggle = path.match(/^\/tasks\/(\d+)\/items\/(\d+)\/toggle$/);
+  if (taskItemToggle && method === "POST") {
+    const t = await env.DB.prepare(`SELECT title, assigned_to, created_by, status FROM tasks WHERE id = ?1`)
+      .bind(taskItemToggle[1]).first<{ title: string; assigned_to: number; created_by: number | null; status: string }>();
+    if (!t) return err("not_found", "Task not found", 404);
+    if (t.assigned_to !== user.id && !can(user.role, "team_manage")) {
+      return err("forbidden", "Only the assignee (or a manager) ticks the scope", 403);
+    }
+    try {
+      const it = await env.DB.prepare(`SELECT id, done FROM task_items WHERE id = ?1 AND task_id = ?2`)
+        .bind(taskItemToggle[2], taskItemToggle[1]).first<{ id: number; done: number }>();
+      if (!it) return err("not_found", "Scope item not found", 404);
+      const nowDone = it.done ? 0 : 1;
+      await env.DB.prepare(
+        `UPDATE task_items SET done = ?1, done_by = ?2, done_at = CASE WHEN ?1 = 1 THEN datetime('now') ELSE NULL END WHERE id = ?3`,
+      ).bind(nowDone, nowDone ? user.id : null, it.id).run();
+      const agg = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(done), 0) AS d FROM task_items WHERE task_id = ?1`,
+      ).bind(taskItemToggle[1]).first<{ n: number; d: number }>();
+      const progress = agg && agg.n > 0 ? Math.round((agg.d / agg.n) * 100) : 0;
+      await env.DB.prepare(`UPDATE tasks SET progress = ?1 WHERE id = ?2`).bind(progress, taskItemToggle[1]).run();
+      /* The moment the whole scope is ticked, the assigner hears it — once
+         per day, so re-ticking cannot spam. */
+      if (progress === 100 && t.created_by && t.created_by !== user.id) {
+        const todayD = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        const dup = await env.DB.prepare(
+          `SELECT id FROM task_events WHERE task_id = ?1 AND kind = 'scope_done' AND on_date = ?2 LIMIT 1`,
+        ).bind(taskItemToggle[1], todayD).first<{ id: number }>();
+        if (!dup) {
+          await env.DB.prepare(`INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, 'scope_done', ?2, ?3)`)
+            .bind(taskItemToggle[1], user.id, todayD).run();
+          await notify(env, t.created_by, "task", `✅ All scope items done: ${t.title} — review and close it`, `task:${taskItemToggle[1]}:done`);
+        }
+      }
+      return json({ done: nowDone, progress });
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0083_task_tracking)", 500);
+    }
+  }
+  /* v1.42.0 — the acknowledgement: the assignee's explicit "seen and
+     understood". Until it exists the assigner sees an amber badge and the
+     cron nudges daily; after it, both sides have a timestamped fact. */
+  const taskAck = path.match(/^\/tasks\/(\d+)\/ack$/);
+  if (taskAck && method === "POST") {
+    const t = await env.DB.prepare(`SELECT title, assigned_to, created_by FROM tasks WHERE id = ?1`)
+      .bind(taskAck[1]).first<{ title: string; assigned_to: number; created_by: number | null }>();
+    if (!t) return err("not_found", "Task not found", 404);
+    if (t.assigned_to !== user.id) return err("forbidden", "Only the assignee acknowledges a task", 403);
+    try {
+      const dup = await env.DB.prepare(
+        `SELECT id FROM task_events WHERE task_id = ?1 AND kind = 'ack' LIMIT 1`,
+      ).bind(taskAck[1]).first<{ id: number }>();
+      if (!dup) {
+        const todayA = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, 'ack', ?2, ?3)`)
+          .bind(taskAck[1], user.id, todayA).run();
+        if (t.created_by && t.created_by !== user.id) {
+          await notify(env, t.created_by, "task", `👍 ${user.name} acknowledged: ${t.title}`, `task:${taskAck[1]}:ack`);
+        }
+        await audit(env, user.id, "task.ack", "tasks", taskAck[1]);
+      }
+      return json({ ok: true });
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0083_task_tracking)", 500);
+    }
   }
   const commentMatch = path.match(/^\/tasks\/(\d+)\/comments$/);
   if (commentMatch && method === "POST") {
@@ -6656,6 +6798,25 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       upcoming_events_30d: (eventCount as { n: number } | null)?.n ?? 0,
       latest_ops_report: latestOps,
       task_summary: taskAgg.results,
+      /* v1.42.0: the two counts a monitoring card actually needs. Armored —
+         pre-0083 they are simply absent and the card shows three tiles. */
+      task_overdue: await (async () => {
+        try {
+          const todayO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+          return (await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM tasks WHERE status != 'completed' AND deadline IS NOT NULL AND deadline < ?1`,
+          ).bind(todayO).first<{ n: number }>())?.n ?? 0;
+        } catch { return null; }
+      })(),
+      task_unacked: await (async () => {
+        try {
+          return (await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM tasks t
+             WHERE t.status != 'completed' AND t.created_by IS NOT NULL AND t.created_by != t.assigned_to
+               AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'ack')`,
+          ).first<{ n: number }>())?.n ?? 0;
+        } catch { return null; }
+      })(),
       task_by_staff: taskByStaff.results,
       inventory_status: inventory.results,
     });

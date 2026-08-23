@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.42.0] — 2026-08-23 — tasks with a scope, an acknowledgement, and an alarm clock
+
+**CEO: "I need to make the task scope followed clearly by the staff and I want to have a proper implementation to make sure that everyone is alert on their task and the task being track properly to ensure that it is followed and monitor closely."**
+
+Three asks, three mechanisms — each one a fact in the database, not a habit someone has to remember.
+
+### Scope that can be followed (migration `0083_task_tracking`)
+
+- The create form gains **"Scope — one deliverable per line"**. Each line becomes a tickable item on the task (`task_items`). A scope someone can tick is a scope someone can follow — and **progress now counts itself**: ticking items sets the task's % (done/total), replacing the hand-typed number for any task that has a scope. Who ticked what, and when, shows beside each item.
+- When the LAST item is ticked, the assigner is told: *"All scope items done — review and close it."* Closing stays a human decision.
+
+### Everyone is alert (the 30-minute cron, deduped per task per day via `task_events`)
+
+- **Assignment** (improved): the notification now carries the deadline and the scope size, and says what to do — *"Open the Tasks tab and press Acknowledge."*
+- **Acknowledgement** (new): an assigned task shows an **Acknowledge** button to its assignee. Pressing it records a timestamped "seen and understood" and tells the assigner. Until then, the assigner sees an amber **Not acknowledged** badge — and after 24 hours the cron nudges the assignee daily and tells the assigner it is still unconfirmed. A task nobody confirmed seeing is not assigned in any real sense.
+- **Due soon**: the assignee is reminded the day before and the day of the deadline — before it is late, not after.
+- **Overdue**: once the deadline passes unclosed, BOTH the assignee and the assigner hear it, every day until it moves. All of these ride the existing notification funnel, so they web-push to phones where staff have allowed it.
+
+### Tracked and monitored closely
+
+- The task list is now a monitoring surface: **overdue tasks read red** with "OVERDUE — was due …", unacknowledged assignments wear the amber badge, and every task with a scope shows its ✓ done/total chip (click it to open the checklist).
+- The **company-wide card** gains two tiles that demand action: **Overdue** (red when above zero) and **Not acknowledged** (amber) — next to Open/Pending/Closed.
+- Every status change writes a trail row and notifies the OTHER party — the assigner monitors without asking; the assignee is never surprised by a manager's change.
+
+All armored on migration skew: pre-0083 the tab renders exactly as v1.41 did.
+
 ## [1.41.2] — 2026-08-23 — the total on screen is the total on the document
 
 **CEO: "I saw total was not deduct when there is discount insert"** — two RM 11.70 lines with RM 1.70 off each showed **Total: RM 23.40**.
