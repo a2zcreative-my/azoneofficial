@@ -37,6 +37,7 @@ const GUARDS = [
   ["shift-sales-split", "sales are attributed to the right shift"],
   ["bridge-feed-guard", "the ELFIA feed sends the right price and nothing else"],
   ["bridge-idempotency", "a store movement applies exactly once, however often it retries"],
+  ["traffic-contract", "a re-sent traffic day REPLACES the day we hold, never adds to it"],
   ["no-public-signatures", "no real signature image is publicly downloadable"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],

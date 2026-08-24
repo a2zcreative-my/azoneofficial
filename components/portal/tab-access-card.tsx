@@ -51,6 +51,7 @@ const TABS: { name: string; label: string; hint: string }[] = [
   { name: "Inventory", label: "Inventory", hint: "" },
   { name: "Sales", label: "Sales", hint: "enquiries + documents" },
   { name: "Web Orders", label: "Web Orders", hint: "ELFIA store orders" }, // v1.40.0 (AUDIT M11)
+  { name: "ELFIA Traffic", label: "ELFIA Traffic", hint: "store visitor map" }, // v1.43.0
   { name: "Announcements", label: "News", hint: "feed + publish" },
   { name: "HR", label: "HR", hint: "docs, leave admin" },
   { name: "Staff Details", label: "Staff", hint: "records + birthdays" },
@@ -102,6 +103,7 @@ const DEFAULTS: Record<string, string[] | null> = {
   Finance: ["ceo", "coo", "admin"],
   Sales: ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "admin"],
   "Web Orders": ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"], // v1.40.0
+  "ELFIA Traffic": ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"], // v1.43.0 — mirrors revenue_view
   Reconciliation: ["admin", "ceo", "coo", "sales_marketing"],
   Commission: ["admin", "ceo", "coo", "cco", "hr_admin"],
   "Ads Fund": ["admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],

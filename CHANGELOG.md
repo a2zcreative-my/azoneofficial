@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.43.0] — 2026-08-24 — the ELFIA Traffic map
+
+**CEO, with the Operations map on screen: "for ELFIA, I want to have a traffic to see which user that visit my pages which is you need to create a new map like Operations map — but you need to create a new tabs for ELFIA traffic."**
+
+A new **ELFIA Traffic** tab draws the store's visitors on the same real-geography Malaysia map as Operations — where people browse from, what they look at, and how visits turn into orders. Built with the privacy decision recorded as **OD-20a**: *"which user" is answered with WHERE and HOW MANY, never WHO.*
+
+### What the tab shows
+
+- **State map** — page views per state as fill intensity + count bubbles, the exact geometry the ops map uses (extracted verbatim into `lib/malaysia-map.ts`, now shared; the TikTok map's behaviour is untouched). Foreign visits sit in an "Outside Malaysia" line under the map.
+- **Today / 7 days / 30 days** ranges; page views, visitors (daily uniques — the store's hash rotates its key daily, so no cross-day figure exists *by construction*), and the poller's last-pull time.
+- **Tap a state** → its top cities, top pages, and a visits-vs-orders conversion line computed by running the ELFIA web orders' addresses through the shared city→state mapper — the closest honest "conversion" that exists without tracking anybody.
+
+### How the numbers arrive (bridge feed D)
+
+- The store (its v1.2.0) counts visits with a beacon — no cookies, no stored IPs, daily-rotating visitor hashes that never leave the store, raw hits deleted after 60 days (OD-22) — and serves per-day `(state, city, page)` aggregates at `GET /bridge/traffic`, same shared key and constant-time check as the orders feed.
+- The portal's **`pollElfiaTraffic`** rides the same 5-minute cron as web orders (money first, map second; a traffic failure is logged, never belled, and can never block an order pull). Cursor discipline per PORTAL-BRIDGE-SPEC.md § D: each received day is **replaced whole** in one D1 batch, and the cursor advances only to what the store declares final — the running day keeps refreshing until it is.
+- No new secret: the traffic URL is derived from `ELFIA_ORDERS_URL` (`/orders` → `/traffic`), so both feeds always point at the same store.
+
+### Registry discipline (the part v1.40.1 made mechanical)
+
+- Migration **`0084_elfia_traffic.sql`** (`web_traffic_daily`; zero ALTERs, replayable) + `LATEST_MIGRATION` + `EXPECTED_MIGRATIONS` + a `/system/health` probe — the triple bump, guard-enforced.
+- "ELFIA Traffic" registered in `ALL_TABS`, worker `TAB_ACCESS_TABS`, the tab-access card, `nav-icons` (Map — unused on every rail), and i18n ("Trafik ELFIA") — `tests/registry-parity.mjs` fails the build if any of the five drift.
+- Routes `/staff/web-traffic` + `/staff/web-traffic/detail` gated `revenue_view`, armored pre-0084 (`pending_migration` instead of a 500).
+
 ## [1.42.0] — 2026-08-23 — tasks with a scope, an acknowledgement, and an alarm clock
 
 **CEO: "I need to make the task scope followed clearly by the staff and I want to have a proper implementation to make sure that everyone is alert on their task and the task being track properly to ensure that it is followed and monitor closely."**

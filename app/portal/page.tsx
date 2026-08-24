@@ -118,6 +118,7 @@ import { CommandPalette } from "@/components/layout/command-palette";
 import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
 import { WebOrdersPanel } from "@/components/portal/web-orders-panel"; // v1.37.0
+import { ElfiaTrafficPanel } from "@/components/portal/elfia-traffic-panel"; // v1.43.0
 import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -10793,6 +10794,7 @@ const ALL_TABS = [
   "Ecommerce",
   "Inventory",
   "Web Orders",
+  "ELFIA Traffic",
   "Sales",
   "Announcements",
   "HR",
@@ -10881,6 +10883,18 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
     /* v1.37.0: ELFIA web orders — the sales/inventory tier plus executives.
      Mirrors the /staff/web-orders permission check (sales|inventory|exec). */
     "Web Orders": [
+      "super_admin",
+      "admin",
+      "ceo",
+      "coo",
+      "cco",
+      "hr_admin",
+      "sales_marketing",
+      "marketing",
+    ],
+    /* v1.43.0: the store's anonymous visitor map — mirrors the worker's
+     revenue_view tier on /staff/web-traffic. */
+    "ELFIA Traffic": [
       "super_admin",
       "admin",
       "ceo",
@@ -12235,6 +12249,9 @@ export default function PortalPage() {
           )}
           {activeTab === "Web Orders" && (
             <WebOrdersPanel />
+          )}
+          {activeTab === "ELFIA Traffic" && (
+            <ElfiaTrafficPanel />
           )}
           {activeTab === "Ecommerce" && (
             <div className="space-y-3 md:space-y-6">

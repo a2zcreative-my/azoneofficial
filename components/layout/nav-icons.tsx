@@ -24,7 +24,7 @@
 import {
   Banknote, Cake, CalendarClock, Clapperboard, ClipboardList, FileText,
   Globe, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks,
-  LogOut, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
+  LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
   ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet,
@@ -47,6 +47,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Expenses: TrendingDown,
   Sales: FileText,
   "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule); ShoppingBag would have duplicated Purchasing on the SAME rail.
+  "ELFIA Traffic": Map, // v1.43.0: the visitor map tab — Map is unused on every rail, and the tab IS a map.
   Inventory: Package,
   Stokis: Store,
   Ecommerce: ShoppingCart,

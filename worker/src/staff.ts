@@ -3341,7 +3341,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Web Orders", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
+  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Web Orders", "ELFIA Traffic", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {
@@ -6058,6 +6058,65 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     await pollElfiaOrders(env);
     await audit(env, user.id, "bridge.manual_sync");
     return json({ ok: true });
+  }
+  /* ================= v1.43.0 — ELFIA Traffic (bridge feed D) =================
+     Anonymous store-visitor aggregates for the ELFIA Traffic tab's Malaysia
+     map. Everything here is ALREADY aggregated by the store (OD-20a: no IPs,
+     no per-person rows ever existed upstream) — these routes only slice
+     web_traffic_daily. revenue_view, like /orders/geo (the ops-map twin). */
+  if (path === "/web-traffic" && method === "GET") {
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const url = new URL(request.url);
+    const daysQ = Number(url.searchParams.get("days"));
+    const span = daysQ === 1 || daysQ === 30 ? daysQ : 7;
+    const from = new Date(Date.now() + 8 * 3600 * 1000 - (span - 1) * 86400_000).toISOString().slice(0, 10);
+    try {
+      /* Whole-day total rows (state = ''): visits + the day's TRUE unique
+         count. Summing these `visitors` across days counts daily uniques —
+         the hash rotates daily, so no cross-day figure exists BY DESIGN. */
+      const { results: days } = await env.DB.prepare(
+        `SELECT day, visits, visitors FROM web_traffic_daily
+         WHERE state = '' AND day >= ?1 ORDER BY day`,
+      ).bind(from).all<{ day: string; visits: number; visitors: number }>();
+      /* Per-state totals for the map (state != '' excludes day-total rows). */
+      const { results: states } = await env.DB.prepare(
+        `SELECT state, SUM(visits) AS visits, SUM(visitors) AS visitors
+         FROM web_traffic_daily WHERE state != '' AND day >= ?1
+         GROUP BY state ORDER BY visits DESC`,
+      ).bind(from).all<{ state: string; visits: number; visitors: number }>();
+      let lastPoll: string | null = null;
+      try {
+        lastPoll = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_traffic_last_poll'`)
+          .first<{ value: string }>())?.value ?? null;
+      } catch { /* pre-0057 */ }
+      return json({ days, states, span, from, last_poll_at: lastPoll });
+    } catch {
+      return json({ days: [], states: [], span, from, last_poll_at: null, pending_migration: true });
+    }
+  }
+  if (path === "/web-traffic/detail" && method === "GET") {
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    const url = new URL(request.url);
+    const state = (url.searchParams.get("state") ?? "").slice(0, 40);
+    if (!state) return err("invalid_input", "state is required", 400);
+    const daysQ = Number(url.searchParams.get("days"));
+    const span = daysQ === 1 || daysQ === 30 ? daysQ : 7;
+    const from = new Date(Date.now() + 8 * 3600 * 1000 - (span - 1) * 86400_000).toISOString().slice(0, 10);
+    try {
+      const { results: cities } = await env.DB.prepare(
+        `SELECT city, SUM(visits) AS visits FROM web_traffic_daily
+         WHERE state = ?1 AND day >= ?2 AND city != ''
+         GROUP BY city ORDER BY visits DESC LIMIT 12`,
+      ).bind(state, from).all<{ city: string; visits: number }>();
+      const { results: paths } = await env.DB.prepare(
+        `SELECT path, SUM(visits) AS visits FROM web_traffic_daily
+         WHERE state = ?1 AND day >= ?2 AND path != ''
+         GROUP BY path ORDER BY visits DESC LIMIT 12`,
+      ).bind(state, from).all<{ path: string; visits: number }>();
+      return json({ state, span, cities, paths });
+    } catch {
+      return json({ state, span, cities: [], paths: [], pending_migration: true });
+    }
   }
   /* v1.38.0: the daily reconciliation report — for each published SKU, the
      day's movements by source from the append-only ledger, against the

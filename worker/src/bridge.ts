@@ -434,6 +434,98 @@ async function upsertWebOrder(env: Env, o: NonNullable<ReturnType<typeof parseWe
   }
 }
 
+/* ==================== feed D — traffic (portal ← store) ==================== */
+
+/* v1.43.0 (CEO: "a traffic to see which user that visit my pages … a new map
+   like Operations map … a new tab for ELFIA traffic"). The store counts its
+   visitors ANONYMOUSLY (OD-20a: aggregates only — no IPs, daily-rotating
+   hashes that never leave the store, 60-day raw retention) and this poller
+   pulls the per-day state/city/page aggregates into web_traffic_daily.
+
+   Cursor discipline (PORTAL-BRIDGE-SPEC.md § D): `since` is the newest FINAL
+   day we hold; the store answers with every later day, today included as a
+   RUNNING total. Each received day is therefore REPLACED whole (delete +
+   insert in one batch), never added to, and the cursor advances only to the
+   feed's `final_through` — so today keeps refreshing until it is final. */
+
+const TRAFFIC_CURSOR_KEY = "elfia_traffic_cursor";
+
+const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+export async function pollElfiaTraffic(env: Env): Promise<void> {
+  if (!env.ELFIA_BRIDGE_KEY || !env.ELFIA_ORDERS_URL) return; // not configured — silent, like the orders poller
+  /* Derived, not a second secret: the store serves both feeds side by side
+     (…/bridge/orders and …/bridge/traffic), so one URL configures both and
+     the two can never point at different stores. */
+  const trafficUrl = env.ELFIA_ORDERS_URL.replace(/\/orders(\?|$)/, "/traffic$1");
+  if (trafficUrl === env.ELFIA_ORDERS_URL) {
+    await logError(env, "elfia_traffic_poll", `ELFIA_ORDERS_URL does not end in /orders — cannot derive the traffic feed URL`);
+    return;
+  }
+  try {
+    let cursor = await metaGet(env, TRAFFIC_CURSOR_KEY);
+    /* First run: seed to the Malaysian yesterday. Unlike orders (OD-16a,
+       money), pulling traffic history would be harmless — but the store only
+       starts counting when its own v1.2.0 deploys, so there is no history to
+       want, and seeding keeps the two pollers' first-run shape identical. */
+    if (cursor === null) {
+      cursor = new Date(Date.now() + 8 * 3600 * 1000 - 86_400_000).toISOString().slice(0, 10);
+      await metaSet(env, TRAFFIC_CURSOR_KEY, cursor);
+    }
+
+    const sep = trafficUrl.includes("?") ? "&" : "?";
+    const res = await fetch(`${trafficUrl}${sep}since=${encodeURIComponent(cursor)}`, {
+      headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`traffic feed answered ${res.status}`);
+    const data = (await res.json()) as { days?: unknown[]; final_through?: string };
+
+    /* Group the validated rows by day; malformed rows are dropped silently —
+       a lost page view is a shrug, not a lost sale. */
+    const byDay = new Map<string, { state: string; city: string; path: string; visits: number; visitors: number }[]>();
+    for (const raw of Array.isArray(data.days) ? data.days.slice(0, 2000) : []) {
+      const r = raw as Record<string, unknown>;
+      if (!isDay(r.day) || typeof r.state !== "string") continue;
+      const visits = Number(r.visits), visitors = Number(r.visitors);
+      if (!Number.isInteger(visits) || visits < 0 || !Number.isInteger(visitors) || visitors < 0) continue;
+      const rows = byDay.get(r.day) ?? [];
+      rows.push({
+        state: r.state.slice(0, 40),
+        city: typeof r.city === "string" ? r.city.slice(0, 60) : "",
+        path: typeof r.path === "string" ? r.path.slice(0, 120) : "",
+        visits, visitors,
+      });
+      byDay.set(r.day, rows);
+    }
+
+    for (const [day, rows] of byDay) {
+      /* One batch = one transaction per day: a reader mid-poll sees the old
+         day or the new day, never a half-replaced one. OR REPLACE armors
+         against a duplicate key inside one payload. */
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM web_traffic_daily WHERE day = ?1`).bind(day),
+        ...rows.map((r) => env.DB.prepare(
+          `INSERT OR REPLACE INTO web_traffic_daily (day, state, city, path, visits, visitors)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        ).bind(day, r.state, r.city, r.path, r.visits, r.visitors)),
+      ]);
+    }
+
+    /* Advance only forward, only to what the store declares final — a feed
+       hiccup that answers an old final_through must not rewind the cursor
+       into re-fetching weeks of settled days. */
+    if (isDay(data.final_through) && data.final_through > cursor) {
+      await metaSet(env, TRAFFIC_CURSOR_KEY, data.final_through);
+    }
+    await metaSet(env, "elfia_traffic_last_poll", new Date().toISOString().slice(0, 19).replace("T", " "));
+  } catch (e) {
+    /* Logged, never belled: traffic is a map, not money — the orders poller
+       already owns the "store unreachable" alert for the shared outage. */
+    await logError(env, "elfia_traffic_poll", e instanceof Error ? e.message : String(e));
+  }
+}
+
 /* ==================== housekeeping (runs on the 30-min cron) ==================== */
 
 export async function bridgeHousekeeping(env: Env): Promise<void> {

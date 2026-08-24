@@ -6,7 +6,8 @@ import { handleStaff, notify, type StaffUser } from "./staff";
 // bridge-feed guard imports the shipped code, never a copy.
 import { serializeBridgeItems, type BridgeRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
-import { handleElfiaMovements, pollElfiaOrders, bridgeHousekeeping, bridgeHealth } from "./bridge";
+// v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
+import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
 
 /**
  * A2Z CREATIVE MARKETING — Admin/API Worker (Phase 3, v0)
@@ -248,7 +249,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0083_task_tracking";
+const LATEST_MIGRATION = "0084_elfia_traffic";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1177,6 +1178,10 @@ export default {
     // the 30-min work below.
     if (event.cron === "*/5 * * * *") {
       await pollElfiaOrders(env);
+      // v1.43.0: traffic aggregates ride the same tick, after orders — money
+      // first, map second; pollElfiaTraffic catches everything it throws, so
+      // a traffic failure can never mark the orders pull as failed.
+      await pollElfiaTraffic(env);
       return;
     }
     if (event.cron === "20 19 * * *") {
@@ -2917,6 +2922,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0079-0080 (SKU match key)", `SELECT sku_key FROM inventory_items LIMIT 1`],
       ["0081 (web orders)", `SELECT id FROM web_orders LIMIT 1`],
       ["0083 (task scope + tracking)", `SELECT id FROM task_items LIMIT 1`],
+      ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3014,6 +3020,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0081_web_orders",
       "0082_fix_po_direction",
       "0083_task_tracking",
+      "0084_elfia_traffic",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

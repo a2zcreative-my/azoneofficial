@@ -3,6 +3,14 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.43.0 — `0084_elfia_traffic.sql`
+
+`web_traffic_daily` — the portal's copy of the ELFIA store's ANONYMOUS per-day visitor aggregates (bridge feed D; decision OD-20a: no IPs, no visitor hashes, no per-person rows ever existed upstream). Grain `(day, state, city, path)`; the `state=''` row is the whole-day total whose `visitors` is the day's true unique count. Days at or before the feed's `final_through` are final; the running day is replaced whole on every 5-minute poll. Zero ALTERs — `IF NOT EXISTS`, fully replayable (audit B4 rule).
+
+| Date | Version | Change |
+| --- | --- | --- |
+| 2026-08-24 | 1.43.0 | `web_traffic_daily`. |
+
 ## v1.42.0 — `0083_task_tracking.sql`
 
 `task_items` — a task's scope, itemised and tickable; `tasks.progress` becomes derived (done/total) for any task that has items. `task_events` — the tracking trail: `'ack'` (the assignee's timestamped "seen and understood"), `'status:<v>'`, `'scope_done'`, and the daily-alert dedupe rows (`'ack_nudge'` / `'due_reminder'` / `'overdue_alert'`, keyed by `on_date`). Zero ALTERs — fully replayable (audit B4 rule).

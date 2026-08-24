@@ -6,7 +6,7 @@
 **Portal version at time of writing:** v1.34.0 · 74 migrations (latest `0074_customer_brand`)
 **Counterpart system:** ELFIA OFFICIAL STORE (`elfiaofficialstore.my`) — Next.js + Worker `elfia-api` + D1 `elfia-store` + R2 `elfia-media`
 **Created:** 22 August 2026
-**Last revised:** 23 August 2026 · rev 0.8 (see [Revision log](#revision-log))
+**Last revised:** 24 August 2026 · rev 1.0 (see [Revision log](#revision-log))
 
 ---
 
@@ -926,6 +926,57 @@ Probe set updated for 0075+ (**the ⛔ migrations-pending banner cannot fire tod
 
 ---
 
+## 6B. Track T — ELFIA visitor traffic (feed D + the ELFIA Traffic tab)
+
+**CEO (23-08-2026):** *"for ELFIA, I want to have a traffic to see which user that visit my pages which is you need to create a new map like Operations map — orders by state but you need to create a new tabs for ELFIA traffic."*
+
+**Status: ☑ BUILT — approved 24-08-2026 ("proceed with your recommendations" → OD-20a, OD-21b, OD-22 60 days, OD-23 store-first). Store side shipped as store v1.2.0; portal side as portal v1.43.0. Deviations from the plan text, recorded: the rollup runs on the store's existing 5-minute cron (not nightly — the running day stays ≤5 min stale); the portal poller derives the feed-D URL from `ELFIA_ORDERS_URL` (`/orders`→`/traffic`) instead of a second secret; routes take `?days=1|7|30` instead of `from/to`; the beacon body carries `{p, r}` (path + referrer-host, external hosts only); the shared map is `lib/malaysia-map.ts` (pure data + helpers) rather than a shared React component — each card keeps its own rendering, the ops map's behaviour byte-for-byte. Traffic-poll failures are logged, not belled (the orders poller owns the shared-outage alert).**
+
+### T-0 · What exists, what doesn't, and the shape of the answer
+
+Nobody collects visitor data today. The storefront is a **static site on Cloudflare Pages** — a page view never touches a Worker, so there is nothing to read after the fact. Traffic therefore needs three new pieces, in this order: a **collector on the store** (a tiny beacon — the visitor's browser tells the store's own Worker "a page was viewed"), a **new bridge feed D** (the portal pulls daily aggregates, same `X-Bridge-Key`, same pull-don't-push posture as feeds A–C), and the **ELFIA Traffic tab** on the portal reusing the existing Malaysia map (`components/portal/ops-map.tsx` already carries the state shapes and a city→state mapper — the map is extracted into a shared component, not duplicated).
+
+Geography comes free and first-party: every request through a Cloudflare Worker carries `request.cf.region` / `city` / `country` — no third-party analytics script, no cookies required, no data leaving your own infrastructure.
+
+**The honest privacy line (this is the part to read).** "Which user visits my pages" has two readings. What this track builds is **anonymous visitor analytics**: page views, approximate location (state/city from IP), and a distinct-visitor estimate from a **daily-rotating salted hash** — the same visitor counts once per day, and the hash cannot be reversed to an identity or tracked across days. What it deliberately does **not** build is per-person browsing history: tying page views to a named customer (even a signed-in one) is PDPA-sensitive surveillance of customers and needs its own decision (OD-20) — the recommendation is no. The map answers "how many people, from where, looking at what" — which is what a traffic map is for.
+
+**Known accuracy limits, stated up front:** IP geolocation is approximate — Malaysian mobile carriers route many users through KL/Selangor gateways, so those two states will read somewhat high; VPN users land wherever their VPN is. Good for patterns and trends, not for courtroom precision. Bots are filtered heuristically (UA + missing-JS signals) but never perfectly.
+
+### T-1 · Store side (the `elfiaofficialstore` repo — its own conventions, tests and deploy)
+
+| # | Item | Shape |
+|---|---|---|
+| S1 | **Beacon endpoint** `POST /api/v1/t` on the `elfia-api` Worker | Body: `{ p: path }` only. The Worker adds what the browser must not be trusted to say: `cf.region`/`city`/`country`, day (MYT), and `visitor = HMAC(daily_salt, ip + ua)` — salt rotates at midnight, so no cross-day tracking is possible even by us. Bots dropped by UA heuristic. Rate-limited per IP. Writes one row to `traffic_hits`; a nightly job rolls hits into `traffic_daily (day, state, city, path, views, visitors)` and prunes raw hits per OD-22. Non-MY countries roll up to one "Overseas" bucket. |
+| S2 | **Storefront snippet** | `navigator.sendBeacon` on page load + client-side navigation, a dozen lines inline in the layout — no external script, no cookie, no consent-banner trigger (nothing identifying is stored client-side). Fails silent: analytics must never break shopping. |
+| S3 | **Bridge feed D** `GET /api/v1/bridge/traffic?since=<day>` | Same `X-Bridge-Key`, same 401/501 posture. Returns `traffic_daily` rows for days ≥ since (yesterday and earlier are final; today is a running number re-sent on every pull), plus per-day totals. Cursor = day, so the portal's upsert is idempotent — the same replay-safety discipline as feed C. Spec addendum written into `PORTAL-BRIDGE-SPEC.md` so the contract stays one document. |
+
+### T-2 · Portal side (this repo)
+
+| # | Item | Shape |
+|---|---|---|
+| P1 | Migration `0084_elfia_traffic.sql` | One table, zero ALTERs, fully replayable: `web_traffic_daily (day, state, city, path, views, visitors)` with upsert key `(day, state, city, path)` + indexes. Probe registered (registry-parity enforces). |
+| P2 | Poller extension | The existing 5-minute tick also pulls feed D (cheap — aggregates, ≤ a few hundred rows/day), cursor in `system_meta.elfia_traffic_cursor`, seeded to the deploy day (no fake backfill), same stuck-cursor + failure-alert discipline as feed C. Never touches any other table. |
+| P3 | Routes | `GET /staff/web-traffic?from=&to=` → totals + by-state; `GET /staff/web-traffic/detail?state=&from=&to=` → top cities + top pages for one state. Permission: the Ecommerce tier (`revenue_view`). Armored pre-0084. |
+| P4 | **ELFIA Traffic tab** | The Malaysia map extracted from `ops-map.tsx` into a shared `MyStatesMap` component (TikTok ops map keeps its behaviour byte-for-byte — the Playwright ops suite is the proof). New `elfia-traffic-panel.tsx`: state bubbles = visits, side panel = totals / top states / tap-a-state → its cities and top pages, range chips **Today · 7 days · 30 days**. Plus the row the ops map cannot have: **visits vs web orders per state** (orders' states parsed from feed C addresses with the same city→state mapper) → a simple conversion read: "Johor: 1,204 visits → 31 orders (2.6%)". |
+| P5 | Registries | "ELFIA Traffic" into `ALL_TABS`, `TAB_ACCESS_TABS`, the override card, the icon map, the i18n DICT ("Trafik ELFIA") — one commit, because `registry-parity` fails the build on any one of them missing. Guard additions: beacon-payload validator test (store side), upsert-idempotency + skew tests (portal side). |
+
+### T-3 · Releases & order
+
+1. **Store v1.2.0** — S1 + S2 + S3, tested with the store's own harnesses, deployed first (the feed exists before anything polls it).
+2. **Portal v1.43.0** — P1–P5. Feed D absent → the tab says "waiting for the store update", never errors.
+3. Acceptance: visit the store from a phone on mobile data → within one poll the visit appears on the map in the right state (or the documented KL-gateway case); a store page reload storm from one device counts 1 visitor / N views; a curl with a bot UA counts nothing; portal replay of the same day's pull changes no numbers.
+
+### T-4 · Decisions needed before build
+
+| # | Decision | Options | Recommendation |
+|---|---|---|---|
+| **OD-20** | Identify signed-in customers in traffic? | (a) No — anonymous aggregates only. (b) Link views to customer accounts. | **DECIDED 24-08-2026: (a).** (b) is per-person surveillance of customers — PDPA-sensitive, needs disclosure in the store's privacy policy, and the map gains nothing from it. Revisit only with a concrete use case. |
+| **OD-21** | Bot filtering strictness | (a) UA heuristic only. (b) + require JS beacon (static crawlers never count). | **DECIDED 24-08-2026: (b)** — it is free, since the beacon IS JavaScript. |
+| **OD-22** | Raw hit retention (store D1) | 30 / 60 / 90 days (aggregates kept forever). | **DECIDED 24-08-2026: 60 days** — enough to re-aggregate after a bug, small enough for D1. |
+| **OD-23** | Build order confirmation | This track writes code in the **store repo** too — its DEPLOY.bat, no-secrets test and version scheme apply there. | **DECIDED 24-08-2026: store-first, both repos in one cycle.** |
+
+---
+
 ## 7. Track C — CRM (P1)
 
 **Goal:** stop treating `customers` as an address book. Know who a client is, what they have bought, what was said last, and what is due next — including the web buyers arriving from ELFIA.
@@ -1283,6 +1334,8 @@ Newest first. One line per change; say what changed and why, not just that somet
 
 | Date | Rev | Change | By |
 |---|---|---|---|
+| 2026-08-24 | 1.0 | **Track T BUILT** — store v1.2.0 (`0011_traffic.sql`, `traffic.ts` beacon `POST /api/v1/t` with daily-rotating HMAC visitor hash + bot filter + rate limit, 5-min rollup + 60-day prune, feed D `GET /api/v1/bridge/traffic`, layout sendBeacon snippet, spec § D addendum; also fixed: the real D1 `database_id` UUID tripped `no-secrets` and would have blocked every DEPLOY.bat run — whitelisted as an identifier, not a credential) + portal v1.43.0 (`0084_elfia_traffic`, `pollElfiaTraffic` on the 5-min cron with replace-whole-day batches + final_through cursor, `/staff/web-traffic[/detail]` gated `revenue_view`, map geometry extracted verbatim to `lib/malaysia-map.ts`, `elfia-traffic-panel.tsx` with Today/7d/30d + per-state cities/pages/conversion, "ELFIA Traffic" through all five registries, triple-bump 0084). OD-20a/21b/22(60d)/23(store-first) decided. | Claude |
+| 2026-08-23 | 0.9 | **Track T planned — ELFIA visitor traffic** (CEO request): store-side beacon (`POST /api/v1/t`, Cloudflare `request.cf` geo, daily-rotating anonymous visitor hash), new bridge **feed D** (daily aggregates, pull + cursor, spec addendum), portal migration `0084_elfia_traffic`, poller extension, and an **ELFIA Traffic** tab reusing the ops-map Malaysia shapes via a shared component — with a visits-vs-orders conversion line per state. Privacy stance: anonymous aggregates, NO per-person browsing history (OD-20 recommends against). Awaiting CEO approval + OD-20…OD-23. No code yet. | Claude |
 | 2026-08-23 | 0.8 | **v1.41.1–v1.42.0** shipped on CEO requests: salesperson dropdown shows full names; the doc-form preview total now mirrors the Worker (line discounts were silently omitted client-side since v1.4.243 — caught by the CEO, guarded by a new tripwire); **Tasks v2** (`0083_task_tracking`): itemised tickable scope with derived progress, an Acknowledge step, daily overdue/due-soon/unacknowledged sweeps on the cron (deduped via task_events), status-change cross-notifications, and Overdue/Not-acknowledged tiles on the company card. This delivers a slice of Track B/G ambitions early because the CEO asked for task discipline now. | Claude |
 | 2026-08-22 | 0.7 | **v1.41.0 — catalogue-priced product lines** (CEO request, brings Track C-3's document discipline forward): product QT/DO/INV lines are picked from Inventory (SKU required, list price auto-filled and locked; reductions live in the visible Disc fields); the Worker re-resolves SKU→price on create AND edit so the browser can never invoice below list; services stay free-text; legacy no-SKU documents still edit. This also makes invoice stock deduction SKU-matched for all new documents. | Claude |
 | 2026-08-22 | 0.6 | **Track Q built** (v1.39.0–v1.40.1): every audit blocker and major closed. Migrations restructured to `0075_bridge_enabled`…`0082_fix_po_direction` (one non-idempotent statement per file — B4). Movements handler rebuilt: one transaction per movement, atomic stock expression, pending-aware idempotency (B1/M1); cash booking fixed and atomically claimed, refunds flagged for humans, cursor seeded, stuck-cursor abort, reason free-text, JS-computed sku_key with expression fallback, discontinued preserved, 503 on skew (B2, M2–M10). Signatures document-scoped per OD-15(a) (B3). Tabs: Web Orders registered in all five registries, Sales-override blank fixed, CEO task-report 403 fixed (M11–M15). Release: probes complete, deploy-api.sh asserts the live version and refuses non-prod publishes, DEPLOY.bat name-gated, bm-coverage derived from ALL_TABS, **guard #13 registry-parity** (which caught its own first draft passing vacuously), Node pinned (M16–M19, B5). 13 guards + typecheck green. OD-15…OD-19 decided per recommendation. | Claude |
