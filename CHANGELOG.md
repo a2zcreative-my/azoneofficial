@@ -2,6 +2,51 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.45.0] — 2026-08-25 — the ELFIA tab: photo, description, product — from the portal
+
+The CEO, from the ELFIA store chat: "the portal not supposed at Elfia!! it is
+a2zcreative.my/portal here, should create a new tabs for ELFIA on the
+inventory which is sync inventory tabs and photo upload and description and
+product!" The portal is where the catalogue is RUN — so it now has a
+dedicated **ELFIA Store** tab, and feed A carries a product's whole dressing.
+
+- **The tab** (`components/portal/elfia-store-panel.tsx`, Shirt icon, same
+  access tier as Inventory — its routes ARE the inventory routes): per item,
+  publish + web price (the existing /bridge route), collection (Bawal/Shawl),
+  description, and the product photo — uploaded HERE once, compressed
+  client-side, instead of a second time in ELFIA's /admin. Health strip on
+  top; published-first ordering; and a plain-words note that a NEW SKU lands
+  in the store hidden, waiting in its admin under "From portal" — the tab
+  never pretends the shop updates unreviewed. Registered everywhere the
+  registry-parity guard checks (ALL_TABS, TAB_ROLES, TAB_ACCESS_TABS,
+  tab-access card, nav-icons, i18n).
+- **0086_elfia_product_fields** — elfia_category / elfia_description /
+  elfia_image_key / elfia_image_updated_at on inventory_items, all NULL by
+  default: an undressed item behaves exactly as before.
+- **PATCH /staff/inventory/:id/elfia** (category | description |
+  remove_photo, audited) and **POST /staff/inventory/:id/elfia/photo**
+  (binary; JPEG/PNG/WEBP; the store's own 5 MB cap mirrored so a photo that
+  saves here can never be refused over there; key under uploads/elfia/, the
+  ONE public media prefix — the store's Worker must copy it with no session).
+- **Feed A** gains category, description, image_url (absolute, built on the
+  request's own origin — no domain in a committed file) and image_updated_at
+  (the store re-downloads only on change, so the 5-minute cron repeats it for
+  free). Serializer rules: absent when empty/invalid ("absent = the store
+  keeps what it has"), unknown categories omitted rather than forwarded to be
+  refused, image_url only ever WITH its marker; skew chain 0086 → 0075 → the
+  LIKE fallback.
+- Verified: bridge-feed-guard 10→14 checks; scratch/elfia-bridge-e2e.mjs —
+  21 assertions on the real worker (real D1/R2/CSRF; the photo is genuinely
+  public and byte-identical; a re-upload moves the marker; a cleared
+  description leaves the feed). And the full circle with the real ELFIA store
+  worker (its scratch/portal-live-e2e.mjs, 22 assertions twice over): the
+  portal-only shawl arrives there hidden with photo/description/collection, a
+  portal edit flows across, and an ELFIA sale walks back into this portal's
+  stock ledger. All standing guards green; root tsc clean.
+- Deploy: DEPLOY.bat as usual — 0086 must reach the database before the new
+  fields can save (the tab says so itself when it is missing). Either deploy
+  order is safe against the store: every new field is optional on both sides.
+
 ## [1.44.0] — 2026-08-24 — marketing the PDPA way, and an honest accuracy check
 
 **CEO: "track their location accuracy … trace which customer are recorded … for marketing purposes and to ensure that all this cover by PDPA requirement." Decided (OD-24): marketing reaches ORDER customers who CONSENTED — never anonymous visitors, never per-person browsing (OD-20a stands).**

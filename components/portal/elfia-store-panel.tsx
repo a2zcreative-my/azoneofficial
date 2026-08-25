@@ -1,0 +1,353 @@
+"use client";
+
+/* v1.45.0 — 🛍 the ELFIA tab (CEO, 25-08-2026: "on portal I want an option
+   for me to upload the photo and also to bridge directly to ELFIA … should
+   create a new tab for ELFIA on the inventory which is sync inventory, photo
+   upload, description and product").
+
+   One place to run the ELFIA web store's catalogue from the portal:
+
+   - the bridge's pulse (same /inventory/bridge-health the Inventory tab
+     reads — is the store connected, when did it last report a sale);
+   - every inventory item with its FULL ELFIA dressing: published or not,
+     web price, collection (bawal/shawl), description, and the product
+     photo — uploaded HERE once, not a second time in ELFIA's /admin.
+
+   Where each fact lands, so this panel never lies about what a save means:
+   - publish + web price → PATCH /inventory/:id/bridge   (v1.35.0, unchanged)
+   - collection + description → PATCH /inventory/:id/elfia        (v1.45.0)
+   - photo → POST /inventory/:id/elfia/photo (binary)             (v1.45.0)
+   All of it travels on feed A within 5 minutes. A SKU ELFIA has never seen
+   is CREATED there from this data — hidden, waiting in the store's
+   /admin → Products → From portal until the CEO presses Publish THERE.
+   This panel says so instead of implying the shop updates instantly.
+
+   House rules kept: checkbox saves at once, text saves on blur, every
+   mutation through api()/csrfFetch (CSRF), every string L()-bilingual,
+   photos compressed client-side before upload (free-tier R2). */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { makeApi, csrfFetch } from "@/lib/api";
+import { useSaveToast } from "@/components/ui/save-toast";
+import { compressImage } from "@/lib/compress-image";
+import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
+import { rm as rmBare } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
+
+const api = makeApi("/staff");
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+interface ElfiaItem {
+  id: number;
+  sku: string;
+  name: string;
+  stock: number;
+  status: string;
+  unit_price_cents?: number | null;
+  bridge_enabled?: number | null;
+  elfia_price_cents?: number | null;
+  /* v1.45.0 (0086) */
+  elfia_category?: string | null;
+  elfia_description?: string | null;
+  elfia_image_key?: string | null;
+  elfia_image_updated_at?: string | null;
+}
+
+interface BridgeHealth {
+  key_configured: boolean;
+  last_event_at?: string | null;
+  last_poll_at?: string | null;
+  applied_24h: number;
+  unknown_24h: number;
+  unknown: { sku: string; n: number; last_at: string }[];
+  pending_migration?: boolean;
+  unavailable?: boolean;
+}
+
+/** The photo as the media route serves it. Key lives under uploads/elfia/ —
+    the public prefix — so this same URL is what the feed hands the store. */
+const photoUrl = (key: string) => `/api/v1/media/file/${key}`;
+
+export function ElfiaStorePanel() {
+  const [items, setItems] = useState<ElfiaItem[]>([]);
+  const [health, setHealth] = useState<BridgeHealth | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busyPhoto, setBusyPhoto] = useState<number | null>(null);
+  const [openDesc, setOpenDesc] = useState<Record<number, boolean>>({});
+  const { show: toast, node: toastNode } = useSaveToast();
+  const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  const load = useCallback(async () => {
+    const [i, bh] = await Promise.all([
+      api<{ items: ElfiaItem[] }>(`/inventory`),
+      api<BridgeHealth>(`/inventory/bridge-health`),
+    ]);
+    if (i.data?.items) {
+      setItems(i.data.items.map((x) => ({
+        ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, status: x.status ?? "",
+      })));
+    }
+    /* Same rule as the Inventory tab (v1.38.1): only a real payload counts
+       as health — an error body must not read as "key not set". */
+    setHealth(
+      bh.ok && bh.data && typeof (bh.data as BridgeHealth).key_configured === "boolean"
+        ? (bh.data as BridgeHealth)
+        : { unavailable: true, key_configured: false, applied_24h: 0, unknown_24h: 0, unknown: [] },
+    );
+    setLoaded(true);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  /* Published rows first — they are the shop — then A→Z by SKU. */
+  const sorted = [...items].sort((a, b) =>
+    ((b.bridge_enabled ?? 0) - (a.bridge_enabled ?? 0)) ||
+    a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+  const published = items.filter((x) => (x.bridge_enabled ?? 0) === 1);
+  const missingPhoto = published.filter((x) => !x.elfia_image_key);
+  const migrationPending = loaded && items.length > 0 && items.every((x) => x.elfia_image_key === undefined);
+
+  const setBridge = async (it: ElfiaItem, patch: Record<string, unknown>, saved: string) => {
+    const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/bridge`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    });
+    if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+    toast(L("Saved", "Disimpan"), saved);
+    void load();
+  };
+
+  const setElfia = async (it: ElfiaItem, patch: Record<string, unknown>, saved: string) => {
+    const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/elfia`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    });
+    if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+    toast(L("Saved", "Disimpan"), saved);
+    void load();
+  };
+
+  const uploadPhoto = async (it: ElfiaItem, file: File) => {
+    setBusyPhoto(it.id);
+    try {
+      /* Compressed like every other upload (free-tier R2) — and the result
+         is JPEG, which the ELFIA store accepts. The 5 MB check the worker
+         runs is the store's own limit, mirrored so a photo that "saved"
+         here can never be refused over there. */
+      const blob = await compressImage(file);
+      const res = await csrfFetch(`/api/v1/staff/inventory/${it.id}/elfia/photo`, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || file.type || "image/jpeg" },
+        body: blob,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        toast(L("Not saved", "Tidak disimpan"), j?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice");
+        return;
+      }
+      toast(L("Photo saved", "Foto disimpan"),
+        `${it.sku} — ${L("the store picks it up within 5 minutes", "kedai akan mengambilnya dalam masa 5 minit")}`);
+      void load();
+    } finally {
+      setBusyPhoto(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4 md:space-y-6">
+      {toastNode}
+
+      {/* ---- the bridge's pulse + what this tab is ---- */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <span className="font-semibold">{L("ELFIA web store", "Kedai web ELFIA")}</span>
+          {health?.unavailable && (
+            <span className="text-muted-foreground">
+              {L("Bridge status unavailable — deploy azoneofficial-api, then reload.",
+                 "Status jambatan tidak tersedia — deploy azoneofficial-api, kemudian muat semula.")}
+            </span>
+          )}
+          {health && !health.unavailable && !health.key_configured && (
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)",
+                 "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
+            </span>
+          )}
+          {health && !health.unavailable && health.key_configured && (
+            <>
+              <span className={chipSuccess}>{L("Connected", "Bersambung")}</span>
+              <span className="text-muted-foreground">
+                {L("Published:", "Diterbitkan:")} {published.length}/{items.length}
+              </span>
+              <span className="text-muted-foreground">
+                {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
+                {health.last_event_at ? health.last_event_at.slice(0, 16) : L("never", "belum ada")}
+              </span>
+            </>
+          )}
+        </div>
+        <p className="text-muted-foreground mt-2 text-xs">
+          {L("Everything on this tab reaches the store on its 5-minute sync: counts, prices, collection, description and photo. A SKU the store has never had is created over there HIDDEN — it waits in the store's admin under “From portal” until it is published there, so nothing goes in front of customers unreviewed.",
+             "Semua pada tab ini sampai ke kedai pada penyegerakan 5 minit: kiraan, harga, koleksi, penerangan dan foto. SKU yang belum ada di kedai akan dicipta di sana secara TERSEMBUNYI — menunggu dalam admin kedai di bawah “From portal” sehingga diterbitkan di sana, jadi tiada apa-apa dipaparkan kepada pelanggan tanpa semakan.")}
+        </p>
+        {migrationPending && (
+          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("Migration 0086 has not reached the database yet — photo, collection and description cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
+               "Migrasi 0086 belum sampai ke pangkalan data — foto, koleksi dan penerangan tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
+          </p>
+        )}
+        {missingPhoto.length > 0 && !migrationPending && (
+          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+            {L("No photo yet:", "Belum ada foto:")}{" "}
+            {missingPhoto.slice(0, 6).map((x) => x.sku).join(", ")}
+            {missingPhoto.length > 6 ? ` +${missingPhoto.length - 6}` : ""} —{" "}
+            {L("published items without a photo show a plain placeholder in the shop.",
+               "barang diterbitkan tanpa foto memaparkan pemegang tempat kosong di kedai.")}
+          </p>
+        )}
+      </div>
+
+      {/* ---- the catalogue ---- */}
+      <div className={card}>
+        <p className="text-sm font-semibold">{L("Products on the ELFIA store", "Produk di kedai ELFIA")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("Tick to publish. Photo, collection and description are what the customer sees on the product page. Prices save on blur; the TikTok live rebate never applies online.",
+             "Tanda untuk terbitkan. Foto, koleksi dan penerangan ialah apa yang pelanggan lihat di halaman produk. Harga disimpan selepas blur; rebat live TikTok tidak sekali-kali terpakai dalam talian.")}
+        </p>
+
+        {loaded && items.length === 0 && (
+          <p className="text-muted-foreground mt-4 text-sm">
+            {L("No inventory items yet — add them on the Inventory tab first.",
+               "Belum ada barang inventori — tambah di tab Inventori dahulu.")}
+          </p>
+        )}
+
+        <div className="mt-3 space-y-2">
+          {sorted.map((it) => {
+            const on = (it.bridge_enabled ?? 0) === 1;
+            const cat = it.elfia_category === "shawl" ? "shawl" : it.elfia_category === "bawal" ? "bawal" : "";
+            return (
+              <div key={it.id}
+                className={`rounded-xl border p-3 transition-colors ${on ? "border-border bg-card" : "border-border/60 bg-secondary/30 opacity-80"}`}>
+                <div className="flex flex-wrap items-start gap-3">
+                  {/* photo — the tap target IS the upload */}
+                  <button type="button"
+                    className="border-border bg-secondary relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border"
+                    title={L("Upload / replace the product photo (JPEG, PNG or WEBP, max 5 MB)",
+                             "Muat naik / ganti foto produk (JPEG, PNG atau WEBP, maks 5 MB)")}
+                    onClick={() => fileRefs.current[it.id]?.click()}>
+                    {it.elfia_image_key ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoUrl(it.elfia_image_key)} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-muted-foreground flex h-full items-center justify-center px-1 text-center text-[10px] leading-tight">
+                        {L("+ photo", "+ foto")}
+                      </span>
+                    )}
+                    {busyPhoto === it.id && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] font-medium text-white">
+                        {L("Uploading…", "Memuat naik…")}
+                      </span>
+                    )}
+                  </button>
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                    ref={(el) => { fileRefs.current[it.id] = el; }}
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadPhoto(it, f); }} />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs">{it.sku}</span>
+                      <span className="text-sm font-medium">{it.name}</span>
+                      {on
+                        ? <span className={chipSuccess}>{L("Published", "Diterbitkan")}</span>
+                        : <span className={chipNeutral}>{L("Not on the store", "Tiada di kedai")}</span>}
+                      {on && !it.elfia_image_key && <span className={chipWarn}>{L("no photo", "tiada foto")}</span>}
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                      <label className="flex items-center gap-1.5">
+                        <input type="checkbox" checked={on}
+                          onChange={(e) => void setBridge(it, { bridge_enabled: e.target.checked },
+                            e.target.checked
+                              ? `${it.sku} ${L("now published to the ELFIA store", "kini diterbitkan ke kedai ELFIA")}`
+                              : `${it.sku} ${L("withdrawn from the ELFIA store", "ditarik daripada kedai ELFIA")}`)} />
+                        {L("Publish", "Terbitkan")}
+                      </label>
+
+                      <label className="flex items-center gap-1.5">
+                        {L("Web price RM", "Harga web RM")}
+                        <input type="number" min={0} step="0.01"
+                          className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right"
+                          placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
+                          defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
+                          title={L("Empty = the list price. What the ELFIA customer pays.", "Kosong = harga senarai. Yang dibayar pelanggan ELFIA.")}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            const next = raw === "" ? null : Math.round(Number(raw) * 100);
+                            if (raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
+                              toast(L("Not saved", "Tidak disimpan"), L("Web price must be a positive RM amount — or empty to use the list price", "Harga web mesti amaun RM positif — atau kosong untuk guna harga senarai"), "notice");
+                              return;
+                            }
+                            if (next === (it.elfia_price_cents ?? null)) return;
+                            void setBridge(it, { elfia_price: raw === "" ? "" : Number(raw) },
+                              next === null
+                                ? `${it.sku} — ${L("web price cleared", "harga web dikosongkan")}`
+                                : `${it.sku} — ${L("web price", "harga web")} RM ${rmBare(next)}`);
+                          }} />
+                      </label>
+
+                      <label className="flex items-center gap-1.5">
+                        {L("Collection", "Koleksi")}
+                        <select className="border-input bg-background rounded border px-1.5 py-0.5"
+                          value={cat}
+                          title={L("Which ELFIA collection this item belongs to", "Koleksi ELFIA untuk barang ini")}
+                          onChange={(e) => void setElfia(it, { category: e.target.value },
+                            `${it.sku} — ${e.target.value === "shawl" ? L("Shawl collection", "koleksi Shawl") : e.target.value === "bawal" ? L("Bawal collection", "koleksi Bawal") : L("collection cleared (store defaults to Bawal)", "koleksi dikosongkan (kedai guna Bawal)")}`)}>
+                          <option value="">{L("— default (Bawal)", "— lalai (Bawal)")}</option>
+                          <option value="bawal">Bawal</option>
+                          <option value="shawl">Shawl</option>
+                        </select>
+                      </label>
+
+                      <span className="text-muted-foreground">
+                        {L("Stock", "Stok")} {it.stock}
+                      </span>
+
+                      <button type="button" className={btnSm}
+                        onClick={() => setOpenDesc((d) => ({ ...d, [it.id]: !d[it.id] }))}>
+                        {openDesc[it.id]
+                          ? L("Hide description", "Sembunyi penerangan")
+                          : it.elfia_description
+                            ? L("Edit description", "Sunting penerangan")
+                            : L("Add description", "Tambah penerangan")}
+                      </button>
+                      {it.elfia_image_key && (
+                        <button type="button" className="text-muted-foreground underline"
+                          onClick={() => void setElfia(it, { remove_photo: true },
+                            `${it.sku} — ${L("photo removed (the store keeps showing its current one until you upload a new photo)", "foto dibuang (kedai terus memaparkan yang sedia ada sehingga foto baharu dimuat naik)")}`)}>
+                          {L("remove photo", "buang foto")}
+                        </button>
+                      )}
+                    </div>
+
+                    {openDesc[it.id] && (
+                      <div className="mt-2">
+                        <textarea className={`${inputClass} h-20 text-xs`} maxLength={2000}
+                          defaultValue={it.elfia_description ?? ""}
+                          placeholder={L("What the ELFIA product page says about this item — material, feel, sizing. Saves when you click away; empty keeps the store's own text.",
+                                          "Apa yang halaman produk ELFIA katakan tentang barang ini — bahan, rasa, saiz. Disimpan apabila klik di luar; kosong mengekalkan teks kedai sendiri.")}
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            if (next === (it.elfia_description ?? "").trim()) return;
+                            void setElfia(it, { description: next },
+                              `${it.sku} — ${next ? L("description saved", "penerangan disimpan") : L("description cleared", "penerangan dikosongkan")}`);
+                          }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

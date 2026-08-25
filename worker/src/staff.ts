@@ -3341,7 +3341,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "Web Orders", "ELFIA Traffic", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
+  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {
@@ -5927,6 +5927,113 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     });
     return json({ ok: true });
   }
+  /* v1.45.0 (CEO: "a new tab for ELFIA on the inventory … photo upload and
+     description and product"): the rest of an item's ELFIA dressing —
+     collection and description. Whether the item is published at all, and at
+     what price, stays on the /bridge route above; this one is everything the
+     ELFIA product PAGE shows. Both land in feed A and, for a product the
+     store created from this feed, the store keeps them in step. */
+  const invElfia = path.match(/^\/inventory\/(\d+)\/elfia$/);
+  if (invElfia && method === "PATCH") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const hasCategory = body?.category !== undefined;
+    const hasDescription = body?.description !== undefined;
+    const removePhoto = body?.remove_photo === true;
+    if (!hasCategory && !hasDescription && !removePhoto) {
+      return err("invalid_input", "Provide category, description and/or remove_photo", 400);
+    }
+    /* Only the two collections the ELFIA store has. "" clears the choice
+       back to the store's default (bawal). */
+    let category: string | null = null;
+    if (hasCategory) {
+      const c = String(body!.category ?? "").trim().toLowerCase();
+      if (c !== "" && c !== "bawal" && c !== "shawl") {
+        return err("invalid_input", "category must be bawal or shawl — or empty to clear it", 400);
+      }
+      category = c === "" ? null : c;
+    }
+    /* The description is prose for customers, capped where the store caps
+       its own (2000). "" clears it; the feed then omits the field and the
+       store keeps whatever it has. */
+    let description: string | null = null;
+    if (hasDescription) {
+      const d = String(body!.description ?? "").trim();
+      if (d.length > 2000) return err("invalid_input", "Description is longer than 2000 characters", 400);
+      description = d === "" ? null : d;
+    }
+    try {
+      const sets: string[] = [];
+      const vals: (string | number | null)[] = [];
+      const push = (col: string, val: string | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(val); };
+      if (hasCategory) push("elfia_category", category);
+      if (hasDescription) push("elfia_description", description);
+      if (removePhoto) { push("elfia_image_key", null); push("elfia_image_updated_at", null); }
+      await env.DB.prepare(
+        `UPDATE inventory_items SET ${sets.join(", ")}, updated_by = ?${sets.length + 1}, updated_at = datetime('now')
+         WHERE id = ?${sets.length + 2}`,
+      ).bind(...vals, user.id, invElfia[1]).run();
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0086, ELFIA product fields)", 500);
+      }
+      throw e;
+    }
+    await audit(env, user.id, "inventory.elfia", "inventory_items", invElfia[1], {
+      ...(hasCategory ? { category } : {}),
+      ...(hasDescription ? { description_len: description?.length ?? 0 } : {}),
+      ...(removePhoto ? { remove_photo: 1 } : {}),
+    });
+    return json({ ok: true });
+  }
+
+  /* v1.45.0: the product photo the ELFIA store shows — uploaded HERE, once,
+     instead of a second time in the store's /admin. A binary body (the route
+     ends in /photo, so the JSON gate at the top left the stream alone).
+
+     The key lives under uploads/elfia/ deliberately: uploads/ is the ONE
+     public prefix of the media route (v1.5.0 security rewrite), and a
+     product photo is public by definition — the store's Worker must be able
+     to copy it with no session, and the shop then shows it to the world
+     anyway. Nothing else moves prefixes.
+
+     The feed sends the URL + elfia_image_updated_at; the store re-downloads
+     only when the marker changes, so replacing a photo here reaches the shop
+     within one 5-minute pull and an unchanged one costs nothing. */
+  const invElfiaPhoto = path.match(/^\/inventory\/(\d+)\/elfia\/photo$/);
+  if (invElfiaPhoto && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const ext = ct === "image/jpeg" ? "jpg" : ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : null;
+    if (!ext) return err("invalid_input", "Only JPEG, PNG or WEBP — the ELFIA store refuses anything else", 400);
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    /* The same 5 MB cap the store enforces when it copies the file — a photo
+       accepted here that the store then refuses would look synced and never
+       arrive. Buffered to measure honestly: Content-Length is advisory. */
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return err("invalid_input", "The image was empty", 400);
+    if (bytes.byteLength > 5 * 1024 * 1024) {
+      return err("too_large", `The image is ${(bytes.byteLength / 1048576).toFixed(1)} MB — the ELFIA store's limit is 5 MB. Compress it and try again.`, 400);
+    }
+    const item = await env.DB.prepare(`SELECT id, sku FROM inventory_items WHERE id = ?1`)
+      .bind(invElfiaPhoto[1]).first<{ id: number; sku: string }>();
+    if (!item) return err("not_found", "Inventory item not found", 404);
+    const key = `uploads/elfia/${item.id}-${Date.now()}.${ext}`;
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+    try {
+      await env.DB.prepare(
+        `UPDATE inventory_items SET elfia_image_key = ?1, elfia_image_updated_at = ?2,
+           updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+      ).bind(key, new Date().toISOString(), user.id, item.id).run();
+    } catch (e) {
+      if (String(e).includes("no such column")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0086, ELFIA product fields)", 500);
+      }
+      throw e;
+    }
+    await audit(env, user.id, "inventory.elfia_photo", "inventory_items", String(item.id), { key });
+    return json({ image_key: key, url: `/api/v1/media/file/${key}` }, 201);
+  }
+
   /* v1.36.0: the bridge's pulse for the Inventory tab — last movement in,
      24-hour applied/ignored counts (ignored > 0 = the dedupe working, not a
      fault), and the unknown_sku list that MUST be actioned by a human. */

@@ -249,7 +249,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0085_web_order_consent";
+const LATEST_MIGRATION = "0086_elfia_product_fields";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1557,23 +1557,42 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     let rows: BridgeRow[];
     try {
+      /* v1.45.0 (0086): the feed now also carries each item's ELFIA dressing
+         — category, description, photo URL + change marker — set in the
+         portal's ELFIA tab. The store uses name+price to CREATE a product it
+         has never seen (hidden, pending Publish in its /admin), and the rest
+         to dress it. */
       const { results } = await env.DB.prepare(
-        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
+        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
+                elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at
          FROM inventory_items WHERE bridge_enabled = 1
          ORDER BY sku LIMIT 1000`,
       ).all();
       rows = results as unknown as BridgeRow[];
     } catch {
-      /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
-         serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
-      const { results } = await env.DB.prepare(
-        `SELECT sku, name, stock FROM inventory_items
-         WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
-         ORDER BY sku LIMIT 500`,
-      ).all();
-      rows = results as unknown as BridgeRow[];
+      try {
+        /* 0086 pending — the v1.35.0 feed: flags + prices, no dressing. */
+        const { results } = await env.DB.prepare(
+          `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
+           FROM inventory_items WHERE bridge_enabled = 1
+           ORDER BY sku LIMIT 1000`,
+        ).all();
+        rows = results as unknown as BridgeRow[];
+      } catch {
+        /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
+           serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
+        const { results } = await env.DB.prepare(
+          `SELECT sku, name, stock FROM inventory_items
+           WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
+           ORDER BY sku LIMIT 500`,
+        ).all();
+        rows = results as unknown as BridgeRow[];
+      }
     }
-    const items = serializeBridgeItems(rows);
+    /* Photo URLs are built on THIS request's own origin — production serves
+       production URLs, the local test rig serves localhost ones, and no
+       domain ever enters a committed file. */
+    const items = serializeBridgeItems(rows, new URL(request.url).origin);
     return json({ items, as_of: new Date().toISOString(), count: items.length });
   }
 
@@ -2924,6 +2943,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0083 (task scope + tracking)", `SELECT id FROM task_items LIMIT 1`],
       ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
       ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
+      ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3023,6 +3043,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0083_task_tracking",
       "0084_elfia_traffic",
       "0085_web_order_consent",
+      "0086_elfia_product_fields",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

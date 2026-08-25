@@ -72,7 +72,9 @@ eq("pre-0075 fallback rows pass through without prices",
     // simulate a future SELECT * leak:
     updated_by: 3, note: "internal note", live_rebate_cents: 500,
   }]);
-  const allowed = new Set(["sku", "name", "stock", "price_cents"]);
+  const allowed = new Set(["sku", "name", "stock", "price_cents",
+    // v1.45.0 — the ELFIA tab's product dressing travels in the feed by design
+    "category", "description", "image_url", "image_updated_at"]);
   const leaked = items.flatMap((it) => Object.keys(it).filter((k) => !allowed.has(k)));
   eq("no key outside {sku,name,stock,price_cents}", leaked, []);
   eq("and the price sent is the explicit web price", items[0].price_cents, 3600);
@@ -86,6 +88,56 @@ eq("live_rebate_cents is ignored by the feed",
 /* 10. Junk rows cannot crash the feed. */
 eq("blank sku dropped",
   serializeBridgeItems([{ sku: "  ", stock: 5, bridge_enabled: 1 }, null]), []);
+
+/* ---- v1.45.0 — the ELFIA tab's dressing (0086) ---- */
+
+/* 11. Category: only the two collections the store has may travel; anything
+       else is OMITTED, never forwarded to be refused over there. */
+eq("category travels when valid",
+  serializeBridgeItems([{ sku: "SHWL001", name: "Shawl — Beige", stock: 4, bridge_enabled: 1, unit_price_cents: 5500, elfia_category: "shawl" }]),
+  [{ sku: "SHWL001", stock: 4, name: "Shawl — Beige", price_cents: 5500, category: "shawl" }]);
+eq("an unknown category is omitted, not forwarded",
+  serializeBridgeItems([{ sku: "SHWL001", stock: 4, bridge_enabled: 1, elfia_category: "premium" }]),
+  [{ sku: "SHWL001", stock: 4 }]);
+
+/* 12. Description: trimmed, capped at the store's own 2000, and OMITTED when
+       empty ("absent = the store keeps what it has"). */
+eq("description travels trimmed",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, elfia_description: "  Lightweight and opaque.  " }]),
+  [{ sku: "LUMI001", stock: 2, description: "Lightweight and opaque." }]);
+eq("a blank description is omitted",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, elfia_description: "   " }]),
+  [{ sku: "LUMI001", stock: 2 }]);
+{
+  const long = "x".repeat(3000);
+  const items = serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, elfia_description: long }]);
+  eq("an over-long description is capped at 2000", items[0].description.length, 2000);
+}
+
+/* 13. The photo: URL built on the caller's origin + the change marker, BOTH
+       or NEITHER — an image_url without its marker would make the store
+       re-download on every 5-minute pull. */
+eq("photo travels as an absolute URL + marker",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1,
+    elfia_image_key: "uploads/elfia/7-1756100000000.jpg", elfia_image_updated_at: "2026-08-25T12:00:00.000Z" }],
+    "https://a2zcreative.my"),
+  [{ sku: "LUMI001", stock: 2,
+     image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/7-1756100000000.jpg",
+     image_updated_at: "2026-08-25T12:00:00.000Z" }]);
+eq("a key without its marker sends no image_url",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1,
+    elfia_image_key: "uploads/elfia/7-1.jpg" }], "https://a2zcreative.my"),
+  [{ sku: "LUMI001", stock: 2 }]);
+eq("no mediaBase (caller cannot know its origin) sends no image_url",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1,
+    elfia_image_key: "uploads/elfia/7-1.jpg", elfia_image_updated_at: "m1" }]),
+  [{ sku: "LUMI001", stock: 2 }]);
+
+/* 14. Pre-0086 rows (all four columns absent) serialize exactly as before —
+       the migration-skew case must stay byte-identical. */
+eq("a pre-0086 row is unchanged",
+  serializeBridgeItems([{ sku: "LUMI003", name: "Lavender", stock: 8, bridge_enabled: 1, unit_price_cents: 4900 }], "https://a2zcreative.my"),
+  [{ sku: "LUMI003", stock: 8, name: "Lavender", price_cents: 4900 }]);
 
 if (failed) { console.error(`\n${failed} bridge-feed check(s) failed.`); process.exit(1); }
 console.log("\nbridge-feed-guard: all checks passed.");

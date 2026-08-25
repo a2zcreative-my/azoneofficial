@@ -26,6 +26,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Stokis": { en: "Stokis", ms: "Stokis" },
   "Web Orders": { en: "Web Orders", ms: "Pesanan Web" },
   "ELFIA Traffic": { en: "ELFIA Traffic", ms: "Trafik ELFIA" },
+  "ELFIA Store": { en: "ELFIA Store", ms: "Kedai ELFIA" },
   "Ecommerce": { en: "Ecommerce", ms: "E-dagang" },
   "Assets": { en: "Assets", ms: "Aset" },
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },

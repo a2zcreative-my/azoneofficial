@@ -24,6 +24,13 @@ export interface BridgeRow {
   status?: string | null;
   unit_price_cents?: number | null;
   elfia_price_cents?: number | null;
+  /* v1.45.0 (0086) — the ELFIA tab's product dressing. All absent on a
+     pre-0086 database; the serializer then omits the fields, which the spec
+     defines as "the store keeps what it has". */
+  elfia_category?: string | null;
+  elfia_description?: string | null;
+  elfia_image_key?: string | null;
+  elfia_image_updated_at?: string | null;
 }
 
 export interface BridgeItem {
@@ -31,6 +38,11 @@ export interface BridgeItem {
   name?: string;
   stock: number;
   price_cents?: number;
+  /* v1.45.0 — per PORTAL-PHOTO-SYNC-HANDOFF.md on the store side. */
+  category?: "bawal" | "shawl";
+  description?: string;
+  image_url?: string;
+  image_updated_at?: string;
 }
 
 /** The price the shop must charge, in sen — or null for "send no price". */
@@ -48,9 +60,19 @@ export function effectivePriceCents(row: {
 }
 
 /** Rows → the exact feed payload. Filters what must never leave, clamps what
-    must never be negative, and omits price_cents when there is none. */
-export function serializeBridgeItems(rows: BridgeRow[]): BridgeItem[] {
+    must never be negative, and omits every optional field that has no real
+    value — "absent" is a meaningful word in this contract ("the store keeps
+    what it has"), so nothing is ever sent as null, "" or 0-as-false.
+
+    v1.45.0: `mediaBase` is the absolute origin the photo URL is built on
+    (e.g. "https://a2zcreative.my"), taken from the REQUEST that is being
+    answered — never hardcoded, so the local rig and production both serve
+    URLs that point at themselves. No mediaBase (a caller that cannot know
+    its origin) = no image_url, never a relative path the store cannot
+    fetch. */
+export function serializeBridgeItems(rows: BridgeRow[], mediaBase?: string): BridgeItem[] {
   const out: BridgeItem[] = [];
+  const base = typeof mediaBase === "string" ? mediaBase.replace(/\/+$/, "") : "";
   for (const row of rows) {
     if (!row || typeof row.sku !== "string" || row.sku.trim() === "") continue;
     if (row.status === "discontinued") continue;
@@ -62,6 +84,25 @@ export function serializeBridgeItems(rows: BridgeRow[]): BridgeItem[] {
     if (typeof row.name === "string" && row.name !== "") item.name = row.name;
     const price = effectivePriceCents(row);
     if (price !== null) item.price_cents = price;
+    /* Only the two collections the store has. Anything else stored here (a
+       typo, a future value an old worker does not know) is OMITTED rather
+       than forwarded — the store refuses unknown categories, and a refused
+       line is worse than a defaulted one. */
+    if (row.elfia_category === "bawal" || row.elfia_category === "shawl") item.category = row.elfia_category;
+    if (typeof row.elfia_description === "string" && row.elfia_description.trim() !== "") {
+      item.description = row.elfia_description.trim().slice(0, 2000);
+    }
+    /* The photo travels as a URL + change marker, never as bytes. Both or
+       neither: an image_url without its marker would make the store
+       re-download on every 5-minute pull. The upload route always stamps
+       the marker, so a keyed row without one is a hand-edited anomaly —
+       omitted, by the same rule as the category. */
+    if (base &&
+        typeof row.elfia_image_key === "string" && row.elfia_image_key !== "" &&
+        typeof row.elfia_image_updated_at === "string" && row.elfia_image_updated_at !== "") {
+      item.image_url = `${base}/api/v1/media/file/${row.elfia_image_key}`;
+      item.image_updated_at = row.elfia_image_updated_at;
+    }
     out.push(item);
   }
   return out;

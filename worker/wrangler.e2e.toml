@@ -1,0 +1,24 @@
+# LOCAL TEST CONFIG ONLY — never deployed. Mirrors wrangler.toml's bindings
+# without the production routes/account, so `wrangler dev --local` can run the
+# whole worker against a scratch D1 + R2 for the ELFIA bridge end-to-end rig
+# (scratch/elfia-bridge-e2e.mjs). Secrets come from .dev.vars.
+name = "azoneofficial-api"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "azoneofficial"
+database_id = "local-e2e-test"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "azoneofficial"
+
+[vars]
+ALLOWED_ORIGIN = "http://127.0.0.1:8300"
+ALLOWED_ORIGINS = "http://127.0.0.1:8300"
+PUBLIC_FORM_ORIGINS = ""
+COMPANY_DOMAIN = "azoneofficial.com"
+GOOGLE_CLIENT_ID = "test"
+TIKTOK_APP_KEY = "test"
