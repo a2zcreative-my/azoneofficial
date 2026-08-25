@@ -112,6 +112,10 @@ export interface WebOrderInput {
   tracking_courier?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  /** v1.44.0 — PDPA marketing consent as the store recorded it (store 0012).
+      Strictly 1 or 0; anything else — including its absence on a pre-0012
+      store — is 0: nobody is consented by accident of a missing field. */
+  marketing_consent?: 0 | 1;
 }
 
 export const WEB_ORDER_STATUSES = [
@@ -150,6 +154,7 @@ export function parseWebOrder(raw: unknown): WebOrderInput | null {
     tracking_courier: s(o.tracking_courier, 60),
     created_at: s(o.created_at, 30),
     updated_at: s(o.updated_at, 30),
+    marketing_consent: o.marketing_consent === 1 ? 1 : 0,
   };
 }
 

@@ -249,7 +249,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0084_elfia_traffic";
+const LATEST_MIGRATION = "0085_web_order_consent";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -2923,6 +2923,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0081 (web orders)", `SELECT id FROM web_orders LIMIT 1`],
       ["0083 (task scope + tracking)", `SELECT id FROM task_items LIMIT 1`],
       ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
+      ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3021,6 +3022,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0082_fix_po_direction",
       "0083_task_tracking",
       "0084_elfia_traffic",
+      "0085_web_order_consent",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

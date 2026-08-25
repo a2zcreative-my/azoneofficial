@@ -6118,6 +6118,34 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return json({ state, span, cities: [], paths: [], pending_migration: true });
     }
   }
+  /* ================= v1.44.0 — marketing reach (PDPA consent) =================
+     The people ELFIA may lawfully market to: web-order customers whose
+     CURRENT consent flag is 1 (store 0012 → feed C → 0085 here). Deduped by
+     phone — one person, one row, whatever they ordered. The store re-sends
+     an order whenever consent changes, so withdrawal empties out of this
+     list within one poll; nobody has to remember to remove anyone. */
+  if (path === "/web-marketing" && method === "GET") {
+    if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
+    try {
+      const { results: customers } = await env.DB.prepare(
+        `SELECT MAX(customer_name) AS name, phone, MAX(address) AS address,
+                COUNT(*) AS orders, SUM(total_cents) AS total_cents,
+                MAX(COALESCE(placed_at, first_seen_at)) AS last_order_at
+         FROM web_orders
+         WHERE marketing_consent = 1 AND phone IS NOT NULL AND phone != ''
+         GROUP BY phone ORDER BY last_order_at DESC LIMIT 500`,
+      ).all<{ name: string | null; phone: string; address: string | null; orders: number; total_cents: number; last_order_at: string }>();
+      /* Context, not a mailing list: how many order-customers exist in total,
+         so the card can say "31 of 220 customers have consented". */
+      const totalRow = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT phone) AS n FROM web_orders WHERE phone IS NOT NULL AND phone != ''`,
+      ).first<{ n: number }>();
+      await audit(env, user.id, "marketing.list_view"); // reading personal data leaves a trail
+      return json({ customers, total_customers: totalRow?.n ?? 0 });
+    } catch {
+      return json({ customers: [], total_customers: 0, pending_migration: true });
+    }
+  }
   /* v1.38.0: the daily reconciliation report — for each published SKU, the
      day's movements by source from the append-only ledger, against the
      current count. Any disagreement is listed first. Until Track E routes

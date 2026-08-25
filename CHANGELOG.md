@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.44.0] — 2026-08-24 — marketing the PDPA way, and an honest accuracy check
+
+**CEO: "track their location accuracy … trace which customer are recorded … for marketing purposes and to ensure that all this cover by PDPA requirement." Decided (OD-24): marketing reaches ORDER customers who CONSENTED — never anonymous visitors, never per-person browsing (OD-20a stands).**
+
+### Marketing reach (consent-gated end to end)
+
+- The store (its v1.3.0) adds a bilingual consent tick-box at checkout and sign-up — optional, never pre-ticked, timestamped — plus a PDPA s.7 privacy notice in English and Bahasa Malaysia, and working withdrawal (account toggle for members, an admin action for guests who WhatsApp).
+- Feed C now carries `marketing_consent`; migration **`0085_web_order_consent.sql`** stores it, and the upsert overwrites it on every re-send — **withdrawal on the store empties the portal list within one poll**, no human memory involved.
+- New route `/staff/web-marketing` (revenue_view; every read is audit-logged): consented customers deduped by phone — name, phone, orders, spend, last order — with a context line ("31 of 220 customers have consented"). The ELFIA Traffic tab gains a **Marketing reach** card: counts by state, expandable list, one-tap copy of the phone numbers for a campaign.
+
+### Location accuracy (the check the CEO asked for)
+
+- New **Location accuracy** card: visit locations are network-derived (approximate); order addresses are typed by customers (exact, ground truth). The card compares the two DISTRIBUTIONS per state — bar = visit share, marker = order share — and scores their agreement, instead of pretending IP geolocation is precise. The KL/Selangor mobile-gateway skew is stated on the card itself.
+
+### Registry discipline
+
+- `0085` + `LATEST_MIGRATION` + `EXPECTED_MIGRATIONS` + health probe (triple bump, guard-enforced); `parseWebOrder` treats anything but a literal `1` as no consent — nobody is consented by a missing field.
+
 ## [1.43.0] — 2026-08-24 — the ELFIA Traffic map
 
 **CEO, with the Operations map on screen: "for ELFIA, I want to have a traffic to see which user that visit my pages which is you need to create a new map like Operations map — but you need to create a new tabs for ELFIA traffic."**

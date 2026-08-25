@@ -6,7 +6,7 @@
 **Portal version at time of writing:** v1.34.0 · 74 migrations (latest `0074_customer_brand`)
 **Counterpart system:** ELFIA OFFICIAL STORE (`elfiaofficialstore.my`) — Next.js + Worker `elfia-api` + D1 `elfia-store` + R2 `elfia-media`
 **Created:** 22 August 2026
-**Last revised:** 24 August 2026 · rev 1.0 (see [Revision log](#revision-log))
+**Last revised:** 24 August 2026 · rev 1.1 (see [Revision log](#revision-log))
 
 ---
 
@@ -974,6 +974,7 @@ Geography comes free and first-party: every request through a Cloudflare Worker 
 | **OD-21** | Bot filtering strictness | (a) UA heuristic only. (b) + require JS beacon (static crawlers never count). | **DECIDED 24-08-2026: (b)** — it is free, since the beacon IS JavaScript. |
 | **OD-22** | Raw hit retention (store D1) | 30 / 60 / 90 days (aggregates kept forever). | **DECIDED 24-08-2026: 60 days** — enough to re-aggregate after a bug, small enough for D1. |
 | **OD-23** | Build order confirmation | This track writes code in the **store repo** too — its DEPLOY.bat, no-secrets test and version scheme apply there. | **DECIDED 24-08-2026: store-first, both repos in one cycle.** |
+| **OD-24** | "Trace which customer" for marketing | (a) Order customers who ticked a PDPA consent box (notice + withdrawal). (b) Link browsing to signed-in customers. (c) No marketing features. | **DECIDED 24-08-2026: (a).** Consent-gated end to end: store tick-box (0012) → feed C flag → portal 0085 → `/staff/web-marketing`. (b) rejected again — OD-20a stands. |
 
 ---
 
@@ -1334,6 +1335,7 @@ Newest first. One line per change; say what changed and why, not just that somet
 
 | Date | Rev | Change | By |
 |---|---|---|---|
+| 2026-08-24 | 1.1 | **Marketing + accuracy (OD-24a)** — store v1.3.0: bilingual PDPA consent tick-box at checkout/sign-up (`0012_marketing_consent`, timestamped, never pre-ticked), s.7 privacy notice in EN+BM on /policies, withdrawal that propagates (account toggle rewrites the person's orders + bumps updated_at so feed C re-sends; admin `withdraw_marketing` action for guests), feed C carries `marketing_consent`. Portal v1.44.0: `0085_web_order_consent` (single ALTER), consent-aware upsert (armored pre-0085), `/staff/web-marketing` (revenue_view, audit-logged, deduped by phone), **Marketing reach** card (counts by state, list, copy-phones) + **Location accuracy** card (visit distribution vs order-address ground truth per state, agreement score, KL/Selangor gateway skew stated) on the ELFIA Traffic tab. | Claude |
 | 2026-08-24 | 1.0 | **Track T BUILT** — store v1.2.0 (`0011_traffic.sql`, `traffic.ts` beacon `POST /api/v1/t` with daily-rotating HMAC visitor hash + bot filter + rate limit, 5-min rollup + 60-day prune, feed D `GET /api/v1/bridge/traffic`, layout sendBeacon snippet, spec § D addendum; also fixed: the real D1 `database_id` UUID tripped `no-secrets` and would have blocked every DEPLOY.bat run — whitelisted as an identifier, not a credential) + portal v1.43.0 (`0084_elfia_traffic`, `pollElfiaTraffic` on the 5-min cron with replace-whole-day batches + final_through cursor, `/staff/web-traffic[/detail]` gated `revenue_view`, map geometry extracted verbatim to `lib/malaysia-map.ts`, `elfia-traffic-panel.tsx` with Today/7d/30d + per-state cities/pages/conversion, "ELFIA Traffic" through all five registries, triple-bump 0084). OD-20a/21b/22(60d)/23(store-first) decided. | Claude |
 | 2026-08-23 | 0.9 | **Track T planned — ELFIA visitor traffic** (CEO request): store-side beacon (`POST /api/v1/t`, Cloudflare `request.cf` geo, daily-rotating anonymous visitor hash), new bridge **feed D** (daily aggregates, pull + cursor, spec addendum), portal migration `0084_elfia_traffic`, poller extension, and an **ELFIA Traffic** tab reusing the ops-map Malaysia shapes via a shared component — with a visits-vs-orders conversion line per state. Privacy stance: anonymous aggregates, NO per-person browsing history (OD-20 recommends against). Awaiting CEO approval + OD-20…OD-23. No code yet. | Claude |
 | 2026-08-23 | 0.8 | **v1.41.1–v1.42.0** shipped on CEO requests: salesperson dropdown shows full names; the doc-form preview total now mirrors the Worker (line discounts were silently omitted client-side since v1.4.243 — caught by the CEO, guarded by a new tripwire); **Tasks v2** (`0083_task_tracking`): itemised tickable scope with derived progress, an Acknowledge step, daily overdue/due-soon/unacknowledged sweeps on the cron (deduped via task_events), status-change cross-notifications, and Overdue/Not-acknowledged tiles on the company card. This delivers a slice of Track B/G ambitions early because the CEO asked for task discipline now. | Claude |

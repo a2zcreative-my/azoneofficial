@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { card, btnSm } from "@/lib/ui-styles";
+import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
 
@@ -32,6 +33,11 @@ type TrafficDetail = {
   paths: { path: string; visits: number }[]; pending_migration?: boolean;
 };
 type WebOrder = { address?: string | null; placed_at?: string | null; status?: string };
+type MarketingCustomer = {
+  name: string | null; phone: string; address: string | null;
+  orders: number; total_cents: number; last_order_at: string;
+};
+type MarketingData = { customers: MarketingCustomer[]; total_customers: number; pending_migration?: boolean };
 
 const SPANS: { days: number; en: string; ms: string }[] = [
   { days: 1, en: "Today", ms: "Hari ini" },
@@ -45,6 +51,9 @@ export function ElfiaTrafficPanel() {
   const [sel, setSel] = useState<string | null>(null);
   const [detail, setDetail] = useState<TrafficDetail | null>(null);
   const [orders, setOrders] = useState<WebOrder[] | null>(null);
+  const [marketing, setMarketing] = useState<MarketingData | null>(null);
+  const [showList, setShowList] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(() => {
     void api<TrafficSummary>(`/web-traffic?days=${span}`)
@@ -59,6 +68,11 @@ export function ElfiaTrafficPanel() {
     void api<{ orders: WebOrder[] }>(`/web-orders`)
       .then((r) => setOrders(r.ok && r.data?.orders ? r.data.orders : null))
       .catch(() => setOrders(null));
+    /* v1.44.0 — the consented-marketing list (PDPA: consent-flagged rows
+       only; the worker builds it, this card only displays it). */
+    void api<MarketingData>(`/web-marketing`)
+      .then((r) => setMarketing(r.ok && r.data ? r.data : null))
+      .catch(() => setMarketing(null));
   }, []);
 
   useEffect(() => {
@@ -93,6 +107,46 @@ export function ElfiaTrafficPanel() {
     return { visits, visitors };
   }, [data]);
 
+  /* Location accuracy: the visit map is IP-derived (approximate); order
+     addresses are typed by the customer (ground truth). Comparing the two
+     DISTRIBUTIONS is the honest check the CEO asked for — the closer they
+     agree, the more the map can be trusted. */
+  const accuracy = useMemo(() => {
+    if (!data || !orders) return null;
+    const myVisits = [...byState.values()].filter((s) => s.state !== "Outside Malaysia");
+    const totalV = myVisits.reduce((n, s) => n + s.visits, 0);
+    let totalO = 0; for (const n of ordersByState.values()) totalO += n;
+    if (totalV === 0 || totalO === 0) return { rows: [], totalV, totalO, matchPct: null as number | null };
+    const names = new Set([...myVisits.map((s) => s.state), ...ordersByState.keys()]);
+    const rows = [...names].map((st) => ({
+      state: st,
+      visits: byState.get(st)?.visits ?? 0,
+      orders: ordersByState.get(st) ?? 0,
+      visitPct: ((byState.get(st)?.visits ?? 0) / totalV) * 100,
+      orderPct: ((ordersByState.get(st) ?? 0) / totalO) * 100,
+    })).sort((a, b) => b.visitPct - a.visitPct);
+    /* Distribution agreement: 100 − half the total percentage-point gap.
+       Identical distributions score 100; completely disjoint ones score 0. */
+    const diff = rows.reduce((n, r) => n + Math.abs(r.visitPct - r.orderPct), 0);
+    return { rows: rows.slice(0, 8), totalV, totalO, matchPct: Math.max(0, Math.round(100 - diff / 2)) };
+  }, [data, orders, byState, ordersByState]);
+
+  const marketingByState = useMemo(() => {
+    const m = new Map<string, MarketingCustomer[]>();
+    for (const c of marketing?.customers ?? []) {
+      const st = stateOf(c.address ?? "") ?? "—";
+      m.set(st, [...(m.get(st) ?? []), c]);
+    }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [marketing]);
+
+  const copyPhones = async () => {
+    try {
+      await navigator.clipboard.writeText((marketing?.customers ?? []).map((c) => c.phone).join("\n"));
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard blocked — the list is still on screen */ }
+  };
+
   if (!data) return null;
 
   const notConfigured = !data.pending_migration && data.last_poll_at === null && data.states.length === 0;
@@ -102,6 +156,8 @@ export function ElfiaTrafficPanel() {
   const selData = sel ? byState.get(sel) : undefined;
   const toggle = (name: string) => setSel((cur) => (cur === name ? null : name));
   const drawOrder = sel ? [...STATES.filter((s) => s.name !== sel), ...STATES.filter((s) => s.name === sel)] : STATES;
+  const consentPct = marketing && marketing.total_customers > 0
+    ? Math.round((marketing.customers.length / marketing.total_customers) * 100) : null;
   const convLine = (st: string, visits: number) => {
     const n = ordersByState.get(st);
     if (!n || visits <= 0) return null;
@@ -110,6 +166,7 @@ export function ElfiaTrafficPanel() {
   };
 
   return (
+    <div className="flex flex-col gap-4 md:gap-6">
     <div className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -288,6 +345,131 @@ export function ElfiaTrafficPanel() {
           </div>
         </>
       )}
+    </div>
+
+    {/* ---- Location accuracy (CEO: "ensure the location is correctly being
+        recorded"). Visit locations are network-derived and approximate;
+        order addresses are typed by real customers — ground truth. The card
+        compares the two distributions honestly instead of pretending IP
+        geolocation is exact. */}
+    {accuracy && (
+      <div className={card}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{L("Location accuracy — map vs real orders", "Ketepatan lokasi — peta lawan pesanan sebenar")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Visit locations come from the network (approximate); order addresses are typed by customers (exact). The closer the two agree, the more the map can be trusted.",
+                 "Lokasi lawatan datang daripada rangkaian (anggaran); alamat pesanan ditaip oleh pelanggan (tepat). Semakin hampir kedua-duanya, semakin boleh dipercayai peta ini.")}
+            </p>
+          </div>
+          {accuracy.matchPct !== null && (
+            <div className={`rounded-lg px-2.5 py-2 ${accuracy.matchPct >= 70 ? "bg-success-soft" : "bg-warning-soft"}`}>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Agreement", "Persetujuan")}</p>
+              <p className="text-sm font-semibold tabular-nums">{accuracy.matchPct}%</p>
+            </div>
+          )}
+        </div>
+        {accuracy.matchPct === null ? (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {L("Needs both visits and orders in this range to compare — check back once both exist.",
+               "Perlu kedua-dua lawatan dan pesanan dalam julat ini untuk dibandingkan — semak semula apabila kedua-duanya wujud.")}
+          </p>
+        ) : (
+          <>
+            <div className="mt-3 space-y-1.5">
+              {accuracy.rows.map((r) => (
+                <div key={r.state} className="flex items-center gap-2 text-xs">
+                  <span className="w-32 truncate">{r.state}</span>
+                  <div className="bg-secondary relative h-2 flex-1 overflow-hidden rounded-full">
+                    <div className="absolute inset-y-0 left-0 rounded-full bg-[var(--gold-solid)]" style={{ width: `${Math.min(100, r.visitPct)}%` }} />
+                    <div className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 rounded bg-[var(--brand-primary)]" style={{ left: `${Math.min(100, r.orderPct)}%` }} />
+                  </div>
+                  <span className="w-28 text-right tabular-nums">
+                    {r.visitPct.toFixed(0)}% {L("visits", "lawatan")} · <span className="font-semibold">{r.orderPct.toFixed(0)}% {L("orders", "pesanan")}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-muted-foreground mt-3 text-[11px]">
+              {L("Known limit: Malaysian mobile networks route many phones through KL/Selangor gateways, so those two states read high on visits — trends are reliable, single-visit precision is not. Order addresses are always exact.",
+                 "Had yang diketahui: rangkaian mudah alih Malaysia menghalakan banyak telefon melalui gerbang KL/Selangor, jadi kedua-dua negeri itu dibaca tinggi pada lawatan — arah aliran boleh dipercayai, ketepatan satu-satu lawatan tidak. Alamat pesanan sentiasa tepat.")}
+            </p>
+          </>
+        )}
+      </div>
+    )}
+
+    {/* ---- Marketing reach (PDPA): ONLY customers whose consent flag is
+        currently 1. Withdrawal on the store empties them out of this list
+        within one poll — nothing here to maintain by hand. */}
+    <div className={card}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">{L("Marketing reach — customers with PDPA consent", "Capaian pemasaran — pelanggan dengan persetujuan APDP")}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L("Only customers who ticked the consent box on the store. Anyone who withdraws disappears from here automatically within minutes.",
+               "Hanya pelanggan yang menanda kotak persetujuan di kedai. Sesiapa yang menarik balik akan hilang dari sini secara automatik dalam beberapa minit.")}
+          </p>
+        </div>
+        {marketing && !marketing.pending_migration && (
+          <div className="bg-secondary rounded-lg px-2.5 py-2">
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Consented", "Bersetuju")}</p>
+            <p className="text-sm font-semibold tabular-nums">
+              {marketing.customers.length}{marketing.total_customers > 0 && <span className="text-muted-foreground font-normal"> / {marketing.total_customers}{consentPct !== null ? ` (${consentPct}%)` : ""}</span>}
+            </p>
+          </div>
+        )}
+      </div>
+      {!marketing || marketing.pending_migration ? (
+        <p className="text-muted-foreground mt-3 text-xs">
+          {L("Waiting for the consent sync — needs migration 0085 here and the store's v1.3.0 live.",
+             "Menunggu segerakan persetujuan — perlukan migrasi 0085 di sini dan v1.3.0 kedai dilancarkan.")}
+        </p>
+      ) : marketing.customers.length === 0 ? (
+        <p className="text-muted-foreground mt-3 text-xs">
+          {L("Nobody has ticked the box yet. The tick-box appears at the store's checkout and sign-up from v1.3.0 — this list fills as customers consent.",
+             "Belum ada yang menanda kotak. Kotak persetujuan muncul di checkout dan pendaftaran kedai mulai v1.3.0 — senarai ini terisi apabila pelanggan bersetuju.")}
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" className={btnSm} onClick={() => setShowList((v) => !v)}>
+              {showList ? L("Hide list", "Sembunyi senarai") : L("Show list", "Tunjuk senarai")}
+            </button>
+            <button type="button" className={btnSm} onClick={() => void copyPhones()}>
+              {copied ? L("Copied ✓", "Disalin ✓") : L("Copy phone numbers", "Salin nombor telefon")}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {marketingByState.map(([st, list]) => (
+              <span key={st} className="bg-secondary rounded-full px-2.5 py-1 text-[11px]">
+                {st} <span className="font-semibold tabular-nums">{list.length}</span>
+              </span>
+            ))}
+          </div>
+          {showList && (
+            <div className="mt-3 space-y-3">
+              {marketingByState.map(([st, list]) => (
+                <div key={st}>
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{st}</p>
+                  <div className="mt-1 space-y-1">
+                    {list.map((c) => (
+                      <p key={c.phone} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                        <span className="font-medium">{c.name ?? "—"}</span>
+                        <span className="text-muted-foreground tabular-nums">{c.phone}</span>
+                        <span className="text-muted-foreground ml-auto tabular-nums">
+                          {c.orders} {L(c.orders === 1 ? "order" : "orders", "pesanan")} · {fmtRM(c.total_cents)}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
     </div>
   );
 }

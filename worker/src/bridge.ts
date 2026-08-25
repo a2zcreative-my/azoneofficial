@@ -359,6 +359,15 @@ async function upsertWebOrder(env: Env, o: NonNullable<ReturnType<typeof parseWe
     o.subtotal_cents, o.shipping_cents, o.total_cents, o.payment_method,
     o.tracking_no, o.tracking_courier, o.created_at, o.updated_at).run();
 
+  /* v1.44.0 — PDPA marketing consent rides the same upsert: the store sends
+     the CURRENT value on every re-send, so a withdrawal over there clears
+     the flag here within one poll. A separate armored statement (not a
+     column in the big INSERT) so a pre-0085 database still syncs orders —
+     it just cannot record consent yet. */
+  await env.DB.prepare(
+    `UPDATE web_orders SET marketing_consent = ?2 WHERE store = 'elfia' AND order_number = ?1`,
+  ).bind(o.order_number, o.marketing_consent === 1 ? 1 : 0).run().catch(() => null);
+
   const row = await env.DB.prepare(
     `SELECT id, paid_seen_at, refund_flagged_at FROM web_orders WHERE store = 'elfia' AND order_number = ?1`,
   ).bind(o.order_number).first<{ id: number; paid_seen_at: string | null; refund_flagged_at: string | null }>();
