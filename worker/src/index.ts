@@ -253,7 +253,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0089_elfia_slide_zoom";
+const LATEST_MIGRATION = "0090_elfia_slide_cutout";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1614,7 +1614,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       let slideRows: Record<string, unknown>[];
       try {
         slideRows = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom,
+                  cutout_key, cutout_updated_at, cutout_side, cutout_scale
            FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
         ).all()).results;
       } catch {
@@ -2979,6 +2980,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
       ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
       ["0089 (ELFIA slide zoom)", `SELECT zoom FROM elfia_slides LIMIT 1`],
+      ["0090 (ELFIA slide cut-out)", `SELECT cutout_key FROM elfia_slides LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3082,6 +3084,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0087_elfia_discount_slides",
       "0088_elfia_slide_framing",
       "0089_elfia_slide_zoom",
+      "0090_elfia_slide_cutout",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -658,8 +658,12 @@ export async function handleStaff(
   const isClaimsReceipt = path.endsWith("/receipt") && path.startsWith("/claims/");
   // v1.38.0: signature uploads are a raw PNG body, same family as /photo.
   const isSignatureUpload = path.startsWith("/signatures/");
+  /* v1.50.0: the carousel cut-out is a raw PNG body too. Reading the body as
+     JSON first consumes it ("Body has already been used"), so every binary
+     route has to be named here — that is the rule this list exists for. */
+  const isCutoutUpload = path.endsWith("/cutout");
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -5943,13 +5947,21 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!hasCategory && !hasDescription && !hasDiscount && !removePhoto) {
       return err("invalid_input", "Provide category, description, discount and/or remove_photo", 400);
     }
-    /* Only the two collections the ELFIA store has. "" clears the choice
-       back to the store's default (bawal). */
+    /* v1.49.0 — the CEO names her own collections.
+       "why it is Bawal plain? I think I should be able to add the category
+       in the portal so that easier for me to categorized it."
+       This used to accept exactly two words, and the shop then split the
+       bawal range further by running a regex over the product NAME — which
+       is how a shelf called "Bawal Plain" appeared that nobody had chosen.
+       Any name is accepted now, in her spelling; the shop groups by what
+       arrives and a collection with nothing in it cannot exist. "" clears
+       the choice back to the store's default (Bawal). 40 characters is what
+       fits a shelf label without wrapping. */
     let category: string | null = null;
     if (hasCategory) {
-      const c = String(body!.category ?? "").trim().toLowerCase();
-      if (c !== "" && c !== "bawal" && c !== "shawl") {
-        return err("invalid_input", "category must be bawal or shawl — or empty to clear it", 400);
+      const c = String(body!.category ?? "").trim().replace(/\s+/g, " ");
+      if (c.length > 40) {
+        return err("invalid_input", "A collection name is at most 40 characters", 400);
       }
       category = c === "" ? null : c;
     }
@@ -6101,7 +6113,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       let results: Record<string, unknown>[];
       try {
         results = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom,
+                  cutout_key, cutout_updated_at, cutout_side, cutout_scale
            FROM elfia_slides ORDER BY sort, id`,
         ).all()).results;
       } catch {
@@ -6162,6 +6175,44 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       throw e;
     }
   }
+  /* v1.50.0 — the cut-out PNG for one slide. Same shape as the slide photo
+     route above, with one difference that matters: PNG and WEBP only. A
+     JPEG cannot hold transparency, so a JPEG here would paint a white box
+     over the banner — refusing it with a sentence is kinder than shipping
+     that to the shop. */
+  const cutoutPhoto = path.match(/^\/elfia\/slides\/(\d+)\/cutout$/);
+  if (cutoutPhoto && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const ext = ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : null;
+    if (!ext) {
+      return err("invalid_input", "A cut-out must be a PNG or WEBP with a see-through background — a JPEG cannot be see-through and would show as a white box.", 400);
+    }
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return err("invalid_input", "The image was empty", 400);
+    if (bytes.byteLength > 5 * 1024 * 1024) {
+      return err("too_large", `The image is ${(bytes.byteLength / 1048576).toFixed(1)} MB — the ELFIA store's limit is 5 MB. Compress it and try again.`, 400);
+    }
+    const marker = new Date().toISOString();
+    try {
+      const row = await env.DB.prepare(`SELECT id FROM elfia_slides WHERE id = ?1`).bind(cutoutPhoto[1]).first();
+      if (!row) return err("not_found", "Slide not found", 404);
+      const key = `uploads/elfia/slides/cut-${cutoutPhoto[1]}-${Date.now()}.${ext}`;
+      await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+      await env.DB.prepare(
+        `UPDATE elfia_slides SET cutout_key = ?1, cutout_updated_at = ?2, updated_at = datetime('now') WHERE id = ?3`,
+      ).bind(key, marker, cutoutPhoto[1]).run();
+      await audit(env, user.id, "elfia.slide_cutout", "elfia_slides", cutoutPhoto[1], { key });
+      return json({ id: Number(cutoutPhoto[1]), cutout_key: key, url: `/api/v1/media/file/${key}` }, 201);
+    } catch (e) {
+      if (String(e).includes("no such column") || String(e).includes("no such table")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0090, the carousel cut-out)", 500);
+      }
+      throw e;
+    }
+  }
+
   const slideEdit = path.match(/^\/elfia\/slides\/(\d+)$/);
   if (slideEdit && method === "PATCH") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
@@ -6193,6 +6244,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
          can see the full"). 100 = the whole photo inside the banner; higher
          grows it and the banner crops. `fit` is kept in step so an older
          store that only understands the switch still behaves sensibly. */
+      /* v1.50.0 — the cut-out's placement. The file itself arrives on the
+         binary route below; these two only say where she stands and how
+         tall she is, so they are cheap text edits like a caption. */
+      if (body?.cutout_side !== undefined) push("cutout_side", body.cutout_side === "left" ? "left" : "right");
+      if (body?.cutout_scale !== undefined && Number.isFinite(Number(body.cutout_scale))) {
+        push("cutout_scale", Math.min(160, Math.max(100, Math.round(Number(body.cutout_scale)))));
+      }
+      if (body?.remove_cutout === true) { push("cutout_key", null); push("cutout_updated_at", null); }
       if (body?.zoom !== undefined && Number.isFinite(Number(body.zoom))) {
         const z = Math.min(300, Math.max(100, Math.round(Number(body.zoom))));
         push("zoom", z);

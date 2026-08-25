@@ -2,6 +2,83 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.50.1] — 2026-08-25 — migrations the remote D1 parser accepts
+
+The ELFIA store's deploy stopped at "Database changes" with *SQL code did not
+contain a statement* on a migration that was valid SQLite, applied fine
+locally, and split correctly under wrangler's own splitter. The remote D1 API
+parses submitted SQL its own way and was defeated by the file's prose comment.
+
+0089 and 0090 carried the same hazards and would have failed the portal's
+next deploy the same way, so both are rewritten: plain ASCII, `--` comments,
+nothing quotable inside them. **`tests/migration-safety.mjs`** enforces it
+from 0089 onward (earlier files are grandfathered — they are already applied,
+and editing an applied migration to satisfy a linter is the worse risk).
+
+Verified: every migration re-applied from an empty database, 0001 through
+0090. All other guards unchanged and passing.
+
+## [1.50.0] — 2026-08-25 — the model who steps out of the carousel
+
+The CEO, with a reference image: "It is good that I can have this carousel
+which is the ladies 3D outside the carousel. Which is suitable for both view
+web and mobile apps view."
+
+The effect is a SECOND picture, not a filter — so a slide can now carry one
+(migration **0090**):
+
+- **+ Model cut-out** on every slide: a PNG (or WEBP) of the model with the
+  background removed. **A JPEG is refused with a sentence explaining why** —
+  it cannot be see-through and would paint a white box across the banner.
+  Deliberately NOT passed through `compressImage`, which exports JPEG and
+  would flatten the transparency this feature depends on.
+- **Left / Right** — which end she stands at. The shop gives the caption the
+  opposite end and flips its gradient to match.
+- **Height** — 100-160 % of the banner. Above 100 she rises past its top
+  edge, which is the whole point; the shop reserves exactly that much room
+  above the card so nothing is clipped on a phone or a desktop.
+- Moving or resizing her is a cheap edit: no re-upload, no re-download on the
+  store's side (the file is gated by its own marker, like every other image).
+- Remove her and the slide goes back to a plain banner.
+
+Also: `/cutout` joins the list of binary routes exempt from the JSON body
+parse. Reading the body as JSON first consumes it — "Body has already been
+used" — which is exactly the trap that list exists to prevent.
+
+Verified: cross-system against the ELFIA store's real worker (151 assertions
+there cover the copy, the marker gate, the side/height edits and the
+removal). registry-parity, sql-schema-check, csrf-guard, bm-coverage,
+compile gate, frontend `tsc` all PASS. **Deploy applies 0090.**
+
+## [1.49.0] — 2026-08-25 — name your own collections
+
+The CEO: "why it is Bawal plain? I think I should be able to add the category
+in the portal" — then, looking at the two-item dropdown, "how I want to add
+the Collection category!"
+
+The Collection control was a `<select>` of exactly two words, so there was no
+way to add one; and the store then split the bawal range further by running a
+regex over the product NAME, which is where a shelf called "Bawal Plain"
+appeared that nobody had chosen.
+
+- **Collection is a free text box now**, capped at 40 characters, saving on
+  blur like the description. Type anything and the shop grows a shelf for it;
+  clear it and the item falls back to Bawal.
+- **Every collection already in use is offered as a suggestion** (a shared
+  `<datalist>` built from the items themselves), so staff reuse a name rather
+  than coining "Shawl", "shawls" and "Shawl " as three different shelves.
+  Spacing is tidied on save for the same reason.
+- The feed forwards the name in her spelling instead of dropping anything
+  that was not `bawal`/`shawl`. Blank is still omitted — "absent means the
+  store keeps what it has" is the feed's oldest rule and is untouched.
+
+Verified: `tests/bridge-feed-guard.mjs` — the old "an unknown category is
+omitted" check is deliberately REVERSED, plus spacing-tidied and
+blank-omitted cases. Cross-system, the ELFIA rig proves a collection typed
+here reaches the shopfront and renames with it. registry-parity,
+sql-schema-check, csrf-guard, bm-coverage, compile gate, frontend `tsc` all
+PASS. **No migration** — `elfia_category` was already TEXT.
+
 ## [1.48.0] — 2026-08-25 — zoom, and a button that says NOW
 
 Two things the CEO asked for within minutes of each other, both about the

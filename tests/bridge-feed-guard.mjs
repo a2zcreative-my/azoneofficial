@@ -98,8 +98,18 @@ eq("blank sku dropped",
 eq("category travels when valid",
   serializeBridgeItems([{ sku: "SHWL001", name: "Shawl — Beige", stock: 4, bridge_enabled: 1, unit_price_cents: 5500, elfia_category: "shawl" }]),
   [{ sku: "SHWL001", stock: 4, name: "Shawl — Beige", price_cents: 5500, category: "shawl" }]);
-eq("an unknown category is omitted, not forwarded",
-  serializeBridgeItems([{ sku: "SHWL001", stock: 4, bridge_enabled: 1, elfia_category: "premium" }]),
+/* v1.49.0 — REVERSED on the CEO's instruction ("I should be able to add the
+   category in the portal"). Any name she types is now hers to use; the shop
+   groups by what arrives instead of splitting a range with a regex over the
+   product name. Only blank still means "say nothing". */
+eq("a collection she invented travels in her own spelling",
+  serializeBridgeItems([{ sku: "SHWL001", stock: 4, bridge_enabled: 1, elfia_category: "Bawal Printed" }]),
+  [{ sku: "SHWL001", stock: 4, category: "Bawal Printed" }]);
+eq("spacing is tidied and the name is capped, never refused",
+  serializeBridgeItems([{ sku: "SHWL001", stock: 4, bridge_enabled: 1, elfia_category: "  Raya   Exclusive  " }]),
+  [{ sku: "SHWL001", stock: 4, category: "Raya Exclusive" }]);
+eq("a blank collection is omitted — the store keeps what it has",
+  serializeBridgeItems([{ sku: "SHWL001", stock: 4, bridge_enabled: 1, elfia_category: "   " }]),
   [{ sku: "SHWL001", stock: 4 }]);
 
 /* 12. Description: trimmed, capped at the store's own 2000, and OMITTED when

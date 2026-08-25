@@ -1,22 +1,14 @@
--- 0089 — zoom, so a carousel photo can be pulled BACK (v1.48.0).
---
--- The CEO, 25-08-2026: "Instead of clickable, I want to zoom out at least I
--- can see the full instead of like this!!!"
---
--- 0088 gave her a click-to-aim point and a cover/contain switch. Aiming is
--- the wrong verb: what she wants is to pull the picture back until the whole
--- thing is in frame, and to stop anywhere in between. A switch cannot do
--- "in between" — a number can.
---
--- zoom: per cent, 100 = the WHOLE photo fits inside the shop's banner
--- (letterboxed, nothing cut off); above that the photo grows and the banner
--- crops it, so ~180 fills a 21:9 banner with a portrait photo. Applied as a
--- CSS transform on top of object-fit: contain, around the focus point, so
--- the file is never re-encoded and any amount of re-framing is free.
---
--- The old `fit` column stays and is kept CONSISTENT by the writer (zoom 100
--- writes 'contain', anything above writes 'cover') so an older store that
--- has not learned about zoom still shows something sensible rather than
--- ignoring her.
+-- 0089 ELFIA slide zoom (v1.48.0)
+-- One number replaces the crop/no-crop switch on a carousel slide.
+-- zoom is a per cent: 100 means the whole photo fits inside the shop banner
+-- with nothing cut off, and higher values grow it so the banner crops.
+-- Applied as a CSS transform on the store side, so the file is never
+-- re-encoded and re-framing costs nothing.
+-- The older fit column stays and is kept in step by the writer, so a store
+-- that has not learned about zoom still behaves sensibly.
+-- Full rationale lives in CHANGELOG.md 1.48.0. Keep migrations plain ASCII
+-- with no quotes or semicolons inside comments: the remote D1 API rejects
+-- some files with "SQL code did not contain a statement", and
+-- tests/migration-safety.mjs now enforces the rule.
 
 ALTER TABLE elfia_slides ADD COLUMN zoom INTEGER NOT NULL DEFAULT 100;

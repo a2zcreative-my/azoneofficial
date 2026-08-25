@@ -41,7 +41,11 @@ export interface BridgeItem {
   stock: number;
   price_cents?: number;
   /* v1.45.0 — per PORTAL-PHOTO-SYNC-HANDOFF.md on the store side. */
-  category?: "bawal" | "shawl";
+  /** v1.49.0 — the collection's NAME, as the portal spells it. Was a
+      two-value enum; the CEO names her own collections now and the shop
+      groups by whatever arrives. Omitted when blank — absent means "the
+      store keeps what it has", the feed's oldest rule. */
+  category?: string;
   description?: string;
   image_url?: string;
   image_updated_at?: string;
@@ -67,6 +71,10 @@ export interface SlideRow {
   focus_y?: number | null;
   fit?: string | null;
   zoom?: number | null;
+  cutout_key?: string | null;
+  cutout_updated_at?: string | null;
+  cutout_side?: string | null;
+  cutout_scale?: number | null;
 }
 
 export interface BridgeSlide {
@@ -86,6 +94,15 @@ export interface BridgeSlide {
   /** v1.48.0 — per cent. 100 = the whole photo fits in the banner, nothing
       cut off; higher grows it and the banner crops. Always sent. */
   zoom: number;
+  /* v1.50.0 — the cut-out that steps out of the banner. A PNG with a
+     transparent background, drawn over the slide and above its top edge.
+     All four are sent together or not at all: a URL without its marker
+     would be re-downloaded on every pull, and a marker without a URL says
+     nothing. Absent = the slide draws as it always has. */
+  cutout_url?: string;
+  cutout_updated_at?: string;
+  cutout_side?: "left" | "right";
+  cutout_scale?: number;
 }
 
 /* v1.48.0 — zoom per cent. Floor 100 ("the whole photo"), ceiling 300: past
@@ -123,6 +140,16 @@ export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): Bri
       fit: r.fit === "contain" ? "contain" : "cover",
       zoom: zoomPct(r.zoom),
     };
+    /* v1.50.0 — the cut-out, only when there is a real file AND a marker to
+       gate its download. */
+    if (typeof r.cutout_key === "string" && r.cutout_key !== ""
+        && typeof r.cutout_updated_at === "string" && r.cutout_updated_at !== "") {
+      s.cutout_url = `${base}/api/v1/media/file/${r.cutout_key}`;
+      s.cutout_updated_at = r.cutout_updated_at;
+      s.cutout_side = r.cutout_side === "left" ? "left" : "right";
+      const sc = Math.round(Number(r.cutout_scale));
+      s.cutout_scale = Number.isFinite(sc) ? Math.min(160, Math.max(100, sc)) : 118;
+    }
     if (typeof r.title === "string" && r.title.trim() !== "") s.title = r.title.trim().slice(0, 120);
     if (typeof r.subtitle === "string" && r.subtitle.trim() !== "") s.subtitle = r.subtitle.trim().slice(0, 200);
     out.push(s);
@@ -187,7 +214,10 @@ export function serializeBridgeItems(rows: BridgeRow[], mediaBase?: string): Bri
        typo, a future value an old worker does not know) is OMITTED rather
        than forwarded — the store refuses unknown categories, and a refused
        line is worse than a defaulted one. */
-    if (row.elfia_category === "bawal" || row.elfia_category === "shawl") item.category = row.elfia_category;
+    if (typeof row.elfia_category === "string") {
+      const cat = row.elfia_category.trim().replace(/\s+/g, " ").slice(0, 40);
+      if (cat !== "") item.category = cat;
+    }
     if (typeof row.elfia_description === "string" && row.elfia_description.trim() !== "") {
       item.description = row.elfia_description.trim().slice(0, 2000);
     }

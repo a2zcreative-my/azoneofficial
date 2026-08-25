@@ -10,8 +10,9 @@
    - the bridge's pulse (same /inventory/bridge-health the Inventory tab
      reads — is the store connected, when did it last report a sale);
    - every inventory item with its FULL ELFIA dressing: published or not,
-     web price, collection (bawal/shawl), description, and the product
-     photo — uploaded HERE once, not a second time in ELFIA's /admin.
+     web price, collection (any name she types), description, and the
+     product photo — uploaded HERE once, not a second time in ELFIA's
+     /admin.
 
    Where each fact lands, so this panel never lies about what a save means:
    - publish + web price → PATCH /inventory/:id/bridge   (v1.35.0, unchanged)
@@ -72,6 +73,11 @@ interface Slide { // v1.46.0 — one hero-carousel slide
   focus_y?: number | null;
   fit?: string | null;
   zoom?: number | null;   // v1.48.0 — 100 = whole photo visible
+  /* v1.50.0 — the cut-out model who steps out of the banner. */
+  cutout_key?: string | null;
+  cutout_updated_at?: string | null;
+  cutout_side?: string | null;
+  cutout_scale?: number | null;
 }
 
 interface BridgeHealth {
@@ -234,6 +240,36 @@ export function ElfiaStorePanel() {
             : L("The shop was already up to date", "Kedai memang sudah terkini"));
   };
 
+  /* v1.50.0 — the cut-out PNG. Deliberately NOT run through compressImage:
+     that helper draws onto a canvas and exports JPEG, which would flatten
+     the transparency this whole feature depends on and paint a white box
+     over the banner. It goes up exactly as she made it. */
+  const uploadCutout = async (file: File, slideId: number) => {
+    if (!/^image\/(png|webp)$/.test(file.type)) {
+      toast(L("Wrong kind of file", "Jenis fail salah"),
+        L("A cut-out must be a PNG (or WEBP) with a see-through background. A JPEG cannot be see-through and would show as a white box.",
+          "Potongan mesti PNG (atau WEBP) dengan latar lutsinar. JPEG tidak boleh lutsinar dan akan jadi kotak putih."), "notice");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast(L("Too big", "Terlalu besar"),
+        L("The cut-out is over 5 MB — please export it smaller.", "Potongan melebihi 5 MB — sila eksport lebih kecil."), "notice");
+      return;
+    }
+    setBusySlide(true);
+    const res = await csrfFetch(`/api/v1/staff/elfia/slides/${slideId}/cutout`, {
+      method: "POST", headers: { "Content-Type": file.type }, body: file,
+    });
+    setBusySlide(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      toast(L("Not uploaded", "Tidak dimuat naik"), j?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice");
+      return;
+    }
+    toast(L("Saved", "Disimpan"), L("the model now steps out of the banner", "model kini keluar dari sepanduk"));
+    void load();
+  };
+
   const patchSlide = async (id: number, patch: Record<string, unknown>, saved: string) => {
     const res = await api<{ error?: { message?: string } }>(`/elfia/slides/${id}`, {
       method: "PATCH", body: JSON.stringify(patch),
@@ -246,6 +282,15 @@ export function ElfiaStorePanel() {
   return (
     <div className="space-y-4 md:space-y-6">
       {toastNode}
+
+      {/* v1.49.0 — every collection name already in use, offered to every
+          Collection box below. Built from the items themselves, so it needs
+          no list to maintain and cannot go stale. */}
+      <datalist id="elfia-collections">
+        {[...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+          .map((c) => <option key={c} value={c} />)}
+      </datalist>
 
       {/* ---- the bridge's pulse + what this tab is ---- */}
       <div className={card}>
@@ -389,6 +434,17 @@ export function ElfiaStorePanel() {
                       transform: `scale(${zoomOf(sl) / 100})`,
                       transformOrigin: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
                     }} />
+                  {/* v1.50.0 — she is previewed INSIDE the box here, where
+                      the shop lets her rise above it. The box is a preview
+                      of the framing, not of the step-out; showing her
+                      overflowing a card in a list of cards would just look
+                      like a layout bug. */}
+                  {sl.cutout_key && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoUrl(sl.cutout_key)} alt="" draggable={false}
+                      className={`pointer-events-none absolute bottom-0 h-full w-auto max-w-[55%] object-contain object-bottom select-none ${
+                        sl.cutout_side === "left" ? "left-1" : "right-1"}`} />
+                  )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                   <label className="flex flex-1 items-center gap-2" style={{ minWidth: "12rem" }}>
@@ -416,6 +472,48 @@ export function ElfiaStorePanel() {
                     <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
                   </label>
+                </div>
+
+                {/* v1.50.0 — the model who steps OUT of the banner (CEO's
+                    reference: "the ladies 3D outside the carousel"). It is a
+                    second picture, so it gets its own row: upload, which end
+                    she stands at, and how far she rises above the card. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <label className={`${btnSm} cursor-pointer shrink-0`}>
+                    {sl.cutout_key ? L("Change model", "Tukar model") : L("+ Model cut-out", "+ Potongan model")}
+                    <input type="file" accept="image/png,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadCutout(f, sl.id); }} />
+                  </label>
+                  {!sl.cutout_key && (
+                    <span className="text-muted-foreground">
+                      {L("a PNG with no background", "PNG tanpa latar belakang")}
+                    </span>
+                  )}
+                  {sl.cutout_key && (
+                    <>
+                      <button type="button" className={btnSm}
+                        title={L("Which end she stands at — the words take the other end",
+                                 "Di hujung mana dia berdiri — teks mengambil hujung satu lagi")}
+                        onClick={() => void patchSlide(sl.id,
+                          { cutout_side: sl.cutout_side === "left" ? "right" : "left" },
+                          L("moved to the other side", "dipindah ke sebelah lain"))}>
+                        {sl.cutout_side === "left" ? L("◀ Left", "◀ Kiri") : L("Right ▶", "Kanan ▶")}
+                      </button>
+                      <label className="flex flex-1 items-center gap-2" style={{ minWidth: "10rem" }}>
+                        <span className="text-muted-foreground shrink-0">{L("Height", "Tinggi")}</span>
+                        <input type="range" min={100} max={160} step={2}
+                          defaultValue={Number(sl.cutout_scale) || 118}
+                          className="flex-1 accent-current"
+                          onChange={(e) => void patchSlide(sl.id, { cutout_scale: Number(e.target.value) },
+                            L("height saved", "tinggi disimpan"))} />
+                      </label>
+                      <button type="button" className="text-muted-foreground shrink-0 underline"
+                        onClick={() => void patchSlide(sl.id, { remove_cutout: true },
+                          L("model removed", "model dibuang"))}>
+                        {L("remove model", "buang model")}
+                      </button>
+                    </>
+                  )}
                 </div>
                 <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
                   placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
@@ -469,7 +567,6 @@ export function ElfiaStorePanel() {
         <div className="mt-3 space-y-2">
           {sorted.map((it) => {
             const on = (it.bridge_enabled ?? 0) === 1;
-            const cat = it.elfia_category === "shawl" ? "shawl" : it.elfia_category === "bawal" ? "bawal" : "";
             return (
               <div key={it.id}
                 className={`rounded-xl border p-3 transition-colors ${on ? "border-border bg-card" : "border-border/60 bg-secondary/30 opacity-80"}`}>
@@ -576,17 +673,31 @@ export function ElfiaStorePanel() {
                         );
                       })()}
 
+                      {/* v1.49.0 — the CEO: "how I want to add the Collection
+                          category!". It was a dropdown of two words, so there
+                          was no way to add one. It is a free text box now,
+                          with every collection already in use offered as a
+                          suggestion so staff reuse a name instead of coining
+                          "Shawl", "shawls" and "Shawl " as three shelves.
+                          Type a new one and the shop grows a shelf; clear it
+                          and the item falls back to Bawal. Saves on blur,
+                          same as the description. */}
                       <label className="flex items-center gap-1.5">
                         {L("Collection", "Koleksi")}
-                        <select className="border-input bg-background rounded border px-1.5 py-0.5"
-                          value={cat}
-                          title={L("Which ELFIA collection this item belongs to", "Koleksi ELFIA untuk barang ini")}
-                          onChange={(e) => void setElfia(it, { category: e.target.value },
-                            `${it.sku} — ${e.target.value === "shawl" ? L("Shawl collection", "koleksi Shawl") : e.target.value === "bawal" ? L("Bawal collection", "koleksi Bawal") : L("collection cleared (store defaults to Bawal)", "koleksi dikosongkan (kedai guna Bawal)")}`)}>
-                          <option value="">{L("— default (Bawal)", "— lalai (Bawal)")}</option>
-                          <option value="bawal">Bawal</option>
-                          <option value="shawl">Shawl</option>
-                        </select>
+                        <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5"
+                          list="elfia-collections"
+                          defaultValue={it.elfia_category ?? ""}
+                          maxLength={40}
+                          placeholder={L("Bawal", "Bawal")}
+                          title={L("Type any collection name — the shop makes a shelf for it. Empty = Bawal.",
+                                   "Taip apa-apa nama koleksi — kedai akan buat rak untuknya. Kosong = Bawal.")}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim().replace(/\s+/g, " ");
+                            if (v === (it.elfia_category ?? "")) return;
+                            void setElfia(it, { category: v },
+                              v === "" ? `${it.sku} — ${L("collection cleared (store defaults to Bawal)", "koleksi dikosongkan (kedai guna Bawal)")}`
+                                       : `${it.sku} — ${v}`);
+                          }} />
                       </label>
 
                       <span className="text-muted-foreground">
