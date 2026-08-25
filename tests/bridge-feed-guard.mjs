@@ -9,7 +9,7 @@
    from PORTAL-BRIDGE-SPEC.md.
 
    Run: node --experimental-strip-types tests/bridge-feed-guard.mjs */
-import { serializeBridgeItems, effectivePriceCents } from "../worker/src/bridge-feed.ts";
+import { serializeBridgeItems, serializeBridgeSlides, effectivePriceCents } from "../worker/src/bridge-feed.ts";
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -74,7 +74,9 @@ eq("pre-0075 fallback rows pass through without prices",
   }]);
   const allowed = new Set(["sku", "name", "stock", "price_cents",
     // v1.45.0 — the ELFIA tab's product dressing travels in the feed by design
-    "category", "description", "image_url", "image_updated_at"]);
+    "category", "description", "image_url", "image_updated_at",
+    // v1.46.0 — the pre-discount price, only when a discount bites
+    "list_price_cents"]);
   const leaked = items.flatMap((it) => Object.keys(it).filter((k) => !allowed.has(k)));
   eq("no key outside {sku,name,stock,price_cents}", leaked, []);
   eq("and the price sent is the explicit web price", items[0].price_cents, 3600);
@@ -138,6 +140,40 @@ eq("no mediaBase (caller cannot know its origin) sends no image_url",
 eq("a pre-0086 row is unchanged",
   serializeBridgeItems([{ sku: "LUMI003", name: "Lavender", stock: 8, bridge_enabled: 1, unit_price_cents: 4900 }], "https://a2zcreative.my"),
   [{ sku: "LUMI003", stock: 8, name: "Lavender", price_cents: 4900 }]);
+
+/* ---- v1.46.0 — discount + carousel (0087) ---- */
+
+/* 15. The discount: price_cents stays what the customer PAYS, and the
+       pre-discount number rides alongside ONLY when the discount bites. */
+eq("a discount nets the price and sends the list price",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, unit_price_cents: 3900, elfia_discount_cents: 300 }]),
+  [{ sku: "LUMI001", stock: 2, price_cents: 3600, list_price_cents: 3900 }]);
+eq("no discount → no list_price_cents key",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, unit_price_cents: 3900, elfia_discount_cents: 0 }]),
+  [{ sku: "LUMI001", stock: 2, price_cents: 3900 }]);
+eq("a discount that swallows the whole price is ignored",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, unit_price_cents: 3900, elfia_discount_cents: 3900 }]),
+  [{ sku: "LUMI001", stock: 2, price_cents: 3900 }]);
+eq("the discount applies to the EXPLICIT web price when one is set",
+  serializeBridgeItems([{ sku: "LUMI001", stock: 2, bridge_enabled: 1, unit_price_cents: 4900, elfia_price_cents: 3900, elfia_discount_cents: 300 }]),
+  [{ sku: "LUMI001", stock: 2, price_cents: 3600, list_price_cents: 3900 }]);
+
+/* 16. Slides: photo-first, sorted, inactive and photo-less rows dropped,
+       and no slides at all without an origin to build URLs on. */
+eq("slides serialize sorted with absolute URLs",
+  serializeBridgeSlides([
+    { id: 2, image_key: "uploads/elfia/slides/2-1.jpg", image_updated_at: "m2", title: " Raya drop ", sort: 200 },
+    { id: 1, image_key: "uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", subtitle: "First Sight, Forever Yours", sort: 100 },
+    { id: 3, image_key: "", image_updated_at: "m3", sort: 50 },
+    { id: 4, image_key: "uploads/elfia/slides/4-1.jpg", image_updated_at: "m4", sort: 10, active: 0 },
+  ], "https://a2zcreative.my"),
+  [
+    { id: 1, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 100, subtitle: "First Sight, Forever Yours" },
+    { id: 2, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/2-1.jpg", image_updated_at: "m2", sort: 200, title: "Raya drop" },
+  ]);
+eq("no origin → no slides (a slide IS its photo URL)",
+  serializeBridgeSlides([{ id: 1, image_key: "uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 1 }]),
+  []);
 
 if (failed) { console.error(`\n${failed} bridge-feed check(s) failed.`); process.exit(1); }
 console.log("\nbridge-feed-guard: all checks passed.");

@@ -51,6 +51,17 @@ interface ElfiaItem {
   elfia_description?: string | null;
   elfia_image_key?: string | null;
   elfia_image_updated_at?: string | null;
+  elfia_discount_cents?: number | null; // v1.46.0
+}
+
+interface Slide { // v1.46.0 — one hero-carousel slide
+  id: number;
+  image_key: string;
+  image_updated_at: string;
+  title?: string | null;
+  subtitle?: string | null;
+  sort: number;
+  active: number;
 }
 
 interface BridgeHealth {
@@ -70,6 +81,8 @@ const photoUrl = (key: string) => `/api/v1/media/file/${key}`;
 
 export function ElfiaStorePanel() {
   const [items, setItems] = useState<ElfiaItem[]>([]);
+  const [slides, setSlides] = useState<Slide[] | null>(null); // null = 0087 pending or loading
+  const [busySlide, setBusySlide] = useState(false);
   const [health, setHealth] = useState<BridgeHealth | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busyPhoto, setBusyPhoto] = useState<number | null>(null);
@@ -78,9 +91,10 @@ export function ElfiaStorePanel() {
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const load = useCallback(async () => {
-    const [i, bh] = await Promise.all([
+    const [i, bh, sl] = await Promise.all([
       api<{ items: ElfiaItem[] }>(`/inventory`),
       api<BridgeHealth>(`/inventory/bridge-health`),
+      api<{ slides: Slide[] }>(`/elfia/slides`),
     ]);
     if (i.data?.items) {
       setItems(i.data.items.map((x) => ({
@@ -94,6 +108,7 @@ export function ElfiaStorePanel() {
         ? (bh.data as BridgeHealth)
         : { unavailable: true, key_configured: false, applied_24h: 0, unknown_24h: 0, unknown: [] },
     );
+    setSlides(sl.ok && sl.data?.slides ? sl.data.slides : null);
     setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -150,6 +165,34 @@ export function ElfiaStorePanel() {
     }
   };
 
+  const uploadSlide = async (file: File, id?: number) => {
+    setBusySlide(true);
+    try {
+      const blob = await compressImage(file);
+      const res = await csrfFetch(`/api/v1/staff/elfia/slides${id ? `/${id}` : ""}/photo`, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || file.type || "image/jpeg" },
+        body: blob,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        toast(L("Not saved", "Tidak disimpan"), j?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice");
+        return;
+      }
+      toast(L("Slide saved", "Slaid disimpan"), L("the shop's carousel updates within 5 minutes", "karusel kedai dikemas kini dalam 5 minit"));
+      void load();
+    } finally { setBusySlide(false); }
+  };
+
+  const patchSlide = async (id: number, patch: Record<string, unknown>, saved: string) => {
+    const res = await api<{ error?: { message?: string } }>(`/elfia/slides/${id}`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    });
+    if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
+    toast(L("Saved", "Disimpan"), saved);
+    void load();
+  };
+
   return (
     <div className="space-y-4 md:space-y-6">
       {toastNode}
@@ -201,6 +244,80 @@ export function ElfiaStorePanel() {
             {L("published items without a photo show a plain placeholder in the shop.",
                "barang diterbitkan tanpa foto memaparkan pemegang tempat kosong di kedai.")}
           </p>
+        )}
+      </div>
+
+      {/* ---- the hero carousel (v1.46.0) ---- */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{L("Homepage carousel", "Karusel halaman utama")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("The big pictures at the top of the shop. The store mirrors this list exactly — remove a slide here and it leaves the shop; no slides at all and the shop shows its built-in campaign photos.",
+                 "Gambar besar di bahagian atas kedai. Kedai mencerminkan senarai ini — buang slaid di sini dan ia hilang dari kedai; tiada slaid langsung dan kedai memaparkan foto kempen terbina dalam.")}
+            </p>
+          </div>
+          <label className={`${btnSm} cursor-pointer`}>
+            {busySlide ? L("Uploading…", "Memuat naik…") : L("+ Add slide", "+ Tambah slaid")}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f); }} />
+          </label>
+        </div>
+
+        {slides === null && loaded && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("Migration 0087 has not reached the database yet — the carousel cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
+               "Migrasi 0087 belum sampai ke pangkalan data — karusel tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
+          </p>
+        )}
+        {slides !== null && slides.length === 0 && (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {L("No slides yet — the shop is showing its built-in campaign photos. Add one to take over.",
+               "Belum ada slaid — kedai memaparkan foto kempen terbina dalam. Tambah satu untuk mengambil alih.")}
+          </p>
+        )}
+        {slides !== null && slides.length > 0 && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {slides.map((sl, idx) => (
+              <div key={sl.id} className={`rounded-xl border p-2 ${sl.active === 1 ? "border-border" : "border-border/60 opacity-70"}`}>
+                <label className="bg-secondary block cursor-pointer overflow-hidden rounded-lg"
+                  title={L("Click to replace this slide's photo", "Klik untuk ganti foto slaid ini")}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoUrl(sl.image_key)} alt="" className="aspect-[21/9] w-full object-cover" />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
+                </label>
+                <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
+                  placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
+                <input className="border-input bg-background mt-1 w-full rounded border px-2 py-1 text-xs"
+                  placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} defaultValue={sl.subtitle ?? ""} maxLength={200}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.subtitle ?? "")) void patchSlide(sl.id, { subtitle: v }, L("caption saved", "kapsyen disimpan")); }} />
+                <div className="mt-1.5 flex items-center gap-2 text-xs">
+                  <button type="button" className={btnSm} disabled={idx === 0}
+                    title={L("Show earlier", "Papar lebih awal")}
+                    onClick={() => { const prev = slides[idx - 1]; if (prev) { void patchSlide(sl.id, { sort: prev.sort - 1 }, L("moved up", "dinaikkan")); } }}>
+                    ↑
+                  </button>
+                  <button type="button" className={btnSm} disabled={idx === slides.length - 1}
+                    title={L("Show later", "Papar kemudian")}
+                    onClick={() => { const nxt = slides[idx + 1]; if (nxt) { void patchSlide(sl.id, { sort: nxt.sort + 1 }, L("moved down", "diturunkan")); } }}>
+                    ↓
+                  </button>
+                  <label className="ml-1 flex items-center gap-1">
+                    <input type="checkbox" checked={sl.active === 1}
+                      onChange={(e) => void patchSlide(sl.id, { active: e.target.checked },
+                        e.target.checked ? L("slide shown", "slaid dipaparkan") : L("slide hidden (kept here)", "slaid disembunyikan (kekal di sini)"))} />
+                    {L("Show", "Papar")}
+                  </label>
+                  <button type="button" className="text-muted-foreground ml-auto underline"
+                    onClick={() => void patchSlide(sl.id, { remove: true }, L("slide removed — leaves the shop on the next sync", "slaid dibuang — hilang dari kedai pada penyegerakan seterusnya"))}>
+                    {L("remove", "buang")}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -292,6 +409,42 @@ export function ElfiaStorePanel() {
                                 : `${it.sku} — ${L("web price", "harga web")} RM ${rmBare(next)}`);
                           }} />
                       </label>
+
+                      <label className="flex items-center gap-1.5">
+                        {L("Discount RM", "Diskaun RM")}
+                        <input type="number" min={0} step="0.01"
+                          className="border-input bg-background w-16 rounded border px-1.5 py-0.5 text-right"
+                          placeholder="0"
+                          defaultValue={it.elfia_discount_cents ? rmBare(it.elfia_discount_cents) : ""}
+                          title={L("Web discount — the shop shows the old price struck through and charges price minus this. Empty = no discount.",
+                                    "Diskaun web — kedai memaparkan harga lama dipotong dan mencaj harga tolak jumlah ini. Kosong = tiada diskaun.")}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            const next = raw === "" ? null : Math.round(Number(raw) * 100);
+                            if (raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
+                              toast(L("Not saved", "Tidak disimpan"), L("Discount must be a positive RM amount — or empty to clear it", "Diskaun mesti amaun RM positif — atau kosong untuk membuangnya"), "notice");
+                              return;
+                            }
+                            if (next === (it.elfia_discount_cents ?? null)) return;
+                            void setElfia(it, { discount: raw === "" ? "" : Number(raw) },
+                              next === null
+                                ? `${it.sku} — ${L("discount cleared", "diskaun dibuang")}`
+                                : `${it.sku} — ${L("discount", "diskaun")} RM ${rmBare(next)}`);
+                          }} />
+                      </label>
+
+                      {(() => {
+                        const base = it.elfia_price_cents ?? it.unit_price_cents ?? 0;
+                        const disc = it.elfia_discount_cents ?? 0;
+                        if (!(disc > 0 && disc < base)) return null;
+                        return (
+                          <span className="font-medium text-emerald-700 dark:text-emerald-400"
+                            title={L("What the shop shows: old price struck through, this charged", "Apa yang kedai papar: harga lama dipotong, ini dicaj")}>
+                            {L("Customer pays", "Pelanggan bayar")} RM {rmBare(base - disc)}
+                            <s className="text-muted-foreground ml-1 font-normal">RM {rmBare(base)}</s>
+                          </span>
+                        );
+                      })()}
 
                       <label className="flex items-center gap-1.5">
                         {L("Collection", "Koleksi")}

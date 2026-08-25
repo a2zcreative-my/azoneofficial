@@ -31,6 +31,8 @@ export interface BridgeRow {
   elfia_description?: string | null;
   elfia_image_key?: string | null;
   elfia_image_updated_at?: string | null;
+  /* v1.46.0 (0087) — per-item web discount in sen. */
+  elfia_discount_cents?: number | null;
 }
 
 export interface BridgeItem {
@@ -43,6 +45,55 @@ export interface BridgeItem {
   description?: string;
   image_url?: string;
   image_updated_at?: string;
+  /* v1.46.0 — the pre-discount price, sent ONLY when a discount actually
+     bites, so the shop can draw "RM 39.00 → RM 36.00". price_cents stays
+     what the customer PAYS — the feed's oldest rule is untouched. */
+  list_price_cents?: number;
+}
+
+/* v1.46.0 — one hero slide of the ELFIA storefront carousel, authored in the
+   portal. The store REPLACES its slide set to match this list on every pull
+   (the one feed section where absence means delete — slides have no
+   store-side author to protect), so the portal's Remove really removes. */
+export interface SlideRow {
+  id: number;
+  image_key?: string | null;
+  image_updated_at?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  sort?: number | null;
+  active?: number | null;
+}
+
+export interface BridgeSlide {
+  id: number;
+  image_url: string;
+  image_updated_at: string;
+  title?: string;
+  subtitle?: string;
+  sort: number;
+}
+
+export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): BridgeSlide[] {
+  const base = typeof mediaBase === "string" ? mediaBase.replace(/\/+$/, "") : "";
+  const out: BridgeSlide[] = [];
+  if (!base) return out; // a slide IS its photo — no origin, no slide
+  for (const r of rows) {
+    if (!r || !Number.isInteger(r.id)) continue;
+    if (r.active !== undefined && r.active !== null && r.active !== 1) continue;
+    if (typeof r.image_key !== "string" || r.image_key === "") continue;
+    if (typeof r.image_updated_at !== "string" || r.image_updated_at === "") continue;
+    const s: BridgeSlide = {
+      id: r.id,
+      image_url: `${base}/api/v1/media/file/${r.image_key}`,
+      image_updated_at: r.image_updated_at,
+      sort: Number.isFinite(Number(r.sort)) ? Number(r.sort) : 100,
+    };
+    if (typeof r.title === "string" && r.title.trim() !== "") s.title = r.title.trim().slice(0, 120);
+    if (typeof r.subtitle === "string" && r.subtitle.trim() !== "") s.subtitle = r.subtitle.trim().slice(0, 200);
+    out.push(s);
+  }
+  return out.sort((a, b) => a.sort - b.sort || a.id - b.id);
 }
 
 /** The price the shop must charge, in sen — or null for "send no price". */
@@ -83,7 +134,21 @@ export function serializeBridgeItems(rows: BridgeRow[], mediaBase?: string): Bri
     const item: BridgeItem = { sku: row.sku, stock };
     if (typeof row.name === "string" && row.name !== "") item.name = row.name;
     const price = effectivePriceCents(row);
-    if (price !== null) item.price_cents = price;
+    if (price !== null) {
+      /* v1.46.0 — the discount. price_cents remains what the customer PAYS
+         (the store applies it to the price tag verbatim), so the discount is
+         subtracted HERE and the pre-discount number rides alongside as
+         list_price_cents — only when the discount actually bites. A discount
+         that would take the price to zero or below is ignored rather than
+         shipping a free or refused product. */
+      const disc = row.elfia_discount_cents;
+      if (typeof disc === "number" && Number.isInteger(disc) && disc > 0 && disc < price) {
+        item.price_cents = price - disc;
+        item.list_price_cents = price;
+      } else {
+        item.price_cents = price;
+      }
+    }
     /* Only the two collections the store has. Anything else stored here (a
        typo, a future value an old worker does not know) is OMITTED rather
        than forwarded — the store refuses unknown categories, and a refused

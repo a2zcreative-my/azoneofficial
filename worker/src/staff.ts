@@ -5938,9 +5938,10 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const hasCategory = body?.category !== undefined;
     const hasDescription = body?.description !== undefined;
+    const hasDiscount = body?.discount !== undefined; // v1.46.0 — RM, "" clears
     const removePhoto = body?.remove_photo === true;
-    if (!hasCategory && !hasDescription && !removePhoto) {
-      return err("invalid_input", "Provide category, description and/or remove_photo", 400);
+    if (!hasCategory && !hasDescription && !hasDiscount && !removePhoto) {
+      return err("invalid_input", "Provide category, description, discount and/or remove_photo", 400);
     }
     /* Only the two collections the ELFIA store has. "" clears the choice
        back to the store's default (bawal). */
@@ -5961,12 +5962,34 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (d.length > 2000) return err("invalid_input", "Description is longer than 2000 characters", 400);
       description = d === "" ? null : d;
     }
+    /* v1.46.0 — the web discount, in RM (stored in sen). The feed subtracts
+       it from the web price and sends the pre-discount number alongside, so
+       the shop shows "RM 39.00 → RM 36.00". Empty clears it. A discount is
+       validated against the CURRENT web price here, at save time, so a typo
+       (discount ≥ price) is caught by the person who made it instead of
+       silently ignored by the serializer later. */
+    let discountC: number | null = null;
+    if (hasDiscount && body!.discount !== null && `${body!.discount}` !== "") {
+      const v = Number(body!.discount);
+      if (!Number.isFinite(v) || v <= 0) {
+        return err("invalid_input", "Discount must be a positive RM amount — or empty to clear it", 400);
+      }
+      discountC = Math.round(v * 100);
+      const rowP = await env.DB.prepare(
+        `SELECT unit_price_cents, elfia_price_cents FROM inventory_items WHERE id = ?1`,
+      ).bind(invElfia[1]).first<{ unit_price_cents: number | null; elfia_price_cents: number | null }>();
+      const base = rowP?.elfia_price_cents ?? rowP?.unit_price_cents ?? 0;
+      if (base > 0 && discountC >= base) {
+        return err("invalid_input", `Discount must be smaller than the web price (RM ${(base / 100).toFixed(2)})`, 400);
+      }
+    }
     try {
       const sets: string[] = [];
       const vals: (string | number | null)[] = [];
       const push = (col: string, val: string | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(val); };
       if (hasCategory) push("elfia_category", category);
       if (hasDescription) push("elfia_description", description);
+      if (hasDiscount) push("elfia_discount_cents", discountC === null ? null : String(discountC));
       if (removePhoto) { push("elfia_image_key", null); push("elfia_image_updated_at", null); }
       await env.DB.prepare(
         `UPDATE inventory_items SET ${sets.join(", ")}, updated_by = ?${sets.length + 1}, updated_at = datetime('now')
@@ -5981,6 +6004,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     await audit(env, user.id, "inventory.elfia", "inventory_items", invElfia[1], {
       ...(hasCategory ? { category } : {}),
       ...(hasDescription ? { description_len: description?.length ?? 0 } : {}),
+      ...(hasDiscount ? { discount_cents: discountC } : {}),
       ...(removePhoto ? { remove_photo: 1 } : {}),
     });
     return json({ ok: true });
@@ -6032,6 +6056,101 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
     await audit(env, user.id, "inventory.elfia_photo", "inventory_items", String(item.id), { key });
     return json({ image_key: key, url: `/api/v1/media/file/${key}` }, 201);
+  }
+
+  /* ==== v1.46.0 — the ELFIA storefront carousel, authored here ====
+     The portal is the slides' ONLY owner: the store replaces its set to
+     match feed A on every pull, so Remove here really removes on the shop.
+     A slide is born from its photo (the photo IS the slide); captions and
+     order come after. Photos live under uploads/elfia/slides/ — the public
+     media prefix, same reasoning as product photos. */
+  if (path === "/elfia/slides" && method === "GET") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
+         FROM elfia_slides ORDER BY sort, id`,
+      ).all();
+      return json({ slides: results });
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0087, ELFIA discount + carousel)", 500);
+    }
+  }
+  /* One binary route covers create AND replace: /elfia/slides/photo makes a
+     new slide from the body; /elfia/slides/:id/photo re-shoots an existing
+     one (and moves its marker, so the store re-downloads exactly once). */
+  const slidePhoto = path.match(/^\/elfia\/slides(?:\/(\d+))?\/photo$/);
+  if (slidePhoto && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const ext = ct === "image/jpeg" ? "jpg" : ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : null;
+    if (!ext) return err("invalid_input", "Only JPEG, PNG or WEBP — the ELFIA store refuses anything else", 400);
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return err("invalid_input", "The image was empty", 400);
+    if (bytes.byteLength > 5 * 1024 * 1024) {
+      return err("too_large", `The image is ${(bytes.byteLength / 1048576).toFixed(1)} MB — the ELFIA store's limit is 5 MB. Compress it and try again.`, 400);
+    }
+    const marker = new Date().toISOString();
+    try {
+      if (slidePhoto[1]) {
+        const row = await env.DB.prepare(`SELECT id FROM elfia_slides WHERE id = ?1`).bind(slidePhoto[1]).first();
+        if (!row) return err("not_found", "Slide not found", 404);
+        const key = `uploads/elfia/slides/${slidePhoto[1]}-${Date.now()}.${ext}`;
+        await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+        await env.DB.prepare(
+          `UPDATE elfia_slides SET image_key = ?1, image_updated_at = ?2, updated_at = datetime('now') WHERE id = ?3`,
+        ).bind(key, marker, slidePhoto[1]).run();
+        await audit(env, user.id, "elfia.slide_photo", "elfia_slides", slidePhoto[1], { key });
+        return json({ id: Number(slidePhoto[1]), image_key: key, url: `/api/v1/media/file/${key}` });
+      }
+      /* create: two steps because the key carries the id. The placeholder
+         row is never visible anywhere — the very next statement fills it. */
+      const created = await env.DB.prepare(
+        `INSERT INTO elfia_slides (image_key, image_updated_at, sort, active, created_by)
+         VALUES ('', ?1, COALESCE((SELECT MAX(sort) + 10 FROM elfia_slides), 100), 1, ?2) RETURNING id`,
+      ).bind(marker, user.id).first<{ id: number }>();
+      if (!created) return err("server_error", "Could not create the slide", 500);
+      const key = `uploads/elfia/slides/${created.id}-${Date.now()}.${ext}`;
+      await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+      await env.DB.prepare(`UPDATE elfia_slides SET image_key = ?1 WHERE id = ?2`).bind(key, created.id).run();
+      await audit(env, user.id, "elfia.slide_create", "elfia_slides", String(created.id), { key });
+      return json({ id: created.id, image_key: key, url: `/api/v1/media/file/${key}` }, 201);
+    } catch (e) {
+      if (String(e).includes("no such table")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0087, ELFIA discount + carousel)", 500);
+      }
+      throw e;
+    }
+  }
+  const slideEdit = path.match(/^\/elfia\/slides\/(\d+)$/);
+  if (slideEdit && method === "PATCH") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    try {
+      if (body?.remove === true) {
+        await env.DB.prepare(`DELETE FROM elfia_slides WHERE id = ?1`).bind(slideEdit[1]).run();
+        await audit(env, user.id, "elfia.slide_remove", "elfia_slides", slideEdit[1]);
+        return json({ ok: true });
+      }
+      const sets: string[] = [];
+      const vals: (string | number | null)[] = [];
+      const push = (col: string, val: string | number | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(val); };
+      if (body?.title !== undefined) push("title", String(body.title ?? "").trim().slice(0, 120) || null);
+      if (body?.subtitle !== undefined) push("subtitle", String(body.subtitle ?? "").trim().slice(0, 200) || null);
+      if (body?.sort !== undefined && Number.isFinite(Number(body.sort))) push("sort", Math.round(Number(body.sort)));
+      if (body?.active !== undefined) push("active", body.active ? 1 : 0);
+      if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
+      await env.DB.prepare(
+        `UPDATE elfia_slides SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?${sets.length + 1}`,
+      ).bind(...vals, slideEdit[1]).run();
+      await audit(env, user.id, "elfia.slide_update", "elfia_slides", slideEdit[1]);
+      return json({ ok: true });
+    } catch (e) {
+      if (String(e).includes("no such table")) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0087, ELFIA discount + carousel)", 500);
+      }
+      throw e;
+    }
   }
 
   /* v1.36.0: the bridge's pulse for the Inventory tab — last movement in,

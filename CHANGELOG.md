@@ -2,6 +2,37 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.46.0] — 2026-08-25 — the discount and the carousel, one finger tips
+
+The CEO: "there is a discount for me to update in the portal … I also want to
+add for the collection photo which is to make the photo of the carousel
+gallery … to make my staff easier to update all in one finger tips in the
+portal." Two additions to the ELFIA Store tab (migration **0087**):
+
+- **Web discount** (`inventory_items.elfia_discount_cents`): a per-item RM
+  amount next to the web price. The feed keeps its standing contract —
+  `price_cents` is what the customer PAYS — so the serializer sends net =
+  price − discount and adds `list_price_cents` (the pre-discount number) so
+  the shop can draw "RM 39.00 struck → RM 36.00" with a SALE badge. A
+  discount that swallows the whole price is refused at save time with a
+  plain-words error; 0/empty clears it. The tab previews exactly what the
+  customer will pay before you leave the field.
+- **Homepage carousel** (`elfia_slides`): staff upload the collection/campaign
+  photos that become the ELFIA home page hero — captions (two lines), ↑↓
+  order, Show/hide, Remove. The portal is the ONLY owner of this set: the
+  store replaces its copy to match the feed on every pull, so Remove here
+  really removes on the shop (photo downloads stay marker-gated). Slide
+  routes live with the inventory routes; photos under `uploads/elfia/slides/`
+  (the public media prefix, same as product photos).
+
+Verified: `tests/bridge-feed-guard.mjs` grew to 16 checks (discount nets and
+carries the list price only when it bites; swallowing discounts ignored;
+slides sorted, absolute URLs, inactive/photo-less dropped). Cross-system: the
+ELFIA repo's cross-worker e2e (35 assertions, both real workers) proves the
+discount and a slide land on the actual shopfront and clear again.
+sql-schema-check 722 queries, registry-parity, csrf-guard, bm-coverage all
+PASS. **Deploy applies 0087.**
+
 ## [1.45.0] — 2026-08-25 — the ELFIA tab: photo, description, product — from the portal
 
 The CEO, from the ELFIA store chat: "the portal not supposed at Elfia!! it is

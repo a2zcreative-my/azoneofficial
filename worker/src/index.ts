@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
-import { serializeBridgeItems, type BridgeRow } from "./bridge-feed";
+import { serializeBridgeItems, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
@@ -249,7 +249,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0086_elfia_product_fields";
+const LATEST_MIGRATION = "0087_elfia_discount_slides";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1564,7 +1564,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
          to dress it. */
       const { results } = await env.DB.prepare(
         `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
-                elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at
+                elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at,
+                elfia_discount_cents
          FROM inventory_items WHERE bridge_enabled = 1
          ORDER BY sku LIMIT 1000`,
       ).all();
@@ -1592,8 +1593,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* Photo URLs are built on THIS request's own origin — production serves
        production URLs, the local test rig serves localhost ones, and no
        domain ever enters a committed file. */
-    const items = serializeBridgeItems(rows, new URL(request.url).origin);
-    return json({ items, as_of: new Date().toISOString(), count: items.length });
+    const origin = new URL(request.url).origin;
+    const items = serializeBridgeItems(rows, origin);
+    /* v1.46.0 — the hero carousel, authored in the portal's ELFIA tab. The
+       store replaces its slide set to match this list (slides are wholly
+       portal-owned); pre-0087 the table is absent and the key is simply
+       omitted, which the store reads as "keep doing what you do". */
+    let slides: ReturnType<typeof serializeBridgeSlides> | undefined;
+    try {
+      const { results: slideRows } = await env.DB.prepare(
+        `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
+         FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
+      ).all();
+      slides = serializeBridgeSlides(slideRows as unknown as SlideRow[], origin);
+    } catch { /* 0087 pending */ }
+    return json({ items, ...(slides !== undefined ? { slides } : {}), as_of: new Date().toISOString(), count: items.length });
   }
 
   /* v1.36.0 (feed B): the store reports every web sale as a signed movement
@@ -2944,6 +2958,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
       ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
       ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
+      ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3044,6 +3059,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0084_elfia_traffic",
       "0085_web_order_consent",
       "0086_elfia_product_fields",
+      "0087_elfia_discount_slides",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
