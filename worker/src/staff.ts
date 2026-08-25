@@ -6064,6 +6064,35 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      A slide is born from its photo (the photo IS the slide); captions and
      order come after. Photos live under uploads/elfia/slides/ — the public
      media prefix, same reasoning as product photos. */
+  /* v1.48.0 — "still the discount is not live update!!!!"
+     The store refreshes on its own schedule, so a price changed here lands
+     there on the next tick. Correct, and it still felt broken because there
+     was no way to say NOW from this tab. This asks the store to sync
+     immediately, with the shared bridge key — the same key the feed already
+     uses, no admin key, no new secret. */
+  if (path === "/elfia/sync-now" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const base = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
+    if (!base || !env.ELFIA_BRIDGE_KEY) {
+      return err("not_configured", "The store's address or bridge key is not set on this worker yet — the shop still updates by itself every minute.", 501);
+    }
+    try {
+      const r = await fetch(`${base}/api/v1/bridge/sync-now`, {
+        method: "POST",
+        headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const body = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!r.ok) {
+        return err("store_refused", `The shop answered ${r.status} — it may still be publishing. It updates by itself every minute anyway.`, 502);
+      }
+      await audit(env, user.id, "elfia.sync_now", "inventory_items", null, body ?? {});
+      return json({ ok: true, ...(body ?? {}) });
+    } catch {
+      return err("store_unreachable", "Could not reach the shop just now. It updates by itself every minute.", 502);
+    }
+  }
+
   if (path === "/elfia/slides" && method === "GET") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
@@ -6072,7 +6101,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       let results: Record<string, unknown>[];
       try {
         results = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom
            FROM elfia_slides ORDER BY sort, id`,
         ).all()).results;
       } catch {
@@ -6160,6 +6189,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         push("focus_y", Math.min(100, Math.max(0, Math.round(Number(body.focus_y)))));
       }
       if (body?.fit !== undefined) push("fit", body.fit === "contain" ? "contain" : "cover");
+      /* v1.48.0 — zoom, the CEO's actual ask ("I want to zoom out at least I
+         can see the full"). 100 = the whole photo inside the banner; higher
+         grows it and the banner crops. `fit` is kept in step so an older
+         store that only understands the switch still behaves sensibly. */
+      if (body?.zoom !== undefined && Number.isFinite(Number(body.zoom))) {
+        const z = Math.min(300, Math.max(100, Math.round(Number(body.zoom))));
+        push("zoom", z);
+        if (body?.fit === undefined) push("fit", z <= 100 ? "contain" : "cover");
+      }
       if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
       await env.DB.prepare(
         `UPDATE elfia_slides SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?${sets.length + 1}`,

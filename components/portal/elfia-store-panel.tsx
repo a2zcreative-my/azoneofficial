@@ -71,6 +71,7 @@ interface Slide { // v1.46.0 — one hero-carousel slide
   focus_x?: number | null;
   focus_y?: number | null;
   fit?: string | null;
+  zoom?: number | null;   // v1.48.0 — 100 = whole photo visible
 }
 
 interface BridgeHealth {
@@ -97,10 +98,21 @@ const focusOf = (sl: Slide): { x: number; y: number } => ({
 });
 const fitOf = (sl: Slide): "cover" | "contain" => (sl.fit === "contain" ? "contain" : "cover");
 
+/* v1.48.0 — zoom per cent. A slide saved before 0089 has no zoom; the honest
+   reading of the old switch is "contain meant pulled all the way back, cover
+   meant filled", and 160 is about what fills a 21:9 banner with the portrait
+   shots this shop uses. */
+const zoomOf = (sl: Slide): number => {
+  const z = Math.round(Number(sl.zoom));
+  if (Number.isFinite(z) && z >= 100) return Math.min(300, z);
+  return fitOf(sl) === "contain" ? 100 : 160;
+};
+
 export function ElfiaStorePanel() {
   const [items, setItems] = useState<ElfiaItem[]>([]);
   const [slides, setSlides] = useState<Slide[] | null>(null); // null = 0087 pending or loading
   const [busySlide, setBusySlide] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [health, setHealth] = useState<BridgeHealth | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busyPhoto, setBusyPhoto] = useState<number | null>(null);
@@ -202,6 +214,26 @@ export function ElfiaStorePanel() {
     } finally { setBusySlide(false); }
   };
 
+  /* v1.48.0 — ask the shop to pull everything on this tab right now instead
+     of waiting for its own schedule. Failure is never dramatic: the shop
+     updates by itself anyway, and the message says so. */
+  const syncShopNow = async () => {
+    setSyncing(true);
+    const res = await api<{ updated?: number; prices?: number; created?: number; error?: { message?: string } }>(
+      `/elfia/sync-now`, { method: "POST", body: "{}" });
+    setSyncing(false);
+    if (!res.ok) {
+      toast(L("Not updated", "Tidak dikemas kini"),
+        res.data?.error?.message ?? L("The shop could not be reached. It updates by itself every minute.",
+                                      "Kedai tidak dapat dihubungi. Ia mengemas kini sendiri setiap minit."), "notice");
+      return;
+    }
+    const n = (res.data?.prices ?? 0) + (res.data?.updated ?? 0) + (res.data?.created ?? 0);
+    toast(L("Shop updated", "Kedai dikemas kini"),
+      n > 0 ? L(`${n} change${n === 1 ? "" : "s"} are live now`, `${n} perubahan kini disiarkan`)
+            : L("The shop was already up to date", "Kedai memang sudah terkini"));
+  };
+
   const patchSlide = async (id: number, patch: Record<string, unknown>, saved: string) => {
     const res = await api<{ error?: { message?: string } }>(`/elfia/slides/${id}`, {
       method: "PATCH", body: JSON.stringify(patch),
@@ -219,6 +251,13 @@ export function ElfiaStorePanel() {
       <div className={card}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <span className="font-semibold">{L("ELFIA web store", "Kedai web ELFIA")}</span>
+          {/* v1.48.0 — "still the discount is not live update!!!!". The shop
+              refreshes itself every minute; this is for the moment you have
+              just typed a price and want to look at the shop NOW. */}
+          <button type="button" className={btnSm} disabled={syncing}
+            onClick={() => void syncShopNow()}>
+            {syncing ? L("Updating the shop…", "Mengemas kini kedai…") : L("Update the shop now", "Kemas kini kedai sekarang")}
+          </button>
           {health?.unavailable && (
             <span className="text-muted-foreground">
               {L("Bridge status unavailable — deploy azoneofficial-api, then reload.",
@@ -249,8 +288,8 @@ export function ElfiaStorePanel() {
               store's own admin. That step is gone (store v1.8.0): ticking
               Publish HERE is the decision, and the old wording had people
               waiting for a screen that never needed visiting. */}
-          {L("Everything on this tab reaches the store on its 5-minute sync: counts, prices, collection, description and photo. Ticking Publish is what puts a product in the shop — a SKU the store has never had is created there and goes live on the next sync. Un-tick it and it leaves the shop.",
-             "Semua pada tab ini sampai ke kedai pada penyegerakan 5 minit: kiraan, harga, koleksi, penerangan dan foto. Menanda Publish di sinilah yang meletakkan produk dalam kedai — SKU yang belum ada di kedai akan dicipta dan terus dipaparkan pada penyegerakan berikutnya. Buang tanda itu dan ia hilang dari kedai.")}
+          {L("Everything on this tab reaches the store within about a minute: counts, prices, discounts, collection, description and photo. Ticking Publish is what puts a product in the shop — a SKU the store has never had is created there and goes live. Un-tick it and it leaves the shop. In a hurry? Press \u201cUpdate the shop now\u201d.",
+             "Semua pada tab ini sampai ke kedai dalam kira-kira seminit: kiraan, harga, diskaun, koleksi, penerangan dan foto. Menanda Publish di sinilah yang meletakkan produk dalam kedai — SKU yang belum ada di kedai akan dicipta dan terus dipaparkan. Buang tanda itu dan ia hilang dari kedai. Tergesa-gesa? Tekan \u201cKemas kini kedai sekarang\u201d.")}
         </p>
         {migrationPending && (
           <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -302,52 +341,81 @@ export function ElfiaStorePanel() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {slides.map((sl, idx) => (
               <div key={sl.id} className={`rounded-xl border p-2 ${sl.active === 1 ? "border-border" : "border-border/60 opacity-70"}`}>
-                {/* v1.47.0 — this box is a TRUE PREVIEW: same 21:9 shape and
-                    same framing rules the shop uses, so what is seen here is
-                    what a customer sees. Clicking it sets the focus point
-                    (the CEO: "I want to adjustable the photo so that I can
-                    focus on what I want"); replacing the photo moved to its
-                    own button below, because a click now means "focus here". */}
-                <div className="bg-secondary relative cursor-crosshair overflow-hidden rounded-lg"
-                  title={L("Click the part of the photo that must always be visible",
-                           "Klik bahagian foto yang mesti sentiasa kelihatan")}
-                  onClick={(e) => {
-                    if (fitOf(sl) === "contain") return; // nothing is cropped, so nothing to aim
-                    const r = e.currentTarget.getBoundingClientRect();
+                {/* v1.48.0 — the CEO: "Instead of clickable, I want to zoom
+                    out at least I can see the full instead of like this!!!"
+                    So the control is a ZOOM SLIDER, not a click target: at
+                    100 the whole photo sits inside the shop's banner with
+                    nothing cut off, and sliding right grows it until it
+                    fills. The box is the shop's exact 21:9 shape and uses
+                    the shop's exact rule, so this IS the preview. Dragging
+                    inside it moves the photo when it is zoomed in far enough
+                    to be cropped. */}
+                <div className={`bg-secondary relative overflow-hidden rounded-lg ${zoomOf(sl) > 100 ? "cursor-move" : ""}`}
+                  title={zoomOf(sl) > 100
+                    ? L("Drag to move the photo", "Seret untuk gerakkan foto")
+                    : L("The whole photo is showing", "Keseluruhan foto dipaparkan")}
+                  onPointerDown={(e) => {
+                    if (zoomOf(sl) <= 100) return;   // nothing is cropped, nothing to move
+                    const box = e.currentTarget;
+                    const r = box.getBoundingClientRect();
                     if (r.width === 0 || r.height === 0) return;
-                    const x = Math.round(((e.clientX - r.left) / r.width) * 100);
-                    const y = Math.round(((e.clientY - r.top) / r.height) * 100);
-                    void patchSlide(sl.id, { focus_x: x, focus_y: y }, L("framing saved", "bingkai disimpan"));
+                    const start = { x: e.clientX, y: e.clientY, fx: focusOf(sl).x, fy: focusOf(sl).y };
+                    let last = { x: start.fx, y: start.fy };
+                    box.setPointerCapture(e.pointerId);
+                    const move = (ev: PointerEvent) => {
+                      /* Dragging right should move the PHOTO right, which
+                         means looking further left — hence the minus. */
+                      const nx = Math.min(100, Math.max(0, Math.round(start.fx - ((ev.clientX - start.x) / r.width) * 100)));
+                      const ny = Math.min(100, Math.max(0, Math.round(start.fy - ((ev.clientY - start.y) / r.height) * 100)));
+                      last = { x: nx, y: ny };
+                      const img = box.querySelector("img");
+                      if (img) img.style.objectPosition = `${nx}% ${ny}%`;
+                    };
+                    const up = () => {
+                      box.removeEventListener("pointermove", move);
+                      box.removeEventListener("pointerup", up);
+                      if (last.x !== start.fx || last.y !== start.fy) {
+                        void patchSlide(sl.id, { focus_x: last.x, focus_y: last.y }, L("photo moved", "foto digerakkan"));
+                      }
+                    };
+                    box.addEventListener("pointermove", move);
+                    box.addEventListener("pointerup", up);
                   }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photoUrl(sl.image_key)} alt=""
-                    className={`aspect-[21/9] w-full ${fitOf(sl) === "contain" ? "object-contain" : "object-cover"}`}
-                    style={{ objectPosition: `${focusOf(sl).x}% ${focusOf(sl).y}%` }} />
-                  {fitOf(sl) !== "contain" && (
-                    <span aria-hidden
-                      className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/30 shadow"
-                      style={{ left: `${focusOf(sl).x}%`, top: `${focusOf(sl).y}%` }} />
-                  )}
+                  <img src={photoUrl(sl.image_key)} alt="" draggable={false}
+                    className="aspect-[21/9] w-full object-contain select-none"
+                    style={{
+                      objectPosition: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
+                      transform: `scale(${zoomOf(sl) / 100})`,
+                      transformOrigin: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
+                    }} />
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                  <label className={`${btnSm} cursor-pointer`}>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <label className="flex flex-1 items-center gap-2" style={{ minWidth: "12rem" }}>
+                    <span className="text-muted-foreground shrink-0">{L("Zoom", "Zum")}</span>
+                    <input type="range" min={100} max={300} step={5} defaultValue={zoomOf(sl)}
+                      className="flex-1 accent-current"
+                      onInput={(e) => {
+                        /* Live preview while dragging; only the release is saved. */
+                        const z = Number((e.target as HTMLInputElement).value);
+                        const img = (e.currentTarget.closest("div")?.parentElement?.querySelector("img")) as HTMLImageElement | null;
+                        if (img) img.style.transform = `scale(${z / 100})`;
+                      }}
+                      onChange={(e) => void patchSlide(sl.id, { zoom: Number(e.target.value) },
+                        Number(e.target.value) <= 100
+                          ? L("showing the whole photo", "memaparkan keseluruhan foto")
+                          : L("zoom saved", "zum disimpan"))} />
+                  </label>
+                  <span className="text-muted-foreground shrink-0">
+                    {zoomOf(sl) <= 100
+                      ? L("whole photo", "foto penuh")
+                      : L("drag the photo to move it", "seret foto untuk gerakkannya")}
+                  </span>
+                  <label className={`${btnSm} cursor-pointer shrink-0`}>
                     {L("Change photo", "Tukar foto")}
                     <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
                   </label>
-                  <label className="flex items-center gap-1"
-                    title={L("Show the whole photo instead of filling the banner", "Papar keseluruhan foto dan bukan memenuhi sepanduk")}>
-                    <input type="checkbox" checked={fitOf(sl) === "contain"}
-                      onChange={(e) => void patchSlide(sl.id, { fit: e.target.checked ? "contain" : "cover" },
-                        e.target.checked ? L("showing the whole photo", "memaparkan keseluruhan foto")
-                                         : L("filling the banner", "memenuhi sepanduk"))} />
-                    {L("Whole photo", "Foto penuh")}
-                  </label>
-                  {fitOf(sl) !== "contain" && (
-                    <span className="text-muted-foreground">
-                      {L("click the photo to aim", "klik foto untuk halakan")}
-                    </span>
-                  )}
                 </div>
                 <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
                   placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}

@@ -48,6 +48,11 @@ ALLOWED_ORIGIN     = "https://a2zcreative.my"
 # The legacy single-value ALLOWED_ORIGIN above is kept in step with it so an
 # older Worker build can never fall back to a domain we no longer serve.
 ALLOWED_ORIGINS    = "https://a2zcreative.my"
+# v1.48.0 — the ELFIA store's public origin. NOT a secret and NOT an access
+# grant: it is only the address the ELFIA tab's "Update the shop now" button
+# posts to (with the shared bridge key), so the CEO can stop waiting for the
+# next scheduled sync. No key here, no CORS grant, nothing else reads it.
+ELFIA_STORE_URL    = "https://elfiaofficialstore.my"
 # v1.29.3 — three brands, three websites, ONE back office. The consultancy
 # site (azoneofficial.com, AZ ONE OFFICIAL — a separate legal entity) may
 # submit its contact form into the portal's Enquiries tab and NOTHING else:

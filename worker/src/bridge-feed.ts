@@ -66,6 +66,7 @@ export interface SlideRow {
   focus_x?: number | null;
   focus_y?: number | null;
   fit?: string | null;
+  zoom?: number | null;
 }
 
 export interface BridgeSlide {
@@ -82,7 +83,19 @@ export interface BridgeSlide {
   focus_x: number;
   focus_y: number;
   fit: "cover" | "contain";
+  /** v1.48.0 — per cent. 100 = the whole photo fits in the banner, nothing
+      cut off; higher grows it and the banner crops. Always sent. */
+  zoom: number;
 }
+
+/* v1.48.0 — zoom per cent. Floor 100 ("the whole photo"), ceiling 300: past
+   that a banner photo is a pixel soup and the number is almost certainly a
+   mistake. Anything unusable becomes 100, which shows everything. */
+const zoomPct = (v: unknown): number => {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(300, Math.max(100, n));
+};
 
 /** 0-100, integer, anything unusable becomes the middle. */
 const pct = (v: unknown): number => {
@@ -108,6 +121,7 @@ export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): Bri
       focus_x: pct(r.focus_x),
       focus_y: pct(r.focus_y),
       fit: r.fit === "contain" ? "contain" : "cover",
+      zoom: zoomPct(r.zoom),
     };
     if (typeof r.title === "string" && r.title.trim() !== "") s.title = r.title.trim().slice(0, 120);
     if (typeof r.subtitle === "string" && r.subtitle.trim() !== "") s.subtitle = r.subtitle.trim().slice(0, 200);

@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.48.0] — 2026-08-25 — zoom, and a button that says NOW
+
+Two things the CEO asked for within minutes of each other, both about the
+same feeling: *I changed it here, why does the shop not show it.*
+
+- **"Update the shop now"** (top of the ELFIA Store tab). The shop refreshes
+  itself on a schedule; this asks it to pull everything immediately, using
+  the shared bridge key over `POST /bridge/sync-now` on the store. No admin
+  key, no store screen, no new secret — the store's public origin is a plain
+  var (`ELFIA_STORE_URL`) so the button works with nothing to set up. If the
+  shop cannot be reached the message says so and points out that it updates
+  by itself anyway. (The store also moved its own sync to every minute.)
+- **Zoom, replacing click-to-aim** (migration **0089**, `elfia_slides.zoom`).
+  The CEO: "Instead of clickable, I want to zoom out at least I can see the
+  full instead of like this!!!" So the control is a slider, not a click
+  target: **100 % = the whole photo inside the banner, nothing cut off**, and
+  sliding right grows it until it fills. Dragging inside the preview moves
+  the photo once it is zoomed in far enough to be cropped. The preview box is
+  the shop's exact 21:9 shape and uses the shop's exact rule, so it IS the
+  preview. `fit` is kept in step automatically (100 → contain, above →
+  cover), so an older store still behaves sensibly.
+
+The tab's blurb no longer says "5-minute sync" or promises a review step in
+the store's admin — both were untrue as of store v1.9.0.
+
+Verified: `tests/bridge-feed-guard.mjs` (zoom crosses the bridge, clamped
+both ways: 9000 → 300, 12 → 100). Cross-system, the ELFIA repo's
+two-real-worker rig proves the whole path — set a price here, press the
+button, the shop already has it — plus zooming a slide out and back in.
+registry-parity, sql-schema-check, csrf-guard, bm-coverage, compile gate,
+frontend `tsc` all PASS. **Deploy applies 0089.**
+
 ## [1.47.0] — 2026-08-25 — aim the carousel photo
 
 The CEO, looking at the new carousel card: "I want to adjustable the photo so

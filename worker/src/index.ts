@@ -41,6 +41,10 @@ export interface Env {
       the client's domain never enters a committed file (same posture the
       store takes toward ours). Unset = the 5-min poller is silently off. */
   ELFIA_ORDERS_URL?: string;
+  /** v1.48.0 — the store's public origin, e.g. https://elfiaofficialstore.my.
+      Only used by the ELFIA tab's "Update the shop now" button. Not a secret;
+      it lives in wrangler.toml so the button works with no extra setup. */
+  ELFIA_STORE_URL?: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
@@ -249,7 +253,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0088_elfia_slide_framing";
+const LATEST_MIGRATION = "0089_elfia_slide_zoom";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1610,7 +1614,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       let slideRows: Record<string, unknown>[];
       try {
         slideRows = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom
            FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
         ).all()).results;
       } catch {
@@ -2974,6 +2978,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
       ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
       ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
+      ["0089 (ELFIA slide zoom)", `SELECT zoom FROM elfia_slides LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3076,6 +3081,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0086_elfia_product_fields",
       "0087_elfia_discount_slides",
       "0088_elfia_slide_framing",
+      "0089_elfia_slide_zoom",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

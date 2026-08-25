@@ -16,6 +16,9 @@ binding = "MEDIA"
 bucket_name = "azoneofficial"
 
 [vars]
+# v1.48.0 — the local store worker, so the rig can exercise the ELFIA tab's
+# "Update the shop now" button against a REAL store instead of stubbing it.
+ELFIA_STORE_URL = "http://127.0.0.1:8787"
 ALLOWED_ORIGIN = "http://127.0.0.1:8300"
 ALLOWED_ORIGINS = "http://127.0.0.1:8300"
 PUBLIC_FORM_ORIGINS = ""
