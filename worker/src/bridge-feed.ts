@@ -63,6 +63,9 @@ export interface SlideRow {
   subtitle?: string | null;
   sort?: number | null;
   active?: number | null;
+  focus_x?: number | null;
+  focus_y?: number | null;
+  fit?: string | null;
 }
 
 export interface BridgeSlide {
@@ -72,7 +75,21 @@ export interface BridgeSlide {
   title?: string;
   subtitle?: string;
   sort: number;
+  /** v1.47.0 — framing. Per cent (0-100) of the photo that must stay
+      visible when the shop crops it, and whether it crops at all. Always
+      sent: a slide without framing would silently fall back to the store's
+      old fixed crop, which is the bug these two fields exist to end. */
+  focus_x: number;
+  focus_y: number;
+  fit: "cover" | "contain";
 }
+
+/** 0-100, integer, anything unusable becomes the middle. */
+const pct = (v: unknown): number => {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 50;
+  return Math.min(100, Math.max(0, n));
+};
 
 export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): BridgeSlide[] {
   const base = typeof mediaBase === "string" ? mediaBase.replace(/\/+$/, "") : "";
@@ -88,6 +105,9 @@ export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): Bri
       image_url: `${base}/api/v1/media/file/${r.image_key}`,
       image_updated_at: r.image_updated_at,
       sort: Number.isFinite(Number(r.sort)) ? Number(r.sort) : 100,
+      focus_x: pct(r.focus_x),
+      focus_y: pct(r.focus_y),
+      fit: r.fit === "contain" ? "contain" : "cover",
     };
     if (typeof r.title === "string" && r.title.trim() !== "") s.title = r.title.trim().slice(0, 120);
     if (typeof r.subtitle === "string" && r.subtitle.trim() !== "") s.subtitle = r.subtitle.trim().slice(0, 200);

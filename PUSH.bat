@@ -1,99 +1,133 @@
 @echo off
 setlocal EnableExtensions
-title A2Z STAFF PORTAL - push and go live
+title A2Z STAFF PORTAL - go live
 REM ============================================================
-REM  A2Z STAFF PORTAL - PUSH.bat
+REM  A2Z STAFF PORTAL - PUSH.bat  (v2)
 REM
-REM  Double-click this. It sends the code in THIS folder to GitHub;
-REM  Cloudflare builds and publishes it by itself (see
-REM  AUTO-DEPLOY.md). Then this window CHECKS the live portal and
-REM  prints the version it is running.
+REM  Same trap as the ELFIA store: this project is TWO things.
 REM
-REM  DEPLOY.bat is the emergency route only - Cloudflare refuses a
-REM  direct deploy while the worker is connected to the repository.
+REM    1. THE WEBSITE (the portal pages) - deploys BY ITSELF when
+REM       this folder is pushed to GitHub.
+REM    2. THE ENGINE  (worker "azoneofficial-api" - the database,
+REM       the ELFIA bridge feed) - does NOT deploy from GitHub. It
+REM       is published from this computer, step 4 below.
+REM
+REM  The ELFIA Store tab's Discount and Homepage carousel live in
+REM  the ENGINE, so pushing alone will not switch them on.
 REM ============================================================
 
 cd /d "%~dp0"
 set "TMPH=%TEMP%\a2z-health.txt"
 
 echo.
-echo   A2Z STAFF PORTAL - push and go live
-echo   ===================================
+echo   A2Z STAFF PORTAL - go live
+echo   ==========================
 echo.
 
-if not exist ".git" (
-  echo   [X] This folder is not connected to git, so there is
-  echo       nothing to push. Send this message over.
-  echo.
-  pause
-  exit /b 1
-)
+if not exist ".git"                 goto :nogit
+if not exist "worker\wrangler.toml" goto :noworker
 
 set "PKG="
 for /f "tokens=2 delims=:, " %%v in ('findstr /C:"\"version\"" package.json') do if not defined PKG set "PKG=%%~v"
 echo   Version in this folder: %PKG%
 echo.
 
-echo   [1/4] Checking what changed...
-git add -A
-git status --short
-echo.
-
-echo   [2/4] Saving the change...
-git commit -m "Portal v%PKG% - ELFIA discount and homepage carousel"
+echo   [1/5] Checking you are signed in to Cloudflare...
+pushd worker
+call npx wrangler whoami >nul 2>&1
 if errorlevel 1 (
+  popd
   echo.
-  echo       Nothing new to save - already committed. Pushing anyway,
-  echo       in case it never reached GitHub.
-  echo.
-)
-
-echo   [3/4] Sending to GitHub...
-git push
-if errorlevel 1 (
-  echo.
-  echo   ============================================
-  echo    [X] THE PUSH WAS REFUSED. Nothing is live.
-  echo   ============================================
-  echo    Usual reasons:
-  echo      * not signed in to GitHub on this computer
-  echo      * someone else changed the repo - run:  git pull
-  echo        then double-click this file again
-  echo.
-  echo    Copy this window and send it over.
+  echo   [X] Not signed in to Cloudflare. Fix it once:
+  echo         cd worker
+  echo         npx wrangler login
+  echo       Then double-click this file again.
   echo.
   pause
   exit /b 1
 )
-echo.
-echo       Sent. Cloudflare is building now - 1 to 3 minutes.
-echo       Leave this window open.
+popd
+echo         signed in.
 echo.
 
-echo   [4/4] Watching the live portal...
+echo   [2/5] Sending the portal website to GitHub...
+git add -A
+git status --short
+git commit -m "Portal v%PKG% - ELFIA discount and homepage carousel"
+if errorlevel 1 echo         nothing new to save - pushing anyway.
+git push
+if errorlevel 1 (
+  echo.
+  echo   [X] THE PUSH WAS REFUSED - the portal pages will not
+  echo       update. Try:  git pull   then run this again.
+  echo       Copy this window and send it over.
+  echo.
+  pause
+  exit /b 1
+)
+echo         sent.
 echo.
-REM  Counter + goto, NOT a for-loop calling a subroutine: "goto" out
-REM  of a CALLed label only returns to the loop and would keep
-REM  polling after the portal was already up.
+
+echo   [3/5] Adding the new database columns (discount, slides)...
+set CI=true
+pushd worker
+call npx wrangler d1 migrations apply azoneofficial --remote
+if errorlevel 1 (
+  popd
+  set CI=
+  echo.
+  echo   [X] The database step failed. NOTHING was published - the
+  echo       live portal is untouched and still working. Send the
+  echo       lines above over.
+  echo.
+  pause
+  exit /b 1
+)
+popd
+set CI=
+echo.
+
+echo   [4/5] Publishing the ENGINE...
+pushd worker
+call npx wrangler deploy
+if errorlevel 1 (
+  popd
+  echo.
+  echo   ============================================
+  echo    [X] THE ENGINE DID NOT PUBLISH.
+  echo   ============================================
+  echo    The ELFIA tab will still show, but Discount and the
+  echo    Homepage carousel will report a missing migration until
+  echo    this step works.
+  echo.
+  echo    If the error mentions the worker being connected to a
+  echo    REPOSITORY:
+  echo      Cloudflare - Workers and Pages - azoneofficial-api
+  echo      - Settings - Build - Disconnect, run this again,
+  echo      then reconnect it afterwards.
+  echo.
+  pause
+  exit /b 1
+)
+popd
+echo.
+
+echo   [5/5] Checking the live portal...
+echo.
 set /a TRIES=0
 
 :poll
 set /a TRIES+=1
-timeout /t 20 /nobreak >nul
+timeout /t 10 /nobreak >nul
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health > "%TMPH%" 2>nul
 type "%TMPH%"
 echo.
 findstr /C:"\"version\":\"%PKG%\"" "%TMPH%" >nul && goto :live
-if %TRIES% LSS 20 goto :poll
+if %TRIES% LSS 12 goto :poll
 
 echo.
-echo   ============================================
-echo    [!] Still not showing v%PKG% after 7 minutes.
-echo   ============================================
-echo    The push worked, so the build is either still running
-echo    or it failed. Look here:
-echo      Cloudflare - Workers and Pages - azoneofficial - Builds
-echo    Send over whatever the newest build says.
+echo   [!] The live portal still does not say v%PKG%. Send this
+echo       window over.
 echo.
 pause
 exit /b 1
@@ -104,16 +138,24 @@ echo   ============================================
 echo    DONE - v%PKG% is LIVE on a2zcreative.my
 echo   ============================================
 echo.
-echo    IMPORTANT - this version adds two database columns, and
-echo    Cloudflare's build does NOT run migrations. Run this once,
-echo    now, or the ELFIA tab will say "migration missing":
-echo.
-echo      cd worker
-echo      npx wrangler d1 migrations apply azoneofficial --remote
-echo.
-echo    Then in the portal - ELFIA Store tab you get:
-echo      * Discount RM on every product
-echo      * Homepage carousel - add, caption, reorder, remove
+echo    In the portal - ELFIA Store tab you now have:
+echo      * Discount RM on every product (shows the customer price
+echo        before you leave the field)
+echo      * Homepage carousel - add a photo, caption it, reorder,
+echo        hide or remove. The shop mirrors this list exactly.
 echo.
 pause
 exit /b 0
+
+:nogit
+echo   [X] This folder is not connected to git. Send this over.
+echo.
+pause
+exit /b 1
+
+:noworker
+echo   [X] worker\wrangler.toml is missing - not the full project
+echo       folder. Send this over.
+echo.
+pause
+exit /b 1

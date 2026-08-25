@@ -168,8 +168,25 @@ eq("slides serialize sorted with absolute URLs",
     { id: 4, image_key: "uploads/elfia/slides/4-1.jpg", image_updated_at: "m4", sort: 10, active: 0 },
   ], "https://a2zcreative.my"),
   [
-    { id: 1, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 100, subtitle: "First Sight, Forever Yours" },
-    { id: 2, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/2-1.jpg", image_updated_at: "m2", sort: 200, title: "Raya drop" },
+    /* v1.47.0 — framing is ALWAYS sent, defaulted here because these rows
+       predate 0088. A slide with no framing would fall back to the store's
+       old fixed crop, which is the bug the two fields exist to end. */
+    { id: 1, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 100, focus_x: 50, focus_y: 50, fit: "cover", subtitle: "First Sight, Forever Yours" },
+    { id: 2, image_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/slides/2-1.jpg", image_updated_at: "m2", sort: 200, focus_x: 50, focus_y: 50, fit: "cover", title: "Raya drop" },
+  ]);
+
+/* 17. Framing: what the CEO clicks is what the store is told, clamped, and
+       "show the whole photo" survives; nonsense falls back to the middle. */
+eq("framing crosses the bridge, clamped, with contain preserved",
+  serializeBridgeSlides([
+    { id: 1, image_key: "a.jpg", image_updated_at: "m1", sort: 1, focus_x: 20, focus_y: 80, fit: "contain" },
+    { id: 2, image_key: "b.jpg", image_updated_at: "m2", sort: 2, focus_x: -30, focus_y: 900, fit: "nonsense" },
+    { id: 3, image_key: "c.jpg", image_updated_at: "m3", sort: 3 },
+  ], "https://a2zcreative.my"),
+  [
+    { id: 1, image_url: "https://a2zcreative.my/api/v1/media/file/a.jpg", image_updated_at: "m1", sort: 1, focus_x: 20, focus_y: 80, fit: "contain" },
+    { id: 2, image_url: "https://a2zcreative.my/api/v1/media/file/b.jpg", image_updated_at: "m2", sort: 2, focus_x: 0, focus_y: 100, fit: "cover" },
+    { id: 3, image_url: "https://a2zcreative.my/api/v1/media/file/c.jpg", image_updated_at: "m3", sort: 3, focus_x: 50, focus_y: 50, fit: "cover" },
   ]);
 eq("no origin → no slides (a slide IS its photo URL)",
   serializeBridgeSlides([{ id: 1, image_key: "uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 1 }]),

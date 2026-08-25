@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.47.0] — 2026-08-25 — aim the carousel photo
+
+The CEO, looking at the new carousel card: "I want to adjustable the photo so
+that I can focus on what I want. it is look too zoom and which is cause the
+photo cant be seen the overall!!"
+
+The shop's hero is a wide letterbox, so a tall group photo gets cropped — and
+until now the crop was fixed, in the store's code, where nobody here could
+reach it. Migration **0088** puts that decision where the person choosing the
+photo is (`focus_x`, `focus_y`, `fit` on `elfia_slides`):
+
+- **Click the photo to aim it.** The slide preview in the ELFIA Store tab is
+  now a TRUE preview — same 21:9 shape and the same framing rules the shop
+  uses — and clicking it drops a focus marker on the part that must always
+  stay visible. Sent to the store as two percentages, applied there as CSS
+  `object-position`; the file is never re-encoded, so reframing is free and
+  endlessly repeatable.
+- **"Whole photo"** turns cropping off (`fit: contain`) for a picture that
+  must not lose its edges.
+- Replacing the photo moved to its own **Change photo** button, since a click
+  on the image now means "aim here".
+- Framing is ALWAYS sent in the feed, defaulted to the middle: a slide
+  without it would fall back to the store's old fixed crop, which is the bug
+  these fields exist to end. Both the feed and the tab fall back cleanly if
+  the worker is published before 0088 runs.
+
+Verified: `tests/bridge-feed-guard.mjs` (framing crosses the bridge, clamped,
+contain preserved, nonsense → the middle); cross-system, the ELFIA repo's
+two-real-worker rig proves an aim point set here reframes the actual
+shopfront hero. registry-parity, sql-schema-check, csrf-guard, compile gate,
+frontend `tsc` all PASS. **Deploy applies 0088.**
+
 ## [1.46.0] — 2026-08-25 — the discount and the carousel, one finger tips
 
 The CEO: "there is a discount for me to update in the portal … I also want to

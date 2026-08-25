@@ -249,7 +249,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0087_elfia_discount_slides";
+const LATEST_MIGRATION = "0088_elfia_slide_framing";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1601,10 +1601,24 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        omitted, which the store reads as "keep doing what you do". */
     let slides: ReturnType<typeof serializeBridgeSlides> | undefined;
     try {
-      const { results: slideRows } = await env.DB.prepare(
-        `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
-         FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
-      ).all();
+      /* v1.47.0 added the framing columns. If this worker is published
+         BEFORE 0088 runs, the wide query throws — and falling straight to
+         the catch would drop the whole slides key and silently freeze the
+         shop's carousel. So the narrow 0087 query is tried second: the
+         carousel keeps working, framing simply defaults to the middle
+         until the migration lands. */
+      let slideRows: Record<string, unknown>[];
+      try {
+        slideRows = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit
+           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
+        ).all()).results;
+      } catch {
+        slideRows = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
+           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
+        ).all()).results;
+      }
       slides = serializeBridgeSlides(slideRows as unknown as SlideRow[], origin);
     } catch { /* 0087 pending */ }
     return json({ items, ...(slides !== undefined ? { slides } : {}), as_of: new Date().toISOString(), count: items.length });
@@ -2959,6 +2973,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
       ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
       ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
+      ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3060,6 +3075,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0085_web_order_consent",
       "0086_elfia_product_fields",
       "0087_elfia_discount_slides",
+      "0088_elfia_slide_framing",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

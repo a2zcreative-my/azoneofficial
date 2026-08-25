@@ -6067,10 +6067,20 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
   if (path === "/elfia/slides" && method === "GET") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
-         FROM elfia_slides ORDER BY sort, id`,
-      ).all();
+      /* v1.47.0 framing columns, with the pre-0088 fallback — the tab must
+         keep working if this worker is published before the migration. */
+      let results: Record<string, unknown>[];
+      try {
+        results = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit
+           FROM elfia_slides ORDER BY sort, id`,
+        ).all()).results;
+      } catch {
+        results = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
+           FROM elfia_slides ORDER BY sort, id`,
+        ).all()).results;
+      }
       return json({ slides: results });
     } catch {
       return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0087, ELFIA discount + carousel)", 500);
@@ -6139,6 +6149,17 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (body?.subtitle !== undefined) push("subtitle", String(body.subtitle ?? "").trim().slice(0, 200) || null);
       if (body?.sort !== undefined && Number.isFinite(Number(body.sort))) push("sort", Math.round(Number(body.sort)));
       if (body?.active !== undefined) push("active", body.active ? 1 : 0);
+      /* v1.47.0 — framing. The CEO clicks the spot on the photo that must
+         survive the shop's crop; that arrives here as two percentages.
+         Clamped rather than rejected: a click a pixel outside the image is
+         a slip of the finger, not an error worth a red message. */
+      if (body?.focus_x !== undefined && Number.isFinite(Number(body.focus_x))) {
+        push("focus_x", Math.min(100, Math.max(0, Math.round(Number(body.focus_x)))));
+      }
+      if (body?.focus_y !== undefined && Number.isFinite(Number(body.focus_y))) {
+        push("focus_y", Math.min(100, Math.max(0, Math.round(Number(body.focus_y)))));
+      }
+      if (body?.fit !== undefined) push("fit", body.fit === "contain" ? "contain" : "cover");
       if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
       await env.DB.prepare(
         `UPDATE elfia_slides SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?${sets.length + 1}`,

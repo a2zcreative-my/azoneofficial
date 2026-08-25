@@ -18,9 +18,12 @@
    - collection + description → PATCH /inventory/:id/elfia        (v1.45.0)
    - photo → POST /inventory/:id/elfia/photo (binary)             (v1.45.0)
    All of it travels on feed A within 5 minutes. A SKU ELFIA has never seen
-   is CREATED there from this data — hidden, waiting in the store's
-   /admin → Products → From portal until the CEO presses Publish THERE.
-   This panel says so instead of implying the shop updates instantly.
+   is CREATED there from this data and, as of store v1.8.0, goes LIVE on that
+   sync: the feed only carries rows with Publish ticked here, so this tick IS
+   the decision and the store no longer parks it for a second approval in an
+   /admin the CEO cannot open. Un-ticking Publish drops it from the feed and
+   out of the shop. The blurb below says exactly that — five minutes, not
+   instant, and no second screen to visit.
 
    House rules kept: checkbox saves at once, text saves on blur, every
    mutation through api()/csrfFetch (CSRF), every string L()-bilingual,
@@ -62,6 +65,12 @@ interface Slide { // v1.46.0 — one hero-carousel slide
   subtitle?: string | null;
   sort: number;
   active: number;
+  /* v1.47.0 — framing. Per cent of the photo that must stay visible when
+     the shop crops it, and whether it crops at all. Optional because a
+     worker published before 0088 does not send them. */
+  focus_x?: number | null;
+  focus_y?: number | null;
+  fit?: string | null;
 }
 
 interface BridgeHealth {
@@ -78,6 +87,15 @@ interface BridgeHealth {
 /** The photo as the media route serves it. Key lives under uploads/elfia/ —
     the public prefix — so this same URL is what the feed hands the store. */
 const photoUrl = (key: string) => `/api/v1/media/file/${key}`;
+
+/* v1.47.0 — framing, read defensively: an api worker published before 0088
+   sends neither field, and the honest answer then is the middle of the
+   photo filling the banner, which is exactly what the shop already does. */
+const focusOf = (sl: Slide): { x: number; y: number } => ({
+  x: typeof sl.focus_x === "number" && Number.isFinite(sl.focus_x) ? Math.min(100, Math.max(0, sl.focus_x)) : 50,
+  y: typeof sl.focus_y === "number" && Number.isFinite(sl.focus_y) ? Math.min(100, Math.max(0, sl.focus_y)) : 50,
+});
+const fitOf = (sl: Slide): "cover" | "contain" => (sl.fit === "contain" ? "contain" : "cover");
 
 export function ElfiaStorePanel() {
   const [items, setItems] = useState<ElfiaItem[]>([]);
@@ -227,8 +245,12 @@ export function ElfiaStorePanel() {
           )}
         </div>
         <p className="text-muted-foreground mt-2 text-xs">
-          {L("Everything on this tab reaches the store on its 5-minute sync: counts, prices, collection, description and photo. A SKU the store has never had is created over there HIDDEN — it waits in the store's admin under “From portal” until it is published there, so nothing goes in front of customers unreviewed.",
-             "Semua pada tab ini sampai ke kedai pada penyegerakan 5 minit: kiraan, harga, koleksi, penerangan dan foto. SKU yang belum ada di kedai akan dicipta di sana secara TERSEMBUNYI — menunggu dalam admin kedai di bawah “From portal” sehingga diterbitkan di sana, jadi tiada apa-apa dipaparkan kepada pelanggan tanpa semakan.")}
+          {/* v1.47.0 — this used to promise a second approval step in the
+              store's own admin. That step is gone (store v1.8.0): ticking
+              Publish HERE is the decision, and the old wording had people
+              waiting for a screen that never needed visiting. */}
+          {L("Everything on this tab reaches the store on its 5-minute sync: counts, prices, collection, description and photo. Ticking Publish is what puts a product in the shop — a SKU the store has never had is created there and goes live on the next sync. Un-tick it and it leaves the shop.",
+             "Semua pada tab ini sampai ke kedai pada penyegerakan 5 minit: kiraan, harga, koleksi, penerangan dan foto. Menanda Publish di sinilah yang meletakkan produk dalam kedai — SKU yang belum ada di kedai akan dicipta dan terus dipaparkan pada penyegerakan berikutnya. Buang tanda itu dan ia hilang dari kedai.")}
         </p>
         {migrationPending && (
           <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -280,13 +302,53 @@ export function ElfiaStorePanel() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {slides.map((sl, idx) => (
               <div key={sl.id} className={`rounded-xl border p-2 ${sl.active === 1 ? "border-border" : "border-border/60 opacity-70"}`}>
-                <label className="bg-secondary block cursor-pointer overflow-hidden rounded-lg"
-                  title={L("Click to replace this slide's photo", "Klik untuk ganti foto slaid ini")}>
+                {/* v1.47.0 — this box is a TRUE PREVIEW: same 21:9 shape and
+                    same framing rules the shop uses, so what is seen here is
+                    what a customer sees. Clicking it sets the focus point
+                    (the CEO: "I want to adjustable the photo so that I can
+                    focus on what I want"); replacing the photo moved to its
+                    own button below, because a click now means "focus here". */}
+                <div className="bg-secondary relative cursor-crosshair overflow-hidden rounded-lg"
+                  title={L("Click the part of the photo that must always be visible",
+                           "Klik bahagian foto yang mesti sentiasa kelihatan")}
+                  onClick={(e) => {
+                    if (fitOf(sl) === "contain") return; // nothing is cropped, so nothing to aim
+                    const r = e.currentTarget.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) return;
+                    const x = Math.round(((e.clientX - r.left) / r.width) * 100);
+                    const y = Math.round(((e.clientY - r.top) / r.height) * 100);
+                    void patchSlide(sl.id, { focus_x: x, focus_y: y }, L("framing saved", "bingkai disimpan"));
+                  }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photoUrl(sl.image_key)} alt="" className="aspect-[21/9] w-full object-cover" />
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
-                </label>
+                  <img src={photoUrl(sl.image_key)} alt=""
+                    className={`aspect-[21/9] w-full ${fitOf(sl) === "contain" ? "object-contain" : "object-cover"}`}
+                    style={{ objectPosition: `${focusOf(sl).x}% ${focusOf(sl).y}%` }} />
+                  {fitOf(sl) !== "contain" && (
+                    <span aria-hidden
+                      className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/30 shadow"
+                      style={{ left: `${focusOf(sl).x}%`, top: `${focusOf(sl).y}%` }} />
+                  )}
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                  <label className={`${btnSm} cursor-pointer`}>
+                    {L("Change photo", "Tukar foto")}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
+                  </label>
+                  <label className="flex items-center gap-1"
+                    title={L("Show the whole photo instead of filling the banner", "Papar keseluruhan foto dan bukan memenuhi sepanduk")}>
+                    <input type="checkbox" checked={fitOf(sl) === "contain"}
+                      onChange={(e) => void patchSlide(sl.id, { fit: e.target.checked ? "contain" : "cover" },
+                        e.target.checked ? L("showing the whole photo", "memaparkan keseluruhan foto")
+                                         : L("filling the banner", "memenuhi sepanduk"))} />
+                    {L("Whole photo", "Foto penuh")}
+                  </label>
+                  {fitOf(sl) !== "contain" && (
+                    <span className="text-muted-foreground">
+                      {L("click the photo to aim", "klik foto untuk halakan")}
+                    </span>
+                  )}
+                </div>
                 <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
                   placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
