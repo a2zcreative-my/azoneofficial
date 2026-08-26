@@ -37,6 +37,7 @@ import { compressImage } from "@/lib/compress-image";
 import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { extractCatalogMap, type ExtractedMap, type PageRuns } from "@/lib/catalog-extract";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -91,9 +92,62 @@ interface BridgeHealth {
   unavailable?: boolean;
 }
 
+/* v1.53.0 — the store's answer to "can a customer pay online right now?".
+   `ok` is the credential check (the API key reads its collection). It is a
+   WEAKER claim than "the last customer could pay", which is why
+   last_gateway_error is carried separately: a bill can be refused for
+   reasons a collection read never sees. */
+interface PayStatus {
+  ok?: boolean;
+  sandbox?: boolean;
+  message?: string;
+  warning?: string | null;
+  signature_key_set?: boolean;
+  last_gateway_error?: string | null;
+  last_gateway_hint?: string | null;
+  unavailable?: boolean;
+}
+
 /** The photo as the media route serves it. Key lives under uploads/elfia/ —
     the public prefix — so this same URL is what the feed hands the store. */
 const photoUrl = (key: string) => `/api/v1/media/file/${key}`;
+
+/* ==== v1.55.0 — the shop catalog, uploaded here, priced by the shop ==== */
+
+interface CatStatus {
+  live: boolean;
+  pending: boolean;
+  updated_at: string | null;
+  cover_key: string | null;
+  unavailable?: boolean;
+}
+
+/** What was read out of the chosen PDF, waiting for Upload. */
+interface CatDraft {
+  file: File;
+  map: ExtractedMap;
+  cover: Blob | null;
+  coverUrl: string | null;
+  pages: number;
+  matched: number;
+  prices_detected: number;
+  truncated: boolean;
+}
+
+/* A browser-side preview of the store's label→product matcher, for the
+   "will this work?" moment BEFORE upload. Same rules, same generic-word
+   list: a product matches a label when every distinctive word of its name
+   appears in the label; the store's verdict is the real one. */
+const CAT_GENERIC = new Set(["bawal", "shawl", "chiffon", "lumi", "premium", "by", "elfia"]);
+const catTokens = (s: string): string[] =>
+  s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+const catLabelMatches = (label: string, names: string[]): boolean => {
+  const lt = new Set(catTokens(label));
+  return names.some((n) => {
+    const distinct = catTokens(n).filter((t) => !CAT_GENERIC.has(t));
+    return distinct.length > 0 && distinct.every((t) => lt.has(t));
+  });
+};
 
 /* v1.47.0 — framing, read defensively: an api worker published before 0088
    sends neither field, and the honest answer then is the middle of the
@@ -123,14 +177,42 @@ export function ElfiaStorePanel() {
   const [loaded, setLoaded] = useState(false);
   const [busyPhoto, setBusyPhoto] = useState<number | null>(null);
   const [openDesc, setOpenDesc] = useState<Record<number, boolean>>({});
+  /* v1.52.0 — what delivery costs. Held as the RINGGIT TEXT being typed, not
+     as a number: an input that reformats on every keystroke fights whoever
+     is using it. It converts to sen on save, and sen is the only unit the
+     database and the feed ever see. "" = an empty box, which Save refuses. */
+  const [ship, setShip] = useState("");
+  const [freeAbove, setFreeAbove] = useState("");
+  const [deliverySaved, setDeliverySaved] = useState<{ ship: string; free: string } | null>(null);
+  const [busyDelivery, setBusyDelivery] = useState(false);
+  /* v1.53.0 — whether customers can actually pay online, and why not. */
+  const [pay, setPay] = useState<PayStatus | null>(null);
+  const [busyPay, setBusyPay] = useState(false);
+  /* v1.54.0 — bulk discount. The CEO: "I want to perform bulk discount
+     instead of one by one. but I need to have 1 by 1 update also." So this
+     is a SELECTION laid over the list that already exists; every per-item
+     box below is untouched. */
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [bulkMode, setBulkMode] = useState<"amount" | "percent">("percent");
+  const [bulkValue, setBulkValue] = useState("");
+  const [busyBulk, setBusyBulk] = useState(false);
+  /* v1.55.0 — the uploadable catalog. `cat` is what the server holds;
+     `catDraft` is a chosen file read in this browser, waiting for Upload. */
+  const [cat, setCat] = useState<CatStatus | null>(null);
+  const [catReading, setCatReading] = useState(false);
+  const [catBusy, setCatBusy] = useState(false);
+  const [catDraft, setCatDraft] = useState<CatDraft | null>(null);
+  const catFileRef = useRef<HTMLInputElement | null>(null);
   const { show: toast, node: toastNode } = useSaveToast();
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const load = useCallback(async () => {
-    const [i, bh, sl] = await Promise.all([
+    const [i, bh, sl, dv, ct] = await Promise.all([
       api<{ items: ElfiaItem[] }>(`/inventory`),
       api<BridgeHealth>(`/inventory/bridge-health`),
       api<{ slides: Slide[] }>(`/elfia/slides`),
+      api<{ shipping_cents: number | null; free_above_cents: number | null }>(`/elfia/delivery`),
+      api<CatStatus>(`/elfia/catalog`),
     ]);
     if (i.data?.items) {
       setItems(i.data.items.map((x) => ({
@@ -145,6 +227,18 @@ export function ElfiaStorePanel() {
         : { unavailable: true, key_configured: false, applied_24h: 0, unknown_24h: 0, unknown: [] },
     );
     setSlides(sl.ok && sl.data?.slides ? sl.data.slides : null);
+    /* Blank, not "0.00", when the portal has never set them: the shop is
+       then still using its own built-in numbers, and showing 0.00 here would
+       claim delivery is free when it is not. */
+    if (dv.ok && dv.data) {
+      const asRM = (c: number | null) => (typeof c === "number" ? (c / 100).toFixed(2) : "");
+      const s = asRM(dv.data.shipping_cents), f = asRM(dv.data.free_above_cents);
+      setShip(s); setFreeAbove(f);
+      setDeliverySaved({ ship: s, free: f });
+    }
+    /* An api worker published before v1.55.0 has no /elfia/catalog; the card
+       then says to deploy rather than pretending nothing is uploaded. */
+    setCat(ct.ok && ct.data && typeof ct.data.live === "boolean" ? ct.data : { live: false, pending: false, updated_at: null, cover_key: null, unavailable: true });
     setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -220,6 +314,98 @@ export function ElfiaStorePanel() {
     } finally { setBusySlide(false); }
   };
 
+  /* v1.54.0 — apply one discount to everything ticked.
+     `clear` is a separate button rather than "enter 0", because 0 and "no
+     discount" are different things and a box that means both is a box that
+     gets misread. */
+  const applyBulk = async (mode: "amount" | "percent" | "clear") => {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    const value = mode === "clear" ? 0 : Number(bulkValue.trim());
+    if (mode !== "clear" && (!Number.isFinite(value) || value <= 0 || (mode === "percent" && value >= 100))) {
+      toast(L("Not applied", "Tidak digunakan"),
+        mode === "percent"
+          ? L("Enter a percentage above 0 and below 100", "Masukkan peratusan melebihi 0 dan kurang daripada 100")
+          : L("Enter a positive RM amount", "Masukkan amaun RM positif"), "notice");
+      return;
+    }
+    setBusyBulk(true);
+    try {
+      const res = await api<{ applied?: string[]; skipped?: { sku: string; why: string }[]; error?: { message?: string } }>(
+        `/elfia/bulk-discount`, { method: "POST", body: JSON.stringify({ ids, mode, value }) });
+      if (!res.ok) {
+        toast(L("Not applied", "Tidak digunakan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice");
+        return;
+      }
+      const n = res.data?.applied?.length ?? 0;
+      const skip = res.data?.skipped ?? [];
+      /* Skipped rows are NAMED. A bulk action that quietly leaves some
+         products alone is worse than one that refuses — nobody re-checks
+         thirty rows afterwards. */
+      toast(
+        skip.length ? L("Applied, with exceptions", "Digunakan, dengan pengecualian") : L("Applied", "Digunakan"),
+        `${n} ${L("product", "produk")}${n === 1 ? "" : "s"}` +
+        (skip.length
+          ? ` · ${L("skipped", "dilangkau")}: ${skip.slice(0, 4).map((s) => `${s.sku} (${s.why})`).join(", ")}${skip.length > 4 ? ` +${skip.length - 4}` : ""}`
+          : ""),
+        skip.length ? "notice" : undefined);
+      setPicked(new Set());
+      void load();
+    } finally { setBusyBulk(false); }
+  };
+
+  /* v1.53.0 — ask the shop whether online payment is working. Deliberately
+     NOT part of the tab's first load: it makes the shop call Billplz, and
+     that is a request to somebody else's service on every page view. It runs
+     when someone asks. */
+  const checkPayment = async () => {
+    setBusyPay(true);
+    try {
+      const res = await api<PayStatus>(`/elfia/payment-status`);
+      setPay(res.ok && res.data ? res.data : { unavailable: true, message: L("Could not reach the shop.", "Tidak dapat menghubungi kedai.") });
+    } finally { setBusyPay(false); }
+  };
+
+  /* v1.52.0 — save what delivery costs.
+     Ringgit in the box, SEN on the wire: RM 4.50 -> 450. Rounding happens
+     here, once, so a "4.005" typed by accident cannot become a fraction of a
+     sen in the database. Both boxes save together because the two numbers
+     only mean anything side by side — a delivery charge with no free-delivery
+     threshold, or the reverse, is a half-set rule. */
+  const rmToSen = (v: string): number | null => {
+    const t = v.trim().replace(/^RM\s*/i, "").replace(/,/g, "");
+    if (t === "") return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n < 0 || n > 1000) return null;
+    return Math.round(n * 100);
+  };
+  const deliveryDirty = deliverySaved !== null
+    && (ship.trim() !== deliverySaved.ship || freeAbove.trim() !== deliverySaved.free);
+
+  const saveDelivery = async () => {
+    const s = rmToSen(ship), f = rmToSen(freeAbove);
+    if (s === null || f === null) {
+      toast(L("Not saved", "Tidak disimpan"),
+        L("Enter both amounts in ringgit, between 0 and 1000 — for example 4.50 and 45.00",
+          "Masukkan kedua-dua jumlah dalam ringgit, antara 0 dan 1000 — contohnya 4.50 dan 45.00"), "notice");
+      return;
+    }
+    setBusyDelivery(true);
+    try {
+      const res = await api<{ ok: boolean; error?: { message?: string } }>(`/elfia/delivery`, {
+        method: "POST", body: JSON.stringify({ shipping_cents: s, free_above_cents: f }),
+      });
+      if (!res.ok) {
+        toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice");
+        return;
+      }
+      toast(L("Delivery saved", "Penghantaran disimpan"),
+        L("the shop charges this within a minute — press “Update the shop now” to apply it immediately",
+          "kedai mengenakan kadar ini dalam seminit — tekan “Kemas kini kedai sekarang” untuk terus digunakan"));
+      void load();
+    } finally { setBusyDelivery(false); }
+  };
+
   /* v1.48.0 — ask the shop to pull everything on this tab right now instead
      of waiting for its own schedule. Failure is never dramatic: the shop
      updates by itself anyway, and the message says so. */
@@ -277,6 +463,139 @@ export function ElfiaStorePanel() {
     if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
     toast(L("Saved", "Disimpan"), saved);
     void load();
+  };
+
+  /* ==== v1.55.0 — the catalog ====
+     The CEO: "the portal can upload the PDF for this catalog without the
+     prices tag and it will automatically live price embedded to the PDF
+     uploaded."
+
+     Reading happens HERE, when she picks the file: pdf.js (loaded only at
+     that moment — it is a meaningful download) lists every text label with
+     its position, and page 1 becomes the cover photo the shop's share
+     preview uses. What was read is shown BEFORE anything uploads — how many
+     labels matched her products, which didn't, whether printed price tags
+     were found in a file that is supposed to have none. The store's Worker
+     then prices those spots live on every download, exactly like the
+     built-in catalog. */
+  const readCatalogFile = async (file: File) => {
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) {
+      toast(L("Wrong kind of file", "Jenis fail salah"), L("The catalog must be a PDF.", "Katalog mesti PDF."), "notice");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast(L("Too big", "Terlalu besar"),
+        L("The PDF is over 10 MB — export it smaller (photos at screen quality are plenty).",
+          "PDF melebihi 10 MB — eksport lebih kecil (foto kualiti skrin sudah memadai)."), "notice");
+      return;
+    }
+    setCatReading(true);
+    if (catDraft?.coverUrl) URL.revokeObjectURL(catDraft.coverUrl);
+    setCatDraft(null);
+    try {
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.mjs";
+      const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      const pages: PageRuns[] = [];
+      let cover: Blob | null = null;
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const vp = page.getViewport({ scale: 1 });
+        const tc = await page.getTextContent();
+        pages.push({
+          w: vp.width, h: vp.height,
+          runs: tc.items.flatMap((it) => ("str" in it && Array.isArray(it.transform))
+            ? [{ str: it.str, x: Number(it.transform[4]), baseline: Number(it.transform[5]), width: it.width, height: it.height }]
+            : []),
+        });
+        if (n === 1) {
+          /* Page 1 IS the cover — same width the shop's share card asks for. */
+          const scale = 1100 / vp.width;
+          const v2 = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(v2.width); canvas.height = Math.round(v2.height);
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport: v2 }).promise;
+            cover = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.85));
+          }
+        }
+      }
+      const r = extractCatalogMap(pages);
+      if (r.map.sites.length === 0) {
+        toast(L("No labels found", "Tiada label dijumpai"),
+          L("No product names could be read from this PDF — if the text is drawn as pictures (outlined), the shop cannot place prices on it.",
+            "Tiada nama produk dapat dibaca daripada PDF ini — jika teksnya berupa gambar (outline), kedai tidak dapat meletakkan harga."), "notice");
+        return;
+      }
+      const names = published.map((x) => x.name).filter(Boolean);
+      const matched = r.map.sites.filter((s) => catLabelMatches(s.label, names)).length;
+      setCatDraft({
+        file, map: r.map, cover,
+        coverUrl: cover ? URL.createObjectURL(cover) : null,
+        pages: pages.length, matched,
+        prices_detected: r.prices_detected, truncated: r.truncated,
+      });
+    } catch {
+      toast(L("Could not read the file", "Fail tidak dapat dibaca"),
+        L("That PDF could not be opened. Re-export it and try again.", "PDF itu tidak dapat dibuka. Eksport semula dan cuba lagi."), "notice");
+    } finally {
+      setCatReading(false);
+      if (catFileRef.current) catFileRef.current.value = "";
+    }
+  };
+
+  const uploadCatalog = async () => {
+    if (!catDraft) return;
+    setCatBusy(true);
+    try {
+      /* PDF first, cover second, MAP LAST — the map is the switch that puts
+         the upload on the feed, so everything else must already be there. */
+      const up = await csrfFetch(`/api/v1/staff/elfia/catalog`, {
+        method: "POST", headers: { "Content-Type": "application/pdf" }, body: catDraft.file,
+      });
+      if (!up.ok) {
+        const j = (await up.json().catch(() => null)) as { error?: { message?: string } } | null;
+        toast(L("Not uploaded", "Tidak dimuat naik"), j?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice");
+        return;
+      }
+      if (catDraft.cover) {
+        await csrfFetch(`/api/v1/staff/elfia/catalog/cover`, {
+          method: "POST", headers: { "Content-Type": "image/jpeg" }, body: catDraft.cover,
+        }).catch(() => null); // a missing cover never blocks the catalog itself
+      }
+      const mp = await api<{ live?: boolean; error?: { message?: string } }>(`/elfia/catalog/map`, {
+        method: "POST", body: JSON.stringify({ map: catDraft.map }),
+      });
+      if (!mp.ok) {
+        toast(L("Not finished", "Tidak selesai"),
+          mp.data?.error?.message ?? L("The label map could not be saved — the shop was NOT changed. Try again.",
+                                       "Peta label tidak dapat disimpan — kedai TIDAK diubah. Cuba lagi."), "notice");
+        return;
+      }
+      toast(L("Catalog uploaded", "Katalog dimuat naik"),
+        L("the shop starts serving it, live-priced, within a minute — press “Update the shop now” to hurry it",
+          "kedai mula memaparkannya, berharga langsung, dalam seminit — tekan “Kemas kini kedai sekarang” untuk segerakan"));
+      if (catDraft.coverUrl) URL.revokeObjectURL(catDraft.coverUrl);
+      setCatDraft(null);
+      void load();
+    } finally { setCatBusy(false); }
+  };
+
+  const removeCatalog = async () => {
+    setCatBusy(true);
+    try {
+      const res = await api<{ store_reset?: boolean; error?: { message?: string } }>(`/elfia/catalog`, { method: "DELETE" });
+      if (!res.ok) {
+        toast(L("Not removed", "Tidak dibuang"), res.data?.error?.message ?? L("Remove failed", "Buang gagal"), "notice");
+        return;
+      }
+      toast(L("Catalog removed", "Katalog dibuang"),
+        res.data?.store_reset
+          ? L("the shop is back on its built-in catalog", "kedai kembali kepada katalog terbina dalamnya")
+          : L("removed here — the shop returns to its built-in catalog on its next sync", "dibuang di sini — kedai kembali kepada katalog terbina dalam pada penyegerakan seterusnya"));
+      void load();
+    } finally { setCatBusy(false); }
   };
 
   return (
@@ -350,6 +669,235 @@ export function ElfiaStorePanel() {
             {L("published items without a photo show a plain placeholder in the shop.",
                "barang diterbitkan tanpa foto memaparkan pemegang tempat kosong di kedai.")}
           </p>
+        )}
+      </div>
+
+      {/* ---- can customers pay online? (v1.53.0) ----
+          The CEO, 26-08, on the live shop: "This appear on the gateway
+          payment!" — the customer-facing "Payment gateway unavailable", with
+          nowhere to find out why. The store writes Billplz's own reply down
+          now; this is the window onto it. */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{L("Online payment (Billplz FPX)", "Pembayaran dalam talian (Billplz FPX)")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Checks the shop's payment keys against Billplz. Read-only — it creates no bill and moves no money.",
+                 "Menyemak kunci pembayaran kedai dengan Billplz. Baca sahaja — tiada bil dicipta dan tiada wang berpindah.")}
+            </p>
+          </div>
+          <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
+            {busyPay ? L("Checking…", "Menyemak…") : L("Check now", "Semak sekarang")}
+          </button>
+        </div>
+
+        {pay && (
+          <div className="mt-3 space-y-2 text-xs">
+            {pay.unavailable ? (
+              <p className="text-muted-foreground">{pay.message}</p>
+            ) : (
+              <>
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className={pay.ok ? chipSuccess : chipWarn}>
+                    {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
+                  </span>
+                  {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
+                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No X-Signature key", "Tiada kunci X-Signature")}</span>}
+                </p>
+                <p className="text-muted-foreground">{pay.message}</p>
+                {pay.warning && <p className="font-medium text-amber-700 dark:text-amber-400">{pay.warning}</p>}
+
+                {/* The credential check passing is a weaker claim than "the
+                    last customer could pay". This is the stronger one. */}
+                {pay.last_gateway_error && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
+                    <p className="font-semibold text-amber-900 dark:text-amber-300">
+                      {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] break-words text-amber-900/90 dark:text-amber-200/90">
+                      {pay.last_gateway_error}
+                    </p>
+                    {pay.last_gateway_hint && (
+                      <p className="mt-1.5 text-amber-900 dark:text-amber-200">{pay.last_gateway_hint}</p>
+                    )}
+                  </div>
+                )}
+                {pay.ok && !pay.last_gateway_error && (
+                  <p className="text-muted-foreground">
+                    {L("No failed payment has been recorded on the shop.", "Tiada pembayaran gagal direkodkan di kedai.")}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---- what delivery costs (v1.52.0) ----
+          The CEO, 26-08-2026: "I want to have the authority to update the
+          shipping fees which is above RM45.00, I will provide a free
+          delivery fees." Both numbers used to be in the store's config file,
+          so changing them meant a code edit and a deploy. They are hers now.
+          The sentence below the boxes is the exact sentence the shop shows a
+          customer, built from what is currently typed — the point being that
+          nobody should have to imagine what these two numbers add up to. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">{L("Delivery charges", "Caj penghantaran")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("What the shop charges for delivery, and the basket size that makes it free. Yours to change — the shop picks it up within a minute.",
+             "Kadar penghantaran yang dikenakan kedai, dan jumlah belian yang menjadikannya percuma. Anda boleh ubah — kedai mengambilnya dalam seminit.")}
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Delivery charge", "Caj penghantaran")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={ship} onChange={(e) => setShip(e.target.value)}
+                inputMode="decimal" placeholder="4.50" aria-label={L("Delivery charge in ringgit", "Caj penghantaran dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Free delivery from", "Penghantaran percuma dari")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={freeAbove} onChange={(e) => setFreeAbove(e.target.value)}
+                inputMode="decimal" placeholder="45.00" aria-label={L("Free delivery threshold in ringgit", "Ambang penghantaran percuma dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <button type="button" className={btnSm} disabled={busyDelivery || !deliveryDirty}
+            onClick={() => void saveDelivery()}>
+            {busyDelivery ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
+          </button>
+        </div>
+
+        {/* The customer's sentence, live. */}
+        {rmToSen(ship) !== null && rmToSen(freeAbove) !== null && (
+          <p className="mt-3 text-xs">
+            {L("The shop will say:", "Kedai akan memaparkan:")}{" "}
+            <span className="font-medium">
+              {L(`Free delivery above RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} otherwise`,
+                 `Penghantaran percuma melebihi RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} jika tidak`)}
+            </span>
+          </p>
+        )}
+
+        {deliverySaved !== null && deliverySaved.ship === "" && (
+          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+            {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
+               "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
+          </p>
+        )}
+      </div>
+
+      {/* ---- the catalog PDF (v1.55.0) ----
+          The CEO: "the portal can upload the PDF for this catalog without
+          the prices tag and it will automatically live price embedded to
+          the PDF uploaded." Choosing a file reads it HERE in the browser —
+          labels, positions, page-1 cover — and shows what was found before
+          anything uploads. The shop prices those spots live on every
+          download, so the PDF never goes stale. */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{L("Catalog PDF", "PDF Katalog")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Upload the catalog WITHOUT price tags — the shop writes today's prices under each product name itself, on every download, and makes every product tappable.",
+                 "Muat naik katalog TANPA tanda harga — kedai sendiri menulis harga hari ini di bawah setiap nama produk, pada setiap muat turun, dan menjadikan setiap produk boleh ditekan.")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {cat?.live && <span className={chipSuccess}>{L("Live on the shop", "Disiarkan di kedai")}</span>}
+            {cat && !cat.live && !cat.unavailable && <span className={chipNeutral}>{L("Built-in catalog", "Katalog terbina dalam")}</span>}
+          </div>
+        </div>
+
+        {cat?.unavailable && (
+          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("This api worker does not have the catalog routes yet — deploy azoneofficial-api, then reload.",
+               "Worker api ini belum ada laluan katalog — deploy azoneofficial-api, kemudian muat semula.")}
+          </p>
+        )}
+
+        {cat && !cat.unavailable && (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={catFileRef} type="file" accept="application/pdf" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void readCatalogFile(f); }} />
+              <button type="button" className={btnSm} disabled={catReading || catBusy}
+                onClick={() => catFileRef.current?.click()}>
+                {catReading
+                  ? L("Reading the PDF…", "Membaca PDF…")
+                  : cat.live ? L("Replace the catalog", "Ganti katalog") : L("Choose a PDF", "Pilih PDF")}
+              </button>
+              {cat.live && (
+                <>
+                  <span className="text-muted-foreground text-xs">
+                    {L("Uploaded", "Dimuat naik")} {cat.updated_at ? cat.updated_at.slice(0, 16).replace("T", " ") : ""}
+                  </span>
+                  <button type="button" className="text-muted-foreground ml-auto text-xs underline" disabled={catBusy}
+                    onClick={() => void removeCatalog()}>
+                    {L("remove — the shop returns to its built-in catalog", "buang — kedai kembali kepada katalog terbina dalam")}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {cat.pending && !catDraft && (
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                {L("A previous upload did not finish — the shop was not changed. Choose the PDF again.",
+                   "Muat naik sebelum ini tidak selesai — kedai tidak diubah. Pilih PDF itu semula.")}
+              </p>
+            )}
+
+            {/* what was read, before anything uploads */}
+            {catDraft && (
+              <div className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  {catDraft.coverUrl && (
+                    /* eslint-disable-next-line @next/next/no-img-element -- object URL preview */
+                    <img src={catDraft.coverUrl} alt={L("Catalog cover", "Kulit katalog")}
+                      className="w-20 rounded-md border object-cover" />
+                  )}
+                  <div className="min-w-0 flex-1 text-xs">
+                    <p className="font-medium">{catDraft.file.name}</p>
+                    <p className="text-muted-foreground mt-1">
+                      {L(`${catDraft.pages} pages · ${catDraft.map.sites.length} labels found · ${catDraft.matched} match a published product`,
+                         `${catDraft.pages} halaman · ${catDraft.map.sites.length} label dijumpai · ${catDraft.matched} sepadan dengan produk diterbitkan`)}
+                    </p>
+                    {catDraft.matched === 0 && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L("None of the labels match a published product — the shop would add no prices. Check the names, or publish the products first.",
+                           "Tiada label sepadan dengan produk diterbitkan — kedai tidak akan menambah harga. Semak nama, atau terbitkan produk dahulu.")}
+                      </p>
+                    )}
+                    {catDraft.prices_detected > 0 && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L(`This PDF still has ${catDraft.prices_detected} printed price tag${catDraft.prices_detected === 1 ? "" : "s"} (RM …) — the shop's live prices would appear NEXT TO them, not instead of them. Best to export it without prices.`,
+                           `PDF ini masih ada ${catDraft.prices_detected} tanda harga bercetak (RM …) — harga langsung kedai akan muncul DI SEBELAHNYA, bukan menggantikannya. Lebih baik eksport tanpa harga.`)}
+                      </p>
+                    )}
+                    {catDraft.truncated && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L("Over 300 labels — only the first 300 get prices.", "Melebihi 300 label — hanya 300 pertama mendapat harga.")}
+                      </p>
+                    )}
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" className={btnSm} disabled={catBusy} onClick={() => void uploadCatalog()}>
+                        {catBusy ? L("Uploading…", "Memuat naik…") : L("Upload to the shop", "Muat naik ke kedai")}
+                      </button>
+                      <button type="button" className="text-muted-foreground text-xs underline" disabled={catBusy}
+                        onClick={() => { if (catDraft.coverUrl) URL.revokeObjectURL(catDraft.coverUrl); setCatDraft(null); }}>
+                        {L("cancel", "batal")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -564,6 +1112,73 @@ export function ElfiaStorePanel() {
           </p>
         )}
 
+        {/* ---- bulk discount (v1.54.0) ----
+            The CEO: "I want to perform bulk discount instead of one by one.
+            but I need to have 1 by 1 update also." Nothing below changes —
+            this is a selection laid over the same list. The bar only appears
+            once something is ticked, so the everyday view stays as it was. */}
+        {items.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+            <span className="text-muted-foreground">{L("Select:", "Pilih:")}</span>
+            <button type="button" className="underline underline-offset-2"
+              onClick={() => setPicked(new Set(published.map((x) => x.id)))}>
+              {L("all published", "semua diterbitkan")} ({published.length})
+            </button>
+            {/* By collection, because a sale is usually "all the shawls". */}
+            {[...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
+              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+              .map((c) => (
+                <button key={c} type="button" className="underline underline-offset-2"
+                  onClick={() => setPicked(new Set(items.filter((x) => (x.elfia_category ?? "").trim() === c).map((x) => x.id)))}>
+                  {c} ({items.filter((x) => (x.elfia_category ?? "").trim() === c).length})
+                </button>
+              ))}
+            {picked.size > 0 && (
+              <button type="button" className="text-muted-foreground underline underline-offset-2"
+                onClick={() => setPicked(new Set())}>
+                {L("clear selection", "kosongkan pilihan")}
+              </button>
+            )}
+          </div>
+        )}
+
+        {picked.size > 0 && (
+          <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
+            <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+              {picked.size} {L("selected", "dipilih")}
+            </span>
+            <label className="flex items-center gap-1.5 text-xs">
+              <select value={bulkMode} onChange={(e) => setBulkMode(e.target.value as "amount" | "percent")}
+                className="border-input bg-background rounded border px-1.5 py-1"
+                aria-label={L("Discount type", "Jenis diskaun")}>
+                <option value="percent">{L("% off", "% diskaun")}</option>
+                <option value="amount">{L("RM off", "RM diskaun")}</option>
+              </select>
+              <input value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                inputMode="decimal" placeholder={bulkMode === "percent" ? "20" : "3.00"}
+                aria-label={L("Discount value", "Nilai diskaun")}
+                className={`${inputClass} w-20`} />
+            </label>
+            <button type="button" className={btnSm} disabled={busyBulk}
+              onClick={() => void applyBulk(bulkMode)}>
+              {busyBulk ? L("Applying…", "Menggunakan…") : L("Apply to selected", "Guna pada yang dipilih")}
+            </button>
+            {/* Its own button: 0 and "no discount" are different things, and
+                a box that means both is a box that gets misread. */}
+            <button type="button" className={btnSm} disabled={busyBulk}
+              onClick={() => void applyBulk("clear")}>
+              {L("Remove discount", "Buang diskaun")}
+            </button>
+            <span className="text-muted-foreground w-full text-[11px]">
+              {bulkMode === "percent"
+                ? L("Worked out from each product's own web price. Anything it cannot apply to is named, not skipped quietly.",
+                    "Dikira daripada harga web setiap produk sendiri. Apa-apa yang tidak boleh digunakan akan dinamakan, bukan dilangkau diam-diam.")
+                : L("The same RM off every selected product. Anything cheaper than that is named, not skipped quietly.",
+                    "Potongan RM yang sama bagi setiap produk dipilih. Apa-apa yang lebih murah akan dinamakan, bukan dilangkau diam-diam.")}
+            </span>
+          </div>
+        )}
+
         <div className="mt-3 space-y-2">
           {sorted.map((it) => {
             const on = (it.bridge_enabled ?? 0) === 1;
@@ -571,6 +1186,20 @@ export function ElfiaStorePanel() {
               <div key={it.id}
                 className={`rounded-xl border p-3 transition-colors ${on ? "border-border bg-card" : "border-border/60 bg-secondary/30 opacity-80"}`}>
                 <div className="flex flex-wrap items-start gap-3">
+                  {/* v1.54.0 — the bulk-discount tick. Its own control,
+                      nowhere near the Publish tick below: those two mean very
+                      different things and confusing them takes a product off
+                      the shop. */}
+                  <label className="flex shrink-0 items-center pt-7"
+                    title={L("Select for a bulk discount", "Pilih untuk diskaun pukal")}>
+                    <input type="checkbox" checked={picked.has(it.id)}
+                      aria-label={`${L("Select", "Pilih")} ${it.sku}`}
+                      onChange={(e) => setPicked((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(it.id); else next.delete(it.id);
+                        return next;
+                      })} />
+                  </label>
                   {/* photo — the tap target IS the upload */}
                   <button type="button"
                     className="border-border bg-secondary relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border"

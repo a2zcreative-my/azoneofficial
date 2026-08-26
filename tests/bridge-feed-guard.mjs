@@ -9,7 +9,7 @@
    from PORTAL-BRIDGE-SPEC.md.
 
    Run: node --experimental-strip-types tests/bridge-feed-guard.mjs */
-import { serializeBridgeItems, serializeBridgeSlides, effectivePriceCents } from "../worker/src/bridge-feed.ts";
+import { serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, effectivePriceCents } from "../worker/src/bridge-feed.ts";
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -212,6 +212,86 @@ eq("zoom crosses the bridge, clamped both ways",
 eq("no origin → no slides (a slide IS its photo URL)",
   serializeBridgeSlides([{ id: 1, image_key: "uploads/elfia/slides/1-1.jpg", image_updated_at: "m1", sort: 1 }]),
   []);
+
+/* ---- what delivery costs (v1.52.0) ----
+   These two numbers are charged to a customer at checkout, so the rules that
+   matter are about what must NOT cross the bridge. Sending 0 for "not set"
+   would read at the shop as "delivery is free" and "free delivery from
+   RM 0.00" — a shop giving away postage because a text box was empty. So an
+   unusable value is OMITTED, and the store's own rule ("absent = keep what
+   you have") does the rest. */
+
+eq("both amounts cross the bridge",
+  serializeBridgeSettings({ elfia_shipping_cents: 450, elfia_free_above_cents: 4500 }),
+  { shipping_cents: 450, free_above_cents: 4500 });
+
+eq("string values from system_meta are numbers on the wire",
+  serializeBridgeSettings({ elfia_shipping_cents: "450", elfia_free_above_cents: "4500" }),
+  { shipping_cents: 450, free_above_cents: 4500 });
+
+eq("nothing set at all → the whole key is omitted",
+  serializeBridgeSettings({}), undefined);
+
+eq("an empty box is NOT free delivery — the key is omitted",
+  serializeBridgeSettings({ elfia_shipping_cents: "", elfia_free_above_cents: "" }), undefined);
+
+eq("free delivery from RM 0.00 cannot be sent by accident (blank threshold)",
+  serializeBridgeSettings({ elfia_shipping_cents: 450, elfia_free_above_cents: "" }),
+  { shipping_cents: 450 });
+
+eq("zero IS a legal delivery charge — free postage is a real choice",
+  serializeBridgeSettings({ elfia_shipping_cents: 0, elfia_free_above_cents: 4500 }),
+  { shipping_cents: 0, free_above_cents: 4500 });
+
+eq("a stray zero (RM 45,000 postage) is refused, not clamped",
+  serializeBridgeSettings({ elfia_shipping_cents: 4500000, elfia_free_above_cents: 4500 }),
+  { free_above_cents: 4500 });
+
+eq("a negative amount is refused",
+  serializeBridgeSettings({ elfia_shipping_cents: -450, elfia_free_above_cents: 4500 }),
+  { free_above_cents: 4500 });
+
+eq("text in the box is refused rather than becoming NaN",
+  serializeBridgeSettings({ elfia_shipping_cents: "free", elfia_free_above_cents: 4500 }),
+  { free_above_cents: 4500 });
+
+eq("a fraction of a sen is rounded, never stored as a fraction",
+  serializeBridgeSettings({ elfia_shipping_cents: 450.4, elfia_free_above_cents: 4500.6 }),
+  { shipping_cents: 450, free_above_cents: 4501 });
+
+/* ---- v1.55.0: the uploaded catalog ----
+   Emitted ONLY when PDF + map + marker all exist — a half-finished upload
+   must stay invisible, and a new PDF must never be priced with an old map
+   (the upload route clears the marker until the new map lands). */
+const CAT = {
+  elfia_catalog_pdf_key: "uploads/elfia/catalog-1.pdf",
+  elfia_catalog_map_key: "uploads/elfia/catalog-map-1.json",
+  elfia_catalog_cover_key: "uploads/elfia/catalog-cover-1.jpg",
+  elfia_catalog_updated_at: "2026-08-26T00:00:00Z",
+};
+
+eq("the complete catalog rides the feed, URLs on the request origin",
+  serializeBridgeCatalog(CAT, "https://a2zcreative.my/"),
+  { url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/catalog-1.pdf",
+    map_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/catalog-map-1.json",
+    updated_at: "2026-08-26T00:00:00Z",
+    cover_url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/catalog-cover-1.jpg" });
+
+eq("no cover is fine — the key is simply left off",
+  serializeBridgeCatalog({ ...CAT, elfia_catalog_cover_key: "" }, "https://a2zcreative.my")?.cover_url,
+  undefined);
+
+eq("PDF without its map stays OFF the feed (half-finished upload)",
+  serializeBridgeCatalog({ ...CAT, elfia_catalog_map_key: "" }, "https://a2zcreative.my"), undefined);
+
+eq("map without its marker stays OFF the feed (upload route cleared it for a new PDF)",
+  serializeBridgeCatalog({ ...CAT, elfia_catalog_updated_at: "" }, "https://a2zcreative.my"), undefined);
+
+eq("nothing uploaded → no key at all",
+  serializeBridgeCatalog({}, "https://a2zcreative.my"), undefined);
+
+eq("no origin to build URLs on → no key (a relative path the store cannot fetch)",
+  serializeBridgeCatalog(CAT, undefined), undefined);
 
 if (failed) { console.error(`\n${failed} bridge-feed check(s) failed.`); process.exit(1); }
 console.log("\nbridge-feed-guard: all checks passed.");

@@ -2,6 +2,221 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.55.0] — 2026-08-26 — Upload the catalog PDF; the shop prices it itself
+
+The CEO, 26-08-2026: *"the portal can upload the PDF for this catalog
+without the prices tag and it will automatically live price embedded to the
+PDF uploaded."*
+
+**ELFIA tab → Catalog PDF card.** Choose the designer's PDF — exported
+WITHOUT price tags — and the browser reads it on the spot (pdf.js, loaded
+only at that moment): every product label with its position, and page 1
+rendered into the cover photo the shop's share preview uses. What was read
+is shown BEFORE anything uploads: how many labels matched a published
+product, a warning if none did, a warning if printed `RM` price tags are
+still in the file (the shop's live prices would appear next to them, not
+instead of them), and a warning past the 300-label cap. Upload sends three
+pieces; Remove takes the catalog off and the shop returns to its built-in
+one.
+
+### How it travels (worker)
+
+- Three staff routes: `POST /elfia/catalog` (the PDF, binary, ≤10 MB,
+  checked by its bytes), `POST /elfia/catalog/cover` (JPEG), and
+  `POST /elfia/catalog/map` (the label map, validated HERE with the same
+  rules the store enforces, so a bad extraction is refused in front of the
+  person who can fix it). **The map is the switch**: only its route stamps
+  the marker, and feed A emits the new `catalog` key only when PDF + map +
+  marker all exist. A replacement PDF clears the marker until ITS map
+  arrives — so the store can never pair a new file with an old map, which
+  would be prices on the wrong labels.
+- Files live under `uploads/elfia/` (the public media prefix — the store's
+  Worker fetches them with no session), timestamped because that route
+  serves immutable.
+- `DELETE /elfia/catalog` clears meta + files and also knocks on the
+  store's own reset door (`DELETE /api/v1/bridge/catalog`, bridge key) —
+  because an absent feed key means "keep what you have", the feed's oldest
+  rule, and removal must actually remove.
+
+### Proven
+
+- `scratch/catalog-extract-check.mjs` — 25 checks on the shipped extraction
+  geometry (lib/catalog-extract.ts imported directly): merge, price
+  filtering, the top-left coordinate flip the store's contract requires,
+  the 300 cap, and a real PDF read back through pdf.js in node.
+- `scratch/catalog-portal-e2e.mjs` — 25 checks on the real worker: the
+  doors (fake PDF by bytes, mapless map, CSRF), the half-finished upload
+  staying invisible, the feed carrying all three publicly, the
+  replacement-PDF silence rule, and remove leaving nothing behind.
+- A full cross-system pass: this portal's routes feeding the REAL store
+  worker — upload here, `catalog.pdf` there served live-priced from feed
+  prices, a price change following, and remove resetting the shop.
+- `tests/bridge-feed-guard.mjs` gained the catalog serialiser cases;
+  `scratch/elfia-bridge-e2e.mjs` was brought up to the v1.49 free-form
+  collection contract it had drifted behind.
+
+Store side: elfia-store v1.21.0 (its own changelog). Both PUSH.bat runs are
+needed — engine + website, both projects.
+
+## [1.54.0] — 2026-08-26 — Discount many at once, without losing one at a time
+
+The CEO, 26-08-2026: *"for the discount, I want to perform bulk discount
+instead of one by one. but I need to have 1 by 1 update also."*
+
+Both, then. The per-item Discount box on every row is untouched; what is new
+is a SELECTION laid over the same list.
+
+**ELFIA tab -> tick the products -> a bar appears** with `% off` or `RM off`,
+Apply, and Remove discount. Select all published, or a whole collection in
+one click, since a sale is usually "all the shawls".
+
+### The parts that needed care
+
+A discount is a price a customer is charged, and a bulk discount is that
+mistake multiplied by however many rows were ticked.
+
+- **A percentage comes off each product's OWN web price**, not an average and
+  not the first row's. 20% across RM 49.00, RM 55.00 and RM 10.00 is three
+  different amounts, and the rig asserts all three.
+- **Anything it cannot apply to is NAMED.** RM 15 off cannot come off a
+  RM 10.00 shawl, so that SKU is reported back with the reason rather than
+  passed over. A bulk action that silently leaves some rows alone is worse
+  than one that refuses: nobody re-checks thirty rows afterwards.
+- **Remove discount is its own button**, not "apply 0". Zero and "no
+  discount" are different things and a box meaning both gets misread —
+  applying 0 is refused.
+- The per-item price rule is the same rule as the single-item route, applied
+  per row: a discount must be smaller than the price it comes off.
+- The tick box is deliberately far from the Publish tick. Those two mean very
+  different things and confusing them takes a product off the shop.
+
+### Proof
+
+`scratch/bulk-discount-e2e.mjs` — 27 checks against the real portal worker,
+real D1, real CSRF path. It ends by reading feed A and checking the prices a
+customer would actually be shown, including the struck-through original.
+
+**No migration.**
+
+## [1.53.0] — 2026-08-26 — A window onto the shop's payment gateway
+
+The CEO, 26-08-2026, on the live shop: *"This appear on the gateway
+payment!"* — customers were being shown "Payment gateway unavailable" and
+there was nowhere in either system to find out why. The store threw the
+reason away at the moment it learned it.
+
+The store keeps Billplz's own reply now (store v1.14.1). This is the window
+onto it: **ELFIA tab -> Online payment (Billplz FPX) -> Check now.**
+
+It shows three things, which are three different claims:
+
+- whether the API key can read its collection at all;
+- whether the shop is pointed at the SANDBOX, which is the one combination
+  that looks fine in testing and fails in front of a customer;
+- **the last time a customer could not pay**, in Billplz's own words, with a
+  hint naming the fix. This is the stronger claim: a bill can be refused for
+  reasons a collection read never sees.
+
+The raw reply is shown ABOVE the hint on purpose. The hint is a guess about a
+status code; the detail is what actually happened, and when they disagree the
+detail is right.
+
+Relayed server-side through `GET /elfia/payment-status` with the bridge key
+the portal already holds, so nobody has to carry a payment credential around
+to see the answer. Read-only on both sides — the store's check reads one
+collection, creates no bill and moves no money. It runs when someone presses
+the button, not on page load: it makes the shop call Billplz, and that is a
+request to somebody else's service.
+
+**No migration.** Both halves of the portal, and the store must be deployed
+too — its half is v1.14.1.
+
+## [1.52.0] — 2026-08-26 — The ELFIA tab sets what delivery costs
+
+The CEO, 26-08-2026: *"I want to have the authority to update the shipping
+fees which is above RM45.00, I will provide a free delivery fees."*
+
+Two numbers — the delivery charge, and the basket size that makes it free —
+lived in the STORE's `wrangler.toml`. Changing them meant editing code and
+running a deploy, which is not authority, it is a request form. They belong
+to whoever runs the shop.
+
+**ELFIA tab → Delivery charges**, above the carousel. Two boxes in ringgit, a
+Save that is disabled until something actually changes, and the exact
+sentence the shop will show a customer built live from what is typed:
+
+> The shop will say: Free delivery above RM 45.00 · RM 4.50 otherwise
+
+Nobody should have to imagine what two numbers add up to on a page they
+cannot see.
+
+Stored in `system_meta` (no migration — it long predates this) and carried on
+the existing ELFIA bridge feed as a `settings` block. The store applies it on
+its next pull, which is every minute, or immediately with "Update the shop
+now". Until it is saved once, the card says so plainly rather than showing
+0.00 and implying delivery is free.
+
+### What must not cross the bridge
+
+`serializeBridgeSettings()` lives in `bridge-feed.ts` with the rest of the
+feed, so `tests/bridge-feed-guard.mjs` imports the SHIPPED function and
+cannot drift from it. Ten new cases, and they are all about the failure
+modes rather than the happy path — this is money charged to a customer:
+
+- An unusable value is **omitted**, never sent as 0. Sending 0 for "not set"
+  would read at the shop as "delivery is free" and "free delivery from
+  RM 0.00" — a shop giving away postage because a text box was empty.
+- Zero **is** accepted as a real delivery charge, because free postage is a
+  choice someone might make deliberately.
+- A stray zero (RM 45,000 of postage) is **refused, not clamped**: a clamped
+  number is a wrong number that looks intentional.
+- Text, negatives and fractions of a sen are handled explicitly.
+
+Ringgit in the boxes, **sen** on the wire and in the database — the same unit
+as every other money value in both systems. A mix of units is how a shop ends
+up charging RM 800 to post a hijab.
+
+### Deploy
+
+**No migration.** Both halves of the portal (engine + website), and the store
+must be deployed too — its half is v1.13.0.
+
+## [1.51.0] — 2026-08-26 — Web Orders can finally DO something
+
+The CEO: "elfia web order should be able to update the tracking number so
+that customer can track the order based on the order number that filled by
+staff in the portal."
+
+This tab was read-only by design, which left confirming a payment and
+entering a tracking number stuck inside the ELFIA store's own admin — a
+screen that cannot even be opened, because its ADMIN_KEY was never set.
+
+Open any order and the drawer now offers only the moves that are legal from
+its current status:
+
+- **Awaiting payment / Payment review** — *Payment received*, or *Cancel
+  order* (with a confirm, because it puts the stock back).
+- **Paid** — a courier picker and a **tracking number** box, then *Mark
+  shipped*. The courier keys match the store's own list, so it builds the
+  customer-facing tracking link rather than showing a dead one.
+- **Shipped** — shows what the customer is tracking, and *Mark delivered*.
+
+The store still owns the rules. This route is a thin authenticated relay to
+its bridge, so the two screens cannot drift about what an action means, and
+the store's refusals ("Cannot ship an order that is completed") are passed
+through in its own words. Gated on Sales or Inventory — looking at an order
+is not the same as moving somebody's money and stock — and every action is
+written to the audit log.
+
+Also: **`scratch/seed-e2e.mjs`** now seeds the local e2e database (CEO user,
+the `e2etoken` session the rigs hardcode, three inventory items). Wiping
+`.wrangler/state` to re-apply migrations used to break every rig with an
+unhelpful "Cannot read properties of undefined".
+
+Verified: 52 cross-system assertions against both real workers, twice —
+including the customer's own order page showing the tracking number the staff
+typed. All other guards passing. **No migration.**
+
 ## [1.50.1] — 2026-08-25 — migrations the remote D1 parser accepts
 
 The ELFIA store's deploy stopped at "Database changes" with *SQL code did not

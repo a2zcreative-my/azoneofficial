@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
-import { serializeBridgeItems, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
+import { serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
@@ -1626,7 +1626,37 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       }
       slides = serializeBridgeSlides(slideRows as unknown as SlideRow[], origin);
     } catch { /* 0087 pending */ }
-    return json({ items, ...(slides !== undefined ? { slides } : {}), as_of: new Date().toISOString(), count: items.length });
+
+    /* v1.52.0 — what delivery costs, set in the ELFIA tab. system_meta long
+       predates this, so there is no migration: a shop where nobody has set
+       them has no rows, serializeBridgeSettings returns undefined, the key
+       is omitted, and the store keeps its own numbers. */
+    let settings: ReturnType<typeof serializeBridgeSettings>;
+    /* v1.55.0 — the uploaded catalog rides the same system_meta read: PDF,
+       label map and cover as URLs on this request's origin, plus the marker
+       that gates the store's download. Emitted only when the upload is
+       complete (PDF + map + marker); absent means the store keeps what it
+       has — the shipped designer catalog included. */
+    let catalog: ReturnType<typeof serializeBridgeCatalog>;
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT key, value FROM system_meta WHERE key IN
+           ('elfia_shipping_cents', 'elfia_free_above_cents',
+            'elfia_catalog_pdf_key', 'elfia_catalog_map_key',
+            'elfia_catalog_cover_key', 'elfia_catalog_updated_at')`,
+      ).all<{ key: string; value: string }>();
+      const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
+      settings = serializeBridgeSettings(meta);
+      catalog = serializeBridgeCatalog(meta, origin);
+    } catch { /* no system_meta in this checkout — omit the keys */ }
+
+    return json({
+      items,
+      ...(slides !== undefined ? { slides } : {}),
+      ...(settings !== undefined ? { settings } : {}),
+      ...(catalog !== undefined ? { catalog } : {}),
+      as_of: new Date().toISOString(), count: items.length,
+    });
   }
 
   /* v1.36.0 (feed B): the store reports every web sale as a signed movement

@@ -662,8 +662,11 @@ export async function handleStaff(
      JSON first consumes it ("Body has already been used"), so every binary
      route has to be named here — that is the rule this list exists for. */
   const isCutoutUpload = path.endsWith("/cutout");
+  /* v1.55.0: the ELFIA catalog PDF and its cover are raw binary bodies.
+     The map (/elfia/catalog/map) stays JSON and is NOT excluded. */
+  const isCatalogUpload = path === "/elfia/catalog" || path === "/elfia/catalog/cover";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -6105,6 +6108,331 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
   }
 
+  /* ---- discount many products at once (v1.54.0) ----
+     The CEO, 26-08-2026: "for the discount, I want to perform bulk discount
+     instead of one by one. but I need to have 1 by 1 update also."
+
+     So this ADDS to the per-item box rather than replacing it: a sale across
+     a whole collection is one action here, and a single odd shade is still
+     one box on its own row.
+
+     Two ways to say it, because both are things people actually mean:
+       amount  — RM 3.00 off each
+       percent — 20% off each, worked out from that item's OWN web price
+       clear   — remove the discount
+
+     Per-item validation is the SAME rule as the single-item route: a
+     discount must be smaller than the price it comes off. A bulk apply must
+     not fail wholesale because one cheap shawl cannot take RM 5 off — it
+     applies to the ones it can and REPORTS the ones it skipped, by SKU. A
+     bulk action that silently does nothing to some rows is worse than one
+     that refuses, because nobody checks thirty rows afterwards. */
+  if (path === "/elfia/bulk-discount" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
+    const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
+    if (clean.length > 500) return err("invalid_input", "Too many products in one go (max 500)", 400);
+
+    const mode = String(body?.mode ?? "");
+    if (!["amount", "percent", "clear"].includes(mode)) {
+      return err("invalid_input", "mode must be amount, percent or clear", 400);
+    }
+    const value = Number(body?.value);
+    if (mode === "amount" && (!Number.isFinite(value) || value <= 0 || value > 10000)) {
+      return err("invalid_input", "Discount must be a positive RM amount", 400);
+    }
+    if (mode === "percent" && (!Number.isFinite(value) || value <= 0 || value >= 100)) {
+      return err("invalid_input", "Percentage must be above 0 and below 100", 400);
+    }
+
+    let rows: { id: number; sku: string; unit_price_cents: number | null; elfia_price_cents: number | null }[];
+    try {
+      const q = await env.DB.prepare(
+        `SELECT id, sku, unit_price_cents, elfia_price_cents FROM inventory_items
+         WHERE id IN (${clean.map((_, i) => `?${i + 1}`).join(",")})`,
+      ).bind(...clean).all<{ id: number; sku: string; unit_price_cents: number | null; elfia_price_cents: number | null }>();
+      rows = q.results;
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0086, ELFIA product fields)", 500);
+    }
+
+    const applied: string[] = [];
+    const skipped: { sku: string; why: string }[] = [];
+    for (const r of rows) {
+      let cents: number | null = null;
+      if (mode !== "clear") {
+        /* The item's OWN price — the web price when it has one, else the
+           list price. This is the same number the feed prices against, so a
+           percentage here means what it says on the shop. */
+        const base = r.elfia_price_cents ?? r.unit_price_cents ?? 0;
+        if (base <= 0) { skipped.push({ sku: r.sku, why: "no price set" }); continue; }
+        cents = mode === "percent" ? Math.round(base * value / 100) : Math.round(value * 100);
+        if (cents <= 0) { skipped.push({ sku: r.sku, why: "works out to nothing" }); continue; }
+        if (cents >= base) {
+          skipped.push({ sku: r.sku, why: `RM ${(cents / 100).toFixed(2)} is not less than its RM ${(base / 100).toFixed(2)}` });
+          continue;
+        }
+      }
+      await env.DB.prepare(
+        `UPDATE inventory_items SET elfia_discount_cents = ?1, updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+      ).bind(cents === null ? null : String(cents), user.id, r.id).run();
+      applied.push(r.sku);
+    }
+
+    await audit(env, user.id, "elfia.bulk_discount", "inventory_items", null,
+                { mode, value, applied: applied.length, skipped: skipped.length });
+    return json({ ok: true, mode, applied, skipped });
+  }
+
+  /* ---- is online payment actually working? (v1.53.0) ----
+     The CEO, 26-08-2026, on the live shop: "This appear on the gateway
+     payment!" — customers were being told "Payment gateway unavailable" and
+     there was nowhere at all to find out why. The store knows (it now writes
+     Billplz's own reply down); this is the window onto it.
+
+     Relayed SERVER-SIDE with the bridge key the portal already holds, so
+     nobody has to carry a credential around to see the answer. Read-only on
+     both sides: the store's check reads one collection, creates nothing and
+     moves no money. */
+  if (path === "/elfia/payment-status" && method === "GET") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const baseP = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
+    if (!baseP || !env.ELFIA_BRIDGE_KEY) {
+      return err("not_configured", "The store's address or bridge key is not set on this worker yet.", 501);
+    }
+    try {
+      const r = await fetch(`${baseP}/api/v1/bridge/payment-check`, {
+        headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const b = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      /* A 404 means the shop has not been deployed with this route yet —
+         say so, rather than reporting it as a payment failure. */
+      if (r.status === 404) {
+        return json({ unavailable: true, message: "The shop is running an older version — deploy it to see payment status here." });
+      }
+      if (!b) return err("store_unreachable", `The shop answered ${r.status} with nothing readable.`, 502);
+      return json(b);
+    } catch {
+      return err("store_unreachable", "Could not reach the shop just now.", 502);
+    }
+  }
+
+  /* ---- what delivery costs on the shop (v1.52.0) ----
+     The CEO, 26-08-2026: "I want to have the authority to update the shipping
+     fees which is above RM45.00, I will provide a free delivery fees."
+
+     Two numbers that used to live in the STORE's wrangler.toml, so changing
+     them was a code edit and a deploy. They live in system_meta now and ride
+     the bridge feed to the shop, which applies them on its next pull (every
+     minute, or immediately via "Update the shop now").
+
+     No migration: system_meta is the portal's long-standing key/value table.
+     Kept in SEN, like every other money value in both systems — the panel
+     does the ringgit conversion, because a mix of units in the database is
+     how a shop ends up charging RM 800 for postage. */
+  if (path === "/elfia/delivery" && method === "GET") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM system_meta WHERE key IN ('elfia_shipping_cents', 'elfia_free_above_cents')`,
+    ).all<{ key: string; value: string }>().catch(() => ({ results: [] as { key: string; value: string }[] }));
+    const m = Object.fromEntries(results.map((r) => [r.key, r.value]));
+    /* null, not 0, when unset — the panel must be able to show "the shop's
+       own setting" rather than claim delivery is free. */
+    const num = (v: unknown) => {
+      const n = Number(v);
+      return v === undefined || v === null || v === "" || !Number.isFinite(n) ? null : Math.round(n);
+    };
+    return json({
+      shipping_cents: num(m.elfia_shipping_cents),
+      free_above_cents: num(m.elfia_free_above_cents),
+    });
+  }
+
+  if (path === "/elfia/delivery" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    /* Both required together. Saving one of a pair of numbers that only make
+       sense side by side is how you end up with free delivery above RM 0. */
+    const asSen = (v: unknown): number | null => {
+      if (v === undefined || v === null || v === "") return null;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 100_000) return null;
+      return Math.round(n);
+    };
+    const ship = asSen(body?.shipping_cents);
+    const free = asSen(body?.free_above_cents);
+    if (ship === null || free === null) {
+      return err("invalid_input", "Both amounts are required, in sen, between RM 0.00 and RM 1,000.00", 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('elfia_shipping_cents', ?1)
+       ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(ship)).run();
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('elfia_free_above_cents', ?1)
+       ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(free)).run();
+    await audit(env, user.id, "elfia.delivery", "inventory_items", null,
+                { shipping_cents: ship, free_above_cents: free });
+    return json({ ok: true, shipping_cents: ship, free_above_cents: free });
+  }
+
+  /* ==== v1.55.0 — the shop catalog, uploaded HERE, priced by the shop ====
+     The CEO: "the portal can upload the PDF for this catalog without the
+     prices tag and it will automatically live price embedded to the PDF
+     uploaded."
+
+     Three pieces travel to the store: the PDF (binary, this route), the
+     label map her browser extracted at upload (JSON, /elfia/catalog/map),
+     and the cover image (/elfia/catalog/cover). The MAP is what flips the
+     switch: only its route stamps elfia_catalog_updated_at, and the feed
+     emits the catalog key only when PDF + map + marker all exist. So a
+     half-done upload (PDF in, map not yet) is invisible to the store, and
+     the store can never price a new file with an old file's map.
+
+     Keys are timestamped (the media route serves uploads/ as immutable) and
+     live under uploads/elfia/ — public by definition: the store's Worker
+     fetches them with no session, then the shop hands the priced PDF to the
+     world. No migration: system_meta holds the pointers. */
+  const catalogMeta = async (): Promise<Record<string, string>> => {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM system_meta WHERE key IN ('elfia_catalog_pdf_key', 'elfia_catalog_map_key', 'elfia_catalog_cover_key', 'elfia_catalog_updated_at')`,
+    ).all<{ key: string; value: string }>().catch(() => ({ results: [] as { key: string; value: string }[] }));
+    return Object.fromEntries(results.map((r) => [r.key, r.value]));
+  };
+  const catalogMetaSet = (key: string, value: string) => env.DB.prepare(
+    `INSERT INTO system_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`,
+  ).bind(key, value).run();
+
+  if (path === "/elfia/catalog" && method === "GET") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const m = await catalogMeta();
+    const live = Boolean(m.elfia_catalog_pdf_key && m.elfia_catalog_map_key && m.elfia_catalog_updated_at);
+    return json({
+      live,
+      pdf_key: m.elfia_catalog_pdf_key ?? null,
+      map_key: m.elfia_catalog_map_key ?? null,
+      cover_key: m.elfia_catalog_cover_key ?? null,
+      updated_at: m.elfia_catalog_updated_at ?? null,
+      /* Half-uploaded (PDF stored, map pending) — the panel resumes or
+         replaces; the store has seen nothing. */
+      pending: Boolean(m.elfia_catalog_pdf_key) && !live,
+    });
+  }
+
+  if (path === "/elfia/catalog" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (ct !== "application/pdf") return err("invalid_input", "The catalog must be a PDF", 400);
+    if (!request.body) return err("invalid_input", "PDF body required", 400);
+    const bytes = await request.arrayBuffer();
+    /* 10 MB here, under the store's own 15 MB refusal — a file accepted here
+       that the store then refuses would look synced and never arrive. */
+    if (bytes.byteLength === 0) return err("invalid_input", "The file was empty", 400);
+    if (bytes.byteLength > 10 * 1024 * 1024) {
+      return err("too_large", `The PDF is ${(bytes.byteLength / 1048576).toFixed(1)} MB — the limit is 10 MB. Export it smaller and try again.`, 400);
+    }
+    const head = new Uint8Array(bytes.slice(0, 5));
+    if (String.fromCharCode(...head) !== "%PDF-") {
+      return err("invalid_input", "That file is not a PDF inside, whatever its name says", 400);
+    }
+    const m = await catalogMeta();
+    const key = `uploads/elfia/catalog-${Date.now()}.pdf`;
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: "application/pdf" } });
+    await catalogMetaSet("elfia_catalog_pdf_key", key);
+    /* A NEW PDF invalidates the old map — the marker is cleared so the feed
+       goes quiet until the new map arrives. The store keeps serving what it
+       already downloaded; nothing half-new ever reaches it. */
+    await env.DB.prepare(`DELETE FROM system_meta WHERE key IN ('elfia_catalog_map_key', 'elfia_catalog_updated_at')`).run();
+    if (m.elfia_catalog_pdf_key) await env.MEDIA.delete(m.elfia_catalog_pdf_key).catch(() => null);
+    if (m.elfia_catalog_map_key) await env.MEDIA.delete(m.elfia_catalog_map_key).catch(() => null);
+    await audit(env, user.id, "elfia.catalog_pdf", "inventory_items", null, { key, bytes: bytes.byteLength });
+    return json({ pdf_key: key, url: `/api/v1/media/file/${key}` }, 201);
+  }
+
+  if (path === "/elfia/catalog/cover" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (ct !== "image/jpeg") return err("invalid_input", "The cover must be a JPEG — the panel renders it from page 1", 400);
+    if (!request.body) return err("invalid_input", "Image body required", 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return err("invalid_input", "The image was empty", 400);
+    if (bytes.byteLength > 5 * 1024 * 1024) return err("too_large", "The cover is over 5 MB", 400);
+    const m = await catalogMeta();
+    const key = `uploads/elfia/catalog-cover-${Date.now()}.jpg`;
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+    await catalogMetaSet("elfia_catalog_cover_key", key);
+    if (m.elfia_catalog_cover_key) await env.MEDIA.delete(m.elfia_catalog_cover_key).catch(() => null);
+    await audit(env, user.id, "elfia.catalog_cover", "inventory_items", null, { key });
+    return json({ cover_key: key, url: `/api/v1/media/file/${key}` }, 201);
+  }
+
+  if (path === "/elfia/catalog/map" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    /* The same shape the store's parseUploadedMap enforces — refused HERE so
+       the CEO hears about a bad extraction at upload, not as a silent
+       photo_error on the store's next pull. */
+    const map = body?.map as { version?: unknown; pages?: unknown; sites?: unknown } | undefined;
+    const badSite = (s: unknown): boolean => {
+      const o = s as Record<string, unknown>;
+      return !o || typeof o !== "object"
+        || !Number.isInteger(o.page) || (o.page as number) < 0
+        || typeof o.label !== "string" || o.label === "" || (o.label as string).length > 120
+        || ![o.x0, o.y0, o.x1, o.y1].every((n) => typeof n === "number" && Number.isFinite(n));
+    };
+    if (!map || map.version !== 1
+        || !Array.isArray(map.pages) || map.pages.length === 0 || map.pages.length > 100
+        || !map.pages.every((p) => p && typeof (p as Record<string, unknown>).w === "number" && typeof (p as Record<string, unknown>).h === "number")
+        || !Array.isArray(map.sites) || map.sites.length === 0 || map.sites.length > 300
+        || map.sites.some(badSite)) {
+      return err("invalid_input", "The label map is not usable — re-open the PDF in the panel so it can be read again", 400);
+    }
+    const m = await catalogMeta();
+    if (!m.elfia_catalog_pdf_key) {
+      return err("invalid_input", "Upload the PDF first — a map with no file to describe prices nothing", 409);
+    }
+    const mapText = JSON.stringify({ version: 1, pages: map.pages, sites: map.sites });
+    if (mapText.length > 1024 * 1024) return err("too_large", "The label map is over 1 MB", 400);
+    const key = `uploads/elfia/catalog-map-${Date.now()}.json`;
+    await env.MEDIA.put(key, mapText, { httpMetadata: { contentType: "application/json" } });
+    await catalogMetaSet("elfia_catalog_map_key", key);
+    /* THE switch: with PDF + map + marker all set, the next feed carries the
+       catalog and the store downloads the three together. */
+    const marker = new Date().toISOString();
+    await catalogMetaSet("elfia_catalog_updated_at", marker);
+    if (m.elfia_catalog_map_key) await env.MEDIA.delete(m.elfia_catalog_map_key).catch(() => null);
+    await audit(env, user.id, "elfia.catalog_map", "inventory_items", null, { key, sites: (map.sites as unknown[]).length });
+    return json({ map_key: key, updated_at: marker, live: true }, 201);
+  }
+
+  if (path === "/elfia/catalog" && method === "DELETE") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const m = await catalogMeta();
+    for (const k of [m.elfia_catalog_pdf_key, m.elfia_catalog_map_key, m.elfia_catalog_cover_key]) {
+      if (k) await env.MEDIA.delete(k).catch(() => null);
+    }
+    await env.DB.prepare(
+      `DELETE FROM system_meta WHERE key IN ('elfia_catalog_pdf_key', 'elfia_catalog_map_key', 'elfia_catalog_cover_key', 'elfia_catalog_updated_at')`,
+    ).run();
+    /* Dropping the feed key alone would NOT undo anything — absent means
+       "keep what you have", the feed's oldest rule. The store has its own
+       reset door for exactly this, so ask it directly; best-effort, because
+       the shop also serves fine with the copy it holds until it hears. */
+    let store_reset = false;
+    const base = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
+    if (base && env.ELFIA_BRIDGE_KEY) {
+      try {
+        const r = await fetch(`${base}/api/v1/bridge/catalog`, {
+          method: "DELETE",
+          headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY },
+          signal: AbortSignal.timeout(20_000),
+        });
+        store_reset = r.ok;
+      } catch { /* the shop keeps its copy until it hears; report honestly */ }
+    }
+    await audit(env, user.id, "elfia.catalog_remove", "inventory_items", null, { store_reset });
+    return json({ ok: true, store_reset });
+  }
+
   if (path === "/elfia/slides" && method === "GET") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
@@ -6331,6 +6659,58 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
   }
   /* v1.37.0: web orders pulled from the store — read-only surface. The store
      owns the order; the portal monitors it. */
+  /* v1.51.0 — move an ELFIA order forward FROM HERE.
+     The CEO: "elfia web order should be able to update the tracking number
+     so that customer can track the order based on the order number that
+     filled by staff in the portal". This tab could only watch; confirming a
+     payment and entering a tracking number still needed the store's /admin,
+     which is unreachable because its ADMIN_KEY was never set.
+     The store owns the transition rules (forward-only, cancel puts stock
+     back and reports the movement) and exposes them on its bridge; this
+     route is a thin, authenticated relay, so the two screens can never
+     disagree about what an action means. */
+  const orderAct = path.match(/^\/web-orders\/([A-Za-z0-9-]{1,40})\/action$/);
+  if (orderAct && method === "POST") {
+    /* Same gate as reading the tab, minus exec_view: looking at an order is
+       not the same as moving somebody's money and stock. */
+    if (!can(user.role, "sales") && !can(user.role, "inventory")) {
+      return err("forbidden", "Sales or Inventory access required", 403);
+    }
+    const base = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
+    if (!base || !env.ELFIA_BRIDGE_KEY) {
+      return err("not_configured", "The store's address or bridge key is not set on this worker yet.", 501);
+    }
+    const action = String(body?.action ?? "");
+    if (!["confirm_paid", "ship", "complete", "cancel"].includes(action)) {
+      return err("invalid_input", "action must be confirm_paid, ship, complete or cancel", 400);
+    }
+    try {
+      const r = await fetch(`${base}/api/v1/bridge/orders/${encodeURIComponent(orderAct[1]!)}`, {
+        method: "POST",
+        headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          ...(body?.tracking_no !== undefined ? { tracking_no: String(body.tracking_no).trim().slice(0, 60) } : {}),
+          ...(body?.tracking_courier !== undefined ? { tracking_courier: String(body.tracking_courier).slice(0, 20) } : {}),
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const payload = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!r.ok) {
+        /* The store's refusals are already written for a human ("Cannot ship
+           an order that is completed"), so they are passed through rather
+           than replaced with something vaguer. */
+        const msg = (payload?.error as { message?: string } | undefined)?.message
+          ?? `The shop answered ${r.status}.`;
+        return err("store_refused", msg, 409);
+      }
+      await audit(env, user.id, `elfia.order_${action}`, "web_orders", orderAct[1]!, payload ?? {});
+      return json({ ok: true, ...(payload ?? {}) });
+    } catch {
+      return err("store_unreachable", "Could not reach the shop just now. Nothing was changed — try again in a moment.", 502);
+    }
+  }
+
   if (path === "/web-orders" && method === "GET") {
     if (!can(user.role, "sales") && !can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Sales access required", 403);

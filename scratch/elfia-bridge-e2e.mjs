@@ -48,8 +48,12 @@ step("collection + description save through the new /elfia route");
     body: JSON.stringify({ category: "shawl", description: "  Long-cut, lightweight and opaque. Finished by hand.  " }),
   });
   ok("PATCH accepted", r.status === 200, `${r.status}`);
-  const bad = await staff(`/inventory/${shawl.id}/elfia`, { method: "PATCH", body: JSON.stringify({ category: "premium" }) });
-  ok("an unknown category is refused", bad.status === 400, `${bad.status}`);
+  /* v1.49.0 changed this contract: the CEO names her own collections now,
+     so ANY non-empty name is legal and travels as typed. The old check here
+     ("premium is refused") tested the two-value enum that no longer exists. */
+  const free = await staff(`/inventory/${shawl.id}/elfia`, { method: "PATCH", body: JSON.stringify({ category: "premium" }) });
+  ok("a collection SHE names is accepted (v1.49 free-form)", free.status === 200, `${free.status}`);
+  await staff(`/inventory/${shawl.id}/elfia`, { method: "PATCH", body: JSON.stringify({ category: "shawl" }) });
   const empty = await staff(`/inventory/${shawl.id}/elfia`, { method: "PATCH", body: JSON.stringify({}) });
   ok("an empty patch is refused", empty.status === 400, `${empty.status}`);
 }
@@ -99,10 +103,19 @@ let marker1 = "";
   ok("image_url is absolute and public", typeof it?.image_url === "string" && it.image_url.startsWith("http") && it.image_url.includes("/media/file/uploads/elfia/"), it?.image_url);
   ok("image_updated_at rides with it", typeof it?.image_updated_at === "string" && it.image_updated_at !== "");
   marker1 = it?.image_updated_at ?? "";
-  const plain = f.items.find((x) => x.sku === "LUMI 001");
-  ok("an undressed item is unchanged (no new keys)",
+  /* The seed dresses LUMI 001 and publishes SHWL 002 these days (the newer
+     rigs need them so), so the "undressed" and "unpublished" rules are
+     proven on a row THIS rig owns instead. */
+  await staff(`/inventory`, { method: "POST", body: JSON.stringify({ sku: "EBE RIG1", name: "Rig Plain Item", stock: 2, unit_price: 19 }) });
+  const mine = (await (await staff(`/inventory`)).json()).items.find((x) => x.sku === "EBE RIG1");
+  ok("the rig's own item exists", Boolean(mine));
+  ok("unpublished, it stays out of the feed", !(await feed()).items.some((x) => x.sku === "EBE RIG1"));
+  await staff(`/inventory/${mine.id}/bridge`, { method: "PATCH", body: JSON.stringify({ bridge_enabled: true }) });
+  const plain = (await feed()).items.find((x) => x.sku === "EBE RIG1");
+  ok("published but undressed — no invented keys on the feed",
     plain && !("category" in plain) && !("description" in plain) && !("image_url" in plain), JSON.stringify(plain));
-  ok("an unpublished item stays out of the feed", !f.items.some((x) => x.sku === "SHWL 002"));
+  await staff(`/inventory/${mine.id}/bridge`, { method: "PATCH", body: JSON.stringify({ bridge_enabled: false }) });
+  ok("un-publishing takes it off the feed again", !(await feed()).items.some((x) => x.sku === "EBE RIG1"));
 }
 
 step("replacing the photo moves the marker; an untouched one keeps it");

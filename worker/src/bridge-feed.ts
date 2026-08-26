@@ -236,3 +236,97 @@ export function serializeBridgeItems(rows: BridgeRow[], mediaBase?: string): Bri
   }
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+   v1.52.0 — what delivery costs on the ELFIA shop.
+
+   The CEO, 26-08-2026: "I want to have the authority to update the shipping
+   fees which is above RM45.00, I will provide a free delivery fees."
+
+   Both numbers used to live in the STORE's wrangler.toml, so changing what
+   delivery costs meant editing code and running a deploy. They are hers now:
+   set in the portal's ELFIA tab, kept in system_meta, and carried on this
+   feed like everything else the portal owns.
+
+   The rule is the feed's oldest one and it decides the shape of this
+   function: an ABSENT field means "the store keeps what it has". So a value
+   that is missing, blank or not a sane number of sen is OMITTED rather than
+   sent as 0 — sending 0 would not mean "not set", it would mean "delivery is
+   free" and "free delivery from RM 0.00", which is a shop giving away
+   postage because a text box was empty. If neither number is set, the whole
+   `settings` key is left off the feed.
+--------------------------------------------------------------------------- */
+
+export interface BridgeSettings {
+  /** Flat delivery charge in sen. */
+  shipping_cents?: number;
+  /** Order subtotal in sen at or above which delivery is free. */
+  free_above_cents?: number;
+}
+
+/** Sen, as a whole number, or null if this is not a usable amount.
+    The RM 1,000 ceiling is a typo catcher: nobody charges more than that to
+    post a hijab, and a stray zero must not reach a customer's total. */
+const sen = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100_000) return null;
+  return Math.round(n);
+};
+
+/** `meta` is the system_meta rows as {key: value}. */
+export function serializeBridgeSettings(meta: Record<string, unknown>): BridgeSettings | undefined {
+  const out: BridgeSettings = {};
+  const ship = sen(meta.elfia_shipping_cents);
+  const free = sen(meta.elfia_free_above_cents);
+  if (ship !== null) out.shipping_cents = ship;
+  if (free !== null) out.free_above_cents = free;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/* ---------------------------------------------------------------------------
+   v1.55.0 — the catalog the CEO uploads, priced by the shop.
+
+   The CEO, 26-08-2026: "the portal can upload the PDF for this catalog
+   without the prices tag and it will automatically live price embedded to
+   the PDF uploaded."
+
+   The portal holds three files in R2 — the PDF, the label map her browser
+   extracted at upload, and the cover image — and this key tells the store
+   where they are and WHEN they last changed. The store re-downloads only on
+   a new marker, and takes the three together or not at all: a new PDF
+   priced with an old map would put prices on the wrong labels, which is the
+   one failure mode this shape exists to make impossible.
+
+   The key is emitted ONLY when the PDF, the map, and the marker all exist —
+   a half-finished upload (PDF stored, map not yet posted) stays off the
+   feed, and an absent key means what it always means: the store keeps what
+   it has (the shipped designer catalog included).
+--------------------------------------------------------------------------- */
+
+export interface BridgeCatalog {
+  url: string;
+  map_url: string;
+  cover_url?: string;
+  updated_at: string;
+}
+
+/** `meta` is the system_meta rows as {key: value}. No mediaBase = no key —
+    the store cannot fetch a relative path, same rule as photos. */
+export function serializeBridgeCatalog(meta: Record<string, unknown>, mediaBase?: string): BridgeCatalog | undefined {
+  const base = typeof mediaBase === "string" ? mediaBase.replace(/\/+$/, "") : "";
+  if (!base) return undefined;
+  const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const pdfKey = str(meta.elfia_catalog_pdf_key);
+  const mapKey = str(meta.elfia_catalog_map_key);
+  const marker = str(meta.elfia_catalog_updated_at);
+  if (!pdfKey || !mapKey || !marker) return undefined;
+  const out: BridgeCatalog = {
+    url: `${base}/api/v1/media/file/${pdfKey}`,
+    map_url: `${base}/api/v1/media/file/${mapKey}`,
+    updated_at: marker,
+  };
+  const coverKey = str(meta.elfia_catalog_cover_key);
+  if (coverKey) out.cover_url = `${base}/api/v1/media/file/${coverKey}`;
+  return out;
+}
