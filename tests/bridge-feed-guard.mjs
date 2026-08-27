@@ -9,7 +9,7 @@
    from PORTAL-BRIDGE-SPEC.md.
 
    Run: node --experimental-strip-types tests/bridge-feed-guard.mjs */
-import { serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, effectivePriceCents } from "../worker/src/bridge-feed.ts";
+import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, effectivePriceCents } from "../worker/src/bridge-feed.ts";
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -292,6 +292,31 @@ eq("nothing uploaded → no key at all",
 
 eq("no origin to build URLs on → no key (a relative path the store cannot fetch)",
   serializeBridgeCatalog(CAT, undefined), undefined);
+
+/* ---- v1.61.0: the /catalog hover backdrop ----
+   URL + marker together or not at all, and nothing uploaded means the key
+   stays off the feed — the store then keeps its shipped backdrop. */
+const BD = {
+  elfia_backdrop_key: "uploads/elfia/backdrop-1.jpg",
+  elfia_backdrop_updated_at: "2026-08-27T00:00:00Z",
+};
+
+eq("the backdrop rides the feed as URL + marker, on the request origin",
+  serializeBridgeBackdrop(BD, "https://a2zcreative.my/"),
+  { url: "https://a2zcreative.my/api/v1/media/file/uploads/elfia/backdrop-1.jpg",
+    updated_at: "2026-08-27T00:00:00Z" });
+
+eq("a key without its marker stays OFF the feed (would re-download every pull)",
+  serializeBridgeBackdrop({ ...BD, elfia_backdrop_updated_at: "" }, "https://a2zcreative.my"), undefined);
+
+eq("a marker without its key says nothing — off the feed",
+  serializeBridgeBackdrop({ ...BD, elfia_backdrop_key: "" }, "https://a2zcreative.my"), undefined);
+
+eq("nothing uploaded → no key at all (the store keeps its shipped backdrop)",
+  serializeBridgeBackdrop({}, "https://a2zcreative.my"), undefined);
+
+eq("no origin → no key (a relative path the store cannot fetch)",
+  serializeBridgeBackdrop(BD, undefined), undefined);
 
 if (failed) { console.error(`\n${failed} bridge-feed check(s) failed.`); process.exit(1); }
 console.log("\nbridge-feed-guard: all checks passed.");

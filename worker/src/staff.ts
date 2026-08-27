@@ -663,8 +663,9 @@ export async function handleStaff(
      route has to be named here — that is the rule this list exists for. */
   const isCutoutUpload = path.endsWith("/cutout");
   /* v1.55.0: the ELFIA catalog PDF and its cover are raw binary bodies.
-     The map (/elfia/catalog/map) stays JSON and is NOT excluded. */
-  const isCatalogUpload = path === "/elfia/catalog" || path === "/elfia/catalog/cover";
+     The map (/elfia/catalog/map) stays JSON and is NOT excluded.
+     v1.61.0: the /catalog hover backdrop image joins them. */
+  const isCatalogUpload = path === "/elfia/catalog" || path === "/elfia/catalog/cover" || path === "/elfia/backdrop";
   const body =
     ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
@@ -6446,6 +6447,80 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       } catch { /* the shop keeps its copy until it hears; report honestly */ }
     }
     await audit(env, user.id, "elfia.catalog_remove", "inventory_items", null, { store_reset });
+    return json({ ok: true, store_reset });
+  }
+
+  /* ==== v1.61.0 — the /catalog hover backdrop ====
+     The CEO: "for the cut out background I want to have an option for me to
+     add this background if require and this I can upload by myself in
+     portal!" One optional image the shop draws behind every catalog tile's
+     cut-out photo on hover. Uploading here stamps the marker and the feed
+     carries it; nothing uploaded = the shop's shipped ELFIA backdrop.
+     Removing it asks the store's reset door directly, like the catalog. */
+  const backdropMeta = async (): Promise<Record<string, string>> => {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM system_meta WHERE key IN ('elfia_backdrop_key', 'elfia_backdrop_updated_at')`,
+    ).all<{ key: string; value: string }>().catch(() => ({ results: [] as { key: string; value: string }[] }));
+    return Object.fromEntries(results.map((r) => [r.key, r.value]));
+  };
+  const backdropMetaSet = (key: string, value: string) => env.DB.prepare(
+    `INSERT INTO system_meta (key, value) VALUES (?1, ?2)
+     ON CONFLICT(key) DO UPDATE SET value = ?2`,
+  ).bind(key, value).run();
+
+  if (path === "/elfia/backdrop" && method === "GET") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const m = await backdropMeta();
+    return json({
+      key: m.elfia_backdrop_key ?? null,
+      updated_at: m.elfia_backdrop_updated_at ?? null,
+      url: m.elfia_backdrop_key ? `/api/v1/media/file/${m.elfia_backdrop_key}` : null,
+    });
+  }
+
+  if (path === "/elfia/backdrop" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const ext = ct === "image/jpeg" ? "jpg" : ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : null;
+    if (!ext) return err("invalid_input", "The backdrop must be a JPEG, PNG or WebP image", 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return err("invalid_input", "Empty file", 400);
+    if (bytes.byteLength > 5 * 1024 * 1024) return err("too_large", "The backdrop is over 5 MB", 400);
+    const m = await backdropMeta();
+    const key = `uploads/elfia/backdrop-${Date.now()}.${ext}`;
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+    await backdropMetaSet("elfia_backdrop_key", key);
+    /* The marker IS the switch: the store re-downloads exactly once per
+       stamp, so it moves on every upload, replacements included. */
+    await backdropMetaSet("elfia_backdrop_updated_at", new Date().toISOString());
+    if (m.elfia_backdrop_key) await env.MEDIA.delete(m.elfia_backdrop_key).catch(() => null);
+    await audit(env, user.id, "elfia.backdrop", "inventory_items", null, { key, bytes: bytes.byteLength });
+    return json({ key, url: `/api/v1/media/file/${key}` }, 201);
+  }
+
+  if (path === "/elfia/backdrop" && method === "DELETE") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const m = await backdropMeta();
+    if (m.elfia_backdrop_key) await env.MEDIA.delete(m.elfia_backdrop_key).catch(() => null);
+    await env.DB.prepare(
+      `DELETE FROM system_meta WHERE key IN ('elfia_backdrop_key', 'elfia_backdrop_updated_at')`,
+    ).run();
+    /* Same reasoning as the catalog's DELETE above: absent on the feed means
+       "keep what you have", so the store is asked directly to fall back to
+       its shipped backdrop; best-effort, reported honestly. */
+    let store_reset = false;
+    const bdBase = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
+    if (bdBase && env.ELFIA_BRIDGE_KEY) {
+      try {
+        const r = await fetch(`${bdBase}/api/v1/bridge/backdrop`, {
+          method: "DELETE",
+          headers: { "X-Bridge-Key": env.ELFIA_BRIDGE_KEY },
+          signal: AbortSignal.timeout(20_000),
+        });
+        store_reset = r.ok;
+      } catch { /* the shop keeps its copy until it hears; report honestly */ }
+    }
+    await audit(env, user.id, "elfia.backdrop_remove", "inventory_items", null, { store_reset });
     return json({ ok: true, store_reset });
   }
 

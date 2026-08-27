@@ -330,3 +330,35 @@ export function serializeBridgeCatalog(meta: Record<string, unknown>, mediaBase?
   if (coverKey) out.cover_url = `${base}/api/v1/media/file/${coverKey}`;
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+   v1.61.0 — the /catalog hover backdrop.
+
+   The CEO, 27-08-2026: "for the cut out background I want to have an option
+   for me to add this background if require and this I can upload by myself
+   in portal!"
+
+   One image, uploaded in the ELFIA tab, that the shop draws behind every
+   catalog tile's cut-out photo on hover. Same travel rules as everything
+   else on this feed: a URL plus the marker that gates the store's download,
+   emitted only when both exist, and an absent key means the store keeps
+   what it has — the shipped ELFIA backdrop included. Removing it in the
+   portal is a direct call to the store's own reset door (/bridge/backdrop),
+   exactly like removing the catalog.
+--------------------------------------------------------------------------- */
+
+export interface BridgeBackdrop {
+  url: string;
+  updated_at: string;
+}
+
+/** `meta` is the system_meta rows as {key: value}. No mediaBase = no key —
+    the store cannot fetch a relative path, same rule as photos. */
+export function serializeBridgeBackdrop(meta: Record<string, unknown>, mediaBase?: string): BridgeBackdrop | undefined {
+  const base = typeof mediaBase === "string" ? mediaBase.replace(/\/+$/, "") : "";
+  if (!base) return undefined;
+  const key = typeof meta.elfia_backdrop_key === "string" ? meta.elfia_backdrop_key.trim() : "";
+  const marker = typeof meta.elfia_backdrop_updated_at === "string" ? meta.elfia_backdrop_updated_at.trim() : "";
+  if (!key || !marker) return undefined;
+  return { url: `${base}/api/v1/media/file/${key}`, updated_at: marker };
+}

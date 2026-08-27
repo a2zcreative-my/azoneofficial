@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
-import { serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
+import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
@@ -1638,16 +1638,22 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        complete (PDF + map + marker); absent means the store keeps what it
        has — the shipped designer catalog included. */
     let catalog: ReturnType<typeof serializeBridgeCatalog>;
+    /* v1.61.0 — the /catalog hover backdrop rides the same read: one image
+       URL plus the marker that gates the store's download. Absent = the
+       store keeps what it has (the shipped ELFIA backdrop included). */
+    let backdrop: ReturnType<typeof serializeBridgeBackdrop>;
     try {
       const { results } = await env.DB.prepare(
         `SELECT key, value FROM system_meta WHERE key IN
            ('elfia_shipping_cents', 'elfia_free_above_cents',
             'elfia_catalog_pdf_key', 'elfia_catalog_map_key',
-            'elfia_catalog_cover_key', 'elfia_catalog_updated_at')`,
+            'elfia_catalog_cover_key', 'elfia_catalog_updated_at',
+            'elfia_backdrop_key', 'elfia_backdrop_updated_at')`,
       ).all<{ key: string; value: string }>();
       const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
       settings = serializeBridgeSettings(meta);
       catalog = serializeBridgeCatalog(meta, origin);
+      backdrop = serializeBridgeBackdrop(meta, origin);
     } catch { /* no system_meta in this checkout — omit the keys */ }
 
     return json({
@@ -1655,6 +1661,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ...(slides !== undefined ? { slides } : {}),
       ...(settings !== undefined ? { settings } : {}),
       ...(catalog !== undefined ? { catalog } : {}),
+      ...(backdrop !== undefined ? { backdrop } : {}),
       as_of: new Date().toISOString(), count: items.length,
     });
   }

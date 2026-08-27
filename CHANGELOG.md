@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.61.0] — 2026-08-27 — The catalog hover background is uploadable
+
+The CEO: "for the cut out background I want to have an option for me to
+add this background if require and this I can upload by myself in
+portal!" A new "Catalog hover background" card in the ELFIA tab takes a
+JPEG/PNG/WebP (5 MB cap); the feed carries it as URL + marker
+(serializeBridgeBackdrop) and the shop's /catalog tiles use it on hover
+within a minute. Remove asks the store's reset door directly, and the
+shop falls back to its shipped ELFIA backdrop. Also: the carousel card's
+copy no longer promises built-in campaign photos — store v1.32.0 removed
+them, so no slides now means no carousel.
+
 ## [1.60.0] — 2026-08-27 — The Price spot is guaranteed
 
 When the pixel search finds no pill under a "Price"/"Harga" heading, the

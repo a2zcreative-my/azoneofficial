@@ -163,8 +163,48 @@ try {
       ok("the old file is really deleted from media", gone.status === 404, String(gone.status));
     }
   }
+
+  step("the hover backdrop: upload, feed, replace, remove (v1.61.0)");
+  {
+    /* The CEO: "for the cut out background I want to have an option for me
+       to add this background if require and this I can upload by myself in
+       portal!" Same doors, same travel rules as the catalog above. */
+    await staff("/elfia/backdrop", { method: "DELETE" }).catch(() => null);
+    const s0 = await (await staff("/elfia/backdrop")).json();
+    ok("nothing uploaded", s0.key === null, JSON.stringify(s0));
+    ok("the feed has no backdrop key", (await feed()).backdrop === undefined);
+
+    const bad = await postBinary("/elfia/backdrop", JPEG_STUB, "image/gif");
+    ok("a type the shop cannot serve is refused", bad.status === 400, String(bad.status));
+
+    const r1 = await postBinary("/elfia/backdrop", JPEG_STUB, "image/jpeg");
+    const j1 = await r1.json();
+    ok("a JPEG is accepted", r1.status === 201 && typeof j1.key === "string", JSON.stringify(j1));
+    const b1 = (await feed()).backdrop;
+    ok("the feed advertises it, URL + marker",
+       b1 && typeof b1.url === "string" && typeof b1.updated_at === "string", JSON.stringify(b1 ?? null));
+    const served = Buffer.from(await (await fetch(b1.url)).arrayBuffer());
+    ok("the URL serves the image, publicly", served[0] === 0xff && served[1] === 0xd8,
+       served.subarray(0, 2).toString("hex"));
+
+    const r2 = await postBinary("/elfia/backdrop", JPEG_STUB, "image/jpeg");
+    ok("a replacement is accepted", r2.status === 201, String(r2.status));
+    const b2 = (await feed()).backdrop;
+    ok("under a NEW marker, so the store re-downloads exactly once",
+       b2 && b2.updated_at !== b1.updated_at, JSON.stringify({ was: b1.updated_at, now: b2?.updated_at }));
+    const old = await fetch(b1.url);
+    ok("and the old file is deleted from media", old.status === 404, String(old.status));
+
+    const rd = await staff("/elfia/backdrop", { method: "DELETE" });
+    const jd = await rd.json();
+    ok("remove answers", rd.ok && jd.ok === true, JSON.stringify(jd));
+    ok("the feed key is gone — the shop returns to its shipped backdrop", (await feed()).backdrop === undefined);
+    const s1 = await (await staff("/elfia/backdrop")).json();
+    ok("status is empty again", s1.key === null, JSON.stringify(s1));
+  }
 } finally {
   await staff("/elfia/catalog", { method: "DELETE" }).catch(() => null);
+  await staff("/elfia/backdrop", { method: "DELETE" }).catch(() => null);
 }
 
 console.log(fail === 0

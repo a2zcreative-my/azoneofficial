@@ -213,6 +213,10 @@ export function ElfiaStorePanel() {
   const [catBusy, setCatBusy] = useState(false);
   const [catDraft, setCatDraft] = useState<CatDraft | null>(null);
   const catFileRef = useRef<HTMLInputElement | null>(null);
+  /* v1.61.0 — the /catalog hover backdrop (CEO: "this I can upload by
+     myself in portal!"). What the server holds; null until loaded. */
+  const [backdrop, setBackdrop] = useState<{ key: string | null; url: string | null; unavailable?: boolean } | null>(null);
+  const [busyBackdrop, setBusyBackdrop] = useState(false);
   /* v1.58.0 — background cut-out. busyCut: the product being matted, or -1
      while the run-them-all pass works; cutNote narrates the batch. */
   const [busyCut, setBusyCut] = useState<number | null>(null);
@@ -221,12 +225,13 @@ export function ElfiaStorePanel() {
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const load = useCallback(async () => {
-    const [i, bh, sl, dv, ct] = await Promise.all([
+    const [i, bh, sl, dv, ct, bd] = await Promise.all([
       api<{ items: ElfiaItem[] }>(`/inventory`),
       api<BridgeHealth>(`/inventory/bridge-health`),
       api<{ slides: Slide[] }>(`/elfia/slides`),
       api<{ shipping_cents: number | null; free_above_cents: number | null }>(`/elfia/delivery`),
       api<CatStatus>(`/elfia/catalog`),
+      api<{ key: string | null; url: string | null }>(`/elfia/backdrop`),
     ]);
     if (i.data?.items) {
       setItems(i.data.items.map((x) => ({
@@ -253,6 +258,11 @@ export function ElfiaStorePanel() {
     /* An api worker published before v1.55.0 has no /elfia/catalog; the card
        then says to deploy rather than pretending nothing is uploaded. */
     setCat(ct.ok && ct.data && typeof ct.data.live === "boolean" ? ct.data : { live: false, pending: false, updated_at: null, cover_key: null, unavailable: true });
+    /* An api worker published before v1.61.0 has no /elfia/backdrop; the
+       card then says to deploy rather than pretending nothing is set. */
+    setBackdrop(bd.ok && bd.data && "key" in bd.data
+      ? { key: bd.data.key, url: bd.data.url }
+      : { key: null, url: null, unavailable: true });
     setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -862,6 +872,44 @@ export function ElfiaStorePanel() {
     } finally { setCatBusy(false); }
   };
 
+  /* v1.61.0 — the /catalog hover backdrop. A raw binary POST like the
+     catalog cover; the server stamps the marker and the shop re-downloads
+     within a minute. */
+  const uploadBackdrop = async (f: File) => {
+    const ct = f.type === "image/png" ? "image/png" : f.type === "image/webp" ? "image/webp" : "image/jpeg";
+    setBusyBackdrop(true);
+    try {
+      const up = await csrfFetch(`/api/v1/staff/elfia/backdrop`, {
+        method: "POST", headers: { "Content-Type": ct }, body: f,
+      });
+      if (!up.ok) {
+        const j = (await up.json().catch(() => null)) as { error?: { message?: string } } | null;
+        toast(L("Not uploaded", "Tidak dimuat naik"), j?.error?.message ?? L("Upload failed", "Muat naik gagal"), "notice");
+        return;
+      }
+      toast(L("Background uploaded", "Latar belakang dimuat naik"),
+        L("the shop's /catalog hover uses it within a minute — press “Update the shop now” to hurry it",
+          "hover /catalog kedai menggunakannya dalam seminit — tekan “Kemas kini kedai sekarang” untuk segerakan"));
+      void load();
+    } finally { setBusyBackdrop(false); }
+  };
+
+  const removeBackdrop = async () => {
+    setBusyBackdrop(true);
+    try {
+      const res = await api<{ store_reset?: boolean; error?: { message?: string } }>(`/elfia/backdrop`, { method: "DELETE" });
+      if (!res.ok) {
+        toast(L("Not removed", "Tidak dibuang"), res.data?.error?.message ?? L("Remove failed", "Buang gagal"), "notice");
+        return;
+      }
+      toast(L("Background removed", "Latar belakang dibuang"),
+        res.data?.store_reset
+          ? L("the shop is back on its shipped ELFIA backdrop", "kedai kembali kepada latar ELFIA terbina dalamnya")
+          : L("removed here — the shop returns to its shipped backdrop on its next sync", "dibuang di sini — kedai kembali kepada latar terbina dalam pada penyegerakan seterusnya"));
+      void load();
+    } finally { setBusyBackdrop(false); }
+  };
+
   return (
     <div className="space-y-4 md:space-y-6">
       {toastNode}
@@ -1183,14 +1231,60 @@ export function ElfiaStorePanel() {
         )}
       </div>
 
+      {/* ---- the /catalog hover backdrop (v1.61.0) ---- */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{L("Catalog hover background", "Latar belakang hover katalog")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Optional. On the shop's /catalog page this picture appears behind each cut-out photo when a customer hovers over it. Nothing uploaded = the shop uses its shipped ELFIA backdrop. A square picture fits the circular tiles best.",
+                 "Pilihan. Di halaman /catalog kedai, gambar ini muncul di belakang setiap foto potongan apabila pelanggan menghalakan kursor. Tiada muat naik = kedai menggunakan latar ELFIA terbina dalamnya. Gambar segi empat sama paling sesuai dengan jubin bulat.")}
+            </p>
+          </div>
+          <label className={`${btnSm} cursor-pointer`}>
+            {busyBackdrop
+              ? L("Uploading…", "Memuat naik…")
+              : backdrop?.key ? L("Replace", "Ganti") : L("+ Add background", "+ Tambah latar")}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadBackdrop(f); }} />
+          </label>
+        </div>
+
+        {backdrop?.unavailable && loaded && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("The api worker is older than v1.61.0 — deploy it (PUSH.bat) before this card can save.",
+               "Worker api lebih lama daripada v1.61.0 — deploy dahulu (PUSH.bat) sebelum kad ini boleh menyimpan.")}
+          </p>
+        )}
+        {backdrop !== null && !backdrop.unavailable && backdrop.key && backdrop.url && (
+          <div className="mt-3 flex items-center gap-3">
+            {/* The circle preview, because that is exactly how the shop's
+                tiles will crop it. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={backdrop.url} alt={L("Current hover background", "Latar hover semasa")}
+              className="h-20 w-20 rounded-full border object-cover object-top" />
+            <button type="button" className="text-muted-foreground text-xs underline" disabled={busyBackdrop}
+              onClick={() => void removeBackdrop()}>
+              {L("remove — the shop returns to its shipped ELFIA backdrop", "buang — kedai kembali kepada latar ELFIA terbina dalam")}
+            </button>
+          </div>
+        )}
+        {backdrop !== null && !backdrop.unavailable && !backdrop.key && (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {L("No background uploaded — the shop is using its shipped ELFIA backdrop.",
+               "Tiada latar dimuat naik — kedai menggunakan latar ELFIA terbina dalamnya.")}
+          </p>
+        )}
+      </div>
+
       {/* ---- the hero carousel (v1.46.0) ---- */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-sm font-semibold">{L("Homepage carousel", "Karusel halaman utama")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("The big pictures at the top of the shop. The store mirrors this list exactly — remove a slide here and it leaves the shop; no slides at all and the shop shows its built-in campaign photos.",
-                 "Gambar besar di bahagian atas kedai. Kedai mencerminkan senarai ini — buang slaid di sini dan ia hilang dari kedai; tiada slaid langsung dan kedai memaparkan foto kempen terbina dalam.")}
+              {L("The big pictures at the top of the shop. The store mirrors this list exactly — remove a slide here and it leaves the shop; no slides at all and the shop shows no carousel.",
+                 "Gambar besar di bahagian atas kedai. Kedai mencerminkan senarai ini — buang slaid di sini dan ia hilang dari kedai; tiada slaid langsung dan kedai tidak memaparkan karusel.")}
             </p>
           </div>
           <label className={`${btnSm} cursor-pointer`}>
@@ -1208,8 +1302,8 @@ export function ElfiaStorePanel() {
         )}
         {slides !== null && slides.length === 0 && (
           <p className="text-muted-foreground mt-3 text-xs">
-            {L("No slides yet — the shop is showing its built-in campaign photos. Add one to take over.",
-               "Belum ada slaid — kedai memaparkan foto kempen terbina dalam. Tambah satu untuk mengambil alih.")}
+            {L("No slides yet — the shop's homepage has no carousel until you add one.",
+               "Belum ada slaid — halaman utama kedai tiada karusel sehingga anda tambah satu.")}
           </p>
         )}
         {slides !== null && slides.length > 0 && (
