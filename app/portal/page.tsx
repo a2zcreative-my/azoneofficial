@@ -12,6 +12,7 @@ import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a 
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -4938,11 +4939,19 @@ function leaveNoOf(l: {
        accrual. That is the "no abuse" part working. */
 const ENT_TYPES = ["annual", "emergency"] as const;
 type EntType = (typeof ENT_TYPES)[number];
+interface EntCell {
+  days: number;          // entitlement for the year
+  set: boolean;          // a chosen figure, or the built-in default?
+  adjust: number;        // the CEO's +/- carried on top of the accrual
+  used: number;          // days taken (already includes any correction)
+  used_adjust: number;
+  eligible: number;      // what the person can actually take TODAY
+}
 interface EntRow {
   id: number;
   name: string;
   role: string;
-  entitlement: Record<EntType, { days: number; set: boolean }>;
+  entitlement: Record<EntType, EntCell>;
 }
 
 function LeaveEntitlement() {
@@ -4956,6 +4965,9 @@ function LeaveEntitlement() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [bulk, setBulk] = useState<Record<EntType, string>>({ annual: "", emergency: "" });
+  /* Which person's eligible-days panel is open, and what is typed in it. */
+  const [openRow, setOpenRow] = useState<number | null>(null);
+  const [adj, setAdj] = useState<Record<string, string>>({});
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
 
@@ -4998,6 +5010,44 @@ function LeaveEntitlement() {
     }
     toast(L("Saved", "Disimpan"),
           `${p.name} — ${leaveTypeL(type)} ${days} ${L("days", "hari")} (${year})`);
+    void load();
+  };
+
+  /* One writer for all three eligible controls — the server decides which
+     field it was given. `field` is what to send: an adjustment, a used
+     correction, or a target eligible figure it converts into an adjustment. */
+  const saveEligible = async (
+    p: EntRow, type: EntType, field: "adjust" | "used_adjust" | "set_eligible",
+  ) => {
+    const key = `${p.id}:${type}:${field}`;
+    const raw = adj[key];
+    if (raw === undefined || raw === "") {
+      toast(L("Nothing to save", "Tiada untuk disimpan"),
+            L("Type a number first", "Taip nombor dahulu"), "notice");
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      toast(L("Not saved", "Tidak disimpan"),
+            L("That is not a number", "Itu bukan nombor"), "notice");
+      return;
+    }
+    setBusy(key);
+    const r = await api<{ eligible: number; adjust: number }>(`/staff/leave/eligible`, {
+      method: "PUT",
+      body: JSON.stringify({ user_id: p.id, year, type, [field]: value }),
+    });
+    setBusy(null);
+    if (!r.ok) {
+      toast(L("Not saved", "Tidak disimpan"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused that change", "Pelayan menolak perubahan itu"), "notice");
+      return;
+    }
+    setAdj((d) => ({ ...d, [key]: "" }));
+    toast(L("Saved", "Disimpan"),
+          L(`${p.name} — ${r.data?.eligible ?? 0} days eligible now`,
+            `${p.name} — ${r.data?.eligible ?? 0} hari layak sekarang`));
     void load();
   };
 
@@ -5093,13 +5143,20 @@ function LeaveEntitlement() {
               <tr className="border-border border-b">
                 <th className={th}>{L("Staff", "Kakitangan")}</th>
                 {ENT_TYPES.map((t) => (
-                  <th key={t} className={thR2}>{leaveTypeL(t)}</th>
+                  <th key={t} className={thR2}>
+                    {leaveTypeL(t)}
+                    <span className="text-muted-foreground block text-[10px] font-normal normal-case">
+                      {L("per year", "setahun")}
+                    </span>
+                  </th>
                 ))}
+                <th className={thR2}>{L("Eligible now", "Layak sekarang")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.id} className="border-border/60 border-b last:border-0">
+                <Fragment key={p.id}>
+                <tr className="border-border/60 border-b">
                   <td className={td}>
                     <div className="font-medium">{p.name}</div>
                     <div className="text-muted-foreground text-xs uppercase">{p.role}</div>
@@ -5132,7 +5189,99 @@ function LeaveEntitlement() {
                       </td>
                     );
                   })}
+                  {/* v1.62.0 — what each person can actually take TODAY, and
+                      the way in to changing it. Shown per type on one line so
+                      the table stays one row per person. */}
+                  <td className={tdR2}>
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="text-right">
+                        {ENT_TYPES.map((t) => (
+                          <div key={t} className="text-xs">
+                            <span className="font-semibold tabular-nums">{p.entitlement[t]?.eligible ?? 0}</span>
+                            <span className="text-muted-foreground"> {leaveTypeL(t).toLowerCase()}</span>
+                            {(p.entitlement[t]?.adjust ?? 0) !== 0 && (
+                              <span className="text-muted-foreground">
+                                {" "}({(p.entitlement[t]!.adjust > 0 ? "+" : "")}{p.entitlement[t]!.adjust})
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" className={btnSm}
+                        onClick={() => setOpenRow(openRow === p.id ? null : p.id)}>
+                        {openRow === p.id ? L("Close", "Tutup") : L("Adjust", "Laras")}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
+                {openRow === p.id && (
+                  <tr className="border-border/60 border-b last:border-0">
+                    <td className="px-3 pt-0 pb-3" colSpan={ENT_TYPES.length + 2}>
+                      <div className="bg-secondary/40 grid gap-3 rounded-xl p-3 sm:grid-cols-2">
+                        {ENT_TYPES.map((t) => {
+                          const c = p.entitlement[t];
+                          const k = (f: string) => `${p.id}:${t}:${f}`;
+                          return (
+                            <div key={t} className="space-y-2">
+                              <p className="text-xs font-semibold">{leaveTypeL(t)}</p>
+                              <p className="text-muted-foreground text-[11px]">
+                                {L(`${c?.days ?? 0}/year · ${c?.used ?? 0} taken · ${c?.eligible ?? 0} eligible now`,
+                                   `${c?.days ?? 0}/tahun · ${c?.used ?? 0} diambil · ${c?.eligible ?? 0} layak sekarang`)}
+                              </p>
+
+                              {/* 1. carry-forward / one-off grant — the figure
+                                     that rides on top of the accrual */}
+                              <div className="flex items-end gap-1.5">
+                                <Sub t={L("Adjustment (+ / −)", "Pelarasan (+ / −)")} className="flex-1">
+                                  <input type="number" step={0.5} className={inputClass}
+                                    placeholder={String(c?.adjust ?? 0)}
+                                    value={adj[k("adjust")] ?? ""}
+                                    onChange={(e) => setAdj((d) => ({ ...d, [k("adjust")]: e.target.value }))} />
+                                </Sub>
+                                <button type="button" className={btnSm}
+                                  disabled={busy === k("adjust")}
+                                  onClick={() => void saveEligible(p, t, "adjust")}>
+                                  {busy === k("adjust") ? "…" : L("Save", "Simpan")}
+                                </button>
+                              </div>
+
+                              {/* 2. correct the days recorded as taken */}
+                              <div className="flex items-end gap-1.5">
+                                <Sub t={L("Correct days taken (+ / −)", "Betulkan hari diambil (+ / −)")} className="flex-1">
+                                  <input type="number" step={0.5} className={inputClass}
+                                    placeholder={String(c?.used_adjust ?? 0)}
+                                    value={adj[k("used_adjust")] ?? ""}
+                                    onChange={(e) => setAdj((d) => ({ ...d, [k("used_adjust")]: e.target.value }))} />
+                                </Sub>
+                                <button type="button" className={btnSm}
+                                  disabled={busy === k("used_adjust")}
+                                  onClick={() => void saveEligible(p, t, "used_adjust")}>
+                                  {busy === k("used_adjust") ? "…" : L("Save", "Simpan")}
+                                </button>
+                              </div>
+
+                              {/* 3. type the eligible figure you want today */}
+                              <div className="flex items-end gap-1.5">
+                                <Sub t={L("Set eligible now to", "Tetapkan layak sekarang kepada")} className="flex-1">
+                                  <input type="number" min={0} step={0.5} className={inputClass}
+                                    placeholder={String(c?.eligible ?? 0)}
+                                    value={adj[k("set_eligible")] ?? ""}
+                                    onChange={(e) => setAdj((d) => ({ ...d, [k("set_eligible")]: e.target.value }))} />
+                                </Sub>
+                                <button type="button" className={btnSm}
+                                  disabled={busy === k("set_eligible")}
+                                  onClick={() => void saveEligible(p, t, "set_eligible")}>
+                                  {busy === k("set_eligible") ? "…" : L("Set", "Tetapkan")}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

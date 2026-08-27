@@ -1,0 +1,22 @@
+-- 0091 — v1.62.0 (CEO: "in Leave I want to update on the eligible also!"):
+-- a standing +/- on what a person is eligible for.
+--
+-- Eligible days are CALCULATED, never stored: entitlement × months elapsed,
+-- minus what has been taken. That is the right default — it is what stops a
+-- new joiner taking a full year in February — but it left no way to record
+-- the ordinary exceptions a company actually has:
+--
+--   * days carried forward from last year
+--   * a one-off grant ("take the extra day, you covered the weekend")
+--   * clawing back an error
+--
+-- `adjust` is added to the accrued figure every time it is worked out, so it
+-- SURVIVES the monthly recalculation instead of being wiped by it. Negative
+-- values are allowed and are how a claw-back is recorded. The eligible total
+-- is still floored at zero, so an adjustment can never make a balance go
+-- negative on screen.
+--
+-- Single ALTER, nothing else in this file (audit B4 rule: one non-idempotent
+-- statement per migration — a half-apply is a no-apply).
+
+ALTER TABLE leave_balances ADD COLUMN adjust REAL NOT NULL DEFAULT 0;

@@ -260,6 +260,75 @@ async function recordBankMovement(
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
 const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
 
+/* v1.62.0 — ONE definition of "how many days is this person eligible for".
+ *
+ * It was written out twice: once in /leave/balance for the Leave tab and
+ * once in payslipExtras for the payslip. Two copies of a rule that decides
+ * pay is two chances to disagree, and adding the CEO's adjustment would have
+ * meant remembering both. They now call this.
+ *
+ * The rules, unchanged except for the adjustment:
+ *   - Annual and emergency accrue pro-rata across the months the company
+ *     operates in the year (AZ ONE started July 2026, so 2026 divides across
+ *     Jul–Dec). Half-day steps, rounded DOWN — never round in the staff
+ *     member's favour by accident.
+ *   - Medical and unpaid are never pro-rated. Medical is statutory and
+ *     available in full from day one; unpaid costs the company nothing.
+ *   - `adjust` (migration 0091) rides on top of the accrued figure, so
+ *     carry-forward and one-off grants survive the monthly recalculation.
+ *   - `used_adjust` (0092) corrects the summed usage without touching the
+ *     leave applications themselves.
+ */
+export const LEAVE_WINDOW_START = (year: number): number => (year === 2026 ? 7 : 1);
+
+export function leaveAccrual(
+  type: string, entitled: number, year: number, month: number, adjust = 0,
+): number {
+  const windowStart = LEAVE_WINDOW_START(year);
+  const monthsTotal = 12 - windowStart + 1;
+  const monthsElapsed = Math.min(Math.max(month - windowStart + 1, 0), monthsTotal);
+  const base = type === "medical" || type === "unpaid"
+    ? entitled
+    : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
+  return base + adjust;
+}
+
+/** The row behind one person's balance for one type. Absent columns (a
+    database that has not run 0091/0092 yet) read as zero, so a pending
+    migration degrades to the old behaviour rather than a 500. */
+export interface LeaveBalanceRow {
+  entitled: number | null;
+  adjust?: number | null;
+  used_adjust?: number | null;
+}
+
+/**
+ * Read one person's stored leave row, tolerating a database that has not run
+ * 0091/0092 yet.
+ *
+ * The standing rule in this codebase (v1.4.218): schema skew DEGRADES, it
+ * never 500s. A worker published ahead of its migrations must keep answering
+ * with the behaviour it had before, so the wide query is tried first and the
+ * narrow one catches. Absent columns read as zero, which is exactly the old
+ * behaviour — no adjustment.
+ */
+export async function leaveBalanceRow(
+  env: Env, userId: number, year: number, type: string,
+): Promise<LeaveBalanceRow> {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT entitled, adjust, used_adjust FROM leave_balances
+       WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
+    ).bind(userId, year, type).first<LeaveBalanceRow>();
+    return r ?? { entitled: null, adjust: 0, used_adjust: 0 };
+  } catch {
+    const r = await env.DB.prepare(
+      `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
+    ).bind(userId, year, type).first<{ entitled: number }>().catch(() => null);
+    return { entitled: r?.entitled ?? null, adjust: 0, used_adjust: 0 };
+  }
+}
+
 /**
  * Document numbers (v1.4.4): {TYPE}-AZOO{DDMMYY}-{X}, e.g. QT-AZOO300726-1.
  * X is the running number for that document type on that day (no padding, per
@@ -1962,36 +2031,27 @@ export async function handleStaff(
 
   if (path === "/leave/balance" && method === "GET") {
     const year = new Date().getFullYear();
-    // Monthly release (v1.4.30): entitlement accrues pro-rata over the
-    // months the company actually operates in the year. AZ ONE started
-    // 20 Jul 2026, so 2026 divides the annual entitlement across Jul–Dec
-    // (6 months): 14 AL/year → ~2.0 eligible by end of July, 4.5 by end of
-    // August … full 14 by December. From 2027 the window is the normal
-    // Jan–Dec twelve months. Half-day steps.
-    const COMPANY_START = { year: 2026, month: 7 };
+    /* Monthly release (v1.4.30): entitlement accrues pro-rata over the months
+       the company actually operates in the year — see leaveAccrual() at the
+       top of this file, which is now the only place that rule is written.
+       v1.62.0 adds the CEO's `adjust` and `used_adjust` on top. */
     const monthMYT = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
-    const windowStart = year === COMPANY_START.year ? COMPANY_START.month : 1;
-    const monthsTotal = 12 - windowStart + 1;
-    const monthsElapsed = Math.min(Math.max(monthMYT - windowStart + 1, 0), monthsTotal);
-    const balances: Record<string, { entitled: number; used: number; accrued: number }> = {};
+    const balances: Record<string, { entitled: number; used: number; accrued: number; adjust: number }> = {};
     for (const t of LEAVE_TYPES) {
-      const ent = await env.DB.prepare(
-        `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
-      ).bind(user.id, year, t).first<{ entitled: number }>();
+      const row = await leaveBalanceRow(env, user.id, year, t);
       const used = await env.DB.prepare(
         `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
          WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
          AND start_date LIKE ?3 || '%'`,
       ).bind(user.id, t, String(year)).first<{ used: number }>();
-      const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
-      // Medical (sick) leave is a statutory entitlement under Malaysia's
-      // Employment Act — fully available from day one, never pro-rated.
-      // Unpaid leave is also never pro-rated: it costs the company nothing,
-      // so whatever total is entitled is eligible in full.
-      const accrued = t === "medical" || t === "unpaid"
-        ? entitled
-        : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
-      balances[t] = { entitled, used: used?.used ?? 0, accrued };
+      const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+      const adjust = row.adjust ?? 0;
+      balances[t] = {
+        entitled,
+        used: (used?.used ?? 0) + (row.used_adjust ?? 0),
+        accrued: leaveAccrual(t, entitled, year, monthMYT, adjust),
+        adjust,
+      };
     }
     return json({ year, month: monthMYT, balances });
   }
@@ -4650,23 +4710,60 @@ export async function handleStaff(
     const year = Number.isFinite(yearRaw) && yearRaw >= 2000 && yearRaw <= 2100
       ? Math.trunc(yearRaw) : new Date().getFullYear();
     const staff = await entitlementStaff();
-    const { results } = await env.DB.prepare(
-      `SELECT user_id, type, entitled FROM leave_balances WHERE year = ?1`,
-    ).bind(year).all<{ user_id: number; type: string; entitled: number }>();
-    const set = new Map<string, number>();
-    for (const r of results) set.set(`${r.user_id}:${r.type}`, r.entitled);
+    /* One read for the stored figures, one for the usage, then the same
+       leaveAccrual() the Leave tab and the payslip use — so the number the
+       CEO sees here is the number the staff member sees there. */
+    let stored: { user_id: number; type: string; entitled: number; adjust?: number; used_adjust?: number }[];
+    try {
+      stored = (await env.DB.prepare(
+        `SELECT user_id, type, entitled, adjust, used_adjust FROM leave_balances WHERE year = ?1`,
+      ).bind(year).all<{ user_id: number; type: string; entitled: number; adjust: number; used_adjust: number }>()).results;
+    } catch {
+      /* 0091/0092 pending — the table still works, adjustments read as zero. */
+      stored = (await env.DB.prepare(
+        `SELECT user_id, type, entitled FROM leave_balances WHERE year = ?1`,
+      ).bind(year).all<{ user_id: number; type: string; entitled: number }>()).results;
+    }
+    const rows = new Map<string, { entitled: number; adjust: number; used_adjust: number }>();
+    for (const r of stored) {
+      rows.set(`${r.user_id}:${r.type}`, {
+        entitled: r.entitled, adjust: r.adjust ?? 0, used_adjust: r.used_adjust ?? 0,
+      });
+    }
+    const { results: usedRows } = await env.DB.prepare(
+      `SELECT user_id, type, COALESCE(SUM(days), 0) AS used FROM leave_requests
+       WHERE status = 'approved' AND start_date LIKE ?1 || '%'
+       GROUP BY user_id, type`,
+    ).bind(String(year)).all<{ user_id: number; type: string; used: number }>();
+    const usedMap = new Map<string, number>();
+    for (const r of usedRows) usedMap.set(`${r.user_id}:${r.type}`, r.used);
+
+    const month = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
     return json({
       year,
+      month,
       editable: EDITABLE_TYPES,
       defaults: Object.fromEntries(EDITABLE_TYPES.map((t) => [t, DEFAULT_ENTITLEMENT[t] ?? 0])),
       staff: staff.map((p) => ({
         ...p,
         entitlement: Object.fromEntries(EDITABLE_TYPES.map((t) => {
-          const stored = set.get(`${p.id}:${t}`);
-          /* `set` says whether this is the CEO's own figure or the fallback,
-             so the table can show "default" rather than implying someone
-             chose the number. */
-          return [t, { days: stored ?? DEFAULT_ENTITLEMENT[t] ?? 0, set: stored !== undefined }];
+          const row = rows.get(`${p.id}:${t}`);
+          const entitled = row?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+          const adjust = row?.adjust ?? 0;
+          const used = (usedMap.get(`${p.id}:${t}`) ?? 0) + (row?.used_adjust ?? 0);
+          const accrued = leaveAccrual(t, entitled, year, month, adjust);
+          return [t, {
+            days: entitled,
+            /* whether this is the CEO's own figure or the built-in fallback,
+               so the table can say "default" rather than implying a choice */
+            set: row !== undefined,
+            adjust,
+            used,
+            used_adjust: row?.used_adjust ?? 0,
+            /* what the staff member can actually take today — the figure the
+               Leave tab calls "eligible now" */
+            eligible: Math.max(0, accrued - used),
+          }];
         })),
       })),
     });
@@ -4746,6 +4843,112 @@ export async function handleStaff(
     await audit(env, user.id, "leave.entitlement", "users", String(uid),
       { year: parsed.year, type: parsed.type, from: before, to: parsed.days });
     return json({ ok: true, before, after: parsed.days });
+  }
+
+  /* v1.62.0 — the eligible figure itself (CEO: "in Leave I want to update on
+   * the eligible also!").
+   *
+   * Three ways in, all landing in the same two columns:
+   *
+   *   adjust        +/- days that ride on top of the monthly accrual. This is
+   *                 carry-forward and one-off grants. It PERSISTS, because it
+   *                 is applied every time the figure is worked out.
+   *   used_adjust   corrects the summed usage without editing anyone's leave
+   *                 applications — those rows are the record of who asked and
+   *                 who approved, and they stay untouched.
+   *   set_eligible  the CEO types the eligible number he wants TODAY and the
+   *                 server works out the adjustment that produces it. He
+   *                 asked for this directly; storing the typed number itself
+   *                 would not have worked, because eligible is recalculated
+   *                 from entitlement every time it is read, so the figure
+   *                 would evaporate at the turn of the month. Deriving the
+   *                 adjustment gives him the number he wants now AND a figure
+   *                 that survives. Accrual continues from there, which is
+   *                 what "eligible" is supposed to do.
+   */
+  if (path === "/leave/eligible" && method === "PUT") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can view or change leave entitlements", 403);
+    }
+    const uid = Number(body?.user_id);
+    if (!uid) return err("invalid_input", "user_id is required", 400);
+    const year = Number(body?.year ?? new Date().getFullYear());
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return err("invalid_input", "year must be a real calendar year", 400);
+    }
+    const type = str(body?.type, 40) ? (body!.type as string) : "";
+    if (!(EDITABLE_TYPES as readonly string[]).includes(type)) {
+      return err("invalid_input",
+        type === "medical"
+          ? "Medical leave is a statutory entitlement and cannot be changed here."
+          : `Only ${EDITABLE_TYPES.join(" and ")} leave can be adjusted.`, 400);
+    }
+    /** Days may be negative here — a claw-back — but must still be a half. */
+    const halfStep = (v: number) => Math.round(v * 2) === v * 2;
+
+    const row = await leaveBalanceRow(env, uid, year, type);
+    const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[type] ?? 0;
+    const month = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
+    const usedSum = (await env.DB.prepare(
+      `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
+       WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
+       AND start_date LIKE ?3 || '%'`,
+    ).bind(uid, type, String(year)).first<{ used: number }>())?.used ?? 0;
+
+    let adjust = row.adjust ?? 0;
+    let usedAdjust = row.used_adjust ?? 0;
+
+    if (body?.used_adjust !== undefined) {
+      const v = Number(body.used_adjust);
+      if (!Number.isFinite(v) || !halfStep(v) || Math.abs(v) > 365) {
+        return err("invalid_input", "The used correction must be a whole or half number of days", 400);
+      }
+      /* A correction that drives recorded usage below zero is a typo, not a
+         policy: refuse it rather than storing a total nobody can explain. */
+      if (usedSum + v < 0) {
+        return err("invalid_input",
+          `That would put days taken below zero (${usedSum} recorded). Use ${-usedSum} at most.`, 400);
+      }
+      usedAdjust = v;
+    }
+
+    if (body?.set_eligible !== undefined) {
+      const target = Number(body.set_eligible);
+      if (!Number.isFinite(target) || target < 0 || !halfStep(target) || target > 365) {
+        return err("invalid_input", "Eligible days must be 0 or more, in whole or half days", 400);
+      }
+      /* The adjustment that makes today's eligible figure equal `target`.
+         base = what accrues from entitlement alone this month. */
+      const base = leaveAccrual(type, entitled, year, month, 0);
+      adjust = target + (usedSum + usedAdjust) - base;
+      if (!halfStep(adjust)) adjust = Math.round(adjust * 2) / 2;
+    } else if (body?.adjust !== undefined) {
+      const v = Number(body.adjust);
+      if (!Number.isFinite(v) || !halfStep(v) || Math.abs(v) > 365) {
+        return err("invalid_input", "The adjustment must be a whole or half number of days", 400);
+      }
+      adjust = v;
+    }
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO leave_balances (user_id, year, type, entitled, adjust, used_adjust)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(user_id, year, type)
+         DO UPDATE SET adjust = ?5, used_adjust = ?6`,
+      ).bind(uid, year, type, entitled, adjust, usedAdjust).run();
+    } catch {
+      return err("migration_missing",
+        "Run: npx wrangler d1 migrations apply azoneofficial --remote (0091, 0092)", 500);
+    }
+    const eligible = Math.max(0, leaveAccrual(type, entitled, year, month, adjust) - (usedSum + usedAdjust));
+    await audit(env, user.id, "leave.eligible", "users", String(uid), {
+      year, type,
+      adjust_from: row.adjust ?? 0, adjust_to: adjust,
+      used_adjust_from: row.used_adjust ?? 0, used_adjust_to: usedAdjust,
+      eligible,
+    });
+    return json({ ok: true, adjust, used_adjust: usedAdjust, used: usedSum + usedAdjust, eligible });
   }
 
   /* v1.62.0 — one number for everybody, the CEO's "to all the staff".
@@ -4919,13 +5122,12 @@ export async function handleStaff(
     // from the company-start window; medical is statutory-full).
     const year = Number(month.slice(0, 4));
     const monthNum = Number(month.slice(5, 7));
-    const windowStart = year === 2026 ? 7 : 1;
-    const monthsTotal = 12 - windowStart + 1;
-    const monthsElapsed = Math.min(Math.max(monthNum - windowStart + 1, 0), monthsTotal);
-    const bal = async (t: string, full: boolean) => {
-      const ent = await env.DB.prepare(
-        `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
-      ).bind(uid, year, t).first<{ entitled: number }>();
+    /* v1.62.0 — the SAME rule the Leave tab uses (leaveAccrual, top of file),
+       including the CEO's adjustment. Before this the two were written out
+       separately and an adjustment made on the Leave tab would not have
+       reached the payslip — a number about pay disagreeing with itself. */
+    const bal = async (t: string) => {
+      const row = await leaveBalanceRow(env, uid, year, t);
       // Usage counted only up to the END of the payroll month — the slip
       // reflects that month's eligibility, not the day it was printed.
       const used = await env.DB.prepare(
@@ -4933,9 +5135,9 @@ export async function handleStaff(
          WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
          AND start_date LIKE ?3 || '%' AND start_date <= ?4`,
       ).bind(uid, t, String(year), `${month}-31`).first<{ used: number }>();
-      const entitled = ent?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
-      const accrued = full ? entitled : Math.floor(((entitled * monthsElapsed) / monthsTotal) * 2) / 2;
-      return Math.max(0, accrued - (used?.used ?? 0));
+      const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+      const accrued = leaveAccrual(t, entitled, year, monthNum, row.adjust ?? 0);
+      return Math.max(0, accrued - ((used?.used ?? 0) + (row.used_adjust ?? 0)));
     };
     // v1.4.79: unpaid leave now appears as an EXPLICIT payslip deduction —
     // basic stays full and the slip shows why the pay is lower (fairness).
@@ -4962,8 +5164,8 @@ export async function handleStaff(
       emergency_leave: emergencyDays,
       unpaid_leave: unpaidDays,
       unpaid_deduction_cents: unpaidDeduction,
-      annual_bal: await bal("annual", false),
-      sick_bal: await bal("medical", true),
+      annual_bal: await bal("annual"),
+      sick_bal: await bal("medical"),
     };
   };
 

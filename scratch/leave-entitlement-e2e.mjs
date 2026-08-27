@@ -209,9 +209,109 @@ step("the raise does not hand over the whole year at once");
   }
 }
 
+step("ELIGIBLE — the adjustment rides on top of the accrual and PERSISTS");
+{
+  /* Reset to a known state: 12 days/year, nothing taken. */
+  await ceo(`/leave/entitlement`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", entitled: 12 }),
+  });
+  const before = await (await ceo(`/leave/entitlements?year=2026`)).json();
+  const b0 = before.staff.find((x) => x.id === 91).entitlement.annual;
+  ok("the table reports an eligible figure", typeof b0.eligible === "number", JSON.stringify(b0));
+  ok("and it is LESS than the yearly entitlement (pro-rata)", b0.eligible < 12,
+     `eligible ${b0.eligible} of ${b0.days}`);
+
+  /* +3 carried forward from last year. */
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", adjust: 3 }),
+  });
+  const rb = await r.json().catch(() => null);
+  ok("a +3 adjustment is accepted", r.status === 200, `${r.status}`);
+  ok("eligible went up by exactly 3", rb?.eligible === b0.eligible + 3,
+     `${b0.eligible} -> ${rb?.eligible}`);
+
+  /* The whole point: it is STORED, not a number that evaporates. */
+  const stored = sql(`SELECT adjust FROM leave_balances WHERE user_id = 91 AND year = 2026 AND type = 'annual'`);
+  ok("the adjustment is stored in the database", /\b3\b/.test(stored), stored.trim().slice(-40));
+  const reread = await (await ceo(`/leave/entitlements?year=2026`)).json();
+  ok("and it is still there on a fresh read",
+     reread.staff.find((x) => x.id === 91).entitlement.annual.adjust === 3);
+}
+
+step("a negative adjustment claws days back");
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", adjust: -1.5 }),
+  });
+  const b = await r.json().catch(() => null);
+  ok("−1.5 accepted", r.status === 200, `${r.status}`);
+  ok("and it replaced the +3 rather than stacking", b?.adjust === -1.5, JSON.stringify(b));
+  ok("eligible never goes below zero", (b?.eligible ?? -1) >= 0, `${b?.eligible}`);
+}
+
+step("SET ELIGIBLE — the number he types is the number he gets, and it holds");
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", set_eligible: 7 }),
+  });
+  const b = await r.json().catch(() => null);
+  ok("accepted", r.status === 200, `${r.status}`);
+  ok("eligible is exactly 7 straight away", b?.eligible === 7, JSON.stringify(b));
+  /* It was stored as a derived ADJUSTMENT, which is what makes it survive —
+     a literal "eligible = 7" would be recomputed away at the next read. */
+  const reread = await (await ceo(`/leave/entitlements?year=2026`)).json();
+  const cell = reread.staff.find((x) => x.id === 91).entitlement.annual;
+  ok("and a fresh read still says 7", cell.eligible === 7, JSON.stringify(cell));
+  ok("stored as an adjustment, not as a literal figure", cell.adjust !== 0, `adjust ${cell.adjust}`);
+}
+
+step("CORRECT DAYS TAKEN");
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", used_adjust: 2 }),
+  });
+  const b = await r.json().catch(() => null);
+  ok("a +2 used correction is accepted", r.status === 200, `${r.status}`);
+  ok("days taken went up by 2", b?.used === 2, JSON.stringify(b));
+  ok("so eligible dropped by 2", b?.eligible === 5, `${b?.eligible}`);
+  const reqs = sql(`SELECT COUNT(*) AS n FROM leave_requests WHERE user_id = 91`);
+  ok("and NO fake leave application was invented", /\b0\b/.test(reqs), reqs.trim().slice(-40));
+}
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", used_adjust: -5 }),
+  });
+  ok("a correction that would make days-taken negative is refused", r.status === 400, `${r.status}`);
+}
+
+step("the eligible door obeys the same two rules as the entitlement door");
+{
+  const r = await hr(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 90, year: 2026, type: "annual", adjust: 30 }),
+  });
+  ok("HR cannot adjust its own eligible days (403)", r.status === 403, `${r.status}`);
+}
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "medical", adjust: 5 }),
+  });
+  ok("medical cannot be adjusted either (400)", r.status === 400, `${r.status}`);
+}
+{
+  const r = await ceo(`/leave/eligible`, {
+    method: "PUT", body: JSON.stringify({ user_id: 91, year: 2026, type: "annual", adjust: 1.3 }),
+  });
+  ok("a third of a day is refused", r.status === 400, `${r.status}`);
+}
+{
+  const row = sql(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'leave.eligible'`);
+  ok("every eligible change is in the audit log",
+     !/\b0\b/.test(row.split("\n").pop() ?? ""), row.trim().slice(-60));
+}
+
 step("tidy up");
 sql(`DELETE FROM leave_balances WHERE year = 2026`);
-sql(`DELETE FROM audit_log WHERE action = 'leave.entitlement'`);
+sql(`DELETE FROM audit_log WHERE action IN ('leave.entitlement', 'leave.eligible')`);
 sql(`DELETE FROM sessions WHERE user_id = 90`);
 sql(`DELETE FROM users WHERE id IN (90, 91)`);
 ok("scratch rows removed", true);
