@@ -739,7 +739,25 @@ export function ElfiaStorePanel() {
             a = i;
           }
         }
-        if (!bestSeg) continue; // nothing pill-like under the heading
+        if (!bestSeg) {
+          /* No pill blob found — the heading STILL gets a guaranteed spot
+             (the CEO's pill missed detection once; an empty Price section
+             must never happen again). A modest area directly under the
+             heading, its colour sampled from those very pixels: if it lands
+             on a pill it covers in pill colour, on fabric in fabric colour
+             — either way the price appears, legibly. */
+          const fy0 = site.y1 + 12, fy1 = site.y1 + 30;
+          const mid = pxAt(hcx, (fy0 + fy1) / 2);
+          const neighbours = [pxAt(hcx - 20, (fy0 + fy1) / 2), mid, pxAt(hcx + 20, (fy0 + fy1) / 2)];
+          const med = (i: number) => neighbours.map((v) => v[i]!).sort((x, y) => x - y)[1]!;
+          const fbg: [number, number, number] = [med(0), med(1), med(2)];
+          const flum = (0.2126 * fbg[0] + 0.7152 * fbg[1] + 0.0722 * fbg[2]) / 255;
+          (r.map.price_sites ??= []).push({
+            page: site.page, x0: hcx - 70, y0: fy0, x1: hcx + 70, y1: fy1, bg: fbg,
+            ...(flum < 0.82 ? { ink: [255, 255, 255] as [number, number, number] } : {}),
+          });
+          continue;
+        }
         const bg = bestSeg.c;
         const lum = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255;
         const insetY = bestSeg.h * 0.18;

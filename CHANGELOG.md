@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.60.0] — 2026-08-27 — The Price spot is guaranteed
+
+When the pixel search finds no pill under a "Price"/"Harga" heading, the
+reader now falls back to a guaranteed area directly under the heading,
+coloured from its own pixels — so the store always has a place to write
+the price, whatever the page looks like. (Reminder that matters: the
+reader runs in the browser — after a deploy, close and reopen the portal
+tab before choosing a PDF, or the old reader runs.)
+
 ## [1.59.0] — 2026-08-27 — The wide pill is caught, and clipped to its heading
 
 The CEO's real pill stretches far left of its "Price" heading; the detected
