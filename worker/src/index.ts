@@ -2089,19 +2089,44 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       new Date(Date.now() + 8 * 3600 * 1000 - offset * 86400_000).toISOString().slice(0, 10);
     const range = { start_date_ge: day(7), end_date_lt: day(0) };
 
-    const asked = new URL(request.url).searchParams.get("path");
-    /* The candidates, most likely first. The 202405 shop-performance path is
-       the one TikTok's own public doc URL names; the rest cover the shapes
-       their other v2 families use, so one pass tells us which exist. */
+    const probeUrl = new URL(request.url);
+    const asked = probeUrl.searchParams.get("path");
+    const askedVersion = probeUrl.searchParams.get("version") ?? "202405";
+
+    /* ROUND 2 — what round 1 taught us, 27-08-2026:
+     *
+     *   /analytics/202405/shop/performance  -> 36009003 "Internal error"
+     *   /analytics/202409/shop/performance  -> 36009004 "Invalid API version.
+     *                                          The 'version' query parameter
+     *                                          is invalid."
+     *   everything else                     -> 36009009 "Invalid path"
+     *
+     * Two facts fall out of that. First, /analytics/202405/shop/performance
+     * IS a real endpoint — a path that does not exist answers 36009009, and
+     * this one did not. Second, TikTok wants `version` as a QUERY PARAMETER
+     * as well as a path segment; nothing sent one, which is the likeliest
+     * cause of the "internal error" on the path that does exist.
+     *
+     * So: every candidate now carries `version`, and the sub-resources are
+     * retried under the naming family TikTok actually uses (shop_products,
+     * not shop/product_performance). Several parameter shapes are tried on
+     * the endpoint we know exists, because "internal error" is often what
+     * this API returns for a missing required parameter. */
+    const V = "202405";
+    const withV = (extra: Record<string, string> = {}) => ({ version: V, ...range, ...extra });
     const candidates: { label: string; path: string; params: Record<string, string> }[] = asked
-      ? [{ label: "manual", path: asked, params: range }]
+      ? [{ label: "manual", path: asked, params: { version: askedVersion, ...range } }]
       : [
-          { label: "shop performance", path: "/analytics/202405/shop/performance", params: range },
-          { label: "shop performance (list)", path: "/analytics/202409/shop/performance", params: range },
-          { label: "product performance", path: "/analytics/202405/shop/product_performance", params: { ...range, page_size: "10" } },
-          { label: "video performance", path: "/analytics/202409/shop/video_performance", params: { ...range, page_size: "10" } },
-          { label: "live performance", path: "/analytics/202409/shop/live_performance", params: { ...range, page_size: "10" } },
-          { label: "sku performance", path: "/analytics/202405/shop/sku_performance", params: { ...range, page_size: "10" } },
+          /* the endpoint we know exists — four parameter shapes */
+          { label: "shop performance + version", path: `/analytics/${V}/shop/performance`, params: withV() },
+          { label: "shop performance + currency", path: `/analytics/${V}/shop/performance`, params: withV({ currency: "LOCAL" }) },
+          { label: "shop performance + granularity", path: `/analytics/${V}/shop/performance`, params: withV({ granularity: "ALL", currency: "LOCAL" }) },
+          { label: "shop performance + daily", path: `/analytics/${V}/shop/performance`, params: withV({ granularity: "1D", currency: "LOCAL" }) },
+          /* the sub-resources, under the plural naming family */
+          { label: "product performance", path: `/analytics/${V}/shop_products/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
+          { label: "sku performance", path: `/analytics/${V}/shop_skus/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
+          { label: "video performance", path: `/analytics/${V}/shop_videos/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
+          { label: "live performance", path: `/analytics/${V}/shop_lives/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
         ];
 
     const findings: unknown[] = [];
@@ -2118,6 +2143,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       findings.push({
         label: c.label,
         path: c.path,
+        /* the exact parameters sent, so a refusal can be read without
+           guessing what the probe did */
+        params: c.params,
         code: res?.code ?? null,
         message: res?.message ?? null,
         /* code 0 is TikTok's "success". Anything else is usually a missing

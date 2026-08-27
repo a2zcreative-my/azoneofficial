@@ -4955,7 +4955,8 @@ function TikTokAnalyticsCard() {
   };
 
   const findings = (result?.findings as { label: string; path: string; code: number | null;
-    message: string | null; usable: boolean; first_row_keys: string[] | null }[] | undefined) ?? [];
+    message: string | null; usable: boolean; first_row_keys: string[] | null;
+    params?: Record<string, string> }[] | undefined) ?? [];
   const usable = findings.filter((f) => f.usable);
 
   return (
@@ -5011,10 +5012,15 @@ function TikTokAnalyticsCard() {
               </thead>
               <tbody>
                 {findings.map((f) => (
-                  <tr key={f.path} className="border-border/60 border-b last:border-0">
+                  <tr key={`${f.path}:${f.label}`} className="border-border/60 border-b last:border-0">
                     <td className={td}>
                       <div className="font-medium">{f.label}</div>
                       <div className="text-muted-foreground font-mono text-[11px]">{f.path}</div>
+                      {f.params && (
+                        <div className="text-muted-foreground/70 font-mono text-[10px]">
+                          {Object.entries(f.params).map(([k, v]) => `${k}=${v}`).join(" · ")}
+                        </div>
+                      )}
                     </td>
                     <td className={td}>
                       <span className={f.usable ? chipSuccess : chipNeutral}>
