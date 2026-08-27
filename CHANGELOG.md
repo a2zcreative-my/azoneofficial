@@ -2,6 +2,93 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.59.0] — 2026-08-27 — The wide pill is caught, and clipped to its heading
+
+The CEO's real pill stretches far left of its "Price" heading; the detected
+site centred itself out of the store's pairing reach and his pill stayed
+empty. The pill edge search widened to ±260pt (still two real edges
+required) and the shipped site is clipped around the heading's centre, so
+pairing always lands. Store v1.30.0 pairs at 100pt and draws inserted
+prices as plain sans text — no chip.
+
+## [1.58.0] — 2026-08-27 — "Cut out background", and the empty pill found by its pixels
+
+(Second half of this version, same day:) the catalog reader now finds the
+designer's EMPTY price pill on price-less catalogs — a bounded blob of
+uniform colour under a "Price"/"Harga" heading; photographs and fabric
+textures share none of those properties — and ships it as a price site
+with the pill's own colour and white ink, so the store fills it inside,
+in the pill's style (store v1.29.0). Pills that already hold a printed
+price are left to the printed-price path.
+
+
+
+The CEO, on /catalog: "I still notice the photo of the Catalog no cut off
+background, I just want the model only there!"
+
+**ELFIA tab → each product photo has a "Cut out background" button, and one
+"Cut out ALL photo backgrounds" above the list.** The model is matted out
+of the studio shot right in the browser — the matting model (U²-Netp) and
+its runtime are VENDORED with the portal (`/vendor/u2netp.onnx`,
+`/vendor/ort/`), so no photo ever leaves the machine and no third-party
+service is involved. The cut photo saves through the same photo route as
+any upload, so it reaches the shop within the minute, everywhere photos
+show. Nothing changes until the button is pressed; photos that are already
+cut-outs are recognised and skipped; a failed cut leaves the photo exactly
+as it was.
+
+Also in this release: the price override writes in the printed number's own
+ink — sampled from its glyphs as the median of far-from-background pixels
+(a sliver of photograph at the box's edge cannot fool it) — feeding store
+v1.28.0's like-for-like replacement.
+
+Store side: elfia-store v1.28.0. Both PUSH.bat halves.
+
+## [1.57.0] — 2026-08-27 — A catalog WITH printed prices uploads too
+
+The CEO's designer ships "Catalog Final Harga" — prices printed. The CEO:
+"the price from system automatically override the price in PDF which is we
+done it before."
+
+**Choose the PDF as usual.** The reader now also records every printed
+price ("RM 39.00") with its exact place, and samples the page colour
+around each one from the rendered pages (all pages render now, not just
+the cover). That travels in the map's new `price_sites`; the store covers
+each printed price in its own colour and writes the live price in the same
+spot (store v1.27.0). The preview's price-tag warning became a plain
+statement: "N printed price tags found — the shop covers each one and
+writes today's price in its place."
+
+Also fixed, found on his real file: labels fused by display-face kerning
+("lumiMahogany") now match their product (mirrored in the store's
+matcher); a printed row whose labels differ by hundredths of a point in
+baseline no longer vanishes in extraction (quantised sort + bounded line
+continuation). `catalog-extract-check` grew to 32 checks including a
+regression case built from his lost shawl row; `catalog-portal-e2e` to 27.
+
+Store side: elfia-store v1.27.0. Both PUSH.bat halves, then re-choose and
+re-upload the PDF so the new map is built.
+
+## [1.56.0] — 2026-08-27 — The catalog upload names what will print without a price
+
+The CEO, after the first real upload: "missing prices tag". Some labels in
+a catalog match no published product — a typo in the PDF ("Champange"), a
+shade not yet published, a renamed product — and those print without a
+price by design (the shop never guesses). The upload preview showed only a
+COUNT, which let that ship silently.
+
+**ELFIA tab → Catalog PDF → choose a file:** the preview now lists those
+labels BY NAME — "These get NO price (no published product matches):
+Shawl Chiffon Champange · Bawal lumi Dusty Olive · …" — so the fix
+(correct the PDF, or publish/rename the product, then re-choose the file)
+happens before upload, not in the printed catalog. Page furniture ("Price",
+"Saiz", "Details" …) and one-word fragments are left off the list; the
+store now handles those itself (store v1.25.0, which also fills the empty
+Price pill on single-product detail pages and puts every inserted price in
+a cream chip so it reads cleanly on photos).
+
+Store side: elfia-store v1.25.0. Both PUSH.bat halves as usual.
+
 ## [1.55.0] — 2026-08-26 — Upload the catalog PDF; the shop prices it itself
 
 The CEO, 26-08-2026: *"the portal can upload the PDF for this catalog

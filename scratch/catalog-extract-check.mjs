@@ -146,6 +146,51 @@ step("a real PDF, read the way the panel reads uploads");
   ok("the map passes the upload route's own validation rules", shapeOk);
 }
 
+step("printed prices become price SITES — the override map (v1.57.0)");
+{
+  /* The CEO's designer ships catalogs WITH prices now; the shop covers
+     each one and writes the live price in its place. So a price is not
+     merely excluded from labels — its PLACE travels in the map. */
+  const r = extractCatalogMap([page([
+    run("Bawal lumi Sky", 100, 500, 80),
+    run("RM", 100, 484, 16), run("39.00", 118, 484, 30),   // split price, one site
+    run("Bawal lumi Luxe", 300, 500, 80),
+    run("RM 39.00", 300, 484, 46),                          // whole price
+    run("64.00", 480, 300, 30),                             // stray decimal, no RM — NOT a price
+  ])]);
+  ok("each printed price is one site", (r.map.price_sites ?? []).length === 2,
+     JSON.stringify(r.map.price_sites));
+  const ps = r.map.price_sites[0];
+  ok("the split RM + amount merged into one box", ps.x0 === 100 && Math.abs(ps.x1 - 148) < 0.6,
+     `${ps.x0}..${ps.x1}`);
+  ok("a stray decimal with no RM near it is not a price",
+     !(r.map.price_sites ?? []).some((p2) => p2.y0 > 500), JSON.stringify(r.map.price_sites));
+  ok("prices_detected counts the sites", r.prices_detected === 2, String(r.prices_detected));
+}
+
+step("a row of labels with hair-different baselines survives whole (the CEO's lost shawl row)");
+{
+  /* His real file: three labels on one printed row, baselines differing by
+     hundredths of a point, and the raw sort put a right-hand label first —
+     the leftward merge then folded the row into an inside-out rectangle
+     and all three vanished. */
+  const r = extractCatalogMap([page([
+    run("Shawl Chiffon Dark Purple", 428.6, 29.84, 125.9, 11),
+    run("Shawl Chiffon Black", 259.1, 29.845, 95.4, 11),
+    run("Shawl Chiffon Champange", 34.0, 29.32, 127.0, 11),
+  ])]);
+  ok("all three labels of the row extracted", r.map.sites.length === 3,
+     JSON.stringify(r.map.sites.map((x) => x.label)));
+  /* Within ONE quantised row, left to right; the third label truly sits
+     half a point lower and reads as the next row — what matters is that
+     nothing merged and nothing vanished. */
+  ok("row-mates read left to right",
+     r.map.sites.findIndex((x) => x.label.endsWith("Black")) <
+     r.map.sites.findIndex((x) => x.label.endsWith("Purple")),
+     r.map.sites.map((x) => x.label).join(" | "));
+  ok("every rect is the right way round", r.map.sites.every((x) => x.x1 > x.x0 && x.y1 > x.y0));
+}
+
 console.log(fail === 0
   ? `\nPASS - ${pass} checks: what her browser reads is what the shop can price.`
   : `\n${fail} of ${pass + fail} checks failed.`);

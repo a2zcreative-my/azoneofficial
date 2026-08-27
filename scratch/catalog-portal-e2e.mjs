@@ -78,6 +78,9 @@ try {
     ok("a map with no PDF to describe is refused", r2.status === 409, String(r2.status));
     const r3 = await staff("/elfia/catalog/map", { method: "POST", body: JSON.stringify({ map: { version: 2 } }) });
     ok("a wrong-shaped map is refused at the door", r3.status === 400, String(r3.status));
+    const r3b = await staff("/elfia/catalog/map", { method: "POST", body: JSON.stringify({ map: {
+      ...MAP, price_sites: [{ page: 0, x0: 1, y0: 1, x1: 2, y1: 2, bg: [999, 0, 0] }] } }) });
+    ok("a price site with an impossible colour is refused too", r3b.status === 400 || r3b.status === 409, String(r3b.status));
     const r4 = await fetch(`${API}/staff/elfia/catalog`, {
       method: "POST", headers: { Cookie: COOKIES, "Content-Type": "application/pdf" }, body: buildPdf("X"),
     });
@@ -100,9 +103,11 @@ try {
   {
     const rc = await postBinary("/elfia/catalog/cover", JPEG_STUB, "image/jpeg");
     ok("the cover is accepted", rc.status === 201, String(rc.status));
-    const rm = await staff("/elfia/catalog/map", { method: "POST", body: JSON.stringify({ map: MAP }) });
+    /* v1.57.0 — printed prices ride along: place + sampled background. */
+    const rm = await staff("/elfia/catalog/map", { method: "POST", body: JSON.stringify({ map: {
+      ...MAP, price_sites: [{ page: 0, x0: 100, y0: 350, x1: 160, y1: 366, bg: [251, 246, 240] }] } }) });
     const jm = await rm.json();
-    ok("the map goes live", rm.status === 201 && jm.live === true, JSON.stringify(jm));
+    ok("the map goes live (printed-price sites included)", rm.status === 201 && jm.live === true, JSON.stringify(jm));
     firstMarker = jm.updated_at;
     const s = await status();
     ok("status says live", s.live === true && typeof s.updated_at === "string", JSON.stringify(s));
@@ -121,6 +126,8 @@ try {
     const m = await (await fetch(c.map_url)).json();
     ok("the map URL serves the exact map", m.version === 1 && m.sites?.[0]?.label === "Bawal lumi Uplan",
        JSON.stringify(m).slice(0, 80));
+    ok("with its printed-price sites and their sampled colours",
+       m.price_sites?.length === 1 && Array.isArray(m.price_sites[0].bg), JSON.stringify(m.price_sites));
     const cv = Buffer.from(await (await fetch(c.cover_url)).arrayBuffer());
     ok("the cover URL serves the JPEG", cv[0] === 0xff && cv[1] === 0xd8, cv.subarray(0, 2).toString("hex"));
   }

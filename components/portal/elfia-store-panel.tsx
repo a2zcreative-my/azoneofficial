@@ -130,6 +130,11 @@ interface CatDraft {
   coverUrl: string | null;
   pages: number;
   matched: number;
+  /* v1.56.0 — the labels that matched NO published product, BY NAME. A
+     count alone let a typo ("Champange") ship silently priceless; the
+     names make the fix obvious — correct the PDF, or rename/publish the
+     product — before anything uploads. */
+  unmatched_labels: string[];
   prices_detected: number;
   truncated: boolean;
 }
@@ -143,9 +148,14 @@ const catTokens = (s: string): string[] =>
   s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
 const catLabelMatches = (label: string, names: string[]): boolean => {
   const lt = new Set(catTokens(label));
+  /* v1.57.0 — mirror the store's kerning tolerance: display faces can fuse
+     words ("lumiMahogany"), so a 3+ character token may also match inside
+     the label with its spaces removed. */
+  const squashed = label.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
+  const has = (t: string) => lt.has(t) || (t.length >= 3 && squashed.includes(t));
   return names.some((n) => {
     const distinct = catTokens(n).filter((t) => !CAT_GENERIC.has(t));
-    return distinct.length > 0 && distinct.every((t) => lt.has(t));
+    return distinct.length > 0 && distinct.every(has);
   });
 };
 
@@ -203,6 +213,10 @@ export function ElfiaStorePanel() {
   const [catBusy, setCatBusy] = useState(false);
   const [catDraft, setCatDraft] = useState<CatDraft | null>(null);
   const catFileRef = useRef<HTMLInputElement | null>(null);
+  /* v1.58.0 — background cut-out. busyCut: the product being matted, or -1
+     while the run-them-all pass works; cutNote narrates the batch. */
+  const [busyCut, setBusyCut] = useState<number | null>(null);
+  const [cutNote, setCutNote] = useState("");
   const { show: toast, node: toastNode } = useSaveToast();
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -293,6 +307,82 @@ export function ElfiaStorePanel() {
     } finally {
       setBusyPhoto(null);
     }
+  };
+
+  /* ==== v1.58.0 — "I just want the model only there" ====
+     One click mattes the model out of a product photo (lib/cutout.ts —
+     vendored on-device model, no third-party service) and saves it through
+     the SAME photo route as any upload, so it reaches the shop like any
+     photo change. Nothing anywhere changes until this button is pressed,
+     and an already-cut photo is left alone. */
+  const cutOne = async (it: ElfiaItem): Promise<"done" | "skipped" | "failed"> => {
+    if (!it.elfia_image_key) return "skipped";
+    try {
+      const blob = await (await fetch(photoUrl(it.elfia_image_key))).blob();
+      const bmp = await createImageBitmap(blob);
+      const probe = document.createElement("canvas");
+      probe.width = bmp.width; probe.height = bmp.height;
+      const pctx = probe.getContext("2d", { willReadFrequently: true });
+      if (!pctx) return "failed";
+      pctx.drawImage(bmp, 0, 0);
+      const { hasTransparency, cutoutPhoto } = await import("@/lib/cutout");
+      if (hasTransparency(pctx, bmp.width, bmp.height)) return "skipped"; // already a cut-out
+      let png = await cutoutPhoto(blob);
+      if (png.size > 4_800_000) {
+        /* Stay under the 5 MB photo cap: shrink to 1100px wide, plenty for
+           the shop's circles. */
+        const scale = 1100 / bmp.width;
+        const c2 = document.createElement("canvas");
+        c2.width = 1100; c2.height = Math.round(bmp.height * scale);
+        const ctx2 = c2.getContext("2d");
+        if (!ctx2) return "failed";
+        ctx2.drawImage(await createImageBitmap(png), 0, 0, c2.width, c2.height);
+        const smaller = await new Promise<Blob | null>((res) => c2.toBlob(res, "image/png"));
+        if (!smaller) return "failed";
+        png = smaller;
+      }
+      const res = await csrfFetch(`/api/v1/staff/inventory/${it.id}/elfia/photo`, {
+        method: "POST", headers: { "Content-Type": "image/png" }, body: png,
+      });
+      return res.ok ? "done" : "failed";
+    } catch {
+      return "failed";
+    }
+  };
+
+  const cutBackground = async (it: ElfiaItem) => {
+    setBusyCut(it.id);
+    try {
+      const r = await cutOne(it);
+      if (r === "done") {
+        toast(L("Background removed", "Latar dibuang"),
+          `${it.sku} — ${L("the model only; the shop picks it up within a minute", "model sahaja; kedai mengambilnya dalam seminit")}`);
+        void load();
+      } else if (r === "skipped") {
+        toast(L("Already cut out", "Sudah dipotong"), it.sku);
+      } else {
+        toast(L("Could not cut this one", "Tidak dapat dipotong"),
+          L("The photo stays as it was — nothing changed.", "Foto kekal seperti sedia ada — tiada perubahan."), "notice");
+      }
+    } finally { setBusyCut(null); }
+  };
+
+  const cutAll = async () => {
+    const targets = items.filter((x) => x.elfia_image_key);
+    setBusyCut(-1);
+    let done = 0, skipped = 0, failed = 0;
+    try {
+      for (const [i, it] of targets.entries()) {
+        setCutNote(`${i + 1}/${targets.length} — ${it.sku}`);
+        const r = await cutOne(it);
+        if (r === "done") done++; else if (r === "skipped") skipped++; else failed++;
+      }
+      toast(L("Backgrounds removed", "Latar dibuang"),
+        L(`${done} cut out${skipped ? `, ${skipped} already done` : ""}${failed ? `, ${failed} failed (left as they were)` : ""} — the shop picks them up within a minute`,
+          `${done} dipotong${skipped ? `, ${skipped} sudah siap` : ""}${failed ? `, ${failed} gagal (kekal sedia ada)` : ""} — kedai mengambilnya dalam seminit`),
+        failed ? "notice" : undefined);
+      void load();
+    } finally { setBusyCut(null); setCutNote(""); }
   };
 
   const uploadSlide = async (file: File, id?: number) => {
@@ -497,6 +587,7 @@ export function ElfiaStorePanel() {
       pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.mjs";
       const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
       const pages: PageRuns[] = [];
+      const canvases: (HTMLCanvasElement | null)[] = [];
       let cover: Blob | null = null;
       for (let n = 1; n <= doc.numPages; n++) {
         const page = await doc.getPage(n);
@@ -508,20 +599,164 @@ export function ElfiaStorePanel() {
             ? [{ str: it.str, x: Number(it.transform[4]), baseline: Number(it.transform[5]), width: it.width, height: it.height }]
             : []),
         });
-        if (n === 1) {
-          /* Page 1 IS the cover — same width the shop's share card asks for. */
-          const scale = 1100 / vp.width;
-          const v2 = page.getViewport({ scale });
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.round(v2.width); canvas.height = Math.round(v2.height);
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            await page.render({ canvasContext: ctx, viewport: v2 }).promise;
+        /* Every page is rendered once: page 1 becomes the cover, and every
+           page's pixels are kept so the background behind each PRINTED
+           price can be sampled (v1.57.0) — the shop covers a printed price
+           in its own page colour, and only this browser can see colours. */
+        const scale = (n === 1 ? 1100 : 700) / vp.width;
+        const v2 = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(v2.width); canvas.height = Math.round(v2.height);
+        const cctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (cctx) {
+          await page.render({ canvasContext: cctx, viewport: v2 }).promise;
+          canvases.push(canvas);
+          if (n === 1) {
             cover = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.85));
           }
+        } else {
+          canvases.push(null);
         }
       }
       const r = extractCatalogMap(pages);
+      /* v1.57.0 — sample the colour AROUND each printed price (4 points
+         just outside its box, median per channel) so the shop's cover
+         patch disappears into the page: cream stays cream, a rose pill
+         stays a rose pill. */
+      for (const ps of r.map.price_sites ?? []) {
+        const cv = canvases[ps.page];
+        const pageDim = pages[ps.page];
+        if (!cv || !pageDim) continue;
+        const cctx = cv.getContext("2d", { willReadFrequently: true });
+        if (!cctx) continue;
+        const sc = cv.width / pageDim.w;
+        const cy = (ps.y0 + ps.y1) / 2, cx2 = (ps.x0 + ps.x1) / 2;
+        const pts: [number, number][] = [
+          [ps.x0 - 5, cy], [ps.x1 + 5, cy], [cx2, ps.y0 - 5], [cx2, ps.y1 + 5],
+        ];
+        const samples: number[][] = [];
+        for (const [px, py] of pts) {
+          const x = Math.min(cv.width - 1, Math.max(0, Math.round(px * sc)));
+          const y = Math.min(cv.height - 1, Math.max(0, Math.round(py * sc)));
+          const d = cctx.getImageData(x, y, 1, 1).data;
+          samples.push([d[0]!, d[1]!, d[2]!]);
+        }
+        const med = (i: number) => {
+          const v = samples.map((s) => s[i]!).sort((a, b) => a - b);
+          return Math.round((v[1]! + v[2]!) / 2);
+        };
+        ps.bg = [med(0), med(1), med(2)];
+        /* The number's own INK: scan inside the box for the pixel farthest
+           from the background — the glyph colour. The CEO: "Price should
+           the font like Saiz" — same face, same colour as the designer's,
+           so the replacement is indistinguishable from the original. */
+        /* Glyph pixels are the MANY far-from-background pixels; a stray
+           sliver of photograph at the box's edge is only a few. The median
+           of all far pixels lands on the glyph colour, not the sliver. */
+        const farPix: [number, number, number][] = [];
+        for (let gy = 0; gy < 5; gy++) {
+          for (let gx = 0; gx < 12; gx++) {
+            const x = Math.min(cv.width - 1, Math.max(0, Math.round((ps.x0 + ((gx + 0.5) / 12) * (ps.x1 - ps.x0)) * sc)));
+            const y = Math.min(cv.height - 1, Math.max(0, Math.round((ps.y0 + ((gy + 0.5) / 5) * (ps.y1 - ps.y0)) * sc)));
+            const d = cctx.getImageData(x, y, 1, 1).data;
+            const dist = (d[0]! - ps.bg[0]) ** 2 + (d[1]! - ps.bg[1]) ** 2 + (d[2]! - ps.bg[2]) ** 2;
+            if (dist > 55 * 55) farPix.push([d[0]!, d[1]!, d[2]!]);
+          }
+        }
+        /* Only a clearly different colour counts as ink — a near-empty box
+           keeps the store's own contrast rule. */
+        if (farPix.length >= 3) {
+          const chMed = (i: number) => farPix.map((v) => v[i]!).sort((a, b) => a - b)[Math.floor(farPix.length / 2)]!;
+          ps.ink = [chMed(0), chMed(1), chMed(2)];
+        }
+      }
+
+      /* v1.58.0 — THE EMPTY PILL. On a price-less catalog the designer
+         leaves a coloured pill under the "Price" heading with nothing in
+         it; the price used to be dropped under the heading in the page
+         margin instead of INSIDE the pill ("it is not properly price
+         tagging inside the Pills" — the CEO). The pill is found by its
+         pixels: scan below the heading for the wide run of non-background
+         colour, and hand its inner area to the store as a price site — the
+         same machinery that fills printed pills then writes the live price
+         inside it, in the pill's own colours. */
+      for (const site of r.map.sites) {
+        const isPriceHead = ["price", "harga"].includes(site.label.toLowerCase().normalize("NFKD").replace(/[^a-z]/g, ""));
+        if (!isPriceHead) continue;
+        const hcx = (site.x0 + site.x1) / 2;
+        const already = (r.map.price_sites ?? []).some((q) =>
+          q.page === site.page && Math.abs((q.x0 + q.x1) / 2 - hcx) < 110
+          && q.y0 > site.y1 - 6 && q.y0 < site.y1 + 70);
+        if (already) continue; // a printed price already lives in that pill
+        const cv = canvases[site.page];
+        const pageDim = pages[site.page];
+        if (!cv || !pageDim) continue;
+        const cctx = cv.getContext("2d", { willReadFrequently: true });
+        if (!cctx) continue;
+        const sc = cv.width / pageDim.w;
+        const pxAt = (x: number, y: number) => {
+          const d = cctx.getImageData(
+            Math.min(cv.width - 1, Math.max(0, Math.round(x * sc))),
+            Math.min(cv.height - 1, Math.max(0, Math.round(y * sc))), 1, 1).data;
+          return [d[0]!, d[1]!, d[2]!] as [number, number, number];
+        };
+        /* A pill is a BOUNDED blob of UNIFORM colour that begins where the
+           page stops — three properties no photograph or fabric texture
+           shares. Walk straight down from the heading: the longest uniform
+           colour segment that differs from what sits above it, whose width
+           has two real edges, is the pill. (The first version compared to a
+           single "page background" sample — one probe landing on a photo
+           made the whole page read as pill.) */
+        const diff = (a: [number, number, number], b: [number, number, number]) =>
+          Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+        const ys: number[] = [];
+        const cols: [number, number, number][] = [];
+        for (let i = 0; i < 46; i++) { const y = site.y1 + 2 + i * 1.5; ys.push(y); cols.push(pxAt(hcx, y)); }
+        type Seg = { x0: number; y0: number; x1: number; y1: number; h: number; c: [number, number, number] };
+        let bestSeg: Seg | null = null;
+        let a = 0;
+        for (let i = 1; i <= cols.length; i++) {
+          if (i === cols.length || diff(cols[i]!, cols[i - 1]!) > 36) {
+            if (ys[i - 1]! - ys[a]! >= 9) {
+              const mid = Math.floor((a + i - 1) / 2);
+              const c = cols[mid]!;
+              const above = pxAt(hcx, ys[a]! - 4);
+              if (diff(c, above) > 60) {
+                const y = ys[mid]!;
+                let x0 = hcx, x1 = hcx;
+                /* His pills can stretch far past their heading — search
+                   wide, still demanding two real edges. */
+                while (x0 > hcx - 260 && diff(pxAt(x0 - 3, y), c) < 45) x0 -= 3;
+                while (x1 < hcx + 260 && diff(pxAt(x1 + 3, y), c) < 45) x1 += 3;
+                const bounded = x0 > hcx - 260 && x1 < hcx + 260; // both edges truly found
+                const w = x1 - x0;
+                const h = ys[i - 1]! - ys[a]!;
+                if (bounded && w >= 50 && (!bestSeg || h > bestSeg.h)) {
+                  bestSeg = { x0, y0: ys[a]!, x1, y1: ys[i - 1]!, h, c };
+                }
+              }
+            }
+            a = i;
+          }
+        }
+        if (!bestSeg) continue; // nothing pill-like under the heading
+        const bg = bestSeg.c;
+        const lum = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255;
+        const insetY = bestSeg.h * 0.18;
+        /* The site is CLIPPED around the heading's centre: the store pairs
+           a price site with the label above it by centre distance, and a
+           pill stretching far to one side would otherwise centre itself
+           out of reach — the exact way his empty bawal pill stayed empty. */
+        (r.map.price_sites ??= []).push({
+          page: site.page,
+          x0: Math.max(bestSeg.x0 + 10, hcx - 110), y0: bestSeg.y0 + insetY,
+          x1: Math.min(bestSeg.x1 - 10, hcx + 110), y1: bestSeg.y1 - insetY,
+          bg,
+          /* His pills carry white text; only a near-paper pill keeps the
+             store's dark-ink rule. */
+          ...(lum < 0.82 ? { ink: [255, 255, 255] as [number, number, number] } : {}),
+        });
+      }
       if (r.map.sites.length === 0) {
         toast(L("No labels found", "Tiada label dijumpai"),
           L("No product names could be read from this PDF — if the text is drawn as pictures (outlined), the shop cannot place prices on it.",
@@ -530,10 +765,21 @@ export function ElfiaStorePanel() {
       }
       const names = published.map((x) => x.name).filter(Boolean);
       const matched = r.map.sites.filter((s) => catLabelMatches(s.label, names)).length;
+      /* The labels left without a product, named — deduplicated, page
+         furniture ("Price", "Saiz", "Details", …) left out since the shop
+         does not treat those as products either. Only label-looking text
+         (two words or more) is worth the CEO's attention here. */
+      const FURN = new Set(["price", "harga", "saiz", "size", "sizes", "details", "detail", "material", "materials", "product detail", "by elfia", "elfia"]);
+      const unmatched_labels = [...new Set(
+        r.map.sites
+          .filter((s) => !catLabelMatches(s.label, names))
+          .map((s) => s.label.trim())
+          .filter((l) => !FURN.has(l.toLowerCase()) && l.split(/\s+/).length >= 2),
+      )];
       setCatDraft({
         file, map: r.map, cover,
         coverUrl: cover ? URL.createObjectURL(cover) : null,
-        pages: pages.length, matched,
+        pages: pages.length, matched, unmatched_labels,
         prices_detected: r.prices_detected, truncated: r.truncated,
       });
     } catch {
@@ -873,10 +1119,28 @@ export function ElfiaStorePanel() {
                            "Tiada label sepadan dengan produk diterbitkan — kedai tidak akan menambah harga. Semak nama, atau terbitkan produk dahulu.")}
                       </p>
                     )}
-                    {catDraft.prices_detected > 0 && (
+                    {/* v1.56.0 — the CEO's "missing prices tag": these are
+                        the exact labels that will print WITHOUT a price.
+                        Named, so a typo in the PDF or an unpublished
+                        product is caught here, not in the printed file. */}
+                    {catDraft.matched > 0 && catDraft.unmatched_labels.length > 0 && (
                       <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
-                        {L(`This PDF still has ${catDraft.prices_detected} printed price tag${catDraft.prices_detected === 1 ? "" : "s"} (RM …) — the shop's live prices would appear NEXT TO them, not instead of them. Best to export it without prices.`,
-                           `PDF ini masih ada ${catDraft.prices_detected} tanda harga bercetak (RM …) — harga langsung kedai akan muncul DI SEBELAHNYA, bukan menggantikannya. Lebih baik eksport tanpa harga.`)}
+                        {L("These get NO price (no published product matches): ",
+                           "Ini TIDAK mendapat harga (tiada produk diterbitkan sepadan): ")}
+                        {catDraft.unmatched_labels.slice(0, 12).join(" · ")}
+                        {catDraft.unmatched_labels.length > 12 ? ` +${catDraft.unmatched_labels.length - 12}` : ""}
+                        {" — "}
+                        {L("fix the name in the PDF, or publish/rename the product, then choose the file again.",
+                           "betulkan nama dalam PDF, atau terbitkan/namakan semula produk, kemudian pilih fail semula.")}
+                      </p>
+                    )}
+                    {/* v1.57.0 — printed prices are HANDLED now: each one is
+                        covered in its own page colour and the live price is
+                        written in the same spot. Good news, not a warning. */}
+                    {catDraft.prices_detected > 0 && (
+                      <p className="text-muted-foreground mt-1">
+                        {L(`${catDraft.prices_detected} printed price tag${catDraft.prices_detected === 1 ? "" : "s"} found — the shop covers each one and writes today's price in its place.`,
+                           `${catDraft.prices_detected} tanda harga bercetak dijumpai — kedai menutup setiap satu dan menulis harga hari ini di tempatnya.`)}
                       </p>
                     )}
                     {catDraft.truncated && (
@@ -1117,6 +1381,23 @@ export function ElfiaStorePanel() {
             but I need to have 1 by 1 update also." Nothing below changes —
             this is a selection laid over the same list. The bar only appears
             once something is ticked, so the everyday view stays as it was. */}
+        {/* v1.58.0 — the CEO: "I just want the model only there for
+            /catalog!" One pass over every product photo; already-cut ones
+            are skipped, failures leave the photo untouched. */}
+        {items.some((x) => x.elfia_image_key) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <button type="button" className={btnSm} disabled={busyCut !== null}
+              onClick={() => void cutAll()}>
+              {busyCut === -1
+                ? `${L("Cutting out backgrounds…", "Memotong latar…")} ${cutNote}`
+                : L("Cut out ALL photo backgrounds", "Buang SEMUA latar foto")}
+            </button>
+            <span className="text-muted-foreground">
+              {L("model only, like the catalog — photos already cut are skipped", "model sahaja, seperti katalog — foto yang sudah dipotong dilangkau")}
+            </span>
+          </div>
+        )}
+
         {items.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
             <span className="text-muted-foreground">{L("Select:", "Pilih:")}</span>
@@ -1341,6 +1622,13 @@ export function ElfiaStorePanel() {
                             ? L("Edit description", "Sunting penerangan")
                             : L("Add description", "Tambah penerangan")}
                       </button>
+                      {it.elfia_image_key && (
+                        <button type="button" className={btnSm} disabled={busyCut !== null}
+                          title={L("Remove the studio background — model only, like the catalog", "Buang latar studio — model sahaja, seperti katalog")}
+                          onClick={() => void cutBackground(it)}>
+                          {busyCut === it.id ? L("Cutting…", "Memotong…") : L("Cut out background", "Buang latar")}
+                        </button>
+                      )}
                       {it.elfia_image_key && (
                         <button type="button" className="text-muted-foreground underline"
                           onClick={() => void setElfia(it, { remove_photo: true },

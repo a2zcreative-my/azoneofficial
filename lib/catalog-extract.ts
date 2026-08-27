@@ -50,10 +50,32 @@ export interface ExtractedSite {
   y1: number;
 }
 
+/** v1.57.0 — a PRINTED price found in the file ("RM 39.00"), with its
+    place. The CEO's designer ships catalogs WITH prices now; the shop
+    covers each one and writes the live price in the same spot — the v1.19
+    treatment, driven by this map instead of shipped coordinates. `bg` is
+    the page colour sampled around the printed price (the panel has a
+    canvas; the Worker does not), so the cover patch is invisible. */
+export interface ExtractedPriceSite {
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** 0-255 RGB sampled around the site; filled by the panel, absent when
+      no canvas was available (the store then covers in its house cream). */
+  bg?: [number, number, number];
+  /** The printed number's own ink, sampled from its glyphs — the live
+      price is written in the same colour (white stays white on a pill). */
+  ink?: [number, number, number];
+}
+
 export interface ExtractedMap {
   version: 1;
   pages: { w: number; h: number }[];
   sites: ExtractedSite[];
+  /** Optional — a map without it is a price-less catalog (insert mode). */
+  price_sites?: ExtractedPriceSite[];
 }
 
 export interface ExtractResult {
@@ -84,25 +106,73 @@ const sameLine = (a: TextRun, b: TextRun): boolean =>
 
 /** Merge one page's runs into left-to-right lines, then keep the lines that
     read like labels. Returns sites in top-left-origin coordinates. */
-function extractPage(page: PageRuns, pageIndex: number): { sites: ExtractedSite[]; prices: number } {
+function extractPage(page: PageRuns, pageIndex: number): { sites: ExtractedSite[]; prices: number; price_sites: ExtractedPriceSite[] } {
   let prices = 0;
   const usable: TextRun[] = [];
+  const priceRuns: TextRun[] = [];
   for (const r of page.runs) {
     const s = r.str.trim();
     if (s === "") continue;
-    if (PRICE_RE.test(s)) { prices++; continue; } // a printed price is never a label
     if (!Number.isFinite(r.x) || !Number.isFinite(r.baseline) || !Number.isFinite(r.width)) continue;
+    /* A printed price is never a label — but since v1.57.0 its PLACE is
+       kept: the shop covers it and writes the live price there. A bare
+       "RM" run also counts (the amount often arrives as its own run). */
+    if (PRICE_RE.test(s) || /^RM$/i.test(s)) { prices++; priceRuns.push(r); continue; }
+    /* A bare amount ("39.00") that continues a price line: joined below. */
+    if (/^\d+[.,]\d{2}$/.test(s)) { priceRuns.push(r); continue; }
     usable.push(r);
   }
+  /* Merge price runs that share a line into ONE site per printed price —
+     "RM" + "39.00" is one price, and its cover patch must span both. */
+  priceRuns.sort((a, b) => (b.baseline - a.baseline) || (a.x - b.x));
+  const merged: (ExtractedPriceSite & { hasRM: boolean })[] = [];
+  for (const r of priceRuns) {
+    const isRM = PRICE_RE.test(r.str) || /^RM$/i.test(r.str.trim());
+    const prev = merged[merged.length - 1];
+    const rTop = page.h - (r.baseline + r.height);
+    const rBot = page.h - r.baseline + r.height * 0.25;
+    if (prev
+        && Math.abs(prev.y1 - rBot) < r.height * 0.9
+        && r.x - prev.x1 < r.height * 1.5 && r.x - prev.x1 > -r.height) {
+      prev.x1 = Math.max(prev.x1, Math.round((r.x + r.width) * 100) / 100);
+      prev.y0 = Math.min(prev.y0, Math.round(rTop * 100) / 100);
+      prev.y1 = Math.max(prev.y1, Math.round(rBot * 100) / 100);
+      prev.hasRM = prev.hasRM || isRM;
+    } else {
+      merged.push({
+        page: pageIndex,
+        x0: Math.round(r.x * 100) / 100,
+        y0: Math.round(rTop * 100) / 100,
+        x1: Math.round((r.x + r.width) * 100) / 100,
+        y1: Math.round(rBot * 100) / 100,
+        hasRM: isRM,
+      });
+    }
+  }
+  /* A merged run with no "RM" in it was a stray decimal, not a price. */
+  const price_sites: ExtractedPriceSite[] = merged
+    .filter((m) => m.hasRM)
+    .map(({ hasRM: _hasRM, ...site }) => site);
   /* Reading order: top of the page first, then left to right. PDF baseline
-     grows UPWARD, so top-first means descending baseline. */
-  usable.sort((a, b) => (b.baseline - a.baseline) || (a.x - b.x));
+     grows UPWARD, so top-first means descending baseline — QUANTISED to
+     half a point first: two labels on the same printed row can differ by
+     hundredths of a point (the CEO's file does exactly this), and sorting
+     on the raw number put a right-hand label before a left-hand one. */
+  usable.sort((a, b) =>
+    (Math.round(b.baseline * 2) - Math.round(a.baseline * 2)) || (a.x - b.x));
 
   const lines: TextRun[][] = [];
   for (const r of usable) {
     const line = lines[lines.length - 1];
     const last = line?.[line.length - 1];
-    if (line && last && sameLine(last, r) && r.x - (last.x + last.width) < Math.max(last.height, r.height) * 1.2) {
+    /* A run continues the line only within a NARROW BAND of the previous
+       run's end — a small overlap backwards, a small gap forwards. Without
+       the lower bound, a label a whole column to the LEFT merged into its
+       right-hand neighbour and the row died as an inside-out rectangle
+       (the CEO's bottom shawl row, all three labels lost). */
+    const gapH = last ? Math.max(last.height, r.height) : 0;
+    const gap = last ? r.x - (last.x + last.width) : 0;
+    if (line && last && sameLine(last, r) && gap < gapH * 1.2 && gap > -gapH * 2) {
       line.push(r);
     } else {
       lines.push([r]);
@@ -149,26 +219,27 @@ function extractPage(page: PageRuns, pageIndex: number): { sites: ExtractedSite[
       y1: Math.round(y1 * 100) / 100,
     });
   }
-  return { sites, prices };
+  return { sites, prices, price_sites };
 }
 
 /** The whole document. Pages must arrive in document order. */
 export function extractCatalogMap(pages: PageRuns[]): ExtractResult {
   const sites: ExtractedSite[] = [];
-  let prices = 0;
+  const price_sites: ExtractedPriceSite[] = [];
   pages.forEach((p, i) => {
     const r = extractPage(p, i);
     sites.push(...r.sites);
-    prices += r.prices;
+    price_sites.push(...r.price_sites);
   });
-  const truncated = sites.length > MAX_SITES;
+  const truncated = sites.length > MAX_SITES || price_sites.length > MAX_SITES;
   return {
     map: {
       version: 1,
       pages: pages.map((p) => ({ w: p.w, h: p.h })),
-      sites: truncated ? sites.slice(0, MAX_SITES) : sites,
+      sites: sites.slice(0, MAX_SITES),
+      ...(price_sites.length > 0 ? { price_sites: price_sites.slice(0, MAX_SITES) } : {}),
     },
-    prices_detected: prices,
+    prices_detected: price_sites.length,
     truncated,
   };
 }

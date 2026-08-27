@@ -6371,26 +6371,42 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     /* The same shape the store's parseUploadedMap enforces — refused HERE so
        the CEO hears about a bad extraction at upload, not as a silent
        photo_error on the store's next pull. */
-    const map = body?.map as { version?: unknown; pages?: unknown; sites?: unknown } | undefined;
+    const map = body?.map as { version?: unknown; pages?: unknown; sites?: unknown; price_sites?: unknown } | undefined;
+    const badRect = (o: Record<string, unknown>): boolean =>
+      !o || typeof o !== "object"
+      || !Number.isInteger(o.page) || (o.page as number) < 0
+      || ![o.x0, o.y0, o.x1, o.y1].every((n) => typeof n === "number" && Number.isFinite(n));
     const badSite = (s: unknown): boolean => {
       const o = s as Record<string, unknown>;
-      return !o || typeof o !== "object"
-        || !Number.isInteger(o.page) || (o.page as number) < 0
-        || typeof o.label !== "string" || o.label === "" || (o.label as string).length > 120
-        || ![o.x0, o.y0, o.x1, o.y1].every((n) => typeof n === "number" && Number.isFinite(n));
+      return badRect(o)
+        || typeof o?.label !== "string" || o.label === "" || (o.label as string).length > 120;
+    };
+    /* v1.57.0 — printed prices travel too: place + sampled background, so
+       the store can cover each one invisibly and write the live price. */
+    const badRGB = (c: unknown): boolean => c !== undefined
+      && (!Array.isArray(c) || c.length !== 3
+          || !(c as unknown[]).every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 255));
+    const badPrice = (s: unknown): boolean => {
+      const o = s as Record<string, unknown>;
+      return badRect(o) || badRGB(o.bg) || badRGB(o.ink);
     };
     if (!map || map.version !== 1
         || !Array.isArray(map.pages) || map.pages.length === 0 || map.pages.length > 100
         || !map.pages.every((p) => p && typeof (p as Record<string, unknown>).w === "number" && typeof (p as Record<string, unknown>).h === "number")
         || !Array.isArray(map.sites) || map.sites.length === 0 || map.sites.length > 300
-        || map.sites.some(badSite)) {
+        || map.sites.some(badSite)
+        || (map.price_sites !== undefined
+            && (!Array.isArray(map.price_sites) || map.price_sites.length > 300 || map.price_sites.some(badPrice)))) {
       return err("invalid_input", "The label map is not usable — re-open the PDF in the panel so it can be read again", 400);
     }
     const m = await catalogMeta();
     if (!m.elfia_catalog_pdf_key) {
       return err("invalid_input", "Upload the PDF first — a map with no file to describe prices nothing", 409);
     }
-    const mapText = JSON.stringify({ version: 1, pages: map.pages, sites: map.sites });
+    const mapText = JSON.stringify({
+      version: 1, pages: map.pages, sites: map.sites,
+      ...(map.price_sites !== undefined ? { price_sites: map.price_sites } : {}),
+    });
     if (mapText.length > 1024 * 1024) return err("too_large", "The label map is over 1 MB", 400);
     const key = `uploads/elfia/catalog-map-${Date.now()}.json`;
     await env.MEDIA.put(key, mapText, { httpMetadata: { contentType: "application/json" } });
