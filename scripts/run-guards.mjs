@@ -38,6 +38,7 @@ const GUARDS = [
   ["bridge-feed-guard", "the ELFIA feed sends the right price and nothing else"],
   ["bridge-idempotency", "a store movement applies exactly once, however often it retries"],
   ["traffic-contract", "a re-sent traffic day REPLACES the day we hold, never adds to it"],
+  ["authz-guard", "the authorization rules the 27-08 security audit found broken stay fixed"],
   ["no-public-signatures", "no real signature image is publicly downloadable"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],

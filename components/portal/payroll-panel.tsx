@@ -15,6 +15,7 @@
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState } from "react";
+import { esc } from "@/lib/escape-html";
 import { displayName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { buildPayslipPdf, type PayslipData } from "@/lib/payslip-pdf";
@@ -236,13 +237,13 @@ export function printPayslip(
   // The same three columns the PDF draws, rendered as table rows.
   const earn = D.earnings;
   const dedRows = D.deductions.length > 0
-    ? D.deductions.map(([label, v]) => `<tr><td>${label}</td><td class="amt">${amt(v)}</td></tr>`).join("")
+    ? D.deductions.map(([label, v]) => `<tr><td>${esc(label)}</td><td class="amt">${amt(v)}</td></tr>`).join("")
     : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
-  const othersRows = D.others.map(([label, v]) => `<tr><td>${label}</td><td class="amt">${n2(v)}</td></tr>`).join("");
+  const othersRows = D.others.map(([label, v]) => `<tr><td>${esc(label)}</td><td class="amt">${n2(v)}</td></tr>`).join("");
 
   const w = window.open("", "_blank", "width=900,height=950");
   if (!w) return;
-  w.document.write(`<!doctype html><html><head><title>Payslip ${u.name} ${monthDMY(month)}</title>
+  w.document.write(`<!doctype html><html><head><title>Payslip ${esc(u.name)} ${esc(monthDMY(month))}</title>
 <style>
   @page { size: A4; margin: 0; } /* v1.4.239 — margin as body padding so the browser prints no headers */
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -276,24 +277,24 @@ export function printPayslip(
   <div class="sheet">
     <table class="info">
       <tr>
-        <td class="l">EMP'EE #</td><td>: ${u.employee_id ?? "—"}</td>
-        <td class="l">DEPT.</td><td>: ${(u.department ?? "—").toUpperCase()}</td>
+        <td class="l">EMP'EE #</td><td>: ${esc(u.employee_id ?? "—")}</td>
+        <td class="l">DEPT.</td><td>: ${esc((u.department ?? "—").toUpperCase())}</td>
       </tr>
       <tr>
-        <td class="l">EMP'EE NAME</td><td>: ${(u.full_name || u.name).toUpperCase()}</td>
-        <td class="l">SECTION</td><td>: ${(u.position ?? "—").toUpperCase()}</td>
+        <td class="l">EMP'EE NAME</td><td>: ${esc((u.full_name || u.name).toUpperCase())}</td>
+        <td class="l">SECTION</td><td>: ${esc((u.position ?? "—").toUpperCase())}</td>
       </tr>
       <tr>
-        <td class="l">I/C #</td><td>: ${u.ic_number ?? "—"}</td>
+        <td class="l">I/C #</td><td>: ${esc(u.ic_number ?? "—")}</td>
         <td></td><td></td>
       </tr>
       <tr>
-        <td class="l">STATUS</td><td>: ${(u.employment_status ?? "—").replace("_", " ").toUpperCase()}</td>
+        <td class="l">STATUS</td><td>: ${esc((u.employment_status ?? "—").replace("_", " ").toUpperCase())}</td>
         <td class="l">PERIOD</td><td>: ${period.from} &nbsp;TO&nbsp; ${period.to}</td>
       </tr>
       <tr>
-        <td class="l">BANK NAME</td><td>: ${(u.bank_name ?? "—").toUpperCase()}</td>
-        <td class="l">BANK ACCOUNT</td><td>: ${u.bank_account ?? "—"}</td>
+        <td class="l">BANK NAME</td><td>: ${esc((u.bank_name ?? "—").toUpperCase())}</td>
+        <td class="l">BANK ACCOUNT</td><td>: ${esc(u.bank_account ?? "—")}</td>
       </tr>
     </table>
     <table class="cols">
@@ -303,7 +304,7 @@ export function printPayslip(
       <tbody>
         <tr class="main">
           <td><table class="inner">
-            ${earn.map(([label, c]) => `<tr><td>${label}</td><td class="amt">${amt(c)}</td></tr>`).join("")}
+            ${earn.map(([label, c]) => `<tr><td>${esc(label)}</td><td class="amt">${amt(c)}</td></tr>`).join("")}
           </table></td>
           <td><table class="inner">${dedRows}</table></td>
           <td><table class="inner">${othersRows}</table></td>

@@ -3,6 +3,14 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.45.0 — `0086_totp_replay_guard.sql`
+
+`users.totp_last_step` — the highest 30-second TOTP step already accepted for this user, so a two-factor code works exactly once. Codes are valid for a ~90-second window (current step ±1) and nothing recorded which had been spent, leaving a glimpsed code replayable for the rest of it (security audit C6). `totpVerifyOnce()` updates the row only when the presented step is newer, in one atomic statement, so two requests racing with the same code cannot both win. NULL = nobody has verified yet. Armored: on a database that has not run 0086 the update throws and verification falls back to plain TOTP — a missing migration must never lock staff out. Single ALTER (audit B4 rule).
+
+| Date | Version | Change |
+| --- | --- | --- |
+| 2026-08-27 | 1.45.0 | `users.totp_last_step`. |
+
 ## v1.44.0 — `0085_web_order_consent.sql`
 
 `web_orders.marketing_consent` — PDPA marketing consent as the ELFIA store recorded it (store migration 0012, carried on feed C). `1` = the buyer ticked the box; `0` = did not, or withdrew — the store re-sends the order with the flag cleared and the upsert overwrites it here, so withdrawal reaches the portal within one poll. The marketing list (`/staff/web-marketing`) is built ONLY from rows where this is 1. Single ALTER (audit B4 rule).

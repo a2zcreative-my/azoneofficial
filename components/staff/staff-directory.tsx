@@ -16,6 +16,7 @@
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { esc, safeUrl } from "@/lib/escape-html";
 import { dmy } from "@/lib/format";
 import { properName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
@@ -177,12 +178,16 @@ function badgeCardHtml(s: Staff, origin: string): string {
   const d = badgeData(s);
   const logo = `${origin}/logo.png`;
   const photo = d.photo ? `${origin}${d.photo}` : "";
+  /* v1.45.0 (security audit C7): every value below is a staff record someone
+     typed, and this document is built as a STRING — React's escaping does
+     not reach here. esc() puts it back; without it a name containing markup
+     is parsed AS markup inside a same-origin print window. */
   const row = (label: string, value: string) =>
-    `<div class="row"><span class="k">${label}</span><span class="c">:</span><span class="v">${value || "—"}</span></div>`;
+    `<div class="row"><span class="k">${esc(label)}</span><span class="c">:</span><span class="v">${esc(value) || "—"}</span></div>`;
   return `<div class="card">
-    <img src="${logo}" alt="${DOCUMENT_ISSUER.name}" style="height:7mm;width:auto;align-self:center;flex:none"/>
+    <img src="${safeUrl(logo)}" alt="${esc(DOCUMENT_ISSUER.name)}" style="height:7mm;width:auto;align-self:center;flex:none"/>
     <div class="tagline">Live · Connect · Grow</div>
-    <div class="photo">${photo ? `<img src="${photo}" alt="${d.name}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
+    <div class="photo">${photo ? `<img src="${safeUrl(photo)}" alt="${esc(d.name)}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
     <div class="rows">
       ${row("NAME", d.name.toUpperCase())}
       ${row("EMP. NO", d.employee_id)}
@@ -193,8 +198,11 @@ function badgeCardHtml(s: Staff, origin: string): string {
       ${row("DEPARTMENT", (d.department || "").toUpperCase())}
     </div>
     <div class="foot">
+      <!-- COMPANY_LOCATION is a build-time constant that deliberately
+           carries <br/> line breaks (lib/issuers.ts), so it is intentionally
+           NOT escaped; it can never contain user input. -->
       <span class="left">${COMPANY_LOCATION}</span>
-      <span class="right">SSM ${DOCUMENT_ISSUER.ssm}<br/>(${DOCUMENT_ISSUER.oldReg})</span>
+      <span class="right">SSM ${esc(DOCUMENT_ISSUER.ssm)}<br/>(${esc(DOCUMENT_ISSUER.oldReg)})</span>
     </div>
   </div>`;
 }
@@ -208,7 +216,7 @@ function badgeDocHtml(s: Staff, origin: string): string {
 function printBadge(s: Staff) {
   const w = window.open("", "_blank", "width=300,height=520");
   if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badge", "Lencana")} — ${s.full_name || s.name}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badge", "Lencana")} — ${esc(s.full_name || s.name)}</title>
   <style>@page { size: 54mm 85.6mm; margin: 0; }${BADGE_CSS}</style></head>
   <body onload="setTimeout(function(){window.print()},250)">
   ${badgeCardHtml(s, window.location.origin)}

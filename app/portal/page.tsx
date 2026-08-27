@@ -10,6 +10,7 @@
 
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
+import { esc } from "@/lib/escape-html";
 import {
   useCallback,
   useEffect,
@@ -119,7 +120,6 @@ import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
 import { WebOrdersPanel } from "@/components/portal/web-orders-panel"; // v1.37.0
 import { ElfiaTrafficPanel } from "@/components/portal/elfia-traffic-panel"; // v1.43.0
-import { ElfiaStorePanel } from "@/components/portal/elfia-store-panel"; // v1.45.0
 import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -4837,7 +4837,7 @@ function printLeaveForm(l: LeaveReq, meName: string) {
     .join(" · ");
   w.document.open();
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">
-  <title>${lvNo} — Leave Application Form</title>
+  <title>${esc(lvNo)} — Leave Application Form</title>
   <style>
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -4870,37 +4870,37 @@ function printLeaveForm(l: LeaveReq, meName: string) {
   <h2>Leave Application Form</h2>
   <table class="meta">
     <tr><td class="k">Document No.</td><td class="v">${issuer.leaveFormNo}</td><td class="k">Version</td><td class="v">${issuer.leaveFormVersion}</td></tr>
-    <tr><td class="k">Leave No.</td><td class="v">${lvNo}</td><td class="k">Date</td><td class="v">${myt(cA)}${cA.length > 10 ? " MYT" : ""}</td></tr>
-    <tr><td class="k">Employee</td><td class="v">${applicant}</td><td class="k">Department</td><td class="v">${(l.user_department ?? "").toUpperCase()}</td></tr>
-    <tr><td class="k">Position</td><td class="v">${(l.user_position ?? "").toUpperCase()}</td><td class="k">Leave type</td><td class="v" style="text-transform:uppercase">${l.type}</td></tr>
+    <tr><td class="k">Leave No.</td><td class="v">${esc(lvNo)}</td><td class="k">Date</td><td class="v">${myt(cA)}${cA.length > 10 ? " MYT" : ""}</td></tr>
+    <tr><td class="k">Employee</td><td class="v">${esc(applicant)}</td><td class="k">Department</td><td class="v">${esc((l.user_department ?? "").toUpperCase())}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${esc((l.user_position ?? "").toUpperCase())}</td><td class="k">Leave type</td><td class="v" style="text-transform:uppercase">${esc(l.type)}</td></tr>
     <tr><td class="k">Period</td><td class="v">${dmy(l.start_date)} → ${dmy(l.end_date)}</td><td class="k">Days</td><td class="v">${l.days}</td></tr>
-    <tr><td class="k">Reason</td><td class="v" colspan="3">${l.reason ?? ""}</td></tr>
+    <tr><td class="k">Reason</td><td class="v" colspan="3">${esc(l.reason ?? "")}</td></tr>
   </table>
   <p class="status">System status: ${statusLine}</p>
   ${chainNotes ? `<p class="chain">${chainNotes}</p>` : ""}
   <table class="sig">
     <tr><th style="width:33%">Employee</th><th style="width:34%">Administrative or<br/>Head of Department (COO / CCO)</th><th style="width:33%">Chief Executive Officer (CEO)</th></tr>
     <tr>
-      <td class="body"><div class="cw"><div class="nm">Name: ${applicant}</div>
+      <td class="body"><div class="cw"><div class="nm">Name: ${esc(applicant)}</div>
         <div class="sg">Signature:${
           empSig
             ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/emp" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
-            : ` <span class="esig">${l.user_full || l.user_name || meName || ""}</span><span class="esub">(submitted in system)</span>`
+            : ` <span class="esig">${esc(l.user_full || l.user_name || meName || "")}</span><span class="esub">(submitted in system)</span>`
         }</div>
         <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${
         l.preapp_by_full || l.preapp_by_name
-          ? `<div class="nm">Name: ${(l.preapp_by_full || l.preapp_by_name || "").toUpperCase()}</div>
+          ? `<div class="nm">Name: ${esc((l.preapp_by_full || l.preapp_by_name || "").toUpperCase())}</div>
            <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/pre" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
           : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`
       }</div></td>
-      <td class="body"><div class="cw"><div class="nm">Name: ${stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : ""}</div>
+      <td class="body"><div class="cw"><div class="nm">Name: ${esc(stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : "")}</div>
         <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
-  <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${lvNo}; the in-system decision is authoritative.</p>
+  <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${esc(lvNo)}; the in-system decision is authoritative.</p>
   <script>window.onload = function () { window.print(); };</script>
   </body></html>`);
   w.document.close();
@@ -6022,7 +6022,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
   const rows = invs
     .map(
       (d, i) => `<tr>
-    <td class="c">${i + 1}</td><td>${d.doc_number}</td><td class="c">${dmy(d.created_at.slice(0, 10))}</td>
+    <td class="c">${i + 1}</td><td>${esc(d.doc_number)}</td><td class="c">${esc(dmy(d.created_at.slice(0, 10)))}</td>
     <td class="c">${d.payment_status === "paid" ? `<span style="color:#15803d;font-weight:700">PAID${d.paid_at ? " " + dmy(d.paid_at.slice(0, 10)) : ""}</span>` : '<span style="color:#b45309;font-weight:700">OUTSTANDING</span>'}</td>
     <td class="r">${rm(d.total_cents)}</td>
     <td class="r">${d.payment_status === "paid" ? "—" : rm(d.total_cents)}</td>
@@ -6033,7 +6033,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
   if (!w) return;
   w.document
     .write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SOA — ${company}</title>
+  <title>SOA — ${esc(company)}</title>
   <style>
     @page { size: A4; margin: 0; } * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* v1.4.239 */
     body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
@@ -6067,7 +6067,7 @@ function printSOA(company: string, docs: SalesDoc[]) {
     </div>
     <div class="docbox"><h2>STATEMENT OF ACCOUNT</h2><div>As at ${dmy(today)}</div></div>
   </div>
-  <div class="party"><p class="bt">ACCOUNT OF</p><p class="co">${company}</p></div>
+  <div class="party"><p class="bt">ACCOUNT OF</p><p class="co">${esc(company)}</p></div>
   <table class="items">
     <thead><tr><th class="c" style="width:6%">#</th><th>Invoice No.</th><th class="c">Date</th><th class="c">Status</th><th class="r">Amount</th><th class="r">Balance</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -10794,7 +10794,6 @@ const ALL_TABS = [
   "Attendance",
   "Ecommerce",
   "Inventory",
-  "ELFIA Store",
   "Web Orders",
   "ELFIA Traffic",
   "Sales",
@@ -10881,19 +10880,6 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
       "hr_admin",
       "sales_marketing",
       "marketing",
-    ],
-    /* v1.45.0 (CEO: "a new tab for ELFIA … sync inventory, photo upload,
-     description and product"): runs the ELFIA store's catalogue. Same tier
-     as Inventory — its routes ARE the inventory routes. */
-    "ELFIA Store": [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "sales_marketing",
-      "marketing",
-      "hr_admin",
     ],
     /* v1.37.0: ELFIA web orders — the sales/inventory tier plus executives.
      Mirrors the /staff/web-orders permission check (sales|inventory|exec). */
@@ -12261,9 +12247,6 @@ export default function PortalPage() {
               {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
               <InventoryPanel role={user.role} />
             </div>
-          )}
-          {activeTab === "ELFIA Store" && (
-            <ElfiaStorePanel />
           )}
           {activeTab === "Web Orders" && (
             <WebOrdersPanel />

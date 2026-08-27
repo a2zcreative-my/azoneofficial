@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
-import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
+import { serializeBridgeItems, type BridgeRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
@@ -41,10 +41,6 @@ export interface Env {
       the client's domain never enters a committed file (same posture the
       store takes toward ours). Unset = the 5-min poller is silently off. */
   ELFIA_ORDERS_URL?: string;
-  /** v1.48.0 — the store's public origin, e.g. https://elfiaofficialstore.my.
-      Only used by the ELFIA tab's "Update the shop now" button. Not a secret;
-      it lives in wrangler.toml so the button works with no extra setup. */
-  ELFIA_STORE_URL?: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
@@ -136,6 +132,16 @@ function randomHex(bytes: number): string {
   crypto.getRandomValues(arr);
   return toHex(arr.buffer);
 }
+
+/**
+ * v1.45.0 (security audit C5) — a real-shaped hash that matches no password,
+ * used to make a failed sign-in for an UNKNOWN email cost exactly as much
+ * PBKDF2 work as one for a known email with the wrong password. The salt and
+ * digest are fixed zeroes: this verifies nothing, it only burns the same
+ * time, which is the point. Iterations track the live constant so the two
+ * paths never drift apart.
+ */
+const DUMMY_PASSWORD_HASH = `pbkdf2$${PBKDF2_ITERATIONS}$${"0".repeat(32)}$${"0".repeat(64)}`;
 
 /** Stored format: pbkdf2$<iterations>$<saltHex>$<hashHex> */
 export async function createPasswordHash(
@@ -253,7 +259,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0090_elfia_slide_cutout";
+const LATEST_MIGRATION = "0086_totp_replay_guard";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -314,14 +320,55 @@ async function totpAt(secret: string, counter: number): Promise<string> {
 }
 
 /** Verify a code, allowing ±1 step (~30s) of clock drift. */
-async function totpVerify(secret: string, code: string): Promise<boolean> {
+/**
+ * Verify a 6-digit code and report WHICH 30-second step it came from, so the
+ * caller can record that the step has been spent (see totpVerifyOnce).
+ * Returns null when the code matches no step in the window.
+ */
+async function totpStepOf(secret: string, code: string): Promise<number | null> {
   const clean = (code ?? "").replace(/\s/g, "");
-  if (!/^\d{6}$/.test(clean)) return false;
+  if (!/^\d{6}$/.test(clean)) return null;
   const counter = Math.floor(Date.now() / 30000);
+  // One step either side: a phone clock a little fast or slow still works.
   for (const c of [counter - 1, counter, counter + 1]) {
-    if (await totpAt(secret, c) === clean) return true;
+    if (await totpAt(secret, c) === clean) return c;
   }
-  return false;
+  return null;
+}
+
+async function totpVerify(secret: string, code: string): Promise<boolean> {
+  return (await totpStepOf(secret, code)) !== null;
+}
+
+/**
+ * v1.45.0 (security audit C6) — verify a code and BURN it.
+ *
+ * A TOTP code stays arithmetically valid for about ninety seconds. Nothing
+ * recorded which codes had been used, so a code glimpsed over a shoulder, in
+ * a screen share, or in a support screenshot could be replayed for the rest
+ * of that window. Each user now remembers the highest step they have already
+ * verified (migration 0086) and a code at or below it is refused: every code
+ * works exactly once.
+ *
+ * Armored: on a database that has not run 0086 yet the UPDATE throws, and we
+ * fall back to plain verification rather than locking every staff member out
+ * of their own account — a missing migration must never become a lockout.
+ */
+async function totpVerifyOnce(env: Env, userId: number, secret: string, code: string): Promise<boolean> {
+  const step = await totpStepOf(secret, code);
+  if (step === null) return false;
+  try {
+    /* One atomic statement decides: the row updates only if this step is
+       genuinely newer than the last one spent, so two requests racing with
+       the same code cannot both win. */
+    const res = await env.DB.prepare(
+      `UPDATE users SET totp_last_step = ?2
+       WHERE id = ?1 AND (totp_last_step IS NULL OR totp_last_step < ?2)`,
+    ).bind(userId, step).run();
+    return (res.meta.changes ?? 0) > 0;
+  } catch {
+    return true; // pre-0086: verified, just not yet replay-protected
+  }
 }
 
 function randomSecret(): string {
@@ -671,17 +718,68 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
   const raw = getCookie(req, SESSION_COOKIE);
   if (!raw) return null;
   const token = await sha256Hex(raw);
+  /* v1.45.0 (security audit A3) — "has 2FA" means ENABLED, not "has begun
+     setting it up". This read used `totp_secret IS NULL`, but POST
+     /auth/2fa/setup writes the secret WITHOUT enabling 2FA — so one call to
+     setup, abandoned immediately, cleared the "you must enrol" flag for good
+     while login (which correctly checks totp_enabled) still issued no
+     challenge. The two halves now agree on the same column. */
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.photo_key, CASE WHEN u.totp_secret IS NULL THEN 1 ELSE 0 END AS missing_2fa
+    `SELECT u.id, u.email, u.name, u.role, u.photo_key,
+            CASE WHEN COALESCE(u.totp_enabled, 0) = 1 THEN 0 ELSE 1 END AS missing_2fa
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ?1 AND s.expires_at > datetime('now') AND u.is_active = 1`,
   )
     .bind(token)
     .first<SessionUser & { missing_2fa: 1 | 0 }>();
   if (!row) return null;
-  
+
   const requires_2fa = row.missing_2fa === 1 && MANDATORY_2FA_ROLES.includes(row.role);
   return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa };
+}
+
+/**
+ * v1.45.0 (security audit A2) — the routes a staff member who still owes the
+ * company a second factor may reach.
+ *
+ * Deliberately minimal: enough to find out they must enrol, to enrol, to
+ * prove the code, and to leave. Everything else — every document, every
+ * payslip, every customer — waits until 2FA is ON. `/health` and the public
+ * routes are exempt because they carry no session at all.
+ *
+ * Prefix matching, so /auth/2fa/setup, /verify, /enable and any future
+ * sibling are covered by one entry rather than a list that rots.
+ */
+const TWOFA_EXEMPT_PREFIXES = [
+  "/api/v1/auth/2fa",       // set up, verify, enable, disable
+  "/api/v1/auth/me",        // the client reads requires_2fa from here
+  "/api/v1/auth/logout",
+  "/api/v1/auth/login",
+  "/api/v1/auth/google",    // the sign-in flow itself
+  "/api/v1/health",
+  "/api/v1/setup",
+];
+
+/**
+ * Refuse the request when the caller is a mandatory-2FA staff member who has
+ * not enabled it. Returns null when the request may proceed.
+ *
+ * Note what this does NOT do: it never blocks a customer, never blocks an
+ * anonymous request (there is no session to judge), and never blocks the
+ * enrolment path itself — so nobody can be locked out of fixing it. The
+ * response is a 403 the portal already understands (`twofa_required`), which
+ * its /auth/me gate turns into the enrolment screen.
+ */
+async function enforce2fa(request: Request, env: Env, path: string): Promise<Response | null> {
+  if (!getCookie(request, SESSION_COOKIE)) return null;              // nothing to judge
+  if (TWOFA_EXEMPT_PREFIXES.some((p) => path.startsWith(p))) return null;
+  const user = await getSessionUser(request, env);
+  if (!user?.requires_2fa) return null;
+  return errorResponse(
+    "twofa_required",
+    "Two-factor authentication is required for your role. Open Profile → Security and finish setting it up.",
+    403,
+  );
 }
 
 const ROLE_RANK: Record<Role, number> = {
@@ -711,6 +809,23 @@ function isContentTeam(user: SessionUser | null): user is SessionUser {
 function atLeast(user: SessionUser | null, role: Role): user is SessionUser {
   return !!user && ROLE_RANK[user.role] >= ROLE_RANK[role];
 }
+
+/**
+ * v1.45.0 (security audit A1) — roles that only a super admin may create,
+ * rename into, or reset the password of.
+ *
+ * Rank is not the whole story. `admin` and `ceo` share rank 3, but they hold
+ * DIFFERENT authority: ceo alone can decide claims and commissions and manage
+ * accounting. So an admin who could create a ceo — or reset the sitting CEO's
+ * password — could simply issue themselves the approvals the permission matrix
+ * refuses them, and sign off their own money. coo and cco carry executive
+ * views for the same reason. Every one of them is now behind the super-admin
+ * door, which is where "grant authority you do not have" belongs.
+ *
+ * tests/authz-guard.mjs fails the build if a user-management route stops
+ * consulting this list.
+ */
+const PROTECTED_ROLES: string[] = ["super_admin", "admin", "ceo", "coo", "cco"];
 
 async function audit(
   env: Env,
@@ -1474,9 +1589,23 @@ export default {
       }
     }
 
+    /* v1.45.0 (security audit A2) — MANDATORY 2FA IS NOW ENFORCED HERE.
+       The CEO's directive (permissions.ts: every staff role) was, until this
+       release, a rule the CLIENT kept: the API returned `requires_2fa` and
+       the portal UI blocked itself, but a stolen password used with curl or a
+       modified page got a full session and every endpoint that role could
+       reach. The control everyone believed in was off at the layer that
+       matters. One gate, before any route runs, for every method — a
+       staff member on a mandatory role who has not ENABLED 2FA can reach
+       only the doors needed to enrol or leave. */
+    const twofaGate = await enforce2fa(request, env, path);
+
     let res: Response;
     try {
-      res = await route(request, env, path);
+      /* The gate short-circuits routing but still falls through the shared
+         tail below, so it carries the same CORS and security headers as any
+         other response — a refusal must not look like a broken API. */
+      res = twofaGate ?? await route(request, env, path);
     } catch (err0) {
       /* v1.25.2 (error_log 18-08 09:36: "/staff/announcements — D1_ERROR:
          Network connection lost."): that is Cloudflare's database link
@@ -1561,109 +1690,24 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     let rows: BridgeRow[];
     try {
-      /* v1.45.0 (0086): the feed now also carries each item's ELFIA dressing
-         — category, description, photo URL + change marker — set in the
-         portal's ELFIA tab. The store uses name+price to CREATE a product it
-         has never seen (hidden, pending Publish in its /admin), and the rest
-         to dress it. */
       const { results } = await env.DB.prepare(
-        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
-                elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at,
-                elfia_discount_cents
+        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
          FROM inventory_items WHERE bridge_enabled = 1
          ORDER BY sku LIMIT 1000`,
       ).all();
       rows = results as unknown as BridgeRow[];
     } catch {
-      try {
-        /* 0086 pending — the v1.35.0 feed: flags + prices, no dressing. */
-        const { results } = await env.DB.prepare(
-          `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
-           FROM inventory_items WHERE bridge_enabled = 1
-           ORDER BY sku LIMIT 1000`,
-        ).all();
-        rows = results as unknown as BridgeRow[];
-      } catch {
-        /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
-           serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
-        const { results } = await env.DB.prepare(
-          `SELECT sku, name, stock FROM inventory_items
-           WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
-           ORDER BY sku LIMIT 500`,
-        ).all();
-        rows = results as unknown as BridgeRow[];
-      }
-    }
-    /* Photo URLs are built on THIS request's own origin — production serves
-       production URLs, the local test rig serves localhost ones, and no
-       domain ever enters a committed file. */
-    const origin = new URL(request.url).origin;
-    const items = serializeBridgeItems(rows, origin);
-    /* v1.46.0 — the hero carousel, authored in the portal's ELFIA tab. The
-       store replaces its slide set to match this list (slides are wholly
-       portal-owned); pre-0087 the table is absent and the key is simply
-       omitted, which the store reads as "keep doing what you do". */
-    let slides: ReturnType<typeof serializeBridgeSlides> | undefined;
-    try {
-      /* v1.47.0 added the framing columns. If this worker is published
-         BEFORE 0088 runs, the wide query throws — and falling straight to
-         the catch would drop the whole slides key and silently freeze the
-         shop's carousel. So the narrow 0087 query is tried second: the
-         carousel keeps working, framing simply defaults to the middle
-         until the migration lands. */
-      let slideRows: Record<string, unknown>[];
-      try {
-        slideRows = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom,
-                  cutout_key, cutout_updated_at, cutout_side, cutout_scale
-           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
-        ).all()).results;
-      } catch {
-        slideRows = (await env.DB.prepare(
-          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
-           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
-        ).all()).results;
-      }
-      slides = serializeBridgeSlides(slideRows as unknown as SlideRow[], origin);
-    } catch { /* 0087 pending */ }
-
-    /* v1.52.0 — what delivery costs, set in the ELFIA tab. system_meta long
-       predates this, so there is no migration: a shop where nobody has set
-       them has no rows, serializeBridgeSettings returns undefined, the key
-       is omitted, and the store keeps its own numbers. */
-    let settings: ReturnType<typeof serializeBridgeSettings>;
-    /* v1.55.0 — the uploaded catalog rides the same system_meta read: PDF,
-       label map and cover as URLs on this request's origin, plus the marker
-       that gates the store's download. Emitted only when the upload is
-       complete (PDF + map + marker); absent means the store keeps what it
-       has — the shipped designer catalog included. */
-    let catalog: ReturnType<typeof serializeBridgeCatalog>;
-    /* v1.61.0 — the /catalog hover backdrop rides the same read: one image
-       URL plus the marker that gates the store's download. Absent = the
-       store keeps what it has (the shipped ELFIA backdrop included). */
-    let backdrop: ReturnType<typeof serializeBridgeBackdrop>;
-    try {
+      /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
+         serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
       const { results } = await env.DB.prepare(
-        `SELECT key, value FROM system_meta WHERE key IN
-           ('elfia_shipping_cents', 'elfia_free_above_cents',
-            'elfia_catalog_pdf_key', 'elfia_catalog_map_key',
-            'elfia_catalog_cover_key', 'elfia_catalog_updated_at',
-            'elfia_backdrop_key', 'elfia_backdrop_updated_at')`,
-      ).all<{ key: string; value: string }>();
-      const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
-      settings = serializeBridgeSettings(meta);
-      catalog = serializeBridgeCatalog(meta, origin);
-      backdrop = serializeBridgeBackdrop(meta, origin);
-    } catch { /* no system_meta in this checkout — omit the keys */ }
-
-    return json({
-      items,
-      ...(slides !== undefined ? { slides } : {}),
-      ...(settings !== undefined ? { settings } : {}),
-      ...(catalog !== undefined ? { catalog } : {}),
-      ...(backdrop !== undefined ? { backdrop } : {}),
-      as_of: new Date().toISOString(), count: items.length,
-    });
+        `SELECT sku, name, stock FROM inventory_items
+         WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
+         ORDER BY sku LIMIT 500`,
+      ).all();
+      rows = results as unknown as BridgeRow[];
+    }
+    const items = serializeBridgeItems(rows);
+    return json({ items, as_of: new Date().toISOString(), count: items.length });
   }
 
   /* v1.36.0 (feed B): the store reports every web sale as a signed movement
@@ -2245,7 +2289,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind(emailNorm)
       .first<SessionUser & { password_hash: string }>();
 
-    if (!user || !(await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER))) {
+    /* v1.45.0 (security audit C5) — both answers must cost the same.
+       When the email did not exist the old code skipped hashing entirely and
+       returned in a fraction of the time, so anyone could tell a real staff
+       address from an invented one by timing the 401 — a free list of who
+       works here, and the first step of a targeted password attack. A
+       non-existent account now pays for the same PBKDF2 work against a
+       throwaway hash, and the two paths answer indistinguishably. */
+    const okPassword = user
+      ? await verifyPassword(body.password as string, user.password_hash, env.SESSION_PEPPER)
+      : await verifyPassword(body.password as string, DUMMY_PASSWORD_HASH, env.SESSION_PEPPER).catch(() => false);
+    if (!user || !okPassword) {
       await bumpRateLimit(env, keyAcct, 900);
       await bumpRateLimit(env, keyIp, 900);
       return errorResponse("invalid_credentials", "Email or password is incorrect", 401);
@@ -2305,7 +2359,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!row?.totp_secret) return errorResponse("invalid_state", "Two-factor is not configured", 400);
 
     const code = (body.code as string).trim();
-    let ok = await totpVerify(row.totp_secret, code);
+    // v1.45.0 (audit C6): the sign-in path burns the code it accepts, so the
+    // same six digits cannot be replayed later in their window.
+    let ok = await totpVerifyOnce(env, ch.user_id, row.totp_secret, code);
     if (!ok) {
       // Backup code path: single use. v1.5.0 codes are PBKDF2-hashed; codes
       // issued before that were unsalted SHA-256 — both formats verify, so
@@ -2401,7 +2457,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const row = await env.DB.prepare(`SELECT totp_secret FROM users WHERE id = ?1`)
       .bind(me.id).first<{ totp_secret: string | null }>();
     if (!row?.totp_secret) return errorResponse("invalid_state", "Start setup first", 400);
-    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerify(row.totp_secret, body.code as string))) {
+    /* v1.45.0 (audit C6): enrolment burns its code too — otherwise the code
+       that switched 2FA on would still be replayable at the sign-in screen
+       moments later. */
+    if (!body || !isNonEmptyString(body.code, 20) || !(await totpVerifyOnce(env, me.id, row.totp_secret, body.code as string))) {
       return errorResponse("invalid_code", "That code is not correct — check the time on your phone and try again", 400);
     }
     await env.DB.prepare(`UPDATE users SET totp_enabled = 1 WHERE id = ?1`).bind(me.id).run();
@@ -2941,17 +3000,32 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!newest) return errorResponse("not_found", "No backup exists yet — press Back up now first", 404);
     const obj = await env.MEDIA.get(newest.key);
     if (!obj) return errorResponse("not_found", "Backup object missing", 404);
-    try {
-      await env.DB.prepare(
-        `INSERT INTO system_meta (key, value) VALUES ('last_offsite_export', datetime('now'))
-         ON CONFLICT (key) DO UPDATE SET value = datetime('now')`,
-      ).run();
-    } catch { /* pre-0057 — download still works */ }
+    /* v1.45.0 (security audit C11) — this is a GET, and GETs are outside the
+       CSRF check by design. The session cookie is SameSite=Lax, which IS sent
+       on a top-level cross-site navigation, so a super admin lured to a link
+       would silently stamp this timestamp. Nothing leaks (the attacker never
+       sees the response) but a bookkeeping row would lie about when the last
+       export happened. The stamp now rides the RECORDED fact instead: the
+       audit row, which is written either way, is the honest source. The
+       X-Offsite-Export header lets the admin page update its own display
+       after a real download. */
+    const exportedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
+    if (request.headers.get("Sec-Fetch-Mode") !== "navigate") {
+      /* A same-origin fetch() from the admin page — a deliberate download,
+         not a lured navigation. Only that stamps the timestamp. */
+      try {
+        await env.DB.prepare(
+          `INSERT INTO system_meta (key, value) VALUES ('last_offsite_export', datetime('now'))
+           ON CONFLICT (key) DO UPDATE SET value = datetime('now')`,
+        ).run();
+      } catch { /* pre-0057 — download still works */ }
+    }
     await audit(env, user.id, "system.backup_export", "system", newest.key);
     return new Response(obj.body, {
       headers: {
         "Content-Type": "application/gzip",
         "Content-Disposition": `attachment; filename="${newest.key.split("/").pop()}"`,
+        "X-Offsite-Export": exportedAt,
       },
     });
   }
@@ -3013,11 +3087,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0083 (task scope + tracking)", `SELECT id FROM task_items LIMIT 1`],
       ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
       ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
-      ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
-      ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
-      ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
-      ["0089 (ELFIA slide zoom)", `SELECT zoom FROM elfia_slides LIMIT 1`],
-      ["0090 (ELFIA slide cut-out)", `SELECT cutout_key FROM elfia_slides LIMIT 1`],
+      ["0086 (2FA replay guard)", `SELECT totp_last_step FROM users LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3117,11 +3187,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0083_task_tracking",
       "0084_elfia_traffic",
       "0085_web_order_consent",
-      "0086_elfia_product_fields",
-      "0087_elfia_discount_slides",
-      "0088_elfia_slide_framing",
-      "0089_elfia_slide_zoom",
-      "0090_elfia_slide_cutout",
+      "0086_totp_replay_guard",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -3144,8 +3210,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const target = await env.DB.prepare(`SELECT id, role, name FROM users WHERE id = ?1`).bind(idOb)
       .first<{ id: number; role: string; name: string }>();
     if (!target) return errorResponse("not_found", "User not found", 404);
-    if (["admin", "super_admin"].includes(target.role)) {
-      return errorResponse("forbidden", "Admin accounts are managed in /admin", 403);
+    /* v1.45.0 (audit A1, same family): offboarding clears 2FA and kills every
+       session, so it is a disruption an admin should not be able to aim at an
+       executive account either. Super admin handles those. */
+    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Executive and admin accounts are offboarded by the super admin", 403);
     }
     let bodyOb: { left_on?: string; status?: string } = {};
     try { bodyOb = await request.json(); } catch { /* defaults below */ }
@@ -3621,11 +3690,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ) {
       return errorResponse("invalid_input", "email, name, role, and a password of 10+ characters are required", 400);
     }
-    if (roleWantedC === "super_admin" && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can create a super admin", 403);
-    }
-    if (roleWantedC === "admin" && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can create an admin", 403);
+    /* v1.45.0 (security audit A1) — only a super admin may MINT authority.
+       The old rule protected `super_admin` and `admin` and stopped there,
+       which left ceo/coo/cco creatable by any admin. Those roles are not
+       "lower": ceo alone holds claims_decide, commission_decide and
+       accounting_manage — the money approvals an admin is deliberately
+       denied — so creating one was a way to hand yourself the authority the
+       matrix withholds. Executive roles now sit behind the same door. */
+    if (PROTECTED_ROLES.includes(roleWantedC) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", `Only a super admin can create a ${roleWantedC} account`, 403);
     }
     const email = (body.email as string).toLowerCase().trim();
     // v1.4.180: domain policy aligned with the portal (v1.4.156–157) —
@@ -3682,12 +3755,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!target) return errorResponse("not_found", "User not found", 404);
     /* v1.5.0: admin-tier targets require SUPER admin. ceo and admin share a
        rank, so a CEO (no content_manage permission) could previously reset an
-       admin's password and sign in as them — a lateral capability gain. */
-    if (["super_admin", "admin"].includes(target.role) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can modify an admin-tier account", 403);
+       admin's password and sign in as them — a lateral capability gain.
+       v1.45.0 (security audit A1): the SAME hole existed in the other
+       direction and was missed. The list was ["super_admin","admin"], so an
+       admin could reset the CEO's password (or the COO's or CCO's) and sign
+       in as them — inheriting claims_decide, commission_decide and
+       accounting_manage, the approvals the matrix denies an admin. Both
+       directions now consult PROTECTED_ROLES, which holds every role that
+       carries authority its peers do not. */
+    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can modify an executive or admin-tier account", 403);
     }
-    if (["super_admin", "admin"].includes(String(body.role ?? "")) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can grant admin-tier roles", 403);
+    if (PROTECTED_ROLES.includes(String(body.role ?? "")) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can grant executive or admin-tier roles", 403);
     }
     if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
       return errorResponse("invalid_input", "You cannot change your own role", 400);
@@ -3758,8 +3838,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind(id)
       .first<{ role: string }>();
     if (!target) return errorResponse("not_found", "User not found", 404);
-    if (target.role === "super_admin" && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can force out a super admin", 403);
+    /* v1.45.0 (audit A1, same family): forcing an executive out of every
+       session is a disruption reserved for the super admin. */
+    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
+      return errorResponse("forbidden", "Only a super admin can force out an executive or admin account", 403);
     }
     const res = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
     await audit(env, user.id, "user.force_logout", "users", id, {

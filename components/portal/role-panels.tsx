@@ -20,6 +20,7 @@
 import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { properName, firstName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
@@ -2260,7 +2261,7 @@ async function printClaimForm(c: Claim) {
   w.document.open();
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${claimNo} — Employee Claim Form</title>
+  <title>${esc(claimNo)} — Employee Claim Form</title>
   <style>
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
@@ -2306,9 +2307,9 @@ async function printClaimForm(c: Claim) {
   <h2>Employee Claim Form</h2>
   <table class="meta">
     <tr><td class="k">Document No.</td><td class="v">${issuer.claimFormNo}</td><td class="k">Version</td><td class="v">${issuer.claimFormVersion}</td></tr>
-    <tr><td class="k">Claim No.</td><td class="v">${claimNo}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
-    <tr><td class="k">Employee</td><td class="v">${(c.claimant_full || c.claimant || "").toUpperCase()}</td><td class="k">Department</td><td class="v">${(c.claimant_department ?? "").toUpperCase()}</td></tr>
-    <tr><td class="k">Position</td><td class="v">${(c.claimant_position ?? "").toUpperCase()}</td><td class="k">Purpose</td><td class="v">${c.description ?? ""}</td></tr>
+    <tr><td class="k">Claim No.</td><td class="v">${esc(claimNo)}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
+    <tr><td class="k">Employee</td><td class="v">${esc((c.claimant_full || c.claimant || "").toUpperCase())}</td><td class="k">Department</td><td class="v">${esc((c.claimant_department ?? "").toUpperCase())}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${esc((c.claimant_position ?? "").toUpperCase())}</td><td class="k">Purpose</td><td class="v">${esc(c.description ?? "")}</td></tr>
     <tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
   </table>
   <p class="sect">Claim Details</p>
@@ -2319,7 +2320,7 @@ async function printClaimForm(c: Claim) {
         let its: { claim_date: string; category: string; description?: string; amount_cents: number }[] = [];
         try { its = c.items ? JSON.parse(c.items) : []; } catch { its = []; }
         if (its.length === 0) its = [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
-        const rows = its.map((it) => `<tr><td>${dmy(it.claim_date)}</td><td style="text-transform:capitalize">${it.category}</td><td>${it.description ?? ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
+        const rows = its.map((it) => `<tr><td>${esc(dmy(it.claim_date))}</td><td style="text-transform:capitalize">${esc(it.category)}</td><td>${esc(it.description ?? "")}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
         while (rows.length < 4) rows.push("<tr><td></td><td></td><td></td><td></td></tr>");
         return rows.join("");
       })()}
@@ -2327,7 +2328,7 @@ async function printClaimForm(c: Claim) {
   </table>
   <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
   <p class="decl">Declaration: I certify the above expenses were incurred for official Company business.</p>
-  <p class="sys">System status: ${sysLine}${c.decision_note ? " · Note: " + c.decision_note : ""}${chainLine ? " · " + chainLine : ""}</p>
+  <p class="sys">System status: ${esc(sysLine)}${c.decision_note ? " · Note: " + esc(c.decision_note) : ""}${chainLine ? " · " + esc(chainLine) : ""}</p>
   <table class="sig" style="margin-top:10px">
     <tr>
       <td class="hd2">Employee</td>
@@ -2335,17 +2336,17 @@ async function printClaimForm(c: Claim) {
       <td class="hd2">Chief Executive Officer (CEO)</td>
     </tr>
     <tr>
-      <td class="body"><div class="cw"><div class="nm">Name: ${(c.claimant_full || c.claimant || "")}</div>
+      <td class="body"><div class="cw"><div class="nm">Name: ${esc(c.claimant_full || c.claimant || "")}</div>
         <div class="sg">Signature:${empSig
           ? `<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/emp" alt="" onerror="this.style.display='none'"/><span class="esub">(submitted in system)</span>`
-          : ` <span class="esig">${(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
+          : ` <span class="esig">${esc(c.claimant_full || c.claimant || "")}</span><span class="esub">(submitted in system)</span>`}</div>
         <div class="dt">Date: ${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${c.pre_approved_by_full || c.pre_approved_by_name
-        ? `<div class="nm">Name: ${(c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase()}</div>
+        ? `<div class="nm">Name: ${esc((c.pre_approved_by_full || c.pre_approved_by_name || "").toUpperCase())}</div>
            <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/pre" alt="" onerror="this.style.display='none'"/></div>
            <div class="dt">Date: ${c.pre_approved_at ? mytStamp(c.pre_approved_at) + " MYT" : ""}</div>`
         : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`}</div></td>
-      <td class="body"><div class="cw"><div class="nm">Name: ${(c.decided_by_full || c.decided_by_name || "").toUpperCase()}</div>
+      <td class="body"><div class="cw"><div class="nm">Name: ${esc((c.decided_by_full || c.decided_by_name || "").toUpperCase())}</div>
         <div class="sg">Signature:${c.status === "approved" ? `<img class="sigimg" src="/api/v1/staff/claims/${c.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : ""}</div>
         <div class="dt">Date: ${c.status === "approved" && c.decided_at ? mytStamp(c.decided_at) + " MYT" : ""}</div></div></td>
     </tr>

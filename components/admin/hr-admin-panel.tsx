@@ -10,6 +10,7 @@
 import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState } from "react";
+import { esc } from "@/lib/escape-html";
 import { card } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { rowBtnDanger } from "@/components/ui/row-button";
@@ -216,9 +217,13 @@ interface PayslipData {
 function printPayslip(p: PayslipData) {
   const w = window.open("", "_blank", "width=800,height=1000");
   if (!w) return;
+  /* v1.45.0 (security audit C7): payslip values are staff records someone
+     typed and this document is a STRING, so React's escaping never runs on
+     it. esc() is what stops a name or position containing markup from being
+     parsed as markup in the print window. */
   const row = (k: string, v: string | number) =>
-    `<tr><td style="padding:4px 8px;color:#5b6472">${k}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${v}</td></tr>`;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Payslip", "Slip gaji")} ${p.staff.name} ${p.month}</title>
+    `<tr><td style="padding:4px 8px;color:#5b6472">${esc(k)}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${esc(v)}</td></tr>`;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Payslip", "Slip gaji")} ${esc(p.staff.name)} ${esc(p.month)}</title>
   <style>/* v1.4.242: this report is a staff TABLE that can run to several pages,
   so it keeps a real @page margin — page 2+ would otherwise print edge to edge.
   Trade-off accepted: the browser's own header/footer strip may appear here. */
@@ -229,7 +234,7 @@ function printPayslip(p: PayslipData) {
   .sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#b8912f;margin-top:16px}</style>
   </head><body onload="window.print()">
   <div class="hd"><small>${DOCUMENT_ISSUER.name}</small><h1>${L("Attendance &amp; Payroll Summary", "Ringkasan Kehadiran &amp; Gaji")}</h1>
-  <div style="color:#5b6472;font-size:12px;margin-top:4px">${p.month}</div></div>
+  <div style="color:#5b6472;font-size:12px;margin-top:4px">${esc(p.month)}</div></div>
   <table>
     ${row(L("Name", "Nama"), p.staff.name)}
     ${row(L("Employee ID", "ID pekerja"), p.staff.employee_id || "—")}
