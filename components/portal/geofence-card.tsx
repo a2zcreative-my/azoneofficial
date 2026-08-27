@@ -11,6 +11,7 @@ import { makeApi } from "@/lib/api";
 import { SITE_CONFIG } from "@/constants/site";
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -38,6 +39,7 @@ export function GeofenceCard() {
   const [label, setLabel] = useState<string>(SITE_CONFIG.office.label); // <string>: SITE_CONFIG is as-const, the literal type would reject edits
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, node: confirmNode } = useConfirm();
 
   const load = useCallback(() => {
     void api<FenceInfo>(`/attendance/geofence`).then((r) => {
@@ -113,7 +115,17 @@ export function GeofenceCard() {
   };
 
   const clear = async () => {
-    if (!window.confirm(L("Turn office check-in OFF? Staff will be able to clock in/out from anywhere again.", "Matikan daftar kehadiran pejabat? Kakitangan akan boleh daftar masuk/keluar dari mana-mana sahaja semula."))) return;
+    /* v1.62.0 — the last of the browser's own dialogs in the portal. Turning
+       the geofence off is exactly the kind of decision that deserves the
+       branded box rather than a grey Chrome one. */
+    if (!(await confirm({
+      title: L("Turn office check-in OFF?", "Matikan daftar kehadiran pejabat?"),
+      message: L("Staff will be able to clock in and out from anywhere again.",
+                 "Kakitangan akan boleh daftar masuk dan keluar dari mana-mana sahaja semula."),
+      confirmLabel: L("Turn it off", "Matikan"),
+      cancelLabel: L("Keep it on", "Kekalkan"),
+      variant: "danger",
+    }))) return;
     setBusy(true);
     const res = await api<{ ok?: boolean }>(`/attendance/geofence`, {
       method: "POST",
@@ -130,6 +142,7 @@ export function GeofenceCard() {
 
   return (
     <div className={card}>
+      {confirmNode}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">{L("📍 Office check-in (geofence)", "📍 Daftar kehadiran pejabat (geofence)")}</p>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${info?.configured

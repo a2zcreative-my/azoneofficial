@@ -26,6 +26,14 @@ export const PERMS: Record<string, readonly Role[]> = {
   task_view: ["super_admin", "admin", "coo", "cco"],
   payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
+  /* v1.62.0 (CEO: "I as CEO can change or update their leave entitle to all
+     the staff so that I can control their Annual Leave entitlement which is
+     no abuse!") — how many days a person is owed is the CEO's decision, not
+     an HR data-entry field. Deliberately NARROWER than hr_manage: hr_admin
+     and admin process leave and see balances, but cannot raise anyone's
+     entitlement, including their own. Every change is written to audit_log
+     with the old and new figure. */
+  leave_entitlement: ["super_admin", "ceo"],
 
   // === erp.ts (v1.18.0 — programme phases 4–7). The client's TAB_ROLES
   // mirrors these; this matrix is the one that is actually enforced. ===

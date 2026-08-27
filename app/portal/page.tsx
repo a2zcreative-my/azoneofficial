@@ -137,6 +137,7 @@ import {
 import { StaffDirectory } from "@/components/staff/staff-directory";
 import {
   card,
+  rowHead,
   inputClass,
   btnClass,
   btnGhost,
@@ -4918,6 +4919,233 @@ function leaveNoOf(l: {
   return `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
 }
 
+/* ===================== Leave entitlement (v1.62.0) =====================
+   The CEO, 27-08-2026: "I as CEO can change or update their leave entitle to
+   all the staff so that I can control their Annual Leave entitlement which is
+   no abuse!"
+
+   Until now nothing in the portal called the entitlement routes at all, so
+   every person silently ran on the built-in defaults and nobody could change
+   anyone's days. This card is the missing screen.
+
+   Three things it deliberately does NOT do, all agreed with him:
+     - It does not offer medical leave. That is statutory under the
+       Employment Act 1955 and the API refuses it outright.
+     - It does not appear for HR. `leave_entitlement` is ceo + super_admin;
+       HR still processes leave, it just cannot decide what anyone is owed.
+     - A raise does not hand over the days at once — annual leave accrues
+       pro-rata across the year, so a rise lands as a higher monthly
+       accrual. That is the "no abuse" part working. */
+const ENT_TYPES = ["annual", "emergency"] as const;
+type EntType = (typeof ENT_TYPES)[number];
+interface EntRow {
+  id: number;
+  name: string;
+  role: string;
+  entitlement: Record<EntType, { days: number; set: boolean }>;
+}
+
+function LeaveEntitlement() {
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(thisYear);
+  const [rows, setRows] = useState<EntRow[]>([]);
+  const [defaults, setDefaults] = useState<Record<string, number>>({});
+  const [loaded, setLoaded] = useState(false);
+  /* What the boxes currently show, keyed "<id>:<type>". Kept as strings so a
+     half-typed "1" does not become the number 1 and save itself. */
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [bulk, setBulk] = useState<Record<EntType, string>>({ annual: "", emergency: "" });
+  const { show: toast, node: toastNode } = useSaveToast();
+  const { confirm, node: confirmNode } = useConfirm();
+
+  const load = useCallback(async () => {
+    const r = await api<{ staff: EntRow[]; defaults: Record<string, number> }>(
+      `/staff/leave/entitlements?year=${year}`,
+    );
+    if (r.data?.staff) {
+      setRows(r.data.staff);
+      setDefaults(r.data.defaults ?? {});
+      const d: Record<string, string> = {};
+      for (const p of r.data.staff) {
+        for (const t of ENT_TYPES) d[`${p.id}:${t}`] = String(p.entitlement[t]?.days ?? 0);
+      }
+      setDraft(d);
+    }
+    setLoaded(true);
+  }, [year]);
+  useEffect(() => { void load(); }, [load]);
+
+  const saveOne = async (p: EntRow, type: EntType) => {
+    const key = `${p.id}:${type}`;
+    const days = Number(draft[key]);
+    if (!Number.isFinite(days) || days < 0) {
+      toast(L("Not saved", "Tidak disimpan"),
+            L("Days must be 0 or more", "Hari mesti 0 atau lebih"), "notice");
+      return;
+    }
+    setBusy(key);
+    const r = await api<{ ok: true }>(`/staff/leave/entitlement`, {
+      method: "PUT",
+      body: JSON.stringify({ user_id: p.id, year, type, entitled: days }),
+    });
+    setBusy(null);
+    if (!r.ok) {
+      toast(L("Not saved", "Tidak disimpan"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused that change", "Pelayan menolak perubahan itu"), "notice");
+      return;
+    }
+    toast(L("Saved", "Disimpan"),
+          `${p.name} — ${leaveTypeL(type)} ${days} ${L("days", "hari")} (${year})`);
+    void load();
+  };
+
+  const setEveryone = async (type: EntType) => {
+    const days = Number(bulk[type]);
+    if (!Number.isFinite(days) || days < 0 || bulk[type] === "") {
+      toast(L("Nothing to set", "Tiada untuk ditetapkan"),
+            L("Type the number of days first", "Taip bilangan hari dahulu"), "notice");
+      return;
+    }
+    /* A set-all touches everybody's pay-adjacent record, so it asks first and
+       names the number and the year it is about to write. */
+    if (!(await confirm({
+      title: L(`Set ${leaveTypeL(type)} leave for all ${rows.length} staff?`,
+               `Tetapkan cuti ${leaveTypeL(type)} untuk semua ${rows.length} kakitangan?`),
+      message: L(`Everyone gets ${days} days for ${year}. This replaces every current figure, including any you set by hand.`,
+                 `Semua orang mendapat ${days} hari bagi ${year}. Ini menggantikan setiap angka semasa, termasuk yang anda tetapkan sendiri.`),
+      confirmLabel: L("Set for everyone", "Tetapkan untuk semua"),
+      cancelLabel: L("Cancel", "Batal"),
+      variant: "danger",
+    }))) return;
+    setBusy(`bulk:${type}`);
+    const r = await api<{ updated: number; changed: number }>(`/staff/leave/entitlements/bulk`, {
+      method: "PUT",
+      body: JSON.stringify({ year, type, entitled: days }),
+    });
+    setBusy(null);
+    if (!r.ok) {
+      toast(L("Not saved", "Tidak disimpan"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused that change", "Pelayan menolak perubahan itu"), "notice");
+      return;
+    }
+    setBulk((b) => ({ ...b, [type]: "" }));
+    toast(L("Saved", "Disimpan"),
+          L(`${r.data?.changed ?? 0} of ${r.data?.updated ?? 0} staff changed`,
+            `${r.data?.changed ?? 0} daripada ${r.data?.updated ?? 0} kakitangan berubah`));
+    void load();
+  };
+
+  return (
+    <div className={card}>
+      {toastNode}
+      {confirmNode}
+      <div className={rowHead}>
+        <div>
+          <h3 className="font-semibold">{L("Leave entitlement", "Kelayakan cuti")}</h3>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L("How many days each person is owed. Annual leave accrues month by month, so raising it mid-year adds to what accrues from here — it does not hand over the whole year at once.",
+               "Berapa hari yang layak untuk setiap orang. Cuti tahunan terkumpul bulan demi bulan, jadi menaikkannya pertengahan tahun menambah kepada yang terkumpul dari sini — bukan memberi setahun penuh serta-merta.")}
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">{L("Year", "Tahun")}</span>
+          <select className={`${inputClass} w-28`} value={year}
+            onChange={(e) => setYear(Number(e.target.value))}>
+            {[thisYear - 1, thisYear, thisYear + 1].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* ---- set everyone at once ---- */}
+      <div className="border-border mt-4 grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
+        {ENT_TYPES.map((t) => (
+          <div key={t} className="flex items-end gap-2">
+            <Sub t={L(`Set ${leaveTypeL(t)} for everyone`, `Tetapkan ${leaveTypeL(t)} untuk semua`)}
+                 className="flex-1">
+              <input type="number" min={0} max={365} step={0.5} className={inputClass}
+                placeholder={String(defaults[t] ?? 0)}
+                value={bulk[t]}
+                onChange={(e) => setBulk((b) => ({ ...b, [t]: e.target.value }))} />
+            </Sub>
+            <button type="button" className={btnSm} disabled={busy === `bulk:${t}`}
+              onClick={() => void setEveryone(t)}>
+              {busy === `bulk:${t}` ? L("Setting…", "Menetapkan…") : L("Apply to all", "Guna untuk semua")}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {loaded && rows.length === 0 && (
+        <p className="text-muted-foreground mt-4 text-sm">
+          {L("No active staff to show.", "Tiada kakitangan aktif untuk dipaparkan.")}
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px]">
+            <thead>
+              <tr className="border-border border-b">
+                <th className={th}>{L("Staff", "Kakitangan")}</th>
+                {ENT_TYPES.map((t) => (
+                  <th key={t} className={thR2}>{leaveTypeL(t)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => (
+                <tr key={p.id} className="border-border/60 border-b last:border-0">
+                  <td className={td}>
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-muted-foreground text-xs uppercase">{p.role}</div>
+                  </td>
+                  {ENT_TYPES.map((t) => {
+                    const key = `${p.id}:${t}`;
+                    const stored = p.entitlement[t];
+                    const dirty = draft[key] !== String(stored?.days ?? 0);
+                    return (
+                      <td key={t} className={tdR2}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <input type="number" min={0} max={365} step={0.5}
+                            className={`${inputClass} w-20 text-right`}
+                            value={draft[key] ?? ""}
+                            onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter") void saveOne(p, t); }} />
+                          <button type="button" className={btnSm}
+                            disabled={!dirty || busy === key}
+                            onClick={() => void saveOne(p, t)}>
+                            {busy === key ? "…" : L("Save", "Simpan")}
+                          </button>
+                        </div>
+                        {/* Say plainly when a number is the built-in default
+                            rather than one somebody chose. */}
+                        {!stored?.set && (
+                          <div className="text-muted-foreground mt-0.5 text-[11px]">
+                            {L("default", "lalai")}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-muted-foreground mt-3 text-[11px]">
+        {L("Medical leave is set by law and cannot be changed here. Every change is recorded with who made it and what it replaced.",
+           "Cuti sakit ditetapkan oleh undang-undang dan tidak boleh diubah di sini. Setiap perubahan direkodkan dengan siapa yang membuatnya dan angka yang digantikan.")}
+      </p>
+    </div>
+  );
+}
+
 function Leave({ user }: { user: User }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
   const [balances, setBalances] = useState<
@@ -4981,8 +5209,14 @@ function Leave({ user }: { user: User }) {
     void load();
   };
 
+  /* v1.62.0 — the CEO's entitlement control. Mirrors the server's
+     `leave_entitlement` permission exactly; the API refuses anyone else
+     regardless of what the client renders. */
+  const canSetEntitlement = ["ceo", "super_admin"].includes(user.role);
+
   return (
     <div className="space-y-4 md:space-y-6">
+      {canSetEntitlement && <LeaveEntitlement />}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
           const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };

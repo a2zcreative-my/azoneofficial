@@ -31,8 +31,14 @@ const run = (sql) => execFileSync("npx", [
 const SESSION_ID = createHash("sha256").update("e2etoken").digest("hex");
 
 const statements = [
-  `INSERT OR REPLACE INTO users (id, email, password_hash, name, role, is_active, totp_secret)
-   VALUES (1, 'ceo@e2e.local', 'x', 'Test', 'ceo', 1, 'E2ETESTSECRET234567')`,
+  /* v1.62.0 — `totp_enabled` is now REQUIRED, not decorative. The v1.45.0
+     audit fix (A2) enforces mandatory 2FA server-side, before routing: a
+     staff account on a mandatory role that has not ENABLED it gets 403
+     twofa_required on every route. The seed used to set only `totp_secret`,
+     which is "enrolment started" — so after that change every rig in this
+     folder failed with a 403 that looked like a permission bug. */
+  `INSERT OR REPLACE INTO users (id, email, password_hash, name, role, is_active, totp_secret, totp_enabled)
+   VALUES (1, 'ceo@e2e.local', 'x', 'Test', 'ceo', 1, 'E2ETESTSECRET234567', 1)`,
 
   `INSERT OR REPLACE INTO sessions (id, user_id, expires_at)
    VALUES ('${SESSION_ID}', 1, datetime('now', '+30 days'))`,

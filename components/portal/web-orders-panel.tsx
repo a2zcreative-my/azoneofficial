@@ -11,6 +11,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { dmyMYT, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -64,6 +65,11 @@ function statusChip(s: string): string {
 
 export function WebOrdersPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.62.0 — the v1.4.240 sweep replaced every window.confirm with the
+     branded dialog, but this panel was written after it and went back to
+     the browser's own box. The CEO, 27-08: "when cancel the order, this
+     box popup instead using the Globally popup!" */
+  const { confirm, node: confirmNode } = useConfirm();
   const [orders, setOrders] = useState<WebOrder[]>([]);
   const [pending, setPending] = useState(false); // pending_migration flag
   const [statusF, setStatusF] = useState<string>("");
@@ -135,6 +141,7 @@ export function WebOrdersPanel() {
   return (
     <div className={card}>
       {toastNode}
+      {confirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold">{L("Web Orders", "Pesanan Web")} <span className="text-muted-foreground text-xs font-normal">ELFIA</span></h2>
         <button type="button" className={btnSm} disabled={syncing} onClick={() => void syncNow()}
@@ -248,7 +255,17 @@ export function WebOrdersPanel() {
                                     {L("Payment received", "Bayaran diterima")}
                                   </button>
                                   <button type="button" className={btnSm} disabled={acting}
-                                    onClick={() => { if (confirm(L("Cancel this order and put the stock back?", "Batalkan pesanan ini dan pulangkan stok?"))) void act(o, "cancel"); }}>
+                                    onClick={() => void (async () => {
+                                      if (!(await confirm({
+                                        title: L("Cancel this order?", "Batalkan pesanan ini?"),
+                                        message: L(`${o.order_number} will be cancelled and the stock put back.`,
+                                                   `${o.order_number} akan dibatalkan dan stok dipulangkan.`),
+                                        confirmLabel: L("Cancel order", "Batalkan pesanan"),
+                                        cancelLabel: L("Keep it", "Kekalkan"),
+                                        variant: "danger",
+                                      }))) return;
+                                      await act(o, "cancel");
+                                    })()}>
                                     {L("Cancel order", "Batalkan pesanan")}
                                   </button>
                                 </div>

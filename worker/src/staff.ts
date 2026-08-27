@@ -4594,10 +4594,88 @@ export async function handleStaff(
     return json({ ok: true });
   }
 
-  /* ---- Leave entitlement editor (admin/HR) ---- */
+  /* ---- Leave entitlement editor ----------------------------------------
+   *
+   * v1.62.0 (CEO: "I as CEO can change or update their leave entitle to all
+   * the staff so that I can control their Annual Leave entitlement which is
+   * no abuse!").
+   *
+   * The routes existed since v1.4.x but nothing in the portal ever called
+   * them — there was no screen, so in practice every person silently ran on
+   * DEFAULT_ENTITLEMENT and nobody could change anyone's days at all.
+   *
+   * Three rules decided with the CEO, 27-08-2026:
+   *
+   *  1. WHO. `leave_entitlement` = ceo + super_admin, not `hr_manage`. HR
+   *     still processes leave and reads balances; it can no longer change
+   *     what anyone is owed — including its own. Deciding how many days a
+   *     person gets is the thing being protected here.
+   *  2. WHAT. Annual and emergency only (EDITABLE_TYPES). Medical is a
+   *     STATUTORY entitlement under the Employment Act 1955 and setting it
+   *     below the legal minimum would be unlawful, not merely a bad policy,
+   *     so this door does not open on it. Unpaid and replacement are not
+   *     entitlements at all — they are counted as taken.
+   *  3. TRACE. Every write records the figure it REPLACED as well as the new
+   *     one, so "who gave themselves more days, and when" is answerable from
+   *     audit_log alone.
+   *
+   * Note on effect: raising an entitlement mid-year does not hand over the
+   * days at once. /leave/balance accrues annual leave pro-rata across the
+   * months elapsed, so a rise shows up as a higher monthly accrual, which is
+   * exactly the "no abuse" behaviour the CEO asked for.
+   */
+
+  /** The only types this door may write. See rule 2 above. */
+  const EDITABLE_TYPES = ["annual", "emergency"] as const;
+
+  /** Every active staff member, in the order the table shows them. */
+  const entitlementStaff = async (): Promise<{ id: number; name: string; role: string }[]> => {
+    const { results } = await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
+       WHERE is_active = 1 AND role != 'customer'
+       ORDER BY 2`,
+    ).all<{ id: number; name: string; role: string }>();
+    return results;
+  };
+
+  /* The whole table in one call: every staff member, and what each is owed
+     this year. A person with no row is shown at the default rather than at
+     zero — that is what they are actually running on. */
+  if (path === "/leave/entitlements" && method === "GET") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can view or change leave entitlements", 403);
+    }
+    const url = new URL(request.url);
+    const yearRaw = Number(url.searchParams.get("year") ?? new Date().getFullYear());
+    const year = Number.isFinite(yearRaw) && yearRaw >= 2000 && yearRaw <= 2100
+      ? Math.trunc(yearRaw) : new Date().getFullYear();
+    const staff = await entitlementStaff();
+    const { results } = await env.DB.prepare(
+      `SELECT user_id, type, entitled FROM leave_balances WHERE year = ?1`,
+    ).bind(year).all<{ user_id: number; type: string; entitled: number }>();
+    const set = new Map<string, number>();
+    for (const r of results) set.set(`${r.user_id}:${r.type}`, r.entitled);
+    return json({
+      year,
+      editable: EDITABLE_TYPES,
+      defaults: Object.fromEntries(EDITABLE_TYPES.map((t) => [t, DEFAULT_ENTITLEMENT[t] ?? 0])),
+      staff: staff.map((p) => ({
+        ...p,
+        entitlement: Object.fromEntries(EDITABLE_TYPES.map((t) => {
+          const stored = set.get(`${p.id}:${t}`);
+          /* `set` says whether this is the CEO's own figure or the fallback,
+             so the table can show "default" rather than implying someone
+             chose the number. */
+          return [t, { days: stored ?? DEFAULT_ENTITLEMENT[t] ?? 0, set: stored !== undefined }];
+        })),
+      })),
+    });
+  }
 
   if (path === "/leave/entitlement" && method === "GET") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can view or change leave entitlements", 403);
+    }
     const url = new URL(request.url);
     const year = Number(url.searchParams.get("year") ?? new Date().getFullYear());
     const uid = Number(url.searchParams.get("user_id"));
@@ -4609,21 +4687,91 @@ export async function handleStaff(
     for (const r of results as { type: string; entitled: number }[]) map[r.type] = r.entitled;
     return json({ year, user_id: uid, entitlement: map });
   }
-  if (path === "/leave/entitlement" && method === "PUT") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
-    const year = Number(body?.year ?? new Date().getFullYear());
-    const uid = Number(body?.user_id);
-    const type = str(body?.type, 40) ? (body!.type as string) : "";
-    const entitled = Number(body?.entitled);
-    if (!uid || !type || !(entitled >= 0)) {
-      return err("invalid_input", "user_id, type and entitled (>=0) are required", 400);
-    }
+
+  /** Shared by the single and bulk writers, so the two cannot drift apart. */
+  const writeEntitlement = async (
+    uid: number, year: number, type: string, entitled: number,
+  ): Promise<{ before: number | null }> => {
+    const prev = await env.DB.prepare(
+      `SELECT entitled FROM leave_balances WHERE user_id = ?1 AND year = ?2 AND type = ?3`,
+    ).bind(uid, year, type).first<{ entitled: number }>().catch(() => null);
     await env.DB.prepare(
       `INSERT INTO leave_balances (user_id, year, type, entitled) VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(user_id, year, type) DO UPDATE SET entitled = ?4`,
     ).bind(uid, year, type, entitled).run();
-    await audit(env, user.id, "leave.entitlement", "users", String(uid), { type, entitled });
-    return json({ ok: true });
+    return { before: prev?.entitled ?? null };
+  };
+
+  /** Shared validation. Returns the clean numbers or the refusal to send. */
+  const readEntitlementInput = (
+    rawYear: unknown, rawType: unknown, rawDays: unknown,
+  ): { year: number; type: string; days: number } | Response => {
+    const year = Number(rawYear ?? new Date().getFullYear());
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return err("invalid_input", "year must be a real calendar year", 400);
+    }
+    /* `str` here is a TYPE GUARD (v is string), not an extractor — the
+       same shape the original route used. */
+    const type = str(rawType, 40) ? rawType : "";
+    if (!(EDITABLE_TYPES as readonly string[]).includes(type)) {
+      /* Medical is the one people will try. Say why, so it reads as a rule
+         rather than a bug. */
+      return err("invalid_input",
+        type === "medical"
+          ? "Medical leave is a statutory entitlement and cannot be changed here."
+          : `Only ${EDITABLE_TYPES.join(" and ")} leave can be set. Unpaid and replacement leave are counted as taken, not granted.`,
+        400);
+    }
+    const days = Number(rawDays);
+    if (!Number.isFinite(days) || days < 0 || days > 365) {
+      return err("invalid_input", "Days must be a number between 0 and 365", 400);
+    }
+    /* Half-days are real (the balance maths already works in halves); a
+       third of a day is not. */
+    if (Math.round(days * 2) !== days * 2) {
+      return err("invalid_input", "Days must be a whole number or a half day", 400);
+    }
+    return { year: Math.trunc(year), type, days };
+  };
+
+  if (path === "/leave/entitlement" && method === "PUT") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can view or change leave entitlements", 403);
+    }
+    const uid = Number(body?.user_id);
+    if (!uid) return err("invalid_input", "user_id is required", 400);
+    const parsed = readEntitlementInput(body?.year, body?.type, body?.entitled);
+    if (parsed instanceof Response) return parsed;
+    const { before } = await writeEntitlement(uid, parsed.year, parsed.type, parsed.days);
+    await audit(env, user.id, "leave.entitlement", "users", String(uid),
+      { year: parsed.year, type: parsed.type, from: before, to: parsed.days });
+    return json({ ok: true, before, after: parsed.days });
+  }
+
+  /* v1.62.0 — one number for everybody, the CEO's "to all the staff".
+     `user_ids` narrows it to a chosen few; omitted means every active staff
+     member. Each row is audited individually, so a set-all is as traceable
+     as thirty separate edits. */
+  if (path === "/leave/entitlements/bulk" && method === "PUT") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can view or change leave entitlements", 403);
+    }
+    const parsed = readEntitlementInput(body?.year, body?.type, body?.entitled);
+    if (parsed instanceof Response) return parsed;
+    const staff = await entitlementStaff();
+    const wanted = Array.isArray(body?.user_ids)
+      ? new Set((body!.user_ids as unknown[]).map(Number).filter((n) => Number.isFinite(n)))
+      : null;
+    const targets = wanted ? staff.filter((p) => wanted.has(p.id)) : staff;
+    if (targets.length === 0) return err("invalid_input", "No staff to update", 400);
+    let changed = 0;
+    for (const p of targets) {
+      const { before } = await writeEntitlement(p.id, parsed.year, parsed.type, parsed.days);
+      if (before !== parsed.days) changed++;
+      await audit(env, user.id, "leave.entitlement", "users", String(p.id),
+        { year: parsed.year, type: parsed.type, from: before, to: parsed.days, bulk: true });
+    }
+    return json({ ok: true, updated: targets.length, changed });
   }
 
   /* ---- Payslip (basic payroll output) ---- */
