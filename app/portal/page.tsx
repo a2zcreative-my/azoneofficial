@@ -139,6 +139,8 @@ import { StaffDirectory } from "@/components/staff/staff-directory";
 import {
   card,
   rowHead,
+  chipSuccess,
+  chipNeutral,
   inputClass,
   btnClass,
   btnGhost,
@@ -4918,6 +4920,133 @@ function leaveNoOf(l: {
 }) {
   const dd = (l.created_at ?? "").slice(0, 10);
   return `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
+}
+
+/* ===================== TikTok Shop Analytics (v1.62.0) =====================
+   The CEO wants GMV, orders, units, buyers, visitors, impressions, page views
+   and CTR, split by video / live / product card, and per product.
+
+   This card is STEP ONE of that, and it is honest about being step one. The
+   request signing, token storage and refresh already work (they run the order
+   sync). What is not known is which analytics endpoints this shop's
+   authorisation actually exposes and what the fields are called — TikTok's v2
+   specs sit behind a Partner Center login, and their own guidance is that shop
+   analytics is several endpoints rather than one.
+
+   So rather than ship a panel built on guessed field names — which would look
+   finished and quietly show zeros — this asks the live API and reports what
+   comes back. The answer decides the schema, the cron and the real panel. */
+function TikTokAnalyticsCard() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const { show: toast, node: toastNode } = useSaveToast();
+
+  const probe = async () => {
+    setBusy(true);
+    const r = await api<Record<string, unknown>>(`/integrations/tiktok/analytics-probe`);
+    setBusy(false);
+    if (!r.ok) {
+      toast(L("Could not check", "Tidak dapat menyemak"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused the request", "Pelayan menolak permintaan"), "notice");
+      return;
+    }
+    setResult(r.data ?? null);
+  };
+
+  const findings = (result?.findings as { label: string; path: string; code: number | null;
+    message: string | null; usable: boolean; first_row_keys: string[] | null }[] | undefined) ?? [];
+  const usable = findings.filter((f) => f.usable);
+
+  return (
+    <div className={card}>
+      {toastNode}
+      <div className={rowHead}>
+        <div>
+          <h3 className="font-semibold">
+            {L("TikTok Shop Analytics", "Analitis Kedai TikTok")}
+            <span className="text-muted-foreground ml-2 text-xs font-normal">
+              {L("setting up", "sedang disediakan")}
+            </span>
+          </h3>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L("GMV, orders, units, buyers, visitors, views and CTR — by video, live and product card. Before the figures can be pulled, this checks which analytics endpoints your authorisation actually opens.",
+               "GMV, pesanan, unit, pembeli, pelawat, tontonan dan CTR — mengikut video, siaran langsung dan kad produk. Sebelum angka boleh ditarik, ini menyemak titik akhir analitis mana yang dibuka oleh kebenaran anda.")}
+          </p>
+        </div>
+        <button type="button" className={btnSm} disabled={busy} onClick={() => void probe()}>
+          {busy ? L("Checking…", "Menyemak…") : L("Check what's available", "Semak apa yang ada")}
+        </button>
+      </div>
+
+      {result?.state === "not_authorised" && (
+        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          {L("No TikTok authorisation stored yet. Finish the Renew screen in Partner Center with TikTok Shop Analytics ticked, then check again.",
+             "Belum ada kebenaran TikTok disimpan. Selesaikan skrin Renew di Partner Center dengan TikTok Shop Analytics ditanda, kemudian semak semula.")}
+        </p>
+      )}
+      {result?.state === "no_secret" && (
+        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          TIKTOK_APP_SECRET {L("is not set — run: npx wrangler secret put TIKTOK_APP_SECRET",
+                                "tidak ditetapkan — jalankan: npx wrangler secret put TIKTOK_APP_SECRET")}
+        </p>
+      )}
+
+      {result?.state === "probed" && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs font-medium">
+            {usable.length > 0
+              ? L(`${usable.length} of ${findings.length} endpoints answered. Send this to Claude to build the panel.`,
+                  `${usable.length} daripada ${findings.length} titik akhir menjawab. Hantar ini kepada Claude untuk membina panel.`)
+              : L("None answered yet — the Analytics scope may not be active on this authorisation.",
+                  "Belum ada yang menjawab — skop Analytics mungkin belum aktif pada kebenaran ini.")}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px]">
+              <thead>
+                <tr className="border-border border-b">
+                  <th className={th}>{L("Endpoint", "Titik akhir")}</th>
+                  <th className={th}>{L("Answer", "Jawapan")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {findings.map((f) => (
+                  <tr key={f.path} className="border-border/60 border-b last:border-0">
+                    <td className={td}>
+                      <div className="font-medium">{f.label}</div>
+                      <div className="text-muted-foreground font-mono text-[11px]">{f.path}</div>
+                    </td>
+                    <td className={td}>
+                      <span className={f.usable ? chipSuccess : chipNeutral}>
+                        {f.usable ? L("works", "berfungsi") : `${f.code ?? "—"}`}
+                      </span>
+                      {f.message && !f.usable && (
+                        <div className="text-muted-foreground mt-0.5 text-[11px]">{f.message}</div>
+                      )}
+                      {f.first_row_keys && f.first_row_keys.length > 0 && (
+                        <div className="text-muted-foreground mt-0.5 font-mono text-[11px]">
+                          {f.first_row_keys.slice(0, 12).join(", ")}
+                          {f.first_row_keys.length > 12 ? " …" : ""}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <details className="text-xs">
+            <summary className="text-muted-foreground cursor-pointer">
+              {L("Full reply (copy this to Claude)", "Balasan penuh (salin ini kepada Claude)")}
+            </summary>
+            <pre className="bg-secondary/40 mt-2 max-h-64 overflow-auto rounded-lg p-2 text-[11px]">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ===================== Leave entitlement (v1.62.0) =====================
@@ -12684,6 +12813,7 @@ export default function PortalPage() {
               />
               {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
               {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
+              {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
               <ConnectionStatusCard />
             </div>
           )}

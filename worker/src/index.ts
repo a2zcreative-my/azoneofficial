@@ -2048,6 +2048,98 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     });
   }
 
+  /* v1.62.0 — TikTok Shop Analytics: FIND OUT before building.
+   *
+   * The CEO asked for GMV, orders, units, buyers, visitors, impressions, page
+   * views and CTR, split by video / live / product card, and per product.
+   * The plumbing to fetch all of that already exists (tiktokSignedFetch above
+   * signs and sends; the token refreshes itself). What does NOT exist is
+   * certainty about the endpoint paths and the field names: TikTok's v2 specs
+   * are behind a Partner Center login, and their own guidance is that shop
+   * analytics is not one endpoint but several.
+   *
+   * Writing a schema and a cron against guessed field names would produce a
+   * panel that looks finished and silently shows zeros. So this route asks
+   * the live API, with the real token, and reports exactly what comes back.
+   *
+   * It is READ-ONLY and deliberately inert: it stores nothing, changes
+   * nothing, and cannot move money or stock. It exists to turn a guess into a
+   * fact, and can be deleted once the panel is built.
+   *
+   * Add a candidate with ?path=/some/path&extra=k:v to try one by hand.
+   */
+  if (path === "/api/v1/integrations/tiktok/analytics-probe" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !["ceo", "super_admin"].includes(me.role)) {
+      return errorResponse("forbidden", "CEO access required", 401);
+    }
+    const tok = await tiktokToken(env);
+    if (!tok) {
+      return json({
+        state: "not_authorised",
+        hint: "No TikTok token stored. Complete the Renew authorisation in Partner Center first.",
+      });
+    }
+    if (!env.TIKTOK_APP_SECRET) {
+      return json({ state: "no_secret", hint: "npx wrangler secret put TIKTOK_APP_SECRET" });
+    }
+
+    /* A window TikTok will certainly accept: the last 7 whole days, MYT. */
+    const day = (offset: number) =>
+      new Date(Date.now() + 8 * 3600 * 1000 - offset * 86400_000).toISOString().slice(0, 10);
+    const range = { start_date_ge: day(7), end_date_lt: day(0) };
+
+    const asked = new URL(request.url).searchParams.get("path");
+    /* The candidates, most likely first. The 202405 shop-performance path is
+       the one TikTok's own public doc URL names; the rest cover the shapes
+       their other v2 families use, so one pass tells us which exist. */
+    const candidates: { label: string; path: string; params: Record<string, string> }[] = asked
+      ? [{ label: "manual", path: asked, params: range }]
+      : [
+          { label: "shop performance", path: "/analytics/202405/shop/performance", params: range },
+          { label: "shop performance (list)", path: "/analytics/202409/shop/performance", params: range },
+          { label: "product performance", path: "/analytics/202405/shop/product_performance", params: { ...range, page_size: "10" } },
+          { label: "video performance", path: "/analytics/202409/shop/video_performance", params: { ...range, page_size: "10" } },
+          { label: "live performance", path: "/analytics/202409/shop/live_performance", params: { ...range, page_size: "10" } },
+          { label: "sku performance", path: "/analytics/202405/shop/sku_performance", params: { ...range, page_size: "10" } },
+        ];
+
+    const findings: unknown[] = [];
+    for (const c of candidates) {
+      const res = (await tiktokSignedFetch(env, c.path, c.params)) as
+        { code?: number; message?: string; data?: unknown } | null;
+      /* Report the SHAPE, not a dump: the top-level keys and the keys of the
+         first row are what decide the schema, and they keep the response
+         small enough to read. */
+      const data = res?.data as Record<string, unknown> | undefined;
+      const firstRow = data
+        ? (Object.values(data).find((v) => Array.isArray(v)) as unknown[] | undefined)?.[0]
+        : undefined;
+      findings.push({
+        label: c.label,
+        path: c.path,
+        code: res?.code ?? null,
+        message: res?.message ?? null,
+        /* code 0 is TikTok's "success". Anything else is usually a missing
+           scope or a path that does not exist — the message says which. */
+        usable: res?.code === 0,
+        data_keys: data ? Object.keys(data).slice(0, 40) : null,
+        first_row_keys: firstRow && typeof firstRow === "object"
+          ? Object.keys(firstRow as Record<string, unknown>).slice(0, 60) : null,
+        /* The first row itself when there is one, otherwise the whole data
+           object truncated — enough to read, never enough to be a dump. */
+        sample: firstRow ?? (data ? JSON.stringify(data).slice(0, 600) : null),
+      });
+    }
+    return json({
+      state: "probed",
+      window: range,
+      shop_cipher_present: Boolean(tok.shop_cipher),
+      findings,
+      next: "Send this back to Claude — the usable paths and their field names decide the schema.",
+    });
+  }
+
   if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
     const me = await getSessionUser(request, env);
     if (!me || !can(me.role, "sync_manage")) {
