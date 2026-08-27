@@ -4,7 +4,7 @@
 import { handleStaff, notify, type StaffUser } from "./staff";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
-import { serializeBridgeItems, type BridgeRow } from "./bridge-feed";
+import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
@@ -41,6 +41,10 @@ export interface Env {
       the client's domain never enters a committed file (same posture the
       store takes toward ours). Unset = the 5-min poller is silently off. */
   ELFIA_ORDERS_URL?: string;
+  /** v1.48.0 — the store's public origin, e.g. https://elfiaofficialstore.my.
+      Only used by the ELFIA tab's "Update the shop now" button. Not a secret;
+      it lives in wrangler.toml so the button works with no extra setup. */
+  ELFIA_STORE_URL?: string;
   /** Shared secret for a relay-based TikTok webhook (Make/Zapier). Optional. */
   TIKTOK_WEBHOOK_SECRET?: string;
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
@@ -1690,24 +1694,109 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     let rows: BridgeRow[];
     try {
+      /* v1.45.0 (0086): the feed now also carries each item's ELFIA dressing
+         — category, description, photo URL + change marker — set in the
+         portal's ELFIA tab. The store uses name+price to CREATE a product it
+         has never seen (hidden, pending Publish in its /admin), and the rest
+         to dress it. */
       const { results } = await env.DB.prepare(
-        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
+        `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
+                elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at,
+                elfia_discount_cents
          FROM inventory_items WHERE bridge_enabled = 1
          ORDER BY sku LIMIT 1000`,
       ).all();
       rows = results as unknown as BridgeRow[];
     } catch {
-      /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
-         serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
-      const { results } = await env.DB.prepare(
-        `SELECT sku, name, stock FROM inventory_items
-         WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
-         ORDER BY sku LIMIT 500`,
-      ).all();
-      rows = results as unknown as BridgeRow[];
+      try {
+        /* 0086 pending — the v1.35.0 feed: flags + prices, no dressing. */
+        const { results } = await env.DB.prepare(
+          `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents
+           FROM inventory_items WHERE bridge_enabled = 1
+           ORDER BY sku LIMIT 1000`,
+        ).all();
+        rows = results as unknown as BridgeRow[];
+      } catch {
+        /* 0075 pending (the v1.4.218 lesson: skew degrades, never 500s) —
+           serve the pre-v1.35.0 feed: LIKE scoping, no prices. */
+        const { results } = await env.DB.prepare(
+          `SELECT sku, name, stock FROM inventory_items
+           WHERE UPPER(sku) LIKE 'ELFIA%' OR UPPER(sku) LIKE 'LUMI%'
+           ORDER BY sku LIMIT 500`,
+        ).all();
+        rows = results as unknown as BridgeRow[];
+      }
     }
-    const items = serializeBridgeItems(rows);
-    return json({ items, as_of: new Date().toISOString(), count: items.length });
+    /* Photo URLs are built on THIS request's own origin — production serves
+       production URLs, the local test rig serves localhost ones, and no
+       domain ever enters a committed file. */
+    const origin = new URL(request.url).origin;
+    const items = serializeBridgeItems(rows, origin);
+    /* v1.46.0 — the hero carousel, authored in the portal's ELFIA tab. The
+       store replaces its slide set to match this list (slides are wholly
+       portal-owned); pre-0087 the table is absent and the key is simply
+       omitted, which the store reads as "keep doing what you do". */
+    let slides: ReturnType<typeof serializeBridgeSlides> | undefined;
+    try {
+      /* v1.47.0 added the framing columns. If this worker is published
+         BEFORE 0088 runs, the wide query throws — and falling straight to
+         the catch would drop the whole slides key and silently freeze the
+         shop's carousel. So the narrow 0087 query is tried second: the
+         carousel keeps working, framing simply defaults to the middle
+         until the migration lands. */
+      let slideRows: Record<string, unknown>[];
+      try {
+        slideRows = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active, focus_x, focus_y, fit, zoom,
+                  cutout_key, cutout_updated_at, cutout_side, cutout_scale
+           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
+        ).all()).results;
+      } catch {
+        slideRows = (await env.DB.prepare(
+          `SELECT id, image_key, image_updated_at, title, subtitle, sort, active
+           FROM elfia_slides WHERE active = 1 ORDER BY sort, id LIMIT 12`,
+        ).all()).results;
+      }
+      slides = serializeBridgeSlides(slideRows as unknown as SlideRow[], origin);
+    } catch { /* 0087 pending */ }
+
+    /* v1.52.0 — what delivery costs, set in the ELFIA tab. system_meta long
+       predates this, so there is no migration: a shop where nobody has set
+       them has no rows, serializeBridgeSettings returns undefined, the key
+       is omitted, and the store keeps its own numbers. */
+    let settings: ReturnType<typeof serializeBridgeSettings>;
+    /* v1.55.0 — the uploaded catalog rides the same system_meta read: PDF,
+       label map and cover as URLs on this request's origin, plus the marker
+       that gates the store's download. Emitted only when the upload is
+       complete (PDF + map + marker); absent means the store keeps what it
+       has — the shipped designer catalog included. */
+    let catalog: ReturnType<typeof serializeBridgeCatalog>;
+    /* v1.61.0 — the /catalog hover backdrop rides the same read: one image
+       URL plus the marker that gates the store's download. Absent = the
+       store keeps what it has (the shipped ELFIA backdrop included). */
+    let backdrop: ReturnType<typeof serializeBridgeBackdrop>;
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT key, value FROM system_meta WHERE key IN
+           ('elfia_shipping_cents', 'elfia_free_above_cents',
+            'elfia_catalog_pdf_key', 'elfia_catalog_map_key',
+            'elfia_catalog_cover_key', 'elfia_catalog_updated_at',
+            'elfia_backdrop_key', 'elfia_backdrop_updated_at')`,
+      ).all<{ key: string; value: string }>();
+      const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
+      settings = serializeBridgeSettings(meta);
+      catalog = serializeBridgeCatalog(meta, origin);
+      backdrop = serializeBridgeBackdrop(meta, origin);
+    } catch { /* no system_meta in this checkout — omit the keys */ }
+
+    return json({
+      items,
+      ...(slides !== undefined ? { slides } : {}),
+      ...(settings !== undefined ? { settings } : {}),
+      ...(catalog !== undefined ? { catalog } : {}),
+      ...(backdrop !== undefined ? { backdrop } : {}),
+      as_of: new Date().toISOString(), count: items.length,
+    });
   }
 
   /* v1.36.0 (feed B): the store reports every web sale as a signed movement
@@ -3088,6 +3177,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0084 (ELFIA traffic)", `SELECT day FROM web_traffic_daily LIMIT 1`],
       ["0085 (marketing consent)", `SELECT marketing_consent FROM web_orders LIMIT 1`],
       ["0086 (2FA replay guard)", `SELECT totp_last_step FROM users LIMIT 1`],
+      ["0086 (ELFIA product fields)", `SELECT elfia_image_key FROM inventory_items LIMIT 1`],
+      ["0087 (ELFIA discount + carousel)", `SELECT id FROM elfia_slides LIMIT 1`],
+      ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
+      ["0089 (ELFIA slide zoom)", `SELECT zoom FROM elfia_slides LIMIT 1`],
+      ["0090 (ELFIA slide cut-out)", `SELECT cutout_key FROM elfia_slides LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3187,7 +3281,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0083_task_tracking",
       "0084_elfia_traffic",
       "0085_web_order_consent",
+      "0086_elfia_product_fields",
       "0086_totp_replay_guard",
+      "0087_elfia_discount_slides",
+      "0088_elfia_slide_framing",
+      "0089_elfia_slide_zoom",
+      "0090_elfia_slide_cutout",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
