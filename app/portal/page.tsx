@@ -120,6 +120,7 @@ import { ContentPanel } from "@/components/portal/content-panel";
 import { StokisPanel } from "@/components/portal/stokis-panel";
 import { WebOrdersPanel } from "@/components/portal/web-orders-panel"; // v1.37.0
 import { ElfiaTrafficPanel } from "@/components/portal/elfia-traffic-panel"; // v1.43.0
+import { ElfiaStorePanel } from "@/components/portal/elfia-store-panel"; // v1.45.0
 import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -10794,6 +10795,7 @@ const ALL_TABS = [
   "Attendance",
   "Ecommerce",
   "Inventory",
+  "ELFIA Store",
   "Web Orders",
   "ELFIA Traffic",
   "Sales",
@@ -10880,6 +10882,19 @@ const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
       "hr_admin",
       "sales_marketing",
       "marketing",
+    ],
+    /* v1.45.0 (CEO: "a new tab for ELFIA … sync inventory, photo upload,
+     description and product"): runs the ELFIA store's catalogue. Same tier
+     as Inventory — its routes ARE the inventory routes. */
+    "ELFIA Store": [
+      "super_admin",
+      "admin",
+      "ceo",
+      "coo",
+      "cco",
+      "sales_marketing",
+      "marketing",
+      "hr_admin",
     ],
     /* v1.37.0: ELFIA web orders — the sales/inventory tier plus executives.
      Mirrors the /staff/web-orders permission check (sales|inventory|exec). */
@@ -12247,6 +12262,9 @@ export default function PortalPage() {
               {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
               <InventoryPanel role={user.role} />
             </div>
+          )}
+          {activeTab === "ELFIA Store" && (
+            <ElfiaStorePanel />
           )}
           {activeTab === "Web Orders" && (
             <WebOrdersPanel />
