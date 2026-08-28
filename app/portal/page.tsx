@@ -4949,6 +4949,8 @@ function TikTokAnalyticsCard() {
        arrive with only an id if TikTok would not name it. */
     unavailable?: { what: string; why: string }[];
     fetched_at_myt?: string; cached?: boolean;
+    worker_version?: string;
+    names?: { sources: string[]; notes: string[]; products: number; variants: number };
   }
   const [days, setDays] = useState<1 | 7 | 30>(7);
   const [data, setData] = useState<Analytics | null>(null);
@@ -5169,6 +5171,28 @@ function TikTokAnalyticsCard() {
         <summary className="text-muted-foreground cursor-pointer">
           {L("Check which endpoints answer (diagnostic)", "Semak titik akhir yang menjawab (diagnostik)")}
         </summary>
+        {/* v1.64.4: which BUILD answered, and what the name lookup did.
+            "Is the fix live?" and "did TikTok give us the names?" are two
+            different questions and were being answered as one. */}
+        {data && (
+          <p className="text-muted-foreground mt-2 font-mono text-[11px]">
+            {L("API build", "Binaan API")} {data.worker_version ?? "?"}
+            {data.names && (
+              <>
+                {" · "}
+                {L(
+                  `names: ${data.names.products} products, ${data.names.variants} variants${data.names.sources.length > 0 ? ` from ${data.names.sources.join(" + ")}` : " — no source answered"}`,
+                  `nama: ${data.names.products} produk, ${data.names.variants} varian${data.names.sources.length > 0 ? ` daripada ${data.names.sources.join(" + ")}` : " — tiada sumber menjawab"}`,
+                )}
+              </>
+            )}
+          </p>
+        )}
+        {data?.names?.notes && data.names.notes.length > 0 && (
+          <p className="text-muted-foreground mt-1 font-mono text-[11px]">
+            {data.names.notes.join(" · ")}
+          </p>
+        )}
         <TikTokProbe />
       </details>
     </div>

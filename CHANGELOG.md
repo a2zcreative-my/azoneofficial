@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.64.4] — 2026-08-28 — the names, properly this time, and a way to tell whether a fix is live
+
+**CEO: "I still can't get the actual product name or variant!"**
+
+v1.64.2 claimed to fix this and did not. Worse, it said nothing while failing — the amber block showed only the shop-totals error, so the panel looked like it had nothing to report about the names at all.
+
+### The bug in the fix
+
+The name map tried the catalogue, then orders, and **stopped at the first source that returned anything at all**. One name from either source counted as success. And the "could not name these" warning only fired when the map came back completely empty — so a map holding a handful of names for products that were not on screen counted as working, and the panel went quiet.
+
+That is the one outcome this panel is not allowed to produce. A wrong answer is bad; a silent one is worse, because there is nothing to argue with.
+
+### What replaces it
+
+**Rows are built first, without names, so the map can be asked about the ids that are actually going on screen.** Fetching names before knowing what they are for is what let the old code declare victory over a map that covered none of these rows.
+
+**Three sources, each asked only about what is still unnamed after the last:**
+
+1. The catalogue list (`POST /product/202309/products/search`)
+2. **Per-product detail** (`GET /product/202309/products/{id}`) for whatever the list missed — a handful of calls, capped at fifteen, never a scan
+3. Recent orders, which need no product scope at all and carry `product_name` and `sku_name` on every line item
+
+**The warning is now decided by coverage of what is on screen**, not by whether the map is empty: *"9 rows could not be named, so they show their TikTok id. Names did come from: orders. TikTok said — catalogue list: [their message]."* TikTok's own words from each source are carried through, because "it did not work" is not a diagnosis.
+
+The cache still runs six hours, but a cached map that does not cover the ids in front of us is refreshed rather than trusted.
+
+### Both name sources are now in the probe
+
+Round 6. The catalogue search and the order search are asked in the open, alongside the analytics endpoints, so whichever one this authorisation actually opens can be seen rather than inferred. This is the same method that settled the per-endpoint versions in rounds 1–3, and it should have been applied to the names from the start instead of guessing twice.
+
+### The API build number is on the panel
+
+Folded into the diagnostic: **"API build 1.64.4 · names: 34 products, 112 variants from catalogue"**.
+
+This is not decoration. The `azoneofficial-api` deploy connection has been broken before and the live API sat on an old version for weeks. "Is the fix live?" and "did the fix work?" are different questions that have been answered as one for two releases running. Now the panel answers the first one itself.
+
 ## [1.64.3] — 2026-08-28 — the Ecommerce tab, five cards lighter
 
 **CEO: "Sales leaderboard can you clipped inside the Operations map — orders by state so that I can minimalise the space? Sales history — month by month, Business lines — product vs service should combine into 1 card of Targets & commission."**
