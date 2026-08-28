@@ -713,6 +713,14 @@ interface TtNames {
   notes: string[];                    // what each source said when it did not
 }
 
+/* v1.64.5: one id from each side, so an id-space mismatch is VISIBLE rather
+   than theorised. If the ids the panel wants and the ids a source harvested
+   do not even look alike, that is the whole diagnosis in one line. */
+function ttSampleId(m: Record<string, string>): string {
+  for (const k of Object.keys(m)) return k;
+  return "";
+}
+
 const TT_NAMES_KEY = "tiktok_name_map";
 
 /** Pull every product page TikTok will give us. */
@@ -773,7 +781,10 @@ async function ttNamesFromOrders(env: Env, out: TtNames): Promise<string> {
   let token = "";
   let said = "";
   let found = 0;
-  for (let pg = 0; pg < 4; pg++) {
+  /* Six pages / 300 orders, matching the order sync's own depth. The point
+     of this source is coverage of everything that SOLD, and stopping at 200
+     orders quietly loses the oldest of them. */
+  for (let pg = 0; pg < 6; pg++) {
     const res = (await tiktokSignedFetch(
       env, "/order/202309/orders/search",
       { page_size: "50", ...(token ? { page_token: token } : {}) }, body, "POST",
@@ -3806,18 +3817,48 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }));
 
     /* The warning is decided by what is STILL unnamed on screen, not by
-       whether the map came back empty. TikTok's own words from each source
-       are carried through, because "it did not work" is not a diagnosis. */
+       whether the map came back empty.
+
+       v1.64.5 — and it is written as an INSTRUCTION, not as a paste of
+       TikTok's error. Their reply was correct and completely unactionable in
+       the place it appeared: the same 300-character scope paragraph twice,
+       ending in a shortlink, above a table of numbers. What the reader needs
+       is the one sentence that changes the outcome. */
     const unnamed = productRows.filter((r) => !r.title).length
       + skuRows.filter((r) => !r.title && !r.product_name).length;
     if (unnamed > 0) {
-      const said = names.notes.length > 0 ? ` TikTok said — ${names.notes.join("; ")}.` : "";
-      const got = names.sources.length > 0
-        ? ` Names did come from: ${names.sources.join(", ")}.` : "";
-      unavailable.push({
-        what: "Product names",
-        why: `${unnamed} row${unnamed === 1 ? "" : "s"} could not be named, so they show their TikTok id.${got}${said}`,
-      });
+      /* Identical replies from two endpoints are one fact, not two. */
+      const notes = [...new Set(names.notes)];
+      const scopeDenied = notes.some((t) => /access denied|scope/i.test(t));
+      const rows = `${unnamed} row${unnamed === 1 ? "" : "s"}`;
+      let why: string;
+      if (scopeDenied) {
+        why = `${rows} show a TikTok id because this app has not been granted the PRODUCT scope, so the catalogue cannot be read. `
+          + `To fix it: TikTok Partner Center -> your app -> add the product scope, then re-authorize the shop and press Refresh. `
+          + `Until then, names can only come from recent orders, which covers what has sold and nothing else.`;
+      } else {
+        const said = notes.length > 0 ? ` TikTok said — ${notes.join("; ")}.` : "";
+        const got = names.sources.length > 0
+          ? ` Names did come from: ${names.sources.join(", ")}.` : "";
+        why = `${rows} could not be named, so they show their TikTok id.${got}${said}`;
+      }
+      /* The id-space check, in one clause: if orders answered and the rows
+         are still unnamed, either the ids differ or the sale is older than
+         the harvest. Showing one of each settles which. */
+      if (names.sources.includes("orders")) {
+        const gotSku = ttSampleId(names.variants) || ttSampleId(names.skuProduct);
+        const gotProd = ttSampleId(names.products);
+        const wantSku = wantSkus[0] ?? "";
+        const wantProd = wantProducts[0] ?? "";
+        const missSku = wantSku && !names.variants[wantSku] && !names.skuProduct[wantSku];
+        const missProd = wantProd && !names.products[wantProd];
+        if (missSku || missProd) {
+          why += ` Orders answered but did not cover these rows — they carry`
+            + `${gotSku ? ` sku ${gotSku}` : ""}${gotProd ? ` product ${gotProd}` : ""},`
+            + ` while this page wants${wantSku ? ` sku ${wantSku}` : ""}${wantProd ? ` product ${wantProd}` : ""}.`;
+        }
+      }
+      unavailable.push({ what: "Product names", why });
     }
 
     const videoRows = videos.ok ? byGmv(ttRows(videos.data).map((r) => {

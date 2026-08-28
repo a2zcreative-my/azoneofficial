@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.64.5] — 2026-08-28 — the name error becomes an instruction
+
+The diagnostic in 1.64.4 worked. TikTok's answer, in their words:
+
+> **Access denied.** This app has not been granted any access scope required by this endpoint. Add a required scope to the app, reauthorize it, and retry with a new access token.
+
+So: **the app has no product scope.** The catalogue and the per-product detail calls are both shut, which is why two rounds of joining names on were never going to work no matter how they were written. The orders fallback answered, which is why the panel could still say something.
+
+### The fix is one setting, and the panel now says so
+
+That reply was correct and completely unactionable where it appeared — the same 300-character scope paragraph printed twice, ending in a shortlink, sitting above a table of numbers. Nobody reads that and knows what to do next.
+
+It now reads:
+
+> 15 rows show a TikTok id because this app has not been granted the PRODUCT scope, so the catalogue cannot be read. To fix it: TikTok Partner Center → your app → add the product scope, then re-authorize the shop and press Refresh. Until then, names can only come from recent orders, which covers what has sold and nothing else.
+
+Identical replies from two endpoints are collapsed into one fact rather than repeated.
+
+### And the remaining puzzle is now printed rather than guessed
+
+Orders *did* answer and the rows are *still* unnamed, which means either the ids differ or the sale is older than the harvest. Rather than theorise about it a third time, the warning now prints one id from each side:
+
+> Orders answered but did not cover these rows — they carry sku 1736…, while this page wants sku 1737….
+
+Two ids side by side settle in a glance what three paragraphs of reasoning could not.
+
+The order harvest also goes six pages deep instead of four, matching the order sync's own depth — stopping at 200 orders quietly lost the oldest of them.
+
 ## [1.64.4] — 2026-08-28 — the names, properly this time, and a way to tell whether a fix is live
 
 **CEO: "I still can't get the actual product name or variant!"**
