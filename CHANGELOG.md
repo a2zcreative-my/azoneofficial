@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.64.0] — 2026-08-28 — TikTok Shop Analytics, and the endpoint that was never going to answer
+
+**CEO, on the third screenshot of the same red row: "still error."**
+
+The Analytics card has said *"setting up"* since it was built, because nobody knew which of TikTok's analytics endpoints this shop's authorisation actually opens, or what the fields inside them are called. Three rounds of probing settled both, and this release turns the probe into the panel it was always the scaffolding for.
+
+### What was actually wrong
+
+**The endpoint version is per endpoint, not per API.** This is the whole story of rounds one and two. `202405` is correct for shop totals and product cards and *wrong* for SKUs, videos and LIVE, which want `202509`. Sending one version to all eight, which is what any reasonable person would do, produced `36009004 "wrong version"` on five of them and looked exactly like a permissions problem. Giving each endpoint its own version took the panel from **3 of 8 answering to 7 of 8**.
+
+Two other facts that cost a round each and are now written down in `TT_ANALYTICS` rather than rediscovered: `currency` is effectively mandatory, and it must be `LOCAL` or `USD` — passing `MYR`, the actual currency of the actual shop, is rejected. And `36009003` is not one error but two: a missing required parameter, or TikTok's own internals failing. The message is identical either way.
+
+### The eighth endpoint, and why it is now gone rather than red
+
+`shop_lives/overview_performance` was asked four ways across three rounds — different versions, with and without `granularity`, with and without `account_type` — and returned `36009003 "Internal error"` every single time, while its siblings on the same authorisation, the same token and the same version answered normally. That is TikTok's side, not ours.
+
+It has been **removed from the probe list**, which deserves a word because deleting a failing check looks like hiding a failure. It is not, for two reasons. It is redundant: `shop_lives/performance @202509` answers, and carries the same figures per LIVE session, so nothing is lost — the LIVE card now reads from there and **has real numbers for the first time**, having pointed at the dead endpoint since the day it was written. And a row that is permanently red teaches people to ignore red rows, which is the expensive kind of habit. If TikTok ever fixes it, the probe takes a manual path: `?path=…&version=202508`.
+
+### The panel
+
+`GET /api/v1/tiktok-analytics?days=1|7|30`, gated on `revenue_view`, six calls in parallel, cached 30 minutes — one panel should cost one round trip, not seven in a row, and not seven every time somebody switches tabs.
+
+- **Shop totals** — GMV, orders, units sold, buyers
+- **GMV by day**, summed per bucket, so a bad day cannot hide inside a good week
+- **Videos / LIVE / Product cards / Variants**, each with GMV, orders and units, and a fourth column that is whatever that tab is judged on: click-through for a video or a product card, viewers for a LIVE, the parent product for a variant
+
+The **Variants** tab is the one worth pointing at. It answers *which size and which colour actually sold*, which for a shawl business is a different question from which product sold, and the one that decides the next order.
+
+**The rule this panel keeps: a section that did not answer is named, in TikTok's own words, and never drawn as a zero.** A zero is a claim about the business — it says nobody bought — and someone deciding what to reorder will act on it. "TikTok refused this" is the truth. They are not the same sentence and the panel does not let them look alike.
+
+Money is converted once, at the edge: TikTok reports GMV in whole ringgit and `fmtRM` expects sen, so that multiplication lives in one function rather than in six call sites where five of them would eventually be right.
+
+The probe is kept, folded into a `<details>` at the foot of the card. It costs nothing sitting closed, and it is how the next version change gets diagnosed instead of guessed at.
+
+### Migrations 0091, 0092 and 0093 rewritten in plain ASCII
+
+Not part of the analytics work, and the more useful finding of the two. `tests/migration-safety.mjs` exists because a deploy died on 25-08 at *"Database changes"* with `SQL code did not contain a statement` — the remote D1 parser choking on prose. All three pending migrations broke its rule: em dashes, curly quotes, an apostrophe inside a comment. **Every one of them would have stopped `PUSH.bat` at the same step, and 0091/0092 have been sitting there unshipped.**
+
+The SQL is byte-for-byte unchanged in all three — only the comments were rewritten. The guard caught this before the deploy did, which is precisely the trade the guard exists to make.
+
+The store's `0018_flash_sale.sql` had the identical fault and the identical fix; it ships as **elfia-store v1.41.0**.
+
 ## [1.63.0] — 2026-08-28 — bulk prices, and Flash Sales
 
 **CEO: "I want to add price update in a bulk, add category for the flash sales and ELFIA should have a pill of Flash Sales to make the customer attracted."**

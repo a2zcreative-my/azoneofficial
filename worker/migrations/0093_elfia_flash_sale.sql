@@ -1,37 +1,24 @@
--- 0093 — v1.63.0: flash sales on the ELFIA store.
+-- 0093 - v1.63.0: flash sales on the ELFIA store.
 --
--- The CEO, 28-08-2026: "add category for the flash sales and ELFIA should
--- have a pill of Flash Sales to make the customer attracted."
+-- A flash sale is a DEADLINE on the discount an item already carries, not a
+-- new category. A product is a bawal or a shawl: that is what it IS, and it
+-- does not stop being one because it is on offer this weekend.
 --
--- A flash sale is not a new CATEGORY, and that distinction is the whole
--- design. A product is a bawal or a shawl — that is what it IS, and it does
--- not stop being one because it is on offer this weekend. Putting "flash
--- sale" in the category column would have cost the shop its real grouping
--- for as long as the sale ran, and lost it entirely when the sale ended.
+--   discount set, elfia_flash_until NULL    -> ordinary discount
+--   discount set, elfia_flash_until ahead   -> flash sale: pill and countdown
+--   discount set, elfia_flash_until passed  -> over. The feed stops applying
+--                                              the discount, so the price
+--                                              reverts by itself on the next
+--                                              scheduled pull.
 --
--- So a flash sale is a DEADLINE on the discount the item already carries:
+-- The deadline lives here and not on the store because the portal owns the
+-- price, so the portal owns when the price changes back. Nobody has to
+-- remember to end a sale.
 --
---   elfia_discount_cents set, elfia_flash_until NULL   -> ordinary discount,
---                                                         runs until cleared
---   elfia_discount_cents set, elfia_flash_until ahead  -> a flash sale: the
---                                                         shop shows the pill
---                                                         and counts down
---   elfia_discount_cents set, elfia_flash_until passed -> over. The feed
---                                                         stops applying the
---                                                         discount, so the
---                                                         price reverts by
---                                                         itself on the next
---                                                         5-minute pull.
---
--- That last line is why the deadline lives HERE and not on the store: the
--- portal owns the price, so the portal owns when the price changes back.
--- Nobody has to remember to end a sale, and the shop can never be selling at
--- a price the office believes expired.
---
--- Stored as an ISO timestamp (UTC). NULL = no flash sale, which is every
--- existing row — this migration changes no prices and ends no discounts.
+-- Stored as an ISO timestamp in UTC. NULL means no flash sale, which is every
+-- existing row, so this migration changes no prices and ends no discounts.
 --
 -- Single ALTER, nothing else in this file (audit B4 rule: one non-idempotent
--- statement per migration — a half-apply is a no-apply).
+-- statement per migration, because a half-apply is a no-apply).
 
 ALTER TABLE inventory_items ADD COLUMN elfia_flash_until TEXT;

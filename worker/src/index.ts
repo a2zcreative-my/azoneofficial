@@ -501,6 +501,114 @@ async function tiktokToken(env: Env): Promise<{ access_token: string; shop_ciphe
 /** TikTok Shop API request signing: every call carries app_key, timestamp and
     sign = HMAC-SHA256(app_secret, app_secret + path + sorted(k+v) + body + app_secret).
     access_token and sign itself are excluded from the signed parameter set. */
+/* ========== TikTok Shop ANALYTICS — the metric readers (v1.64.0) ==========
+ *
+ * What the 28-08-2026 probe rounds settled, and what it cost to learn:
+ *
+ *   1. `version` is PER ENDPOINT, not global. One version for all of them
+ *      failed five of eight on 36009004 before TikTok ever looked at this
+ *      shop's authorisation.
+ *   2. `currency` is effectively REQUIRED. Omit it and the answer is 36009003
+ *      "Internal error" — not a missing-parameter message.
+ *   3. 36009003 can ALSO be genuinely transient: granularity=1D failed one
+ *      round and passed the next with no code change.
+ *   4. `shop_lives/overview_performance` answers 36009003 in EVERY shape
+ *      tried — with and without `version`, with and without granularity and
+ *      account_type. It is the one endpoint that never opens.
+ *
+ * Point 4 matters more than it looks. /api/v1/live-analytics has always
+ * called exactly that endpoint, so the portal's LIVE card has been showing
+ * TikTok's internal error since the day it shipped — the probe did not find
+ * a new fault, it explained an old one. The answer is not to keep knocking
+ * on a door that does not open: the same numbers are read below from
+ * `shop_lives/performance` @202509, which does answer, and which returns
+ * every live with its own sales_performance and interaction_performance.
+ */
+
+/** The version TikTok stamps on each analytics endpoint. NOT a global API
+    version — each is the version OF THAT ENDPOINT, taken from TikTok's own
+    documentation slugs and then confirmed against this shop. */
+const TT_ANALYTICS = {
+  shop: "202405",
+  products: "202405",
+  skus: "202509",
+  videos: "202509",   // a 202409 revision also answers; 202509 carries more
+  lives: "202509",
+} as const;
+
+/** Metrics that mean something when ADDED UP across rows. Rates and averages
+    are deliberately absent: summing a click-through rate produces a number
+    that looks like data and is nonsense. */
+const TT_ADDITIVE = new Set([
+  "gmv", "orders", "sku_orders", "units_sold", "items_sold", "views", "likes",
+  "comments", "shares", "new_followers", "followers", "impressions",
+  "unique_viewers", "customers", "buyers", "unique_buyers", "page_views",
+  "product_impressions", "duration", "live_count", "video_count",
+]);
+
+/** Pull every additive metric out of a payload whose exact nesting we do not
+    control, adding into `into`. TikTok wraps money as {amount, currency} in
+    some places and a bare number in others, and moves fields between
+    releases; this reads both shapes and ignores what it does not recognise
+    rather than guessing. Depth-capped so a freakishly deep or cyclic
+    response cannot hang the worker. */
+function ttAccumulate(node: unknown, into: Record<string, number>, depth = 0): void {
+  if (depth > 6 || node === null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const v of node) ttAccumulate(v, into, depth + 1);
+    return;
+  }
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    const key = k.toLowerCase();
+    if (TT_ADDITIVE.has(key)) {
+      let n: number | null = null;
+      if (typeof v === "number" && Number.isFinite(v)) n = v;
+      else if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) n = Number(v);
+      else if (v && typeof v === "object" && "amount" in (v as Record<string, unknown>)) {
+        const amt = (v as { amount?: unknown }).amount;
+        if (amt !== undefined && amt !== null && Number.isFinite(Number(amt))) n = Number(amt);
+      }
+      if (n !== null) into[key] = (into[key] ?? 0) + n;
+    }
+    if (v && typeof v === "object") ttAccumulate(v, into, depth + 1);
+  }
+}
+
+/** The first array inside a TikTok `data` object — their list endpoints name
+    it differently per resource (products, videos, lives …) and the name has
+    changed between versions, so the shape is found rather than assumed. */
+function ttRows(data: unknown): Record<string, unknown>[] {
+  if (!data || typeof data !== "object") return [];
+  for (const v of Object.values(data as Record<string, unknown>)) {
+    if (Array.isArray(v)) return v.filter((r) => r && typeof r === "object") as Record<string, unknown>[];
+  }
+  return [];
+}
+
+/** One analytics call, carrying its own version and the parameters every one
+    of them needs. Returns TikTok's reply, or a plain reason when it refused,
+    so the panel can SAY which part is unavailable instead of drawing a zero
+    that looks like a real number. */
+async function ttAnalytics(
+  env: Env, version: string, resource: string, extra: Record<string, string>,
+  range: { start_date_ge: string; end_date_lt: string }, suffix = "performance",
+): Promise<{ ok: boolean; data?: unknown; why?: string }> {
+  const res = (await tiktokSignedFetch(env, `/analytics/${version}/${resource}/${suffix}`, {
+    version, ...range, currency: "LOCAL", ...extra,
+  })) as { code?: number; message?: string; data?: unknown } | null;
+  if (!res) return { ok: false, why: "TikTok is not connected — finish the authorisation in Partner Center." };
+  if (typeof res.code === "number" && res.code !== 0) {
+    const msg = res.message ?? "refused";
+    /* Naming 36009003 as theirs is not an excuse — it is the difference
+       between the CEO waiting on us and the CEO knowing to wait on TikTok. */
+    const theirs = res.code === 36009003 ? " (TikTok's own internal error — their side, not the shop's)" : "";
+    const scope = /scope|permission|auth|access/i.test(msg)
+      ? " — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize." : "";
+    return { ok: false, why: `TikTok: ${msg}${theirs}${scope}` };
+  }
+  return { ok: true, data: res.data };
+}
+
 async function tiktokSignedFetch(
   env: Env, path: string, params: Record<string, string>, body?: string, method = "GET",
 ): Promise<unknown> {
@@ -2211,10 +2319,23 @@ async function route(request: Request, env: Env, path: string): Promise<Response
              Both shapes are tried, because the working call also omits the
              `version` query parameter and only sending both settles which
              half matters. */
-          cand("live overview", "202508", "shop_lives",
-               { granularity: "1D", account_type: "ALL" }, "overview_performance"),
-          cand("live overview (no version param)", "202508", "shop_lives",
-               { granularity: "1D", account_type: "ALL" }, "overview_performance", false),
+          /* ROUND 5 — `shop_lives/overview_performance` is RETIRED from this
+             probe, on evidence rather than fatigue.
+             It was asked four ways across three rounds — bare, with
+             granularity + account_type (the exact parameters the LIVE cron
+             sends), with the version query parameter and without it — and
+             answered 36009003 "Internal error" every single time, while the
+             seven endpoints beside it answered on the first correct version.
+             36009003 is TikTok's own internal error; four identical refusals
+             across two parameter families is their side, not ours.
+             It is also REDUNDANT: shop_lives/performance @202509 answers and
+             carries the same figures per LIVE, so nothing is lost. The LIVE
+             card now reads from there (see /api/v1/live-analytics above),
+             which is what this endpoint was blocking all along.
+             Keeping a permanently red row here would train everyone to
+             ignore a red row, which is the one thing this panel must not do.
+             To re-test it by hand after TikTok fixes their side:
+               /integrations/tiktok/analytics-probe?path=/analytics/202508/shop_lives/overview_performance&version=202508 */
         ];
 
     const findings: unknown[] = [];
@@ -3213,43 +3334,34 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
     const end = new Date(mytNow.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10); // end_date_lt is exclusive
     const start = new Date(mytNow.getTime() - 6 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const data = (await tiktokSignedFetch(env, "/analytics/202508/shop_lives/overview_performance", {
-      // v1.4.200: this endpoint only accepts USD or LOCAL — LOCAL = the
-      // shop's own currency (MYR for us). "MYR" itself is rejected.
-      start_date_ge: start, end_date_lt: end, granularity: "1D", account_type: "ALL", currency: "LOCAL",
-    })) as { code?: number; message?: string; data?: Record<string, unknown> } | null;
-    if (!data) return json({ error: "TikTok connection not configured — connect the shop first." });
-    if (typeof data.code === "number" && data.code !== 0) {
-      // Show TikTok's words; add the scope hint only when it reads like a
-      // permission problem (v1.4.200 — a param error got the wrong hint).
-      const msg = data.message ?? "analytics request refused";
-      const scopeHint = /scope|permission|auth|access/i.test(msg)
-        ? " — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize."
-        : "";
-      return json({ error: `TikTok: ${msg}${scopeHint}` });
-    }
-    // Tolerant metric extraction: walk the payload for the known metric names
-    // wherever TikTok nests them; log the STRUCTURE (keys only) if none found.
+    /* v1.64.0 — THE FIX FOR THIS CARD.
+       Until now this called /analytics/202508/shop_lives/overview_performance,
+       which answers 36009003 "Internal error" in every parameter shape the
+       28-08 probe tried. That is why this card has never shown a number: not
+       a scope problem, not our parameters — that endpoint does not open.
+       The same figures live in shop_lives/performance @202509, one row per
+       LIVE with its own sales_performance and interaction_performance, and
+       that endpoint answers. So the card now adds those rows up. */
+    const live = await ttAnalytics(env, TT_ANALYTICS.lives, "shop_lives",
+                                   { page_size: "50" }, { start_date_ge: start, end_date_lt: end });
+    if (!live.ok) return json({ error: live.why });
+    const data = { data: live.data } as { code?: number; message?: string; data?: Record<string, unknown> };
+    /* v1.64.0 — SUM, do not take the first.
+       The old reader stopped at the first value it found for each metric,
+       which was right when the payload was one overview object. It is now a
+       LIST of lives, and "the GMV of the first live" is not "GMV". Each row
+       is added up instead, and only metrics that are meaningful to add are
+       (ttAccumulate) — summing a click-through rate would produce a number
+       that looks like data and is nonsense. */
     const metrics: Record<string, number> = {};
-    const wanted = new Set(["gmv", "views", "likes", "comments", "shares", "new_followers", "followers", "units_sold", "sku_orders", "unique_buyers", "live_count", "duration", "avg_view_duration", "impressions", "unique_viewers", "customers", "orders"]);
-    const walk = (node: unknown, depth: number) => {
-      if (depth > 6 || node === null || typeof node !== "object") return;
-      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-        const key = k.toLowerCase();
-        if (wanted.has(key) && metrics[key] === undefined) {
-          if (typeof v === "number") metrics[key] = v;
-          else if (typeof v === "string" && v !== "" && !Number.isNaN(Number(v))) metrics[key] = Number(v);
-          else if (v && typeof v === "object" && "amount" in (v as Record<string, unknown>)) {
-            const amt = (v as { amount?: string | number }).amount;
-            if (amt !== undefined && !Number.isNaN(Number(amt))) metrics[key] = Number(amt);
-          }
-        }
-        if (v && typeof v === "object") walk(v, depth + 1);
-      }
-    };
-    walk(data.data ?? {}, 0);
+    const liveRows = ttRows(data.data);
+    ttAccumulate(liveRows, metrics, 0);
+    /* How many LIVEs those totals came from — without it "RM 4,200" has no
+       denominator and nobody can tell one good session from six poor ones. */
+    if (liveRows.length > 0) metrics.live_count = liveRows.length;
     if (Object.keys(metrics).length === 0) {
-      await logError(env, "tiktok_live_analytics", `no known metrics; top keys=[${Object.keys(data.data ?? {}).join(",")}]`);
+      await logError(env, "tiktok_live_analytics",
+        `no known metrics; ${liveRows.length} live row(s); row keys=[${Object.keys(liveRows[0] ?? {}).join(",")}]`);
     }
     const payload = { metrics, range: { start, end }, fetched_at_myt: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") };
     try {
@@ -3259,6 +3371,148 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ).bind(JSON.stringify({ fetched_at: Date.now(), payload })).run();
     } catch { /* pre-0057 — uncached is fine */ }
     return json(payload);
+  }
+
+  /* ---- TikTok Shop Analytics, the whole panel in one call (v1.64.0) ----
+     The CEO wants GMV, orders, units, buyers, visitors, views and CTR, split
+     by video, LIVE and product card. Seven endpoints answer; this reads all
+     of them once, caches for 30 minutes, and returns what came back.
+
+     Two rules it keeps, both learned the hard way on this integration:
+
+       1. A section that did not answer is NAMED, never drawn as zero. A zero
+          is a claim about the business; "TikTok refused this, here is what
+          they said" is the truth. `unavailable` carries those reasons.
+       2. Rates are never summed. CTR is recomputed from totals where it is
+          shown at all, because adding up percentages is how a dashboard
+          starts lying quietly.
+
+     Permission is `revenue_view`: this is per-product and per-video revenue,
+     which is the same class of data as /staff/revenue, not the motivational
+     shop-wide GMV any staff member may see. */
+  if (path === "/api/v1/tiktok-analytics" && method === "GET") {
+    if (!user || !can(user.role, "revenue_view")) {
+      return errorResponse("forbidden", "Revenue access required", 403);
+    }
+    const qDays = Number(new URL(request.url).searchParams.get("days"));
+    const days = qDays === 1 || qDays === 30 ? qDays : 7;
+    const cacheKey = `tiktok_analytics_cache_${days}`;
+    try {
+      const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`)
+        .bind(cacheKey).first<{ value: string }>();
+      if (cached?.value) {
+        const c = JSON.parse(cached.value) as { fetched_at: number; payload: Record<string, unknown> };
+        if (Date.now() - c.fetched_at < 30 * 60 * 1000) return json({ cached: true, ...c.payload });
+      }
+    } catch { /* no cache yet */ }
+
+    /* Malaysian days, and end_date_lt is exclusive — the same window shape
+       the probe proved TikTok accepts. */
+    const myt = new Date(Date.now() + 8 * 3600 * 1000);
+    const dayStr = (d: Date) => d.toISOString().slice(0, 10);
+    const range = {
+      start_date_ge: dayStr(new Date(myt.getTime() - (days - 1) * 86400_000)),
+      end_date_lt: dayStr(new Date(myt.getTime() + 86400_000)),
+    };
+    const unavailable: { what: string; why: string }[] = [];
+
+    /* All seven in parallel: one panel should cost one round trip, not
+       seven in a row. Each carries its own endpoint version. */
+    const [shopAll, shopDaily, products, skus, videos, lives] = await Promise.all([
+      ttAnalytics(env, TT_ANALYTICS.shop, "shop", { granularity: "ALL" }, range),
+      ttAnalytics(env, TT_ANALYTICS.shop, "shop", { granularity: "1D" }, range),
+      ttAnalytics(env, TT_ANALYTICS.products, "shop_products", { page_size: "20" }, range),
+      ttAnalytics(env, TT_ANALYTICS.skus, "shop_skus", { page_size: "20" }, range),
+      ttAnalytics(env, TT_ANALYTICS.videos, "shop_videos", { page_size: "20" }, range),
+      ttAnalytics(env, TT_ANALYTICS.lives, "shop_lives", { page_size: "20" }, range),
+    ]);
+
+    const shop: Record<string, number> = {};
+    if (shopAll.ok) ttAccumulate(shopAll.data, shop, 0);
+    else unavailable.push({ what: "Shop totals", why: shopAll.why ?? "refused" });
+
+    /* The daily series drives the trend line. Each bucket is summed on its
+       own so one bad day cannot be hidden inside a week's total. */
+    const daily: { date: string; gmv: number; orders: number }[] = [];
+    if (shopDaily.ok) {
+      for (const row of ttRows(shopDaily.data)) {
+        const m: Record<string, number> = {};
+        ttAccumulate(row, m, 0);
+        const date = String(row.date ?? row.day ?? row.start_date ?? "").slice(0, 10);
+        if (date) daily.push({ date, gmv: m.gmv ?? 0, orders: m.orders ?? m.sku_orders ?? 0 });
+      }
+      daily.sort((a, b) => a.date.localeCompare(b.date));
+    } else {
+      unavailable.push({ what: "Daily breakdown", why: shopDaily.why ?? "refused" });
+    }
+
+    /* Per-row readers. Field names below are the ones the probe actually saw
+       come back — not guesses — with `??` chains only where a version
+       genuinely uses a different name for the same thing. */
+    const num = (v: unknown): number => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+      if (v && typeof v === "object" && "amount" in (v as Record<string, unknown>)) {
+        const a = (v as { amount?: unknown }).amount;
+        if (a !== undefined && a !== null && Number.isFinite(Number(a))) return Number(a);
+      }
+      return 0;
+    };
+    const txt = (v: unknown, max = 120): string | null =>
+      typeof v === "string" && v.trim() !== "" ? v.slice(0, max) : null;
+
+    const productRows = products.ok ? ttRows(products.data).map((r) => ({
+      id: txt(r.id, 40), title: txt(r.title ?? r.name),
+      gmv: num(r.gmv), orders: num(r.orders), units_sold: num(r.units_sold),
+      click_through_rate: num(r.click_through_rate),
+    })) : [];
+    if (!products.ok) unavailable.push({ what: "Product cards", why: products.why ?? "refused" });
+
+    const skuRows = skus.ok ? ttRows(skus.data).map((r) => ({
+      id: txt(r.id, 40), product_id: txt(r.product_id, 40),
+      gmv: num(r.gmv), sku_orders: num(r.sku_orders), units_sold: num(r.units_sold),
+    })) : [];
+    if (!skus.ok) unavailable.push({ what: "SKUs", why: skus.why ?? "refused" });
+
+    const videoRows = videos.ok ? ttRows(videos.data).map((r) => ({
+      id: txt(r.id, 40), title: txt(r.title), username: txt(r.username, 60),
+      gmv: num(r.gmv), sku_orders: num(r.sku_orders),
+      units_sold: num(r.items_sold ?? r.units_sold), views: num(r.views),
+      click_through_rate: num(r.click_through_rate),
+      posted_at: txt(r.video_post_time, 40),
+    })) : [];
+    if (!videos.ok) unavailable.push({ what: "Videos", why: videos.why ?? "refused" });
+
+    /* A LIVE's numbers arrive nested in sales_performance /
+       interaction_performance, so each row is accumulated rather than read
+       field by field — the nesting has already changed once between
+       versions. */
+    const liveRows = lives.ok ? ttRows(lives.data).map((r) => {
+      const m: Record<string, number> = {};
+      ttAccumulate(r, m, 0);
+      return {
+        id: txt(r.id, 40), title: txt(r.title), username: txt(r.username, 60),
+        start_time: txt(r.start_time, 40), end_time: txt(r.end_time, 40),
+        gmv: m.gmv ?? 0, orders: m.orders ?? m.sku_orders ?? 0,
+        units_sold: m.units_sold ?? m.items_sold ?? 0, views: m.views ?? 0,
+      };
+    }) : [];
+    if (!lives.ok) unavailable.push({ what: "LIVE sessions", why: lives.why ?? "refused" });
+
+    const payload = {
+      window: { ...range, days },
+      shop, daily,
+      products: productRows, skus: skuRows, videos: videoRows, lives: liveRows,
+      unavailable,
+      fetched_at_myt: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " "),
+    };
+    try {
+      await env.DB.prepare(
+        `INSERT INTO system_meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = ?2`,
+      ).bind(cacheKey, JSON.stringify({ fetched_at: Date.now(), payload })).run();
+    } catch { /* uncached is fine */ }
+    return json({ cached: false, ...payload });
   }
 
   /* v1.4.191 (CEO gap list): OFF-CLOUDFLARE EXPORT — stream the newest R2
