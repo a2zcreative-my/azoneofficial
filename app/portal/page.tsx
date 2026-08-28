@@ -4945,6 +4945,8 @@ function TikTokAnalyticsCard() {
     shop?: Record<string, number>; shop_ok?: boolean;
     daily?: { date: string; gmv: number; orders: number }[];
     products?: Row[]; skus?: Row[]; videos?: Row[]; lives?: Row[];
+    /* names[] is joined server-side from the catalogue; a row may still
+       arrive with only an id if TikTok would not name it. */
     unavailable?: { what: string; why: string }[];
     fetched_at_myt?: string; cached?: boolean;
   }
@@ -5013,7 +5015,8 @@ function TikTokAnalyticsCard() {
      meanings, so the table stays narrow enough to read on a phone. */
   const lastCol: { label: string; value: (r: Row) => string } =
     tab === "lives" ? { label: L("Views", "Tontonan"), value: (r) => int(r.views) }
-    : tab === "skus" ? { label: L("Product", "Produk"), value: (r) => String(r.product_id ?? dash) }
+    : tab === "skus" ? { label: L("Product", "Produk"),
+                        value: (r) => String(r.product_name ?? r.product_id ?? dash) }
     : { label: "CTR", value: (r) => pct(r.click_through_rate) };
 
   return (
@@ -5138,6 +5141,13 @@ function TikTokAnalyticsCard() {
                         <span className="line-clamp-1">{String(r.title ?? r.id ?? dash)}</span>
                         {typeof r.username === "string" && r.username && (
                           <span className="text-muted-foreground block text-[10px]">@{r.username}</span>
+                        )}
+                        {/* The id stays, small: it is what Seller Center
+                            searches on, and it is the only handle left if a
+                            name never comes through. */}
+                        {r.title != null && typeof r.id === "string"
+                          && (tab === "products" || tab === "skus") && (
+                          <span className="text-muted-foreground/70 block font-mono text-[10px]">{r.id}</span>
                         )}
                       </td>
                       <td className={`${td} tabular-nums`}>{rm(r.gmv)}</td>
@@ -7616,7 +7626,7 @@ function PackagesEditorCard({ role }: { role: string }) {
    EXPANDABLE BY DESIGN: renders whatever lines the server sends; a third
    business line some day = zero changes here. Null until the worker has
    the route. */
-function BusinessLinesCard() {
+function BusinessLinesCard({ bare }: { bare?: boolean } = {}) {
   interface RevLine {
     key: string;
     label: string;
@@ -7629,9 +7639,17 @@ function BusinessLinesCard() {
       if (r.ok && r.data) setLines(r.data.lines);
     });
   }, []);
-  if (!lines || lines.length === 0) return null;
+  /* v1.64.3: inside the combined card an empty section must SAY it is empty
+     — a tab that opens onto nothing reads as a bug. Standalone it still
+     disappears, which is what a card with no data should do. */
+  const nothing = bare ? (
+    <p className="text-muted-foreground text-sm">
+      {L("No revenue recorded yet.", "Belum ada hasil direkodkan.")}
+    </p>
+  ) : null;
+  if (!lines || lines.length === 0) return nothing;
   const grand = lines.reduce((a, l) => a + l.total_cents, 0);
-  if (grand === 0) return null;
+  if (grand === 0) return nothing;
   const monthSet = new Set<string>();
   for (const l of lines) for (const m of l.months) monthSet.add(m.month);
   const monthsDesc = [...monthSet].sort().reverse();
@@ -7642,14 +7660,16 @@ function BusinessLinesCard() {
     service: "gold",
   };
   return (
-    <div className={card}>
-      <p className="text-sm font-semibold">
-        🧩{" "}
-        {L(
-          "Business lines — product vs service",
-          "Bidang perniagaan — produk vs perkhidmatan"
-        )}
-      </p>
+    <div className={bare ? "" : card}>
+      {!bare && (
+        <p className="text-sm font-semibold">
+          🧩{" "}
+          {L(
+            "Business lines — product vs service",
+            "Bidang perniagaan — produk vs perkhidmatan"
+          )}
+        </p>
+      )}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
           "Your two businesses, reported separately. Product = TikTok, Shopee, walk-in and product invoices; service = paid service invoices. Same arithmetic as every other revenue figure.",
@@ -7729,7 +7749,7 @@ function BusinessLinesCard() {
    every month of the business, all four channels (the /revenue overall
    block), with month-over-month movement and each month measured against
    the best. Frontend-only — the arithmetic already lives server-side. */
-function SalesHistoryCard() {
+function SalesHistoryCard({ bare }: { bare?: boolean } = {}) {
   const [rev, setRev] = useState<RevenueData | null>(null);
   useEffect(() => {
     void api<RevenueData>(`/staff/revenue`).then((r) => {
@@ -7737,19 +7757,26 @@ function SalesHistoryCard() {
     });
   }, []);
   const months = rev?.overall?.months ?? [];
-  if (months.length === 0) return null;
+  if (months.length === 0)
+    return bare ? (
+      <p className="text-muted-foreground text-sm">
+        {L("No months recorded yet.", "Belum ada bulan direkodkan.")}
+      </p>
+    ) : null;
   const best = Math.max(...months.map((m) => m.cents), 1);
   const total = months.reduce((a, m) => a + m.cents, 0);
   const rows = [...months].reverse(); // newest first
   return (
-    <div className={card}>
-      <p className="text-sm font-semibold">
-        📊{" "}
-        {L(
-          "Sales history — month by month",
-          "Sejarah jualan — bulan demi bulan"
-        )}
-      </p>
+    <div className={bare ? "" : card}>
+      {!bare && (
+        <p className="text-sm font-semibold">
+          📊{" "}
+          {L(
+            "Sales history — month by month",
+            "Sejarah jualan — bulan demi bulan"
+          )}
+        </p>
+      )}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
           "All four channels, since day one. The bar measures each month against your best.",
@@ -11047,7 +11074,12 @@ interface LeaderRow {
 /** The sales leaderboard — attributed sales per person this month, progress to
     target, and the commission the active rules would pay. The motivational
     heart of the sales floor. */
-function LeaderboardCard({ user }: { user: User }) {
+/* v1.64.3: `compact` renders the board for the 240px column beside the
+   Operations map — same data, same order, no card chrome. What goes is the
+   progress bar and the long attribution paragraph, neither of which survives
+   that width; the paragraph moves to the row tooltip so the explanation is
+   one hover away rather than gone. */
+function LeaderboardCard({ user, compact }: { user: User; compact?: boolean }) {
   const [rows, setRows] = useState<LeaderRow[] | null>(null);
   const [hasRules, setHasRules] = useState(false);
   const canSeeCommission = TARGET_ADMIN_ROLES.includes(user.role);
@@ -11065,8 +11097,8 @@ function LeaderboardCard({ user }: { user: User }) {
      never a blank hole where the card should be. */
   if (!rows) {
     return (
-      <div className={card}>
-        <Skel className="h-4 w-56" />
+      <div className={compact ? "border-border rounded-xl border p-3" : card}>
+        <Skel className={compact ? "h-4 w-32" : "h-4 w-56"} />
         <Skel className="mt-1.5 h-3 w-full max-w-md" />
         <div className="mt-3 space-y-1.5">
           {[0, 1, 2, 3].map((i) => (
@@ -11084,10 +11116,11 @@ function LeaderboardCard({ user }: { user: User }) {
   /* v1.25.5: no emoji in the UI — ranks are a gold badge for the podium and a
      plain #n below it. An unranked line (no attributed sales yet) shows a
      dash: the person is on the board, they just have not sold this month. */
+  const w = compact ? "w-5" : "w-7";
   const rankBadge = (rank: number | null) => {
     if (rank === null)
       return (
-        <span className="text-muted-foreground w-7 shrink-0 text-center text-xs">
+        <span className={`text-muted-foreground ${w} shrink-0 text-center text-xs`}>
           —
         </span>
       );
@@ -11099,9 +11132,9 @@ function LeaderboardCard({ user }: { user: User }) {
             ? "bg-gold-soft text-gold-deep"
             : "bg-secondary text-gold-deep";
       return (
-        <span className="flex w-7 shrink-0 justify-center">
+        <span className={`flex ${w} shrink-0 justify-center`}>
           <span
-            className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold tabular-nums ${tone}`}
+            className={`grid place-items-center rounded-full font-bold tabular-nums ${compact ? "h-5 w-5 text-[10px]" : "h-6 w-6 text-[11px]"} ${tone}`}
           >
             {rank}
           </span>
@@ -11109,12 +11142,70 @@ function LeaderboardCard({ user }: { user: User }) {
       );
     }
     return (
-      <span className="text-muted-foreground w-7 shrink-0 text-center text-xs tabular-nums">
+      <span className={`text-muted-foreground ${w} shrink-0 text-center text-xs tabular-nums`}>
         #{rank}
       </span>
     );
   };
   const top = rows[0]?.sales_cents ?? 0;
+  const why = L(
+    "Attributed sales per person: paid invoices they closed, TikTok GMV during their live sessions, walk-in sales they recorded — and for sales marketing, TikTok orders that land while they are clocked in (split when several are on shift). Sales, live and CCO are always listed, even at RM 0.00.",
+    "Jualan yang dikaitkan bagi setiap orang: invois dibayar yang mereka tutup, GMV TikTok semasa sesi LIVE mereka, jualan walk-in yang mereka rekodkan — dan bagi sales marketing, pesanan TikTok yang masuk semasa mereka daftar masuk (dibahagi apabila beberapa orang bertugas). Jualan, LIVE dan CCO sentiasa disenaraikan, walaupun RM 0.00."
+  );
+
+  /* ---- the narrow board that lives beside the map ---- */
+  if (compact) {
+    return (
+      <div className="border-border rounded-xl border p-3">
+        <p className="text-sm font-semibold">
+          {L("Sales leaderboard", "Papan pendahulu jualan")}
+        </p>
+        <p className="text-muted-foreground text-[11px]" title={why}>
+          {L("This month, attributed per person.", "Bulan ini, dikaitkan setiap orang.")}
+        </p>
+        {rows.length === 0 ? (
+          <p className="text-muted-foreground mt-2 text-xs">
+            {L("Nobody on the board yet.", "Belum ada sesiapa di papan.")}
+          </p>
+        ) : (
+          <div className="mt-2 -mx-1 space-y-0.5">
+            {rows.map((r) => {
+              const isMe = r.user_id === user.id;
+              return (
+                <div
+                  key={r.user_id}
+                  title={`${r.name} · ${r.role.replace(/_/g, " ")} · ${fmtRM(r.sales_cents)}`}
+                  className={`flex items-center gap-1.5 rounded-md px-1 py-1 text-xs ${isMe ? "bg-gold-soft/50 ring-gold ring-1" : ""}`}
+                >
+                  {rankBadge(r.rank)}
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className={r.rank === null ? "text-muted-foreground" : "font-medium"}>
+                      {firstName(r.name)}
+                    </span>
+                    {canSeeCommission && r.commission_cents > 0 && (
+                      <span className="text-gold-deep ml-1 text-[10px] tabular-nums">
+                        +{fmtRM(r.commission_cents)}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`shrink-0 text-right tabular-nums ${r.rank === null ? "text-muted-foreground" : "font-semibold"}`}
+                  >
+                    {fmtRM(r.sales_cents)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {canSeeCommission && !hasRules && rows.length > 0 && (
+          <p className="text-muted-foreground mt-1.5 text-[10px]">
+            {L("Add a commission rule to show payouts.", "Tambah peraturan komisen untuk memaparkan bayaran.")}
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={card}>
       <p className="text-sm font-semibold">
@@ -11216,8 +11307,65 @@ interface CommRule {
   active: number;
 }
 
+/* v1.64.3 (CEO: "Sales history ... Business lines ... should combine into 1
+   card of Targets & commission for minimalist"): three cards that all answer
+   "how is the money doing and who is paid for it" became one card with three
+   tabs. Three headers, three borders and roughly six hundred pixels of the
+   Ecommerce tab go with them.
+
+   All three stay MOUNTED and are hidden with CSS rather than unmounted on a
+   tab switch. Unmounting would refetch on every click and — worse — throw
+   away a half-typed target. Same three requests as before, once, on load.
+
+   The card is shown to everyone with revenue access, but the Targets tab
+   only exists for TARGET_ADMIN_ROLES. Before this change, history and
+   business lines were visible to the wider REVENUE_ROLES; folding them into
+   an admin-only card would have quietly taken them away from people who
+   could see them yesterday. */
+function MoneyCard({ user }: { user: User }) {
+  const canTargets = TARGET_ADMIN_ROLES.includes(user.role);
+  const tabs: { k: "targets" | "history" | "lines"; label: string }[] = [
+    ...(canTargets
+      ? [{ k: "targets" as const, label: L("Targets & commission", "Sasaran & komisen") }]
+      : []),
+    { k: "history", label: L("Sales history", "Sejarah jualan") },
+    { k: "lines", label: L("Business lines", "Bidang perniagaan") },
+  ];
+  const [tab, setTab] = useState<"targets" | "history" | "lines">(
+    canTargets ? "targets" : "history"
+  );
+
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-center gap-1">
+        {tabs.map((t) => (
+          <button
+            key={t.k}
+            type="button"
+            className={`${btnSm} ${tab === t.k ? "!bg-primary !text-primary-foreground" : ""}`}
+            onClick={() => setTab(t.k)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {canTargets && (
+        <div className={tab === "targets" ? "mt-3" : "hidden"}>
+          <TargetsCommissionCard bare />
+        </div>
+      )}
+      <div className={tab === "history" ? "mt-3" : "hidden"}>
+        <SalesHistoryCard bare />
+      </div>
+      <div className={tab === "lines" ? "mt-3" : "hidden"}>
+        <BusinessLinesCard bare />
+      </div>
+    </div>
+  );
+}
+
 /** Management: per-person & per-team targets, and commission rules. */
-function TargetsCommissionCard() {
+function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
   const month = new Date(Date.now() + 8 * 3600 * 1000)
     .toISOString()
     .slice(0, 7);
@@ -11297,11 +11445,13 @@ function TargetsCommissionCard() {
   };
 
   return (
-    <div className={card}>
+    <div className={bare ? "" : card}>
       {toastNode}
-      <p className="text-sm font-semibold">
-        {L("Targets & commission", "Sasaran & komisen")} — {ym(month)}
-      </p>
+      {!bare && (
+        <p className="text-sm font-semibold">
+          {L("Targets & commission", "Sasaran & komisen")} — {ym(month)}
+        </p>
+      )}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
           "Set each person's and each team's monthly goal, and the commission rules that pay them. Feeds the leaderboard and the dashboard.",
@@ -13027,16 +13177,14 @@ export default function PortalPage() {
                 per CEO — the month summary above the channel detail). */}
               {/* v1.21.1 (CEO): the map LEADS the tab — where the country is
                 buying, at a glance, before the detail cards. */}
-              {REVENUE_ROLES.includes(user.role) && <OpsMapCard />}
+              {/* v1.64.3 (CEO, on space): the leaderboard now rides in the
+                  map's side column, and targets + history + business lines
+                  are three tabs of one card. Five cards became two. */}
               {REVENUE_ROLES.includes(user.role) && (
-                <LeaderboardCard user={user} />
+                <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
               )}
-              {TARGET_ADMIN_ROLES.includes(user.role) && (
-                <TargetsCommissionCard />
-              )}
-              {REVENUE_ROLES.includes(user.role) && <SalesHistoryCard />}
+              {REVENUE_ROLES.includes(user.role) && <MoneyCard user={user} />}
               {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
-              {REVENUE_ROLES.includes(user.role) && <BusinessLinesCard />}
               <TikTokOrdersCard
                 role={user.role}
                 onChanged={() => {

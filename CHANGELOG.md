@@ -2,6 +2,65 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.64.3] — 2026-08-28 — the Ecommerce tab, five cards lighter
+
+**CEO: "Sales leaderboard can you clipped inside the Operations map — orders by state so that I can minimalise the space? Sales history — month by month, Business lines — product vs service should combine into 1 card of Targets & commission."**
+
+Five cards became two. Roughly eight hundred pixels of scrolling went with them, and nothing was removed.
+
+### The leaderboard moved into the map
+
+The map's side column was carrying two stat tiles, five state rows and a hint line — and then a third of its height in white space. The leaderboard now sits in it.
+
+It is not the same board squeezed narrower. At 240px the progress bar and the four-paragraph attribution note are not readable, so they go: **first names** instead of full names (the full name, role and figure are in the row tooltip), the podium badge shrinks, and the attribution note moves to the section's own tooltip — one hover away rather than gone. Commission, for those allowed to see it, rides beside the name as a small `+RM`.
+
+The wide board is still in the code and still the default. `compact` is a mode, not a replacement.
+
+### Targets, history and business lines are one card with three tabs
+
+They all answer the same question — how is the money doing, and who gets paid for it — so they are one card now, with three headers, three borders and three sets of padding removed.
+
+Two decisions worth recording:
+
+**All three tabs stay mounted, hidden with CSS rather than unmounted.** Unmounting on a tab click would refetch on every switch and, worse, throw away a half-typed target. The card issues the same three requests it always did, once, on load.
+
+**The Targets tab is gated; the card is not.** Targets & commission was `TARGET_ADMIN_ROLES`, while sales history and business lines were the wider `REVENUE_ROLES`. Folding them into an admin-only card would have quietly taken two reports away from everyone who could see them yesterday — an invisible permissions change, made by accident, while tidying up. So the card is shown to revenue roles and only the Targets tab is admin-only.
+
+### And a smaller one
+
+An empty section inside a tab now **says** it is empty. Standalone, both cards still vanish when there is no data, which is right for a card — but a tab that opens onto nothing reads as a bug.
+
+## [1.64.2] — 2026-08-28 — the analytics rows learn their own names
+
+**CEO: "I want to know product and variant with correct details instead of number which I don't know."**
+
+Fair. The Variants tab was a column of nineteen-digit ids — correct, verifiable, and no use whatsoever for deciding what to reorder.
+
+### Why the names were missing
+
+**None of TikTok's analytics endpoints return a product or variant name.** `shop_products/performance` returns `id, gmv, orders, units_sold, click_through_rate` and nothing else; `shop_skus/performance` adds `product_id` and stops there. v1.64.1's attempt to find them by asking for a newer endpoint version was the wrong tree — the names are not in that response at any version, because analytics and catalogue are different APIs.
+
+### Where they come from now
+
+A **name map**, fetched separately and joined on, cached six hours of its own — a catalogue changes on the day someone edits it, not on the half hour, and this must not become the slow part of a panel.
+
+Two sources, in order:
+
+1. **The catalogue** (`/product/202309/products/search`) — every product with its title, every SKU with the sales attributes that make up its variant name. Complete, including items that have never sold. The body sent is empty rather than status-filtered, because a wrong guess at their status enum fails the whole call.
+2. **Recent orders**, if that scope is not granted. Every line item carries `product_name` and `sku_name`. This is weaker in theory and near-equivalent in practice: an analytics row only exists because it *sold*, so an order carries its name.
+
+If neither answers, the rows still show ids and the panel **says so** in the amber block rather than showing blanks.
+
+### What the tables show
+
+A variant row needs both names to mean anything — "Mocha" alone says nothing, and the product title alone doesn't say which size went. So the **Variants** tab now reads the variant in the first column and its parent product in the last, and the **Product cards** tab reads the product title.
+
+**The id stays**, small and monospaced under the name. It's what Seller Center searches on, and it's the only handle left if a name never comes through. Removing it would have made the table prettier and harder to act on.
+
+### Also
+
+The Refresh button now busts the name cache too, so a product renamed in Seller Center can be pulled straight through instead of waiting six hours.
+
 ## [1.64.1] — 2026-08-28 — the analytics panel, made honest and made to answer
 
 The panel shipped an hour earlier had four faults, and the first one is the one that mattered.

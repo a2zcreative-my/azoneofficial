@@ -8,7 +8,7 @@
    leaving the tab. Orders come from GET /staff/orders/geo (buyer city from
    the TikTok sync), grouped into states client-side. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { makeApi } from "@/lib/api";
 import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
@@ -24,7 +24,11 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 type CityRow = { city: string; orders: number; cents: number };
 type StateAgg = { orders: number; cents: number; cities: CityRow[] };
 
-export function OpsMapCard() {
+/* v1.64.3 (CEO: "Sales leaderboard can you clipped inside the Operations
+   map ... so that I can minimalist the space?"): the side column had a
+   third of its height empty below the state list. `aside` fills it, so the
+   leaderboard costs a divider instead of a whole card. */
+export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
   const [cities, setCities] = useState<CityRow[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   useEffect(() => {
@@ -117,6 +121,7 @@ export function OpsMapCard() {
         </svg>
 
         {/* Inline detail panel — the click target's data, no tab hop. */}
+        <div className="space-y-3">
         <div className="border-border rounded-xl border p-3">
           {sel ? (
             <div>
@@ -193,6 +198,8 @@ export function OpsMapCard() {
               <p className="text-muted-foreground mt-2 text-[11px]">{L("Tap a state on the map for its city breakdown.", "Tekan negeri pada peta untuk pecahan bandarnya.")}</p>
             </div>
           )}
+        </div>
+        {aside}
         </div>
       </div>
     </div>

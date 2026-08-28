@@ -675,6 +675,139 @@ async function tiktokSignedFetch(
   }
 }
 
+
+/** v1.64.2 — TikTok id -> something a person can read.
+    NONE of the analytics endpoints return a product or variant name. They
+    return ids, which is how the panel came to show a table of 19-digit
+    numbers: correct, verifiable, and useless for deciding what to reorder.
+    So the names are fetched separately and joined on.
+
+    Two sources, in order:
+      1. The PRODUCT API, which is the catalogue itself: every product with
+         its title, every SKU with the sales attributes that make up its
+         variant name ("Mocha", "Free size"). Complete, including items that
+         have never sold.
+      2. If that scope is not granted, RECENT ORDERS. Every line item
+         carries product_name and sku_name. This covers exactly the rows the
+         analytics tabs show, because a row is only there if it sold — so
+         the fallback is weaker in theory and nearly equivalent in practice.
+
+    Cached for six hours: a catalogue changes on the day someone edits it,
+    not on the half hour, and this must never become the slow part of a
+    panel that is otherwise cached for thirty minutes. */
+interface TtNames {
+  products: Record<string, string>;   // product id  -> title
+  variants: Record<string, string>;   // sku id      -> variant name ("Mocha, Free size")
+  skuProduct: Record<string, string>; // sku id      -> its product's title
+  source: string;
+  why?: string;
+}
+
+async function ttNameMap(env: Env, fresh = false): Promise<TtNames> {
+  const KEY = "tiktok_name_map";
+  if (!fresh) {
+    try {
+      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`)
+        .bind(KEY).first<{ value: string }>();
+      if (row?.value) {
+        const c = JSON.parse(row.value) as { at: number; map: TtNames };
+        if (Date.now() - c.at < 6 * 3600 * 1000) return c.map;
+      }
+    } catch { /* no cache yet */ }
+  }
+
+  const out: TtNames = { products: {}, variants: {}, skuProduct: {}, source: "none" };
+
+  /* ---- 1. the catalogue ---- */
+  type TtProd = {
+    id?: string | number; title?: string;
+    skus?: { id?: string | number; seller_sku?: string;
+             sales_attributes?: { name?: string; value_name?: string }[] }[];
+  };
+  type TtProdResp = { code?: number; message?: string;
+                      data?: { products?: TtProd[]; next_page_token?: string } } | null;
+  let token = "";
+  let catalogueWhy = "";
+  for (let pg = 0; pg < 5; pg++) {
+    const res = (await tiktokSignedFetch(
+      env, "/product/202309/products/search",
+      { page_size: "100", ...(token ? { page_token: token } : {}) },
+      /* An empty body means "everything". A status filter here would be a
+         guess at their enum, and a wrong enum fails the whole call. */
+      JSON.stringify({}), "POST",
+    )) as TtProdResp;
+    if (!res || (typeof res.code === "number" && res.code !== 0)) {
+      if (pg === 0) catalogueWhy = String(res?.message ?? "no response");
+      break;
+    }
+    for (const p of res.data?.products ?? []) {
+      const pid = p.id === undefined || p.id === null ? "" : String(p.id);
+      const title = typeof p.title === "string" ? p.title.trim() : "";
+      if (pid && title) out.products[pid] = title.slice(0, 120);
+      for (const s of p.skus ?? []) {
+        const sid = s.id === undefined || s.id === null ? "" : String(s.id);
+        if (!sid) continue;
+        /* A variant name is the sales attributes joined: "Mocha, Free size".
+           Falling back to the seller's own SKU code is better than nothing,
+           because that is what is written on the shelf. */
+        const attrs = (s.sales_attributes ?? [])
+          .map((a) => (typeof a.value_name === "string" ? a.value_name.trim() : ""))
+          .filter(Boolean);
+        const label = attrs.length > 0 ? attrs.join(", ")
+          : (typeof s.seller_sku === "string" ? s.seller_sku.trim() : "");
+        if (label) out.variants[sid] = label.slice(0, 80);
+        if (title) out.skuProduct[sid] = title.slice(0, 120);
+      }
+    }
+    token = res.data?.next_page_token ?? "";
+    if (!token) break;
+  }
+  if (Object.keys(out.products).length > 0) out.source = "catalogue";
+
+  /* ---- 2. names carried by recent orders ---- */
+  if (out.source === "none") {
+    type TtOrd = { line_items?: { sku_id?: string | number; product_name?: string; sku_name?: string }[] };
+    type TtOrdResp = { code?: number; message?: string;
+                       data?: { orders?: TtOrd[]; next_page_token?: string } } | null;
+    const body = JSON.stringify({ create_time_ge: Math.floor(Date.now() / 1000) - 60 * 86400 });
+    let ot = "";
+    for (let pg = 0; pg < 4; pg++) {
+      const res = (await tiktokSignedFetch(
+        env, "/order/202309/orders/search",
+        { page_size: "50", ...(ot ? { page_token: ot } : {}) }, body, "POST",
+      )) as TtOrdResp;
+      if (!res || (typeof res.code === "number" && res.code !== 0)) break;
+      for (const o of res.data?.orders ?? []) {
+        for (const li of o.line_items ?? []) {
+          const sid = li.sku_id === undefined || li.sku_id === null ? "" : String(li.sku_id);
+          if (!sid) continue;
+          const pn = typeof li.product_name === "string" ? li.product_name.trim() : "";
+          const sn = typeof li.sku_name === "string" ? li.sku_name.trim() : "";
+          if (sn) out.variants[sid] ??= sn.slice(0, 80);
+          if (pn) out.skuProduct[sid] ??= pn.slice(0, 120);
+        }
+      }
+      ot = res.data?.next_page_token ?? "";
+      if (!ot) break;
+    }
+    if (Object.keys(out.skuProduct).length > 0) out.source = "orders";
+  }
+
+  if (out.source === "none") {
+    out.why = catalogueWhy
+      ? `TikTok would not list the catalogue (${catalogueWhy}) and recent orders carried no names either — rows are shown by id.`
+      : "No catalogue or order names available — rows are shown by id.";
+  }
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES (?1, ?2)
+       ON CONFLICT (key) DO UPDATE SET value = ?2`,
+    ).bind(KEY, JSON.stringify({ at: Date.now(), map: out })).run();
+  } catch { /* uncached is fine */ }
+  return out;
+}
+
 /** Group TikTok line items (one row per unit) into SKU + quantity. */
 function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_name?: string; sku_name?: string; sale_price?: string | number }[]): { sku: string; name: string; variant: string; qty: number; unit_sale_cents: number | null }[] {
   // v1.4.162: carry the TikTok names too — matching now falls back to the
@@ -3488,6 +3621,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
                                            "shop_skus", { page_size: "20" }, range);
     const videos = await ttAnalytics(env, TT_ANALYTICS.videos, "shop_videos", { page_size: "20" }, range);
     const lives = await ttAnalytics(env, TT_ANALYTICS.lives, "shop_lives", { page_size: "20" }, range);
+    /* v1.64.2: the analytics endpoints return ids and no names, so the
+       catalogue is joined on separately (six-hour cache of its own). */
+    const names = await ttNameMap(env, fresh);
+    if (names.why) unavailable.push({ what: "Product names", why: names.why });
 
     const usedEnd = shopAll.ok ? (shopAll.end ?? range.end_date_lt) : range.end_date_lt;
 
@@ -3538,19 +3675,32 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const byGmv = <T extends { gmv: number }>(rows: T[]): T[] =>
       rows.sort((a, b) => b.gmv - a.gmv);
 
-    const productRows = products.ok ? byGmv(ttRows(products.data).map((r) => ({
-      id: txt(r.id, 40), title: nameOf(r),
-      gmv: num(r.gmv), orders: num(r.orders ?? r.sku_orders),
-      units_sold: num(r.units_sold ?? r.items_sold),
-      click_through_rate: num(r.click_through_rate),
-    }))) : [];
+    const productRows = products.ok ? byGmv(ttRows(products.data).map((r) => {
+      const id = txt(r.id, 40);
+      return {
+        id, title: nameOf(r) ?? (id ? names.products[id] ?? null : null),
+        gmv: num(r.gmv), orders: num(r.orders ?? r.sku_orders),
+        units_sold: num(r.units_sold ?? r.items_sold),
+        click_through_rate: num(r.click_through_rate),
+      };
+    })) : [];
     if (!products.ok) unavailable.push({ what: "Product cards", why: products.why ?? "refused" });
 
-    const skuRows = skus.ok ? byGmv(ttRows(skus.data).map((r) => ({
-      id: txt(r.id, 40), title: nameOf(r), product_id: txt(r.product_id, 40),
-      gmv: num(r.gmv), sku_orders: num(r.sku_orders ?? r.orders),
-      units_sold: num(r.units_sold ?? r.items_sold),
-    }))) : [];
+    /* A variant row needs BOTH names to mean anything: "Mocha" alone says
+       nothing, and the product title alone does not say which size sold. */
+    const skuRows = skus.ok ? byGmv(ttRows(skus.data).map((r) => {
+      const id = txt(r.id, 40);
+      const pid = txt(r.product_id, 40);
+      const product = (pid ? names.products[pid] : null)
+        ?? (id ? names.skuProduct[id] : null) ?? null;
+      return {
+        id, product_id: pid,
+        title: nameOf(r) ?? (id ? names.variants[id] ?? null : null),
+        product_name: product,
+        gmv: num(r.gmv), sku_orders: num(r.sku_orders ?? r.orders),
+        units_sold: num(r.units_sold ?? r.items_sold),
+      };
+    })) : [];
     if (!skus.ok) unavailable.push({ what: "Variants", why: skus.why ?? "refused" });
 
     const videoRows = videos.ok ? byGmv(ttRows(videos.data).map((r) => {
