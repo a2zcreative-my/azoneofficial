@@ -6568,6 +6568,180 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     return json({ ok: true, mode, applied, skipped });
   }
 
+  /* ---- bulk WEB PRICE (v1.63.0) ----
+     The CEO, 28-08-2026: "I want to add price update in a bulk."
+
+     The sibling above changes what comes OFF a price; this changes the price
+     itself. Three ways, because all three are things a shop actually does:
+
+       set     — every selected item becomes RM X. One price across a
+                 collection, the commonest case by far.
+       percent — ±X% of each item's OWN current web price, so a range keeps
+                 its ladder instead of collapsing to one number.
+       amount  — ±RM X on each item's own price, same reasoning.
+
+     `direction` (+1 / −1) carries the sign for percent and amount, so the
+     input box never has to accept a minus and a typo cannot silently invert
+     a price rise into a cut.
+
+     The same discipline as the bulk discount: per-item validation, and a row
+     that cannot take the change is REPORTED by SKU rather than skipped
+     quietly. Nobody re-checks thirty rows afterwards.
+
+     One rule that is not obvious and matters: a price change can strand an
+     existing discount (RM 5 off a product just repriced to RM 4). Rather
+     than ship a negative price or refuse the whole run, a discount that no
+     longer fits is CLEARED on that item and named in the reply — the sale
+     ends, the price is right, and the shop is told which items lost their
+     discount. A price the customer cannot be charged is not an option. */
+  if (path === "/elfia/bulk-price" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
+    const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
+    if (clean.length > 500) return err("invalid_input", "Too many products in one go (max 500)", 400);
+
+    const mode = String(body?.mode ?? "");
+    if (!["set", "percent", "amount"].includes(mode)) {
+      return err("invalid_input", "mode must be set, percent or amount", 400);
+    }
+    const value = Number(body?.value);
+    const direction = Number(body?.direction) === -1 ? -1 : 1;
+    if (mode === "set" && (!Number.isFinite(value) || value <= 0 || value > 100000)) {
+      return err("invalid_input", "Price must be a positive RM amount", 400);
+    }
+    if (mode === "percent" && (!Number.isFinite(value) || value <= 0 || value >= 100)) {
+      return err("invalid_input", "Percentage must be above 0 and below 100", 400);
+    }
+    if (mode === "amount" && (!Number.isFinite(value) || value <= 0 || value > 100000)) {
+      return err("invalid_input", "Amount must be a positive RM value", 400);
+    }
+
+    let rows: { id: number; sku: string; unit_price_cents: number | null; elfia_price_cents: number | null; elfia_discount_cents: number | null }[];
+    try {
+      const q = await env.DB.prepare(
+        `SELECT id, sku, unit_price_cents, elfia_price_cents, elfia_discount_cents
+         FROM inventory_items WHERE id IN (${clean.map((_, i) => `?${i + 1}`).join(",")})`,
+      ).bind(...clean).all<{ id: number; sku: string; unit_price_cents: number | null; elfia_price_cents: number | null; elfia_discount_cents: number | null }>();
+      rows = q.results;
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0087, ELFIA discount)", 500);
+    }
+
+    const applied: { sku: string; from: number | null; to: number }[] = [];
+    const skipped: { sku: string; why: string }[] = [];
+    const discountCleared: string[] = [];
+    for (const r of rows) {
+      /* The item's own current web price, falling back to the list price —
+         the same base the feed prices against, so "10% off" here means what
+         the shop will show. */
+      const base = r.elfia_price_cents ?? r.unit_price_cents ?? 0;
+      let next: number;
+      if (mode === "set") {
+        next = Math.round(value * 100);
+      } else {
+        if (base <= 0) { skipped.push({ sku: r.sku, why: "no price to work from" }); continue; }
+        const delta = mode === "percent"
+          ? Math.round(base * value / 100)
+          : Math.round(value * 100);
+        next = base + direction * delta;
+      }
+      if (!Number.isFinite(next) || next <= 0) {
+        skipped.push({ sku: r.sku, why: "would leave the price at zero or below" });
+        continue;
+      }
+      /* A discount that no longer fits under the new price is cleared rather
+         than left to make the feed refuse the item silently. */
+      const disc = r.elfia_discount_cents;
+      const stranded = typeof disc === "number" && disc > 0 && disc >= next;
+      await env.DB.prepare(
+        stranded
+          ? `UPDATE inventory_items SET elfia_price_cents = ?1, elfia_discount_cents = NULL,
+               updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`
+          : `UPDATE inventory_items SET elfia_price_cents = ?1,
+               updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+      ).bind(next, user.id, r.id).run();
+      if (stranded) discountCleared.push(r.sku);
+      applied.push({ sku: r.sku, from: base > 0 ? base : null, to: next });
+    }
+
+    await audit(env, user.id, "elfia.bulk_price", "inventory_items", undefined,
+                { mode, value, direction, applied: applied.length, skipped: skipped.length,
+                  discount_cleared: discountCleared.length });
+    return json({ ok: true, mode, applied, skipped, discount_cleared: discountCleared });
+  }
+
+  /* ---- FLASH SALE window (v1.63.0) ----
+     The CEO, 28-08-2026: "add category for the flash sales and ELFIA should
+     have a pill of Flash Sales to make the customer attracted."
+
+     A flash sale is deliberately NOT a category. A product is a bawal or a
+     shawl — it does not stop being one because it is on offer this weekend,
+     and putting "flash sale" in the category column would cost the shop its
+     real grouping for the length of the sale and lose it afterwards.
+
+     It is a DEADLINE on the discount an item already carries. The feed
+     (bridge-feed.ts) reads that deadline and stops applying the discount the
+     moment it passes, so the price reverts by itself on the next pull with
+     nobody having to remember. The store is told the deadline only while it
+     is still ahead, which is what it counts down to on the pill.
+
+     `until` is an ISO timestamp; null ENDS the sale now (the discount stays,
+     it simply stops being a flash sale and becomes an ordinary one). An item
+     with no discount is refused rather than silently marked — a flash sale
+     with nothing off it is a lie on the shopfront. */
+  if (path === "/elfia/flash-sale" && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
+    const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
+    if (clean.length > 500) return err("invalid_input", "Too many products in one go (max 500)", 400);
+
+    const rawUntil = body?.until;
+    let until: string | null = null;
+    if (rawUntil !== null && rawUntil !== undefined && String(rawUntil).trim() !== "") {
+      const t = Date.parse(String(rawUntil));
+      if (!Number.isFinite(t)) return err("invalid_input", "That end time is not a valid date and time", 400);
+      if (t <= Date.now()) return err("invalid_input", "The end time is already in the past — pick a time ahead of now", 400);
+      if (t > Date.now() + 365 * 86400_000) return err("invalid_input", "A flash sale cannot run longer than a year", 400);
+      until = new Date(t).toISOString();
+    }
+
+    let rows: { id: number; sku: string; elfia_discount_cents: number | null }[];
+    try {
+      const q = await env.DB.prepare(
+        `SELECT id, sku, elfia_discount_cents FROM inventory_items
+         WHERE id IN (${clean.map((_, i) => `?${i + 1}`).join(",")})`,
+      ).bind(...clean).all<{ id: number; sku: string; elfia_discount_cents: number | null }>();
+      rows = q.results;
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0093_elfia_flash_sale)", 500);
+    }
+
+    const applied: string[] = [];
+    const skipped: { sku: string; why: string }[] = [];
+    for (const r of rows) {
+      const disc = r.elfia_discount_cents;
+      if (until !== null && !(typeof disc === "number" && disc > 0)) {
+        skipped.push({ sku: r.sku, why: "no discount set — give it one first, or the pill promises nothing" });
+        continue;
+      }
+      try {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET elfia_flash_until = ?1, updated_by = ?2,
+             updated_at = datetime('now') WHERE id = ?3`,
+        ).bind(until, user.id, r.id).run();
+      } catch {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0093_elfia_flash_sale)", 500);
+      }
+      applied.push(r.sku);
+    }
+
+    await audit(env, user.id, "elfia.flash_sale", "inventory_items", undefined,
+                { until, applied: applied.length, skipped: skipped.length });
+    return json({ ok: true, until, applied, skipped });
+  }
+
   /* ---- is online payment actually working? (v1.53.0) ----
      The CEO, 26-08-2026, on the live shop: "This appear on the gateway
      payment!" — customers were being told "Payment gateway unavailable" and

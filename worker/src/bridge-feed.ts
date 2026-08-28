@@ -33,6 +33,9 @@ export interface BridgeRow {
   elfia_image_updated_at?: string | null;
   /* v1.46.0 (0087) — per-item web discount in sen. */
   elfia_discount_cents?: number | null;
+  /* v1.63.0 (0093) — when a FLASH sale ends, as an ISO timestamp. NULL = the
+     discount above is an ordinary open-ended one. */
+  elfia_flash_until?: string | null;
 }
 
 export interface BridgeItem {
@@ -53,6 +56,10 @@ export interface BridgeItem {
      bites, so the shop can draw "RM 39.00 → RM 36.00". price_cents stays
      what the customer PAYS — the feed's oldest rule is untouched. */
   list_price_cents?: number;
+  /* v1.63.0 — a FLASH sale's deadline, sent ONLY while it is still ahead.
+     The shop draws a countdown from it. Absent = no flash sale running, so
+     the pill never appears on a price that is not actually falling back. */
+  flash_until?: string;
 }
 
 /* v1.46.0 — one hero slide of the ELFIA storefront carousel, authored in the
@@ -157,6 +164,35 @@ export function serializeBridgeSlides(rows: SlideRow[], mediaBase?: string): Bri
   return out.sort((a, b) => a.sort - b.sort || a.id - b.id);
 }
 
+/**
+ * v1.63.0 — a flash sale's deadline IF it is still ahead, else null.
+ *
+ * One clock decides, and it is the portal's. The store never works out for
+ * itself whether a sale is over: it is told a price, and told a deadline
+ * only while that deadline is real. That is what stops the shop and the
+ * office disagreeing about what a customer pays.
+ *
+ * The stored value is an ISO timestamp. Anything unparseable is treated as
+ * "no flash sale" rather than as an expired one — a typo must not silently
+ * cancel a discount someone set on purpose.
+ */
+export function flashActiveUntil(until: string | null | undefined, now = Date.now()): string | null {
+  if (typeof until !== "string" || until.trim() === "") return null;
+  const iso = until.includes("T") ? until : `${until.replace(" ", "T")}Z`;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return t > now ? until : null;
+}
+
+/** Has a flash deadline been SET and already passed? That is the one case
+    where a stored discount must stop applying by itself. */
+export function flashExpired(until: string | null | undefined, now = Date.now()): boolean {
+  if (typeof until !== "string" || until.trim() === "") return false;
+  const iso = until.includes("T") ? until : `${until.replace(" ", "T")}Z`;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && t <= now;
+}
+
 /** The price the shop must charge, in sen — or null for "send no price". */
 export function effectivePriceCents(row: {
   unit_price_cents?: number | null;
@@ -202,10 +238,27 @@ export function serializeBridgeItems(rows: BridgeRow[], mediaBase?: string): Bri
          list_price_cents — only when the discount actually bites. A discount
          that would take the price to zero or below is ignored rather than
          shipping a free or refused product. */
+      /* v1.63.0 — FLASH SALES. A discount may now carry a deadline, and the
+         deadline decides whether the discount is real:
+
+           no deadline     → an ordinary discount; applies exactly as before
+           deadline ahead  → a flash sale: the discount applies AND the shop
+                             is told when it ends, so it can count down
+           deadline passed → the sale is OVER. The discount is ignored here,
+                             so the price reverts by itself on the very next
+                             pull with nobody having to remember to clear it.
+                             That is the whole point of the word "flash".
+
+         Deciding it HERE rather than on the store means one clock and one
+         answer: the shop can never be showing a sale price the office
+         thinks has ended. */
       const disc = row.elfia_discount_cents;
-      if (typeof disc === "number" && Number.isInteger(disc) && disc > 0 && disc < price) {
+      const over = flashExpired(row.elfia_flash_until);
+      if (!over && typeof disc === "number" && Number.isInteger(disc) && disc > 0 && disc < price) {
         item.price_cents = price - disc;
         item.list_price_cents = price;
+        const until = flashActiveUntil(row.elfia_flash_until);
+        if (until) item.flash_until = until;
       } else {
         item.price_cents = price;
       }

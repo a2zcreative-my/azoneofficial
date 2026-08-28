@@ -263,7 +263,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0086_totp_replay_guard";
+const LATEST_MIGRATION = "0093_elfia_flash_sale";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1702,12 +1702,28 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const { results } = await env.DB.prepare(
         `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
                 elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at,
-                elfia_discount_cents
+                elfia_discount_cents, elfia_flash_until
          FROM inventory_items WHERE bridge_enabled = 1
          ORDER BY sku LIMIT 1000`,
       ).all();
       rows = results as unknown as BridgeRow[];
     } catch {
+      try {
+        /* v1.63.0 — 0093 pending. ONE tier for ONE column: everything the
+           v1.49 feed carried, minus the flash deadline. Without this step a
+           database missing only `elfia_flash_until` would fall all the way
+           to the flags-and-prices feed and the shop would lose its photos,
+           descriptions, collections AND discounts until someone migrated —
+           a punishment out of all proportion to the missing field. */
+        const { results } = await env.DB.prepare(
+          `SELECT sku, name, stock, status, bridge_enabled, unit_price_cents, elfia_price_cents,
+                  elfia_category, elfia_description, elfia_image_key, elfia_image_updated_at,
+                  elfia_discount_cents
+           FROM inventory_items WHERE bridge_enabled = 1
+           ORDER BY sku LIMIT 1000`,
+        ).all();
+        rows = results as unknown as BridgeRow[];
+      } catch {
       try {
         /* 0086 pending — the v1.35.0 feed: flags + prices, no dressing. */
         const { results } = await env.DB.prepare(
@@ -1725,6 +1741,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
            ORDER BY sku LIMIT 500`,
         ).all();
         rows = results as unknown as BridgeRow[];
+      }
       }
     }
     /* Photo URLs are built on THIS request's own origin — production serves
@@ -3373,6 +3390,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0088 (ELFIA slide framing)", `SELECT focus_x FROM elfia_slides LIMIT 1`],
       ["0089 (ELFIA slide zoom)", `SELECT zoom FROM elfia_slides LIMIT 1`],
       ["0090 (ELFIA slide cut-out)", `SELECT cutout_key FROM elfia_slides LIMIT 1`],
+      /* v1.63.0 — 0091/0092 shipped unprobed, so a database missing them
+         would have shown a green banner while leave adjustments silently
+         failed. The standing rule has THREE places, not two. */
+      ["0091 (leave adjust)", `SELECT adjust FROM leave_balances LIMIT 1`],
+      ["0092 (leave used adjust)", `SELECT used_adjust FROM leave_balances LIMIT 1`],
+      ["0093 (ELFIA flash sale)", `SELECT elfia_flash_until FROM inventory_items LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -3478,6 +3501,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0088_elfia_slide_framing",
       "0089_elfia_slide_zoom",
       "0090_elfia_slide_cutout",
+      /* v1.63.0 — 0091 and 0092 shipped without being registered here, and
+         LATEST_MIGRATION still named 0086, so registry-parity would have
+         failed the build and the pending-migration banner could not have
+         named them. Both are listed now, with 0093. */
+      "0091_leave_adjust",
+      "0092_leave_used_adjust",
+      "0093_elfia_flash_sale",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

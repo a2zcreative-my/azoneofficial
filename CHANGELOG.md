@@ -2,6 +2,36 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.63.0] — 2026-08-28 — bulk prices, and Flash Sales
+
+**CEO: "I want to add price update in a bulk, add category for the flash sales and ELFIA should have a pill of Flash Sales to make the customer attracted."**
+
+### Bulk web price (`/elfia/bulk-price`)
+
+The sibling of bulk discount: that one changes what comes *off* a price, this changes the price itself. Three ways, because all three are things a shop actually does — **set to RM X** (one price across a collection), **± % ** and **± RM** (both worked out from each product's own current web price, so a range keeps its ladder instead of collapsing to one number). The direction is a dropdown, not a minus sign in the box: a stray "−" turning a price rise into a cut is not a mistake worth leaving available.
+
+Same reporting discipline as the discount: rows it cannot apply to are **named by SKU**, never skipped quietly. And one case that needed deciding rather than ignoring — a new price can strand an existing discount (RM 5 off a product just repriced to RM 4). Rather than ship a price no customer could be charged, the discount is cleared on that item and reported. 
+
+### Flash sales (`/elfia/flash-sale`, migration `0093_elfia_flash_sale`)
+
+**A flash sale is deliberately not a category.** A product is a bawal or a shawl — it does not stop being one because it is on offer this weekend, and putting "flash sale" in the category column would have cost the shop its real grouping for the length of the sale and lost it afterwards. It is a **deadline on the discount the item already carries**:
+
+| discount | deadline | what happens |
+|---|---|---|
+| set | none | an ordinary discount, runs until cleared — unchanged behaviour |
+| set | ahead | a flash sale: the discount applies and the shop counts down to it |
+| set | passed | **over** — the feed stops applying the discount, so the price reverts by itself on the very next pull |
+
+That last row is the point of the word "flash": nobody has to remember to end it. And because the *portal* decides it rather than the store, there is one clock and one answer — the shopfront can never be selling at a price the office believes expired. A flash sale on an item with no discount is refused, because a pill that promises nothing is a lie on the shopfront.
+
+The store's half ships as elfia-store v1.41.0: a red ⚡ Flash Sale pill with a live countdown on the card and product page, which removes itself the second the clock reaches zero rather than waiting for the next sync.
+
+### Registry repairs found on the way
+
+`LATEST_MIGRATION` still named `0086_totp_replay_guard` while the newest file was `0092`, and **0091/0092 were in neither `EXPECTED_MIGRATIONS` nor the health probes** — so `registry-parity` would have failed the build, and the pending-migration banner could not have named them. All three registries are correct again, and 0093 joins them.
+
+Also: the ELFIA feed's fallback chain gained a tier. A database missing only the new `elfia_flash_until` column would have fallen all the way to the flags-and-prices feed and the shop would have lost its photos, descriptions, collections *and* discounts until someone migrated — a punishment out of all proportion to one missing field.
+
 ## [1.45.0] — 2026-08-27 — the security audit's findings, closed
 
 **CEO: "Audit all project files thoroughly as a security-focused code reviewer … then eliminate the findings and ensure that it is working well without any error."** The audit ran read-only first (both repos, four parallel reviews, every serious finding re-verified by hand against the code). This release fixes the portal's share; the store's ships as elfia-store v1.4.0 alongside.

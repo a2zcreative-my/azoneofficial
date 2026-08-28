@@ -206,6 +206,17 @@ export function ElfiaStorePanel() {
   const [bulkMode, setBulkMode] = useState<"amount" | "percent">("percent");
   const [bulkValue, setBulkValue] = useState("");
   const [busyBulk, setBusyBulk] = useState(false);
+  /* v1.63.0 — bulk PRICE (the sibling of bulk discount: one changes what
+     comes OFF a price, this changes the price itself) and the FLASH SALE
+     window. `priceDir` carries the sign for the ± modes so the input box
+     never has to accept a minus — a stray "-" turning a price rise into a
+     cut is not a mistake worth leaving available. */
+  const [priceMode, setPriceMode] = useState<"set" | "percent" | "amount">("set");
+  const [priceDir, setPriceDir] = useState<1 | -1>(-1);
+  const [priceValue, setPriceValue] = useState("");
+  const [busyPrice, setBusyPrice] = useState(false);
+  const [flashUntil, setFlashUntil] = useState("");
+  const [busyFlash, setBusyFlash] = useState(false);
   /* v1.55.0 — the uploadable catalog. `cat` is what the server holds;
      `catDraft` is a chosen file read in this browser, waiting for Upload. */
   const [cat, setCat] = useState<CatStatus | null>(null);
@@ -452,6 +463,91 @@ export function ElfiaStorePanel() {
       setPicked(new Set());
       void load();
     } finally { setBusyBulk(false); }
+  };
+
+  /* v1.63.0 — bulk WEB PRICE. The CEO: "I want to add price update in a
+     bulk." Same reporting discipline as the discount above: skipped rows are
+     NAMED, and so is any discount the new price stranded (RM 5 off a product
+     just repriced to RM 4 cannot stand) — the server clears those and says
+     which, rather than shipping a price no customer could be charged. */
+  const applyPrice = async () => {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    const value = Number(priceValue.trim());
+    const bad = !Number.isFinite(value) || value <= 0 || (priceMode === "percent" && value >= 100);
+    if (bad) {
+      toast(L("Not applied", "Tidak digunakan"),
+        priceMode === "percent"
+          ? L("Enter a percentage above 0 and below 100", "Masukkan peratusan melebihi 0 dan kurang daripada 100")
+          : L("Enter a positive RM amount", "Masukkan amaun RM positif"), "notice");
+      return;
+    }
+    setBusyPrice(true);
+    try {
+      const res = await api<{ applied?: { sku: string }[]; skipped?: { sku: string; why: string }[];
+        discount_cleared?: string[]; error?: { message?: string } }>(
+        `/elfia/bulk-price`,
+        { method: "POST", body: JSON.stringify({ ids, mode: priceMode, value, direction: priceMode === "set" ? 1 : priceDir }) });
+      if (!res.ok) {
+        toast(L("Not applied", "Tidak digunakan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice");
+        return;
+      }
+      const n = res.data?.applied?.length ?? 0;
+      const skip = res.data?.skipped ?? [];
+      const cleared = res.data?.discount_cleared ?? [];
+      toast(
+        skip.length || cleared.length ? L("Priced, with exceptions", "Diharga, dengan pengecualian") : L("Priced", "Diharga"),
+        `${n} ${L("product", "produk")}${n === 1 ? "" : "s"}` +
+        (cleared.length ? ` · ${L("discount cleared on", "diskaun dibuang pada")}: ${cleared.slice(0, 4).join(", ")}${cleared.length > 4 ? ` +${cleared.length - 4}` : ""}` : "") +
+        (skip.length ? ` · ${L("skipped", "dilangkau")}: ${skip.slice(0, 4).map((s) => `${s.sku} (${s.why})`).join(", ")}${skip.length > 4 ? ` +${skip.length - 4}` : ""}` : ""),
+        skip.length || cleared.length ? "notice" : undefined);
+      setPicked(new Set());
+      void load();
+    } finally { setBusyPrice(false); }
+  };
+
+  /* v1.63.0 — the FLASH SALE window. `until` null ENDS it: the discount
+     stays, it simply stops being a flash sale. Ending is a separate button
+     from setting, for the same reason "Remove discount" is: a box that means
+     both "this time" and "no time" is a box that gets misread.
+
+     The deadline is typed in the browser's own local time and sent as an
+     absolute instant, so the shop's countdown and the office's clock cannot
+     disagree about when the sale ends. */
+  const applyFlash = async (end: boolean) => {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    if (!end && flashUntil.trim() === "") {
+      toast(L("Not applied", "Tidak digunakan"),
+            L("Pick the date and time the sale ends", "Pilih tarikh dan masa jualan tamat"), "notice");
+      return;
+    }
+    /* datetime-local has no timezone; the Date constructor reads it as local
+       time, and toISOString turns it into the absolute instant the server
+       stores. */
+    const untilIso = end ? null : new Date(flashUntil).toISOString();
+    if (!end && !Number.isFinite(Date.parse(untilIso ?? ""))) {
+      toast(L("Not applied", "Tidak digunakan"), L("That date and time is not valid", "Tarikh dan masa itu tidak sah"), "notice");
+      return;
+    }
+    setBusyFlash(true);
+    try {
+      const res = await api<{ applied?: string[]; skipped?: { sku: string; why: string }[]; error?: { message?: string } }>(
+        `/elfia/flash-sale`, { method: "POST", body: JSON.stringify({ ids, until: untilIso }) });
+      if (!res.ok) {
+        toast(L("Not applied", "Tidak digunakan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice");
+        return;
+      }
+      const n = res.data?.applied?.length ?? 0;
+      const skip = res.data?.skipped ?? [];
+      toast(
+        end ? L("Flash sale ended", "Jualan kilat ditamatkan") : L("Flash sale set", "Jualan kilat ditetapkan"),
+        `${n} ${L("product", "produk")}${n === 1 ? "" : "s"}` +
+        (skip.length ? ` · ${L("skipped", "dilangkau")}: ${skip.slice(0, 3).map((s) => `${s.sku} (${s.why})`).join(", ")}${skip.length > 3 ? ` +${skip.length - 3}` : ""}` : ""),
+        skip.length ? "notice" : undefined);
+      setPicked(new Set());
+      void load();
+    } finally { setBusyFlash(false); }
   };
 
   /* v1.53.0 — ask the shop whether online payment is working. Deliberately
@@ -1569,6 +1665,81 @@ export function ElfiaStorePanel() {
                 : L("The same RM off every selected product. Anything cheaper than that is named, not skipped quietly.",
                     "Potongan RM yang sama bagi setiap produk dipilih. Apa-apa yang lebih murah akan dinamakan, bukan dilangkau diam-diam.")}
             </span>
+
+            {/* ---- v1.63.0: bulk WEB PRICE ----
+                Its own row, and deliberately below the discount: the two are
+                easy to confuse, and the price is the number the discount
+                comes off. */}
+            <div className="border-amber-300/70 dark:border-amber-700/70 mt-1 w-full border-t pt-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+                  {L("Web price", "Harga web")}
+                </span>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <select value={priceMode} onChange={(e) => setPriceMode(e.target.value as "set" | "percent" | "amount")}
+                    className="border-input bg-background rounded border px-1.5 py-1"
+                    aria-label={L("Price change type", "Jenis perubahan harga")}>
+                    <option value="set">{L("set to RM", "tetapkan RM")}</option>
+                    <option value="percent">{L("by %", "mengikut %")}</option>
+                    <option value="amount">{L("by RM", "mengikut RM")}</option>
+                  </select>
+                  {priceMode !== "set" && (
+                    <select value={priceDir} onChange={(e) => setPriceDir(Number(e.target.value) === 1 ? 1 : -1)}
+                      className="border-input bg-background rounded border px-1.5 py-1"
+                      aria-label={L("Up or down", "Naik atau turun")}>
+                      <option value={-1}>{L("down", "turun")}</option>
+                      <option value={1}>{L("up", "naik")}</option>
+                    </select>
+                  )}
+                  <input value={priceValue} onChange={(e) => setPriceValue(e.target.value)}
+                    inputMode="decimal" placeholder={priceMode === "percent" ? "10" : "14.00"}
+                    aria-label={L("Price value", "Nilai harga")}
+                    className={`${inputClass} w-20`} />
+                </label>
+                <button type="button" className={btnSm} disabled={busyPrice}
+                  onClick={() => void applyPrice()}>
+                  {busyPrice ? L("Pricing…", "Menetapkan…") : L("Apply price", "Guna harga")}
+                </button>
+                <span className="text-muted-foreground w-full text-[11px]">
+                  {priceMode === "set"
+                    ? L("Every selected product becomes this price. A discount that no longer fits under it is cleared and named.",
+                        "Setiap produk dipilih menjadi harga ini. Diskaun yang tidak lagi muat akan dibuang dan dinamakan.")
+                    : L("Worked out from each product's own current web price, so a range keeps its ladder. Anything it cannot apply to is named.",
+                        "Dikira daripada harga web semasa setiap produk, jadi julat mengekalkan tangganya. Apa-apa yang tidak boleh digunakan akan dinamakan.")}
+                </span>
+              </div>
+            </div>
+
+            {/* ---- v1.63.0: FLASH SALE ----
+                Not a category: a deadline on the discount the item already
+                has. When it passes the price reverts by itself on the next
+                sync — nobody has to remember to end it. */}
+            <div className="border-amber-300/70 dark:border-amber-700/70 mt-1 w-full border-t pt-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+                  ⚡ {L("Flash sale", "Jualan kilat")}
+                </span>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground">{L("ends", "tamat")}</span>
+                  <input type="datetime-local" value={flashUntil}
+                    onChange={(e) => setFlashUntil(e.target.value)}
+                    aria-label={L("Flash sale end time", "Masa tamat jualan kilat")}
+                    className={`${inputClass} w-52`} />
+                </label>
+                <button type="button" className={btnSm} disabled={busyFlash}
+                  onClick={() => void applyFlash(false)}>
+                  {busyFlash ? L("Setting…", "Menetapkan…") : L("Start flash sale", "Mula jualan kilat")}
+                </button>
+                <button type="button" className={btnSm} disabled={busyFlash}
+                  onClick={() => void applyFlash(true)}>
+                  {L("End flash sale", "Tamatkan jualan kilat")}
+                </button>
+                <span className="text-muted-foreground w-full text-[11px]">
+                  {L("Needs a discount first — the shop shows a red Flash Sale pill counting down to this time, then puts the price back by itself. Ending it early keeps the discount, it just stops being a flash sale.",
+                     "Perlukan diskaun dahulu — kedai menunjukkan pil merah Jualan Kilat mengira detik ke masa ini, kemudian mengembalikan harga dengan sendirinya. Menamatkannya awal mengekalkan diskaun, cuma ia berhenti menjadi jualan kilat.")}
+                </span>
+              </div>
+            </div>
           </div>
         )}
 
