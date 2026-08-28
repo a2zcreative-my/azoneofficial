@@ -4942,7 +4942,7 @@ function TikTokAnalyticsCard() {
   type Row = Record<string, unknown>;
   interface Analytics {
     window?: { start_date_ge: string; end_date_lt: string; days: number };
-    shop?: Record<string, number>;
+    shop?: Record<string, number>; shop_ok?: boolean;
     daily?: { date: string; gmv: number; orders: number }[];
     products?: Row[]; skus?: Row[]; videos?: Row[]; lives?: Row[];
     unavailable?: { what: string; why: string }[];
@@ -4954,10 +4954,10 @@ function TikTokAnalyticsCard() {
   const [tab, setTab] = useState<"videos" | "lives" | "products" | "skus">("videos");
   const { show: toast, node: toastNode } = useSaveToast();
 
-  const load = useCallback(async (d: number) => {
+  const load = useCallback(async (d: number, fresh = false) => {
     setBusy(true);
     try {
-      const r = await api<Analytics>(`/tiktok-analytics?days=${d}`);
+      const r = await api<Analytics>(`/tiktok-analytics?days=${d}${fresh ? "&fresh=1" : ""}`);
       if (!r.ok) {
         toast(L("Could not load", "Tidak dapat memuatkan"),
               (r.data as { error?: { message?: string } } | null)?.error?.message
@@ -4983,7 +4983,22 @@ function TikTokAnalyticsCard() {
   };
 
   const shop = data?.shop ?? {};
+  const shopOk = data?.shop_ok !== false;
+  /* A dash, not a zero. A zero says nobody bought. */
+  const dash = "\u2014";
   const gone = data?.unavailable ?? [];
+  /* Two sections refused for the same reason should say it once. */
+  const goneGrouped = Object.entries(
+    gone.reduce<Record<string, string[]>>((acc, u) => {
+      (acc[u.why] ??= []).push(u.what); return acc;
+    }, {}),
+  );
+  /* end_date_lt is EXCLUSIVE, so the last day actually covered is the day
+     before it. Showing the exclusive bound would be off by one on screen. */
+  const win = data?.window;
+  const lastDay = win
+    ? new Date(new Date(`${win.end_date_lt}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
+    : null;
   const daily = data?.daily ?? [];
   const peak = Math.max(1, ...daily.map((d) => n(d.gmv)));
 
@@ -4998,7 +5013,7 @@ function TikTokAnalyticsCard() {
      meanings, so the table stays narrow enough to read on a phone. */
   const lastCol: { label: string; value: (r: Row) => string } =
     tab === "lives" ? { label: L("Views", "Tontonan"), value: (r) => int(r.views) }
-    : tab === "skus" ? { label: L("Product", "Produk"), value: (r) => String(r.product_id ?? "—") }
+    : tab === "skus" ? { label: L("Product", "Produk"), value: (r) => String(r.product_id ?? dash) }
     : { label: "CTR", value: (r) => pct(r.click_through_rate) };
 
   return (
@@ -5008,9 +5023,9 @@ function TikTokAnalyticsCard() {
         <div>
           <h3 className="font-semibold">{L("TikTok Shop Analytics", "Analitis Kedai TikTok")}</h3>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {data?.fetched_at_myt
-              ? L(`Read from TikTok at ${data.fetched_at_myt} MYT${data.cached ? " (cached, refreshes every 30 minutes)" : ""}`,
-                  `Dibaca daripada TikTok pada ${data.fetched_at_myt} MYT${data.cached ? " (cache, disegarkan setiap 30 minit)" : ""}`)
+            {data?.fetched_at_myt && win && lastDay
+              ? L(`${dmy(win.start_date_ge)} to ${dmy(lastDay)} · read from TikTok at ${data.fetched_at_myt} MYT${data.cached ? " (cached)" : ""}`,
+                  `${dmy(win.start_date_ge)} hingga ${dmy(lastDay)} · dibaca daripada TikTok pada ${data.fetched_at_myt} MYT${data.cached ? " (cache)" : ""}`)
               : L("GMV, orders, units and CTR — by video, LIVE and product card.",
                   "GMV, pesanan, unit dan CTR — mengikut video, siaran langsung dan kad produk.")}
           </p>
@@ -5023,14 +5038,21 @@ function TikTokAnalyticsCard() {
               {d === 1 ? L("Today", "Hari ini") : `${d} ${L("days", "hari")}`}
             </button>
           ))}
+          {/* Straight past the 30-minute cache, for when a figure is being
+              chased right now rather than glanced at. */}
+          <button type="button" className={btnSm} disabled={busy}
+            title={L("Ignore the 30-minute cache", "Abaikan cache 30 minit")}
+            onClick={() => void load(days, true)}>
+            {busy ? L("Reading…", "Membaca…") : L("Refresh", "Segarkan")}
+          </button>
         </div>
       </div>
 
       {/* Anything TikTok refused, in their words. Never a silent zero. */}
       {gone.length > 0 && (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          {gone.map((u) => (
-            <p key={u.what}><span className="font-semibold">{u.what}:</span> {u.why}</p>
+          {goneGrouped.map(([why, whats]) => (
+            <p key={why}><span className="font-semibold">{whats.join(" + ")}:</span> {why}</p>
           ))}
         </div>
       )}
@@ -5044,10 +5066,10 @@ function TikTokAnalyticsCard() {
           {/* ---- the shop's own totals ---- */}
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             {([
-              ["GMV", rm(shop.gmv)],
-              [L("Orders", "Pesanan"), int(shop.orders ?? shop.sku_orders)],
-              [L("Units sold", "Unit dijual"), int(shop.units_sold ?? shop.items_sold)],
-              [L("Buyers", "Pembeli"), int(shop.buyers ?? shop.unique_buyers ?? shop.customers)],
+              ["GMV", shopOk ? rm(shop.gmv) : dash],
+              [L("Orders", "Pesanan"), shopOk ? int(shop.orders ?? shop.sku_orders) : dash],
+              [L("Units sold", "Unit dijual"), shopOk ? int(shop.units_sold ?? shop.items_sold) : dash],
+              [L("Buyers", "Pembeli"), shopOk ? int(shop.buyers ?? shop.unique_buyers ?? shop.customers) : dash],
             ] as const).map(([label, value]) => (
               <div key={label} className="bg-secondary rounded-lg px-2.5 py-2">
                 <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{label}</p>
@@ -5113,7 +5135,7 @@ function TikTokAnalyticsCard() {
                   {rows.map((r, i) => (
                     <tr key={String(r.id ?? i)} className="border-border/60 border-b last:border-0">
                       <td className={td}>
-                        <span className="line-clamp-1">{String(r.title ?? r.id ?? "—")}</span>
+                        <span className="line-clamp-1">{String(r.title ?? r.id ?? dash)}</span>
                         {typeof r.username === "string" && r.username && (
                           <span className="text-muted-foreground block text-[10px]">@{r.username}</span>
                         )}

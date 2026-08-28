@@ -609,6 +609,44 @@ async function ttAnalytics(
   return { ok: true, data: res.data };
 }
 
+
+/** v1.64.1 — the same call across a list of candidate END dates, stopping at
+    the first TikTok accepts.
+    shop/performance refused `end_date_lt = tomorrow` with 36009003 while the
+    list endpoints allowed it. Rather than pick one date and hope, the totals
+    ask for the window that has always worked and then reach for the wider
+    one, reporting which they got — so "up to yesterday" is a labelled fact
+    rather than a silent shortfall. */
+async function ttAnalyticsWindow(
+  env: Env, version: string, resource: string, extra: Record<string, string>,
+  start: string, ends: string[],
+): Promise<{ ok: boolean; data?: unknown; why?: string; end?: string }> {
+  let last: { ok: boolean; data?: unknown; why?: string } = { ok: false, why: "no window tried" };
+  for (const end of ends) {
+    last = await ttAnalytics(env, version, resource, extra,
+                             { start_date_ge: start, end_date_lt: end });
+    if (last.ok) return { ...last, end };
+  }
+  return last;
+}
+
+/** The same call across candidate VERSIONS, stopping at the first that
+    answers. Used where a newer version carries a field the older one omits
+    (product and SKU names) but may not exist for that resource: 36009004
+    names the version, so the fallback is one wasted call, once per cache
+    period, in exchange for rows that have a name instead of an id. */
+async function ttAnalyticsVersions(
+  env: Env, versions: string[], resource: string, extra: Record<string, string>,
+  range: { start_date_ge: string; end_date_lt: string },
+): Promise<{ ok: boolean; data?: unknown; why?: string }> {
+  let last: { ok: boolean; data?: unknown; why?: string } = { ok: false, why: "no version tried" };
+  for (const v of versions) {
+    last = await ttAnalytics(env, v, resource, extra, range);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
 async function tiktokSignedFetch(
   env: Env, path: string, params: Record<string, string>, body?: string, method = "GET",
 ): Promise<unknown> {
@@ -3397,41 +3435,68 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const qDays = Number(new URL(request.url).searchParams.get("days"));
     const days = qDays === 1 || qDays === 30 ? qDays : 7;
     const cacheKey = `tiktok_analytics_cache_${days}`;
-    try {
-      const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`)
-        .bind(cacheKey).first<{ value: string }>();
-      if (cached?.value) {
-        const c = JSON.parse(cached.value) as { fetched_at: number; payload: Record<string, unknown> };
-        if (Date.now() - c.fetched_at < 30 * 60 * 1000) return json({ cached: true, ...c.payload });
-      }
-    } catch { /* no cache yet */ }
+    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+    if (!fresh) {
+      try {
+        const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`)
+          .bind(cacheKey).first<{ value: string }>();
+        if (cached?.value) {
+          const c = JSON.parse(cached.value) as { fetched_at: number; payload: Record<string, unknown> };
+          if (Date.now() - c.fetched_at < 30 * 60 * 1000) return json({ cached: true, ...c.payload });
+        }
+      } catch { /* no cache yet */ }
+    }
 
-    /* Malaysian days, and end_date_lt is exclusive — the same window shape
-       the probe proved TikTok accepts. */
+    /* v1.64.1 — the window that shop/performance will actually accept.
+       The first build asked for end_date_lt = TOMORROW, to include today's
+       sales. The four list endpoints allowed it; shop/performance answered
+       36009003 both times, which is the code TikTok returns for a rejected
+       parameter as readily as for a real fault. The probe, which has always
+       worked, asks for end_date_lt = TODAY.
+       So today is tried FIRST for the totals, because a working figure for a
+       closed window beats an internal error for an open one, and tomorrow is
+       tried after — if TikTok accepts it, today's sales are included and the
+       window reported to the panel says so. */
     const myt = new Date(Date.now() + 8 * 3600 * 1000);
     const dayStr = (d: Date) => d.toISOString().slice(0, 10);
-    const range = {
-      start_date_ge: dayStr(new Date(myt.getTime() - (days - 1) * 86400_000)),
-      end_date_lt: dayStr(new Date(myt.getTime() + 86400_000)),
-    };
+    const startOf = (back: number) => dayStr(new Date(myt.getTime() - back * 86400_000));
+    const today = dayStr(myt);
+    const tomorrow = dayStr(new Date(myt.getTime() + 86400_000));
+    /* days=1 has to run to tomorrow or the window is empty: start today, end
+       today is zero days wide. The others fall back happily. */
+    const firstEnd = days === 1 ? tomorrow : today;
+    const ends = days === 1 ? [tomorrow] : [today, tomorrow];
+    const range = { start_date_ge: startOf(days - 1), end_date_lt: firstEnd };
     const unavailable: { what: string; why: string }[] = [];
 
-    /* All seven in parallel: one panel should cost one round trip, not
-       seven in a row. Each carries its own endpoint version. */
-    const [shopAll, shopDaily, products, skus, videos, lives] = await Promise.all([
-      ttAnalytics(env, TT_ANALYTICS.shop, "shop", { granularity: "ALL" }, range),
-      ttAnalytics(env, TT_ANALYTICS.shop, "shop", { granularity: "1D" }, range),
-      ttAnalytics(env, TT_ANALYTICS.products, "shop_products", { page_size: "20" }, range),
-      ttAnalytics(env, TT_ANALYTICS.skus, "shop_skus", { page_size: "20" }, range),
-      ttAnalytics(env, TT_ANALYTICS.videos, "shop_videos", { page_size: "20" }, range),
-      ttAnalytics(env, TT_ANALYTICS.lives, "shop_lives", { page_size: "20" }, range),
-    ]);
+    /* Serial, not parallel. The first build fired all six at once and the
+       two that failed were the two hitting the SAME resource (shop, ALL and
+       1D) in the same instant. Six sequential calls cost a few seconds once
+       every thirty minutes, which is a price worth paying for figures that
+       arrive. */
+    const shopAll = await ttAnalyticsWindow(env, TT_ANALYTICS.shop, "shop",
+                                            { granularity: "ALL" }, range.start_date_ge, ends);
+    const shopDaily = await ttAnalyticsWindow(env, TT_ANALYTICS.shop, "shop",
+                                              { granularity: "1D" }, range.start_date_ge, ends);
+    /* Products and SKUs: the newer version first, because 202405 returns an
+       id and no name — which is why every product row read "-". If 202509
+       does not exist for this resource TikTok says so on the version, and
+       the known-good version answers on the second try. */
+    const products = await ttAnalyticsVersions(env, ["202509", TT_ANALYTICS.products],
+                                               "shop_products", { page_size: "20" }, range);
+    const skus = await ttAnalyticsVersions(env, [TT_ANALYTICS.skus, "202405"],
+                                           "shop_skus", { page_size: "20" }, range);
+    const videos = await ttAnalytics(env, TT_ANALYTICS.videos, "shop_videos", { page_size: "20" }, range);
+    const lives = await ttAnalytics(env, TT_ANALYTICS.lives, "shop_lives", { page_size: "20" }, range);
+
+    const usedEnd = shopAll.ok ? (shopAll.end ?? range.end_date_lt) : range.end_date_lt;
 
     const shop: Record<string, number> = {};
-    if (shopAll.ok) ttAccumulate(shopAll.data, shop, 0);
+    let shopOk = false;
+    if (shopAll.ok) { ttAccumulate(shopAll.data, shop, 0); shopOk = true; }
     else unavailable.push({ what: "Shop totals", why: shopAll.why ?? "refused" });
 
-    /* The daily series drives the trend line. Each bucket is summed on its
+    /* The daily series drives the trend strip. Each bucket is summed on its
        own so one bad day cannot be hidden inside a week's total. */
     const daily: { date: string; gmv: number; orders: number }[] = [];
     if (shopDaily.ok) {
@@ -3447,8 +3512,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
 
     /* Per-row readers. Field names below are the ones the probe actually saw
-       come back — not guesses — with `??` chains only where a version
-       genuinely uses a different name for the same thing. */
+       come back, with `??` chains only where a version genuinely uses a
+       different name for the same thing. */
     const num = (v: unknown): number => {
       if (typeof v === "number" && Number.isFinite(v)) return v;
       if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
@@ -3458,28 +3523,51 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       }
       return 0;
     };
-    const txt = (v: unknown, max = 120): string | null =>
-      typeof v === "string" && v.trim() !== "" ? v.slice(0, max) : null;
+    /* v1.64.1: a NUMBER is text too. TikTok returns product and SKU ids as
+       numbers, the first build only accepted strings, and every product row
+       in the panel therefore read "-" — an id is a poor label but it is not
+       nothing, and it is what lets a row be looked up. */
+    const txt = (v: unknown, max = 120): string | null => {
+      if (typeof v === "string" && v.trim() !== "") return v.slice(0, max);
+      if (typeof v === "number" && Number.isFinite(v)) return String(v);
+      return null;
+    };
+    /* Whatever this row is called, in whichever version answered. */
+    const nameOf = (r: Record<string, unknown>): string | null =>
+      txt(r.title) ?? txt(r.name) ?? txt(r.product_name) ?? txt(r.sku_name);
+    const byGmv = <T extends { gmv: number }>(rows: T[]): T[] =>
+      rows.sort((a, b) => b.gmv - a.gmv);
 
-    const productRows = products.ok ? ttRows(products.data).map((r) => ({
-      id: txt(r.id, 40), title: txt(r.title ?? r.name),
-      gmv: num(r.gmv), orders: num(r.orders), units_sold: num(r.units_sold),
+    const productRows = products.ok ? byGmv(ttRows(products.data).map((r) => ({
+      id: txt(r.id, 40), title: nameOf(r),
+      gmv: num(r.gmv), orders: num(r.orders ?? r.sku_orders),
+      units_sold: num(r.units_sold ?? r.items_sold),
       click_through_rate: num(r.click_through_rate),
-    })) : [];
+    }))) : [];
     if (!products.ok) unavailable.push({ what: "Product cards", why: products.why ?? "refused" });
 
-    const skuRows = skus.ok ? ttRows(skus.data).map((r) => ({
-      id: txt(r.id, 40), product_id: txt(r.product_id, 40),
-      gmv: num(r.gmv), sku_orders: num(r.sku_orders), units_sold: num(r.units_sold),
-    })) : [];
-    if (!skus.ok) unavailable.push({ what: "SKUs", why: skus.why ?? "refused" });
+    const skuRows = skus.ok ? byGmv(ttRows(skus.data).map((r) => ({
+      id: txt(r.id, 40), title: nameOf(r), product_id: txt(r.product_id, 40),
+      gmv: num(r.gmv), sku_orders: num(r.sku_orders ?? r.orders),
+      units_sold: num(r.units_sold ?? r.items_sold),
+    }))) : [];
+    if (!skus.ok) unavailable.push({ what: "Variants", why: skus.why ?? "refused" });
 
-    const videoRows = videos.ok ? ttRows(videos.data).map((r) => ({
-      id: txt(r.id, 40), title: txt(r.title), username: txt(r.username, 60),
-      gmv: num(r.gmv), sku_orders: num(r.sku_orders),
-      units_sold: num(r.items_sold ?? r.units_sold), views: num(r.views),
-      click_through_rate: num(r.click_through_rate),
-      posted_at: txt(r.video_post_time, 40),
+    const videoRows = videos.ok ? byGmv(ttRows(videos.data).map((r) => {
+      /* A video's sales figures moved into a nested object between 202409
+         and 202509, so they are accumulated as well as read directly: the
+         direct read wins when it is there, the sum catches the nesting. */
+      const m: Record<string, number> = {};
+      ttAccumulate(r, m, 0);
+      return {
+        id: txt(r.id, 40), title: nameOf(r), username: txt(r.username, 60),
+        gmv: num(r.gmv) || (m.gmv ?? 0),
+        sku_orders: num(r.sku_orders) || (m.orders ?? m.sku_orders ?? 0),
+        units_sold: num(r.items_sold ?? r.units_sold) || (m.units_sold ?? m.items_sold ?? 0),
+        views: num(r.views) || (m.views ?? 0),
+        click_through_rate: num(r.click_through_rate),
+        posted_at: txt(r.video_post_time, 40),
+      };
     })) : [];
     if (!videos.ok) unavailable.push({ what: "Videos", why: videos.why ?? "refused" });
 
@@ -3487,21 +3575,29 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        interaction_performance, so each row is accumulated rather than read
        field by field — the nesting has already changed once between
        versions. */
-    const liveRows = lives.ok ? ttRows(lives.data).map((r) => {
+    const liveRows = lives.ok ? byGmv(ttRows(lives.data).map((r) => {
       const m: Record<string, number> = {};
       ttAccumulate(r, m, 0);
       return {
-        id: txt(r.id, 40), title: txt(r.title), username: txt(r.username, 60),
+        id: txt(r.id, 40), title: nameOf(r), username: txt(r.username, 60),
         start_time: txt(r.start_time, 40), end_time: txt(r.end_time, 40),
         gmv: m.gmv ?? 0, orders: m.orders ?? m.sku_orders ?? 0,
         units_sold: m.units_sold ?? m.items_sold ?? 0, views: m.views ?? 0,
       };
-    }) : [];
+    })) : [];
     if (!lives.ok) unavailable.push({ what: "LIVE sessions", why: lives.why ?? "refused" });
 
+    /* v1.64.1 — when TikTok will not give the shop totals, the panel used to
+       fall back to four zeroed tiles beside an amber warning, which is the
+       exact thing this panel promised never to do: a zero is a claim that
+       nobody bought. `shop_ok` lets the UI draw a dash instead.
+       The totals are NOT derived from the rows below, tempting as it is:
+       product, video and LIVE figures are attributed views of the same
+       sales, so adding them up would double-count and produce a confident
+       wrong number, which is worse than a dash. */
     const payload = {
-      window: { ...range, days },
-      shop, daily,
+      window: { start_date_ge: range.start_date_ge, end_date_lt: usedEnd, days },
+      shop, shop_ok: shopOk, daily,
       products: productRows, skus: skuRows, videos: videoRows, lives: liveRows,
       unavailable,
       fetched_at_myt: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " "),

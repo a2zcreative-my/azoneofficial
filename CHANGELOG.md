@@ -2,6 +2,39 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.64.1] — 2026-08-28 — the analytics panel, made honest and made to answer
+
+The panel shipped an hour earlier had four faults, and the first one is the one that mattered.
+
+### It drew zeros for a section TikTok had refused
+
+Shop totals and the daily breakdown came back `36009003`, the amber banner said so — and the four tiles underneath still read **RM 0.00 / 0 / 0 / 0**. That is exactly the thing the panel promised not to do. A zero is a claim about the business: it says nobody bought. Anyone glancing at the tiles rather than reading the banner would have taken it as a bad week.
+
+The payload now carries `shop_ok`, and the tiles render **—** when the figure is unknown.
+
+They are deliberately **not** derived from the rows below. It would be easy to sum the product tab and call it GMV, and it would be wrong: product, video, LIVE and variant figures are attributed views of the *same* sales, so adding them double-counts. A confident wrong number is worse than a dash.
+
+### Why the shop totals were refused at all
+
+Not a permissions problem and not TikTok being flaky. The probe — which has worked since round three — asks for `end_date_lt = today`. The panel asked for **tomorrow**, to include the current day's sales. The four list endpoints allowed it; `shop/performance` did not, and said `36009003 "Internal error"`, which is the same code TikTok returns for a rejected parameter as for a genuine fault. That ambiguity has now cost three rounds and is written down.
+
+The totals now ask for the window that has always worked and *then* reach for the wider one, and the panel prints the window it actually got: **"22-08-2026 to 27-08-2026"** under the title. Up to yesterday is a labelled fact, not a silent shortfall.
+
+The six calls also run **one after another** instead of all at once. The two that failed were the two hitting the same resource — `shop`, ALL and 1D — in the same instant. Six sequential calls cost a few seconds once every thirty minutes.
+
+### Every product and variant row read "—"
+
+`txt()` accepted a string and nothing else. TikTok returns product and SKU ids as **numbers**, so every id was discarded and every row lost its label. Numbers are text too now.
+
+Names are a separate problem: `shop_products @202405` returns an id and no name at all. The panel now asks **202509 first and falls back to 202405** — if the newer version exists for this resource it carries a name, and if it does not, TikTok refuses on the version and the known-good call answers on the second try. Worst case that is one wasted call per half hour in exchange for rows you can actually read.
+
+### Smaller things
+
+- Rows are **sorted by GMV**, so what sold is at the top instead of buried under a screen of zero-GMV product cards.
+- A **Refresh** button goes straight past the 30-minute cache, for when a number is being chased rather than glanced at.
+- Two sections refused for the same reason now say it once, not twice.
+- Video sales figures are read directly *and* accumulated from the nested shape, since that nesting moved between 202409 and 202509.
+
 ## [1.64.0] — 2026-08-28 — TikTok Shop Analytics, and the endpoint that was never going to answer
 
 **CEO, on the third screenshot of the same red row: "still error."**
