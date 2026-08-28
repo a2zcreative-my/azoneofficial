@@ -2112,21 +2112,74 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      * not shop/product_performance). Several parameter shapes are tried on
      * the endpoint we know exists, because "internal error" is often what
      * this API returns for a missing required parameter. */
-    const V = "202405";
-    const withV = (extra: Record<string, string> = {}) => ({ version: V, ...range, ...extra });
+    /* ROUND 3 — what round 2 taught us, 28-08-2026. Round 2's own results:
+     *
+     *   shop/performance          + currency          -> WORKS
+     *   shop/performance          + granularity=ALL   -> WORKS
+     *   shop/performance          (no currency)       -> 36009003 internal
+     *   shop/performance          + granularity=1D    -> 36009003 internal
+     *   shop_products/performance                     -> WORKS
+     *     (click_through_rate, gmv, id, orders, units_sold)
+     *   shop_skus / shop_videos / shop_lives          -> 36009004
+     *     "Invalid API version. The `version` query parameter is invalid."
+     *
+     * That last line is the whole story, and it is not a permissions
+     * problem: 202405 is NOT a global API version. TikTok stamps each
+     * analytics endpoint with its OWN version, and their documentation URLs
+     * carry it in the slug:
+     *
+     *   get-shop-performance-202405              -> shop            202405
+     *   get-shop-product-performance-list-202405 -> shop_products   202405
+     *   get-shop-sku-performance-list-202509     -> shop_skus       202509
+     *   get-shop-video-performance-list-202409   -> shop_videos     202409
+     *     (a -202509 revision also exists, so both are tried)
+     *   get-shop-live-performance-list-202509    -> shop_lives      202509
+     *   get-shop-live-performance-overview-202508
+     *
+     * The last one is the proof this is right rather than a guess: THIS
+     * WORKER ALREADY CALLS IT at 202508 (see the LIVE analytics cron), and
+     * that call works. One version for all eight was always going to fail
+     * five of them.
+     *
+     * So each candidate now carries its own version, in the path AND in the
+     * query parameter — the refusal names the query parameter specifically.
+     *
+     * Two settled facts are baked in below rather than re-tested:
+     *   - `currency` is effectively REQUIRED; omitting it returns 36009003
+     *     "internal error" instead of a missing-parameter message, so every
+     *     candidate sends it.
+     *   - granularity=1D returns 36009003 where ALL succeeds. 36009003 is
+     *     TikTok's own internal error and their guidance is to retry, so 1D
+     *     stays in the probe to learn whether it is permanent — but the real
+     *     panel must read totals with ALL and treat a daily split as a
+     *     bonus, never a dependency. */
+    const cand = (
+      label: string, version: string, resource: string,
+      extra: Record<string, string> = {}, suffix = "performance",
+    ) => ({
+      label,
+      path: `/analytics/${version}/${resource}/${suffix}`,
+      /* currency on every candidate — see above */
+      params: { version, ...range, currency: "LOCAL", ...extra },
+    });
     const candidates: { label: string; path: string; params: Record<string, string> }[] = asked
       ? [{ label: "manual", path: asked, params: { version: askedVersion, ...range } }]
       : [
-          /* the endpoint we know exists — four parameter shapes */
-          { label: "shop performance + version", path: `/analytics/${V}/shop/performance`, params: withV() },
-          { label: "shop performance + currency", path: `/analytics/${V}/shop/performance`, params: withV({ currency: "LOCAL" }) },
-          { label: "shop performance + granularity", path: `/analytics/${V}/shop/performance`, params: withV({ granularity: "ALL", currency: "LOCAL" }) },
-          { label: "shop performance + daily", path: `/analytics/${V}/shop/performance`, params: withV({ granularity: "1D", currency: "LOCAL" }) },
-          /* the sub-resources, under the plural naming family */
-          { label: "product performance", path: `/analytics/${V}/shop_products/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
-          { label: "sku performance", path: `/analytics/${V}/shop_skus/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
-          { label: "video performance", path: `/analytics/${V}/shop_videos/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
-          { label: "live performance", path: `/analytics/${V}/shop_lives/performance`, params: withV({ page_size: "10", currency: "LOCAL" }) },
+          /* the two that already answer — kept as controls, so a future
+             failure here is visibly a REGRESSION and not a new mystery */
+          cand("shop performance (ALL)", "202405", "shop", { granularity: "ALL" }),
+          cand("shop performance (daily)", "202405", "shop", { granularity: "1D" }),
+          cand("product performance", "202405", "shop_products", { page_size: "10" }),
+          /* the three that were never really tested — rejected on version
+             before TikTok ever looked at this shop's authorisation */
+          cand("sku performance", "202509", "shop_skus", { page_size: "10" }),
+          cand("video performance (202409)", "202409", "shop_videos", { page_size: "10" }),
+          cand("video performance (202509)", "202509", "shop_videos", { page_size: "10" }),
+          cand("live performance", "202509", "shop_lives", { page_size: "10" }),
+          /* the version this worker already uses successfully elsewhere —
+             if this one answers and the others do not, the difference is the
+             endpoint, not the authorisation */
+          cand("live overview", "202508", "shop_lives", {}, "overview_performance"),
         ];
 
     const findings: unknown[] = [];
