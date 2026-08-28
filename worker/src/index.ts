@@ -2156,11 +2156,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const cand = (
       label: string, version: string, resource: string,
       extra: Record<string, string> = {}, suffix = "performance",
+      sendVersion = true,
     ) => ({
       label,
       path: `/analytics/${version}/${resource}/${suffix}`,
-      /* currency on every candidate — see above */
-      params: { version, ...range, currency: "LOCAL", ...extra },
+      /* currency on every candidate — see above. `sendVersion: false` exists
+         for one case only: the LIVE overview endpoint, whose known-good call
+         elsewhere in this worker omits the version query parameter. */
+      params: { ...(sendVersion ? { version } : {}), ...range, currency: "LOCAL", ...extra },
     });
     const candidates: { label: string; path: string; params: Record<string, string> }[] = asked
       ? [{ label: "manual", path: asked, params: { version: askedVersion, ...range } }]
@@ -2176,10 +2179,25 @@ async function route(request: Request, env: Env, path: string): Promise<Response
           cand("video performance (202409)", "202409", "shop_videos", { page_size: "10" }),
           cand("video performance (202509)", "202509", "shop_videos", { page_size: "10" }),
           cand("live performance", "202509", "shop_lives", { page_size: "10" }),
-          /* the version this worker already uses successfully elsewhere —
-             if this one answers and the others do not, the difference is the
-             endpoint, not the authorisation */
-          cand("live overview", "202508", "shop_lives", {}, "overview_performance"),
+          /* ROUND 4 — the last refusal, and what round 3 revealed.
+             Round 3 result: 7 of 8 answered. `granularity=1D` on shop
+             performance, which failed in round 2, WORKED in round 3 with no
+             code change — so that one really was TikTok's transient
+             internal error, exactly as 36009003 claims to be.
+             Only the LIVE overview still returns 36009003. It is the one
+             candidate whose parameters were guessed rather than copied, and
+             this worker ALREADY CALLS THIS ENDPOINT successfully in the
+             live-analytics route below — with two parameters the probe never
+             sent: `granularity` and `account_type`. Given a missing required
+             parameter is precisely what produced 36009003 on shop/performance
+             (no currency), that is the likeliest cause rather than a fault.
+             Both shapes are tried, because the working call also omits the
+             `version` query parameter and only sending both settles which
+             half matters. */
+          cand("live overview", "202508", "shop_lives",
+               { granularity: "1D", account_type: "ALL" }, "overview_performance"),
+          cand("live overview (no version param)", "202508", "shop_lives",
+               { granularity: "1D", account_type: "ALL" }, "overview_performance", false),
         ];
 
     const findings: unknown[] = [];
