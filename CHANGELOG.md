@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.70.0] — 2026-08-29 — one width, and a warning that fits
+
+### One standard width for the whole portal
+
+**CEO: "make the width globally standardize instead of inconsistent!"**
+
+The portal shell carried `md:max-w-none` — **no maximum width on desktop at all**. Every screen was as wide as the window happened to be, so on a wide monitor a paragraph in one card ran to two hundred characters while the card beside it held a table pinned to 760px. Nothing on the page shared a measure.
+
+`PORTAL_WIDTH` now lives in `lib/ui-styles.ts` beside `card`, and the shell uses it: **`mx-auto max-w-[1600px]`**. The number comes from the widest thing the portal actually draws — the seven-column roster grid and the payroll tables — plus room to breathe. Narrower and those scroll on a screen with space to spare.
+
+It goes on the **outer container of a screen, never on a card**. Cards are meant to fill their column; capping them one at a time is how the inconsistency started.
+
+### The analytics warning was a wall
+
+The scope message I wrote yesterday was correct and three times too long. At the top of a card it read as a paragraph to skip rather than an instruction to follow, and **a warning nobody finishes reading is a warning that does not work.** It is now two lines:
+
+> 15 rows show a TikTok id: this app has no PRODUCT scope, so the catalogue cannot be read.
+> Fix: Partner Center → your app → add the product scope → re-authorize the shop → Refresh.
+
+The id comparison — *orders carry sku 1736…, this page wants sku 1737…* — moved into the diagnostic panel with the build number and the source counts. It is diagnosis, not instruction, and it does not belong above the numbers somebody is reading to price a shawl.
+
+### "Buyers 0" was the same bug, one tile smaller
+
+The shop tiles showed **Buyers 0** beside **3 orders**. TikTok had not sent that field at all; the panel was inventing a number for something that never arrived — the same sin as drawing zeros for a refused section, at tile scale.
+
+The payload now says which of the four TikTok actually sent, and a field that did not arrive shows **—**. An older worker that sends no such flag is treated as having sent everything, so a split deploy shows the figures it always did rather than four dashes.
+
 ## [1.69.2] — 2026-08-29 — the roster says who, in full
 
 **CEO: "roster I want the table get full name include the PDF."**

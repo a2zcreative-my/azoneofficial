@@ -24,6 +24,23 @@
     whole reason it lives here. */
 export const card = "rounded-2xl md:rounded-card border border-border bg-card p-4 md:p-5";
 
+/* v1.70.0 — ONE standard content width for the whole portal.
+   (CEO: "make the width globally standardize instead of inconsistent")
+
+   The portal shell carried `md:max-w-none`, so every screen was as wide as
+   the window. On a laptop that looks fine; on a wide monitor a paragraph in
+   one card runs to two hundred characters while the card beside it holds a
+   table pinned to 760px, and nothing on the page shares a measure.
+
+   1600px is chosen from the widest thing the portal actually draws — the
+   seven-column roster grid and the payroll tables — plus room to breathe.
+   Anything narrower would make those scroll on a screen with space to spare.
+
+   Use this on the OUTER container of a screen, never on a card: cards are
+   meant to fill their column, and capping them individually is how the
+   inconsistency started. */
+export const PORTAL_WIDTH = "mx-auto max-w-[1600px]";
+
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";

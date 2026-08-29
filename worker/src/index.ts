@@ -3905,9 +3905,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const rows = `${unnamed} row${unnamed === 1 ? "" : "s"}`;
       let why: string;
       if (scopeDenied) {
-        why = `${rows} show a TikTok id because this app has not been granted the PRODUCT scope, so the catalogue cannot be read. `
-          + `To fix it: TikTok Partner Center -> your app -> add the product scope, then re-authorize the shop and press Refresh. `
-          + `Until then, names can only come from recent orders, which covers what has sold and nothing else.`;
+        /* v1.70.0 — SHORT. The first version of this said the same thing in
+           three times the words, and at the top of a card it read as a wall
+           rather than an instruction: a warning nobody finishes reading is a
+           warning that does not work. One sentence for what is wrong, one
+           for what to do. The reasoning that led here lives in the
+           changelog, not above the numbers. */
+        why = `${rows} show a TikTok id: this app has no PRODUCT scope, so the catalogue cannot be read. `
+          + `Fix: Partner Center -> your app -> add the product scope -> re-authorize the shop -> Refresh.`;
       } else {
         const said = notes.length > 0 ? ` TikTok said — ${notes.join("; ")}.` : "";
         const got = names.sources.length > 0
@@ -3917,6 +3922,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       /* The id-space check, in one clause: if orders answered and the rows
          are still unnamed, either the ids differ or the sale is older than
          the harvest. Showing one of each settles which. */
+      /* The id comparison is diagnosis, not instruction. It belongs in the
+         diagnostic panel with the build number and the source counts, not
+         in the amber block a person reads while trying to price a shawl. */
+      let idNote: string | undefined;
       if (names.sources.includes("orders")) {
         const gotSku = ttSampleId(names.variants) || ttSampleId(names.skuProduct);
         const gotProd = ttSampleId(names.products);
@@ -3925,12 +3934,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         const missSku = wantSku && !names.variants[wantSku] && !names.skuProduct[wantSku];
         const missProd = wantProd && !names.products[wantProd];
         if (missSku || missProd) {
-          why += ` Orders answered but did not cover these rows — they carry`
-            + `${gotSku ? ` sku ${gotSku}` : ""}${gotProd ? ` product ${gotProd}` : ""},`
-            + ` while this page wants${wantSku ? ` sku ${wantSku}` : ""}${wantProd ? ` product ${wantProd}` : ""}.`;
+          idNote = `orders carry${gotSku ? ` sku ${gotSku}` : ""}${gotProd ? ` product ${gotProd}` : ""}`
+            + `; this page wants${wantSku ? ` sku ${wantSku}` : ""}${wantProd ? ` product ${wantProd}` : ""}`;
         }
       }
       unavailable.push({ what: "Product names", why });
+      if (idNote) names.notes.push(idNote);
     }
 
     const videoRows = videos.ok ? byGmv(ttRows(videos.data).map((r) => {
@@ -3977,6 +3986,16 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        wrong number, which is worse than a dash. */
     const payload = {
       window: { start_date_ge: range.start_date_ge, end_date_lt: usedEnd, days },
+      /* v1.70.0 — which of the shop tiles TikTok actually SENT. "Buyers 0"
+         beside "3 orders" is not a fact about the shop, it is the panel
+         inventing a number for a field that never arrived — the same sin as
+         drawing zeros for a refused section, one tile smaller. */
+      shop_has: {
+        gmv: shop.gmv !== undefined,
+        orders: shop.orders !== undefined || shop.sku_orders !== undefined,
+        units: shop.units_sold !== undefined || shop.items_sold !== undefined,
+        buyers: shop.buyers !== undefined || shop.unique_buyers !== undefined || shop.customers !== undefined,
+      },
       /* v1.64.4: the build that produced this reply. The API deploy has been
          stuck before, and "is the fix live?" should be answerable from the
          panel rather than by reading a changelog and hoping. */
