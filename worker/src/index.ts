@@ -595,15 +595,33 @@ async function ttAnalytics(
   env: Env, version: string, resource: string, extra: Record<string, string>,
   range: { start_date_ge: string; end_date_lt: string }, suffix = "performance",
 ): Promise<{ ok: boolean; data?: unknown; why?: string }> {
-  const res = (await tiktokSignedFetch(env, `/analytics/${version}/${resource}/${suffix}`, {
-    version, ...range, currency: "LOCAL", ...extra,
-  })) as { code?: number; message?: string; data?: unknown } | null;
+  /* v1.70.3 — RETRY 36009003. TikTok's own message is "Retry later", and
+     my notes have said since round 3 that this code is often transient:
+     granularity=1D refused one afternoon and answered the next with no
+     code change. That was written down and never acted on, so a shop
+     whose totals happened to be refused at the moment somebody opened
+     the tab saw four dashes and nothing to do about it.
+     One retry, after a pause. Not three: if their aggregation really is
+     down, hammering it neither helps them nor us, and the panel is honest
+     about a refusal. The pause matters because an immediate retry lands
+     inside the same failing moment. */
+  let res: { code?: number; message?: string; data?: unknown } | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 900));
+    res = (await tiktokSignedFetch(env, `/analytics/${version}/${resource}/${suffix}`, {
+      version, ...range, currency: "LOCAL", ...extra,
+    })) as { code?: number; message?: string; data?: unknown } | null;
+    if (res && res.code === 36009003) continue;   // their "retry later"
+    break;
+  }
   if (!res) return { ok: false, why: "TikTok is not connected — finish the authorisation in Partner Center." };
   if (typeof res.code === "number" && res.code !== 0) {
     const msg = res.message ?? "refused";
     /* Naming 36009003 as theirs is not an excuse — it is the difference
        between the CEO waiting on us and the CEO knowing to wait on TikTok. */
-    const theirs = res.code === 36009003 ? " (TikTok's own internal error — their side, not the shop's)" : "";
+    const theirs = res.code === 36009003
+      ? " — their side, not the shop's. Asked twice. The other figures on this card are unaffected."
+      : "";
     const scope = /scope|permission|auth|access/i.test(msg)
       ? " — grant the Data & Insights (Analytics) scope in Partner Center, then re-authorize." : "";
     return { ok: false, why: `TikTok: ${msg}${theirs}${scope}` };
@@ -898,7 +916,14 @@ function ttNamesTakeProduct(pr: Record<string, unknown>, out: TtNames): void {
           .filter(Boolean)
       : [];
     const seller = typeof sk.seller_sku === "string" ? sk.seller_sku.trim() : "";
-    const label = attrs.length > 0 ? attrs.join(", ") : seller;
+    /* v1.70.3 — a product with ONE unnamed SKU has no separate variant
+       identity: no colour, no size, no seller code. TikTok sends that SKU
+       with an empty sales_attributes, and the old rule stored nothing at
+       all, so the Variants tab printed a 19-digit id for it.
+       The product's own title is the truthful label there. It repeats what
+       the Product column says, which is exactly right when the variant IS
+       the product, and is in every case better than a number. */
+    const label = attrs.length > 0 ? attrs.join(", ") : seller || title;
     if (label) out.variants[sid] = label.slice(0, 80);
     if (title) out.skuProduct[sid] = title.slice(0, 120);
   }

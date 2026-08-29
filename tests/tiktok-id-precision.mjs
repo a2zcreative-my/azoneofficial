@@ -73,5 +73,27 @@ eq("empty returns null", ttParse(""), null);
 const naive = JSON.parse('{"id":1736703643101529119}');
 eq("naive parse really does corrupt (control)", String(naive.id), "1736703643101529000");
 
-console.log(bad === 0 ? "PASS — 19-digit TikTok ids survive the parse intact" : `\n${bad} failure(s)`);
+/* ---- the other two ways a row loses its name or its number ----
+   Same file because they are the same failure in the reader's eyes: a panel
+   that shows an id, or a dash, where it should show a fact. */
+const has = (label, re, why) => {
+  if (re.test(src)) return;
+  console.log(`  FAIL ${label}\n       ${why}`);
+  bad++;
+};
+
+has("36009003 is retried once",
+    /res\.code === 36009003\) continue;/,
+    "TikTok's own message for this code is 'Retry later' and it is often transient — refusing on the first answer shows four dashes for a shop that has sales");
+has("the retry pauses before asking again",
+    /attempt > 0\) await new Promise\(\(r\) => setTimeout\(r, \d+\)\)/,
+    "an immediate retry lands inside the same failing moment");
+has("the retry stops at two attempts",
+    /attempt < 2; attempt\+\+/,
+    "hammering a service that is genuinely down helps nobody, and the panel is honest about a refusal");
+has("a SKU with no attributes falls back to the product title",
+    /attrs\.length > 0 \? attrs\.join\(", "\) : seller \|\| title/,
+    "a product with one unnamed SKU has no variant identity, and printing a 19-digit id for it is worse than repeating the title");
+
+console.log(bad === 0 ? "PASS — ids survive the parse, refusals are retried, every SKU gets a label" : `\n${bad} failure(s)`);
 process.exit(bad === 0 ? 0 : 1);

@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.70.3] — 2026-08-29 — the totals come back, and every variant gets a label
+
+The id fix landed: the panel now reads **BAWAL COTTON VOILE** and **ELFIA Shawl Chiffon Premium (170cm × 65cm)** where nineteen digits used to be, and the diagnostic confirms *"17 products, 4 variants from catalogue"*. Two things were still wrong.
+
+### The top-line numbers had gone
+
+GMV, Orders, Units and Buyers all showed **—** with *"TikTok: Internal error. Retry later."* An hour earlier they had shown RM 64.50 and 3 orders. Nothing about the shop had changed.
+
+`36009003` is TikTok's transient error and **their own message says "Retry later"**. My notes have recorded since round three that this code comes and goes — `granularity=1D` refused one afternoon and answered the next with no code change. I wrote that down and never acted on it, so the panel refused on the first answer and a shop with real sales got four dashes and nothing to do about it.
+
+**One retry now, after a pause.** Not three: if their aggregation really is down, hammering it helps nobody and the panel is honest about a refusal. The pause matters — an immediate retry lands inside the same failing moment. The message says so too: *"Asked twice. The other figures on this card are unaffected."*
+
+### Two variants still showed an id
+
+Because a product with **one unnamed SKU has no variant identity** — no colour, no size, no seller code. TikTok sends that SKU with an empty `sales_attributes`, the old rule stored nothing at all, and the Variants tab fell back to printing the id.
+
+The product's own title is the truthful label there. It repeats what the Product column says, which is exactly right when the variant *is* the product, and is better than a number in every case. Where a seller code exists it still wins — that is why **ELFIA001** and **ELFIA002** already read correctly.
+
+### Both guarded
+
+Guard #18 now also asserts the retry exists, pauses, and stops at two attempts, and that the SKU label falls back to the title. Removing either fails it.
+
 ## [1.70.2] — 2026-08-29 — every TikTok id was being silently rounded
 
 **CEO: "I want product name instead of product SKU!"** — with a screenshot of **BAWAL LUMI AURORA · Live** in Seller Center, sitting there perfectly alive, while the panel called it deleted.
