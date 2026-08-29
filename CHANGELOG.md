@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.69.2] — 2026-08-29 — the roster says who, in full
+
+**CEO: "roster I want the table get full name include the PDF."**
+
+Both the on-screen staff column and the printed one cut every name to its first two words. **NUR NASUHA BINTI ZAINAL ABIDIN** appeared as *NUR NASUHA*.
+
+On a sheet that goes out to the whole floor, half a name is a guess about who is meant — and two people here can share their first two words. The screen at least offered the rest on hover; paper offers nothing.
+
+### On screen
+
+The whole name, wrapping over as many lines as it needs rather than truncating. The row grows with it.
+
+### In print
+
+Harder, because a PDF has no reflow. Three changes together:
+
+**The staff column went from 118pt to 150pt.** That costs each day column about five points, which the chips do not notice.
+
+**The name wraps** instead of being cut, and the totals sit under wherever it ends rather than at a fixed offset.
+
+**The row grows to fit the longer of its name and its busiest cell.** Sizing on chips alone would print a two-line name straight over the border of the row below it — the kind of fault that only shows up on the one staff member with the longest name, which is to say after the sheet has already been shared.
+
+The line count is *measured* with the same greedy rule the canvas uses, not estimated: `Canvas.wrap` reports its height only after drawing, and the row has to be sized before.
+
+### Verified by rendering four real names
+
+The guard checks the wiring; the render checks the result. A harness builds the sheet with the actual names from the floor — including *NURFARAH SUAIDAH BINTI MOHD SAIFUDDIN* at 37 characters — then pulls every text literal out of the PDF operator stream and asserts **every word of every name is printed somewhere**, whether or not that name needed wrapping. That check holds however the wrapping falls, which a substring match on the whole name would not:
+
+```
+"NUR NASUHA BINTI ZAINAL ABIDIN"
+"NURFARAH SUAIDAH BINTI MOHD"
+"SAIFUDDIN"
+"ZOLKEFLI BIN SAHDI"
+"NUR DINI FARHANA BINTI NAZARUDIN"
+```
+
+Negative-tested three ways: restore the two-word cut in print, size the row on chips alone, or truncate on screen — each fails.
+
+### Where short names stay
+
+The task chips, the Unscheduled work rail and the mobile agenda keep the two-word form: a chip is ninety points wide and a full name there would push out the time. Each carries the full name in its tooltip. The block detail bar, which has the width, now shows it in full.
+
 ## [1.69.1] — 2026-08-28 — the shared plan is the whole week
 
 **CEO: "on the PDF, only appear Live instead of the task also!!!"**

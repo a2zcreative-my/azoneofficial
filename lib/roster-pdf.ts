@@ -54,6 +54,22 @@ const DAY_LABEL = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const dmy = (iso: string) => { const p = iso.slice(0, 10).split("-"); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso; };
 const dayLabel = (iso: string) => DAY_LABEL[new Date(`${iso}T00:00:00Z`).getUTCDay()] ?? "";
 
+/* How many lines `Canvas.wrap` will produce, measured with the same
+   greedy rule it uses. The canvas reports the height AFTER drawing, and the
+   row must be sized BEFORE — so the count is worked out here rather than
+   guessed at. */
+function nameLineCount(s: string, maxW: number, size: number): number {
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 1;
+  let lines = 1, line = "";
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (widthOf(test, size, true) > maxW && line) { lines++; line = w; }
+    else line = test;
+  }
+  return lines;
+}
+
 function clip(s: string, size: number, maxW: number, bold = false): string {
   if (widthOf(s, size, bold) <= maxW) return s;
   let t = s;
@@ -124,8 +140,16 @@ export function drawRosterGrid(
     FM + FW / 2, y + 30, 8.5, { bold: true, colour: SLATE, align: "c" });
   y += 38;
 
-  /* Grid geometry. */
-  const STAFF_W = 118;
+  /* Grid geometry.
+     v1.69.2 (CEO: "I want the table get full name include the PDF"):
+     the staff column was 118pt and the name was cut to its first two words,
+     so "NUR NASUHA BINTI ZAINAL ABIDIN" printed as "NUR NASUHA". On a sheet
+     that goes out to the whole floor a half name is a guess about who is
+     meant, and two people can share the first two words.
+     150pt plus wrapping fits the real names. It costs each day column about
+     five points, which the chips do not notice. */
+  const STAFF_W = 150;
+  const NAME_SIZE = 6.6, NAME_LEAD = 7.4;
   const dayW = (FW - STAFF_W) / 7;
   const edgeX = (i: number) => FM + STAFF_W + i * dayW; // left edge of day column i
 
@@ -163,13 +187,17 @@ export function drawRosterGrid(
       mine.filter((s) => s.session_date === d).length
       + mineB.filter((b) => b.block_date === d).length
       + (leaveOn(u.id, d) ? 1 : 0)));
-    const rowH = Math.max(24, CELL_PAD * 2 + maxChips * (CHIP_H + 2) - 2);
+    /* The row is as tall as its busiest cell OR its longest name, whichever
+       needs more. Sizing on chips alone would print a three-line name over
+       the border of the row below it. */
+    const nameLines = nameLineCount(u.name.trim(), STAFF_W - 10, NAME_SIZE);
+    const nameH = 9 + nameLines * NAME_LEAD + 4;
+    const rowH = Math.max(24, nameH, CELL_PAD * 2 + maxChips * (CHIP_H + 2) - 2);
     if (y + rowH > footerY - 14) { skippedStaff++; continue; }
 
-    /* staff cell */
+    /* staff cell — the WHOLE name, wrapped, with the totals under it. */
     c.box(FM, y, STAFF_W, rowH, HAIR, 0.5);
-    const shortName = u.name.split(" ").slice(0, 2).join(" ");
-    c.text(clip(shortName, 7, STAFF_W - 10, true), FM + 5, y + 10, 7, { bold: true });
+    const nameEnd = c.wrap(u.name.trim(), FM + 5, y + 9, STAFF_W - 10, NAME_SIZE, NAME_LEAD, { bold: true });
     const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0);
     c.text(
       mine.length + mineB.length === 0
@@ -177,7 +205,7 @@ export function drawRosterGrid(
         : [mine.length > 0 ? `${mine.length} live` : "",
            mineB.length > 0 ? `${mineB.length} task${mineB.length === 1 ? "" : "s"}` : "",
            hrs(myMins)].filter(Boolean).join(" · "),
-      FM + 5, y + 18, 5.5, { colour: GREY });
+      FM + 5, nameEnd + 4, 5.5, { colour: GREY });
 
     /* day cells */
     days.forEach((d, i) => {

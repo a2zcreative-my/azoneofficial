@@ -207,6 +207,23 @@ ok("the board hands its blocks to the PDF",
    /shareRosterPdf\([\s\S]{0,400}?blocks, \[\.\.\.hardBlockIds, \.\.\.softBlockIds\]\)/.test(board),
    "the builder can accept them and still be sent nothing");
 
+/* ---- 12. v1.69.2: whole names, on screen and in print ---- */
+ok("the PDF prints the WHOLE staff name, wrapped",
+   /c\.wrap\(u\.name\.trim\(\)/.test(pdf),
+   "two words is a guess about who is meant, and two people can share them");
+ok("the PDF no longer cuts a name to two words",
+   !/u\.name\.split\(" "\)\.slice\(0, 2\)/.test(pdf));
+ok("the PDF row grows to fit a wrapped name",
+   /Math\.max\(24, nameH,/.test(pdf),
+   "sizing on chips alone prints a three-line name over the row below it");
+ok("the line count is measured, not guessed",
+   /function nameLineCount/.test(pdf) && /widthOf\(test, size, true\)/.test(pdf),
+   "Canvas.wrap reports its height after drawing; the row must be sized before");
+ok("the staff column was widened for real names", /const STAFF_W = 150;/.test(pdf));
+ok("the staff grid shows the whole name",
+   /className="text-xs leading-tight font-semibold break-words" title=\{u\.name\}>\{u\.name\}/.test(board),
+   "truncate on the roster's own left column was the same fault as in print");
+
 ok("the board is live on the right topics",
    /useLiveRefresh\(\["live-sessions", "task-blocks", "tasks", "leave"\]/.test(board));
 

@@ -775,7 +775,12 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         return (
                           <div key={u.id} className="border-border grid border-b last:border-b-0" style={gridCols}>
                             <div className="border-border flex min-w-0 flex-col justify-center border-r px-3 py-1.5">
-                              <p className="truncate text-xs font-semibold" title={u.name}>{u.name.split(" ").slice(0, 2).join(" ")}</p>
+                              {/* v1.69.2 (CEO: "I want the table get full
+                                  name"): the whole name, wrapped over as many
+                                  lines as it needs. Two words was a guess
+                                  about who is meant, and two people on this
+                                  floor can share their first two. */}
+                              <p className="text-xs leading-tight font-semibold break-words" title={u.name}>{u.name}</p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
                                 {mine.length + mineB.length === 0
                                   ? L("nothing booked", "tiada tempahan")
@@ -1155,7 +1160,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 <span className="min-w-0">
                   <span className="font-semibold">{b.title}</span>
                   <span className="text-muted-foreground">
-                    {" · "}{b.user_name.split(" ").slice(0, 2).join(" ")}
+                    {/* The detail bar has the width for the whole name; the
+                        chips and the narrow rails keep the short form. */}
+                    {" · "}{b.user_name}
                     {" · "}<span className="tabular-nums">{dmy(b.block_date)} {b.start_time}{b.end_time ? `–${b.end_time}` : ""}</span>
                     {b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : ""}
                     {(() => {
