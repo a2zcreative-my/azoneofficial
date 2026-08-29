@@ -216,6 +216,12 @@ export function ElfiaStorePanel() {
   const [priceValue, setPriceValue] = useState("");
   const [busyPrice, setBusyPrice] = useState(false);
   const [flashUntil, setFlashUntil] = useState("");
+  /* Which collection the list is showing. Selection is scoped to it. */
+  const [view, setView] = useState("all");
+  /* v1.68.0: the flash sale sets its own price. "% off" by default, because
+     a flash sale is nearly always announced as a percentage. */
+  const [flashMode, setFlashMode] = useState<"percent" | "amount">("percent");
+  const [flashValue, setFlashValue] = useState("");
   const [busyFlash, setBusyFlash] = useState(false);
   /* v1.55.0 — the uploadable catalog. `cat` is what the server holds;
      `catDraft` is a chosen file read in this browser, waiting for Upload. */
@@ -279,10 +285,23 @@ export function ElfiaStorePanel() {
   useEffect(() => { void load(); }, [load]);
 
   /* Published rows first — they are the shop — then A→Z by SKU. */
-  const sorted = [...items].sort((a, b) =>
+  /* v1.68.0 (CEO: "when I choose Bawal, it doesnt only show Bawal").
+     He was right, and the fault was ours: those links SELECTED a collection
+     and left all 22 products on screen. Selecting ten things you cannot see
+     is not a workflow — you tick a collection precisely so you can check
+     what you are about to reprice.
+     So collection is now a FILTER, and selecting is a separate act on what
+     the filter is showing. Two words, "Show" and "Select", doing one job
+     each. */
+  const collections = [...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  const inView = view === "all" ? items
+    : items.filter((x) => (x.elfia_category ?? "").trim() === view);
+  const sorted = [...inView].sort((a, b) =>
     ((b.bridge_enabled ?? 0) - (a.bridge_enabled ?? 0)) ||
     a.sku.localeCompare(b.sku, undefined, { numeric: true }));
   const published = items.filter((x) => (x.bridge_enabled ?? 0) === 1);
+  const publishedInView = inView.filter((x) => (x.bridge_enabled ?? 0) === 1);
   const missingPhoto = published.filter((x) => !x.elfia_image_key);
   const migrationPending = loaded && items.length > 0 && items.every((x) => x.elfia_image_key === undefined);
 
@@ -532,8 +551,17 @@ export function ElfiaStorePanel() {
     }
     setBusyFlash(true);
     try {
+      /* The price rides with the deadline. Blank means "keep whatever
+         discount these already have", which is the old behaviour and still
+         the right answer for items already marked down. */
+      const fv = Number(flashValue);
+      const withPrice = !end && flashValue.trim() !== "" && Number.isFinite(fv) && fv > 0;
       const res = await api<{ applied?: string[]; skipped?: { sku: string; why: string }[]; error?: { message?: string } }>(
-        `/elfia/flash-sale`, { method: "POST", body: JSON.stringify({ ids, until: untilIso }) });
+        `/elfia/flash-sale`, {
+          method: "POST",
+          body: JSON.stringify({ ids, until: untilIso,
+                                 ...(withPrice ? { discount: { mode: flashMode, value: fv } } : {}) }),
+        });
       if (!res.ok) {
         toast(L("Not applied", "Tidak digunakan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice");
         return;
@@ -546,6 +574,7 @@ export function ElfiaStorePanel() {
         (skip.length ? ` · ${L("skipped", "dilangkau")}: ${skip.slice(0, 3).map((s) => `${s.sku} (${s.why})`).join(", ")}${skip.length > 3 ? ` +${skip.length - 3}` : ""}` : ""),
         skip.length ? "notice" : undefined);
       setPicked(new Set());
+      setFlashValue("");
       void load();
     } finally { setBusyFlash(false); }
   };
@@ -1607,28 +1636,46 @@ export function ElfiaStorePanel() {
         )}
 
         {items.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-            <span className="text-muted-foreground">{L("Select:", "Pilih:")}</span>
-            <button type="button" className="underline underline-offset-2"
-              onClick={() => setPicked(new Set(published.map((x) => x.id)))}>
-              {L("all published", "semua diterbitkan")} ({published.length})
-            </button>
-            {/* By collection, because a sale is usually "all the shawls". */}
-            {[...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
-              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
-              .map((c) => (
-                <button key={c} type="button" className="underline underline-offset-2"
-                  onClick={() => setPicked(new Set(items.filter((x) => (x.elfia_category ?? "").trim() === c).map((x) => x.id)))}>
-                  {c} ({items.filter((x) => (x.elfia_category ?? "").trim() === c).length})
-                </button>
-              ))}
-            {picked.size > 0 && (
-              <button type="button" className="text-muted-foreground underline underline-offset-2"
-                onClick={() => setPicked(new Set())}>
-                {L("clear selection", "kosongkan pilihan")}
+          <>
+            {/* SHOW — a filter. Changing it clears the selection, because a
+                tick you can no longer see is a tick you will forget you
+                made, and the next Apply would reprice it. */}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground mr-1">{L("Show:", "Papar:")}</span>
+              {([["all", L("All", "Semua"), items.length] as const,
+                 ...collections.map((c) => [c, c, items.filter((x) => (x.elfia_category ?? "").trim() === c).length] as const)])
+                .map(([key, label, n]) => (
+                  <button key={key} type="button"
+                    className={view === key
+                      ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 font-medium"
+                      : "border-border text-muted-foreground hover:bg-secondary rounded-full border px-2.5 py-0.5"}
+                    onClick={() => { setView(key); setPicked(new Set()); }}>
+                    {label} ({n})
+                  </button>
+                ))}
+            </div>
+
+            {/* SELECT — an action, on what is showing. */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+              <span className="text-muted-foreground">{L("Select:", "Pilih:")}</span>
+              <button type="button" className="underline underline-offset-2"
+                onClick={() => setPicked(new Set(sorted.map((x) => x.id)))}>
+                {view === "all"
+                  ? L(`everything shown (${sorted.length})`, `semua yang dipapar (${sorted.length})`)
+                  : L(`all ${view} (${sorted.length})`, `semua ${view} (${sorted.length})`)}
               </button>
-            )}
-          </div>
+              <button type="button" className="underline underline-offset-2"
+                onClick={() => setPicked(new Set(publishedInView.map((x) => x.id)))}>
+                {L(`published only (${publishedInView.length})`, `yang diterbitkan sahaja (${publishedInView.length})`)}
+              </button>
+              {picked.size > 0 && (
+                <button type="button" className="text-muted-foreground underline underline-offset-2"
+                  onClick={() => setPicked(new Set())}>
+                  {L("clear selection", "kosongkan pilihan")}
+                </button>
+              )}
+            </div>
+          </>
         )}
 
         {picked.size > 0 && (
@@ -1719,6 +1766,23 @@ export function ElfiaStorePanel() {
                 <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
                   ⚡ {L("Flash sale", "Jualan kilat")}
                 </span>
+                {/* v1.68.0 — the price lives HERE now.
+                    A flash sale is a price and a deadline. Asking for them in
+                    two different rows, and refusing anything not already
+                    discounted somewhere else, was a form explaining itself
+                    instead of doing the job. */}
+                <label className="flex items-center gap-1.5 text-xs">
+                  <select value={flashMode} onChange={(e) => setFlashMode(e.target.value as "percent" | "amount")}
+                    aria-label={L("Flash price type", "Jenis harga kilat")}
+                    className={`${inputClass} w-28`}>
+                    <option value="percent">{L("% off", "% turun")}</option>
+                    <option value="amount">{L("RM off", "RM turun")}</option>
+                  </select>
+                  <input value={flashValue} onChange={(e) => setFlashValue(e.target.value)}
+                    inputMode="decimal" placeholder={flashMode === "percent" ? "20" : "3.00"}
+                    aria-label={L("Flash sale price", "Harga jualan kilat")}
+                    className={`${inputClass} w-24`} />
+                </label>
                 <label className="flex items-center gap-1.5 text-xs">
                   <span className="text-muted-foreground">{L("ends", "tamat")}</span>
                   <input type="datetime-local" value={flashUntil}
@@ -1735,8 +1799,8 @@ export function ElfiaStorePanel() {
                   {L("End flash sale", "Tamatkan jualan kilat")}
                 </button>
                 <span className="text-muted-foreground w-full text-[11px]">
-                  {L("Needs a discount first — the shop shows a red Flash Sale pill counting down to this time, then puts the price back by itself. Ending it early keeps the discount, it just stops being a flash sale.",
-                     "Perlukan diskaun dahulu — kedai menunjukkan pil merah Jualan Kilat mengira detik ke masa ini, kemudian mengembalikan harga dengan sendirinya. Menamatkannya awal mengekalkan diskaun, cuma ia berhenti menjadi jualan kilat.")}
+                  {L("Set the price and the end time together. Leave the price blank to put a deadline on the discount these products already have. The shop shows a red Flash Sale pill counting down, then puts the price back by itself — ending it early keeps the discount, it just stops being a flash sale.",
+                     "Tetapkan harga dan masa tamat bersama. Biarkan harga kosong untuk meletakkan tarikh akhir pada diskaun sedia ada produk ini. Kedai menunjukkan pil merah Jualan Kilat mengira detik, kemudian mengembalikan harga dengan sendirinya — menamatkannya awal mengekalkan diskaun, cuma ia berhenti menjadi jualan kilat.")}
                 </span>
               </div>
             </div>
@@ -1744,6 +1808,19 @@ export function ElfiaStorePanel() {
         )}
 
         <div className="mt-3 space-y-2">
+          {/* A filter that hides everything is a dead end unless it says so.
+              A collection can be renamed on one product while the chip is
+              still selected, and an empty list with no explanation costs
+              somebody an afternoon. */}
+          {items.length > 0 && sorted.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              {L(`Nothing in “${view}” right now.`, `Tiada apa-apa dalam “${view}” sekarang.`)}{" "}
+              <button type="button" className="underline underline-offset-2"
+                onClick={() => { setView("all"); setPicked(new Set()); }}>
+                {L("Show all products", "Papar semua produk")}
+              </button>
+            </p>
+          )}
           {sorted.map((it) => {
             const on = (it.bridge_enabled ?? 0) === 1;
             return (

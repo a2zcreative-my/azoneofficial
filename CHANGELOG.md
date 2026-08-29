@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.68.0] — 2026-08-28 — the ELFIA store panel: a filter that filters, and a flash sale you can price
+
+**CEO: "when I choose Bawal, it doesnt only show Bawal then how to update the flash sales price? seem it is wrong flow."**
+
+Two complaints, both correct, and the second one is a design fault rather than a missing feature.
+
+### "Bawal" selected without showing
+
+Those links **selected** a collection and left all 22 products on screen. Ticking ten things you cannot see is not a workflow — you pick a collection precisely so you can *check what you are about to reprice* before you reprice it.
+
+Collection is now a **filter**. Two rows, two words, one job each:
+
+- **Show:** `All (22)` · `bawal (10)` · `shawl (12)` — chips that change the list
+- **Select:** *all bawal (10)* · *published only (8)* · *clear selection* — an action on what is showing
+
+Changing the filter clears the selection. A tick you can no longer see is a tick you will forget you made, and the next **Apply** would have repriced it.
+
+And a filter that hides everything now says so, with a way back. A collection can be renamed on one product while its chip is still selected; an empty list with no explanation costs somebody an afternoon.
+
+### "How to update the flash sales price?"
+
+You couldn't, and that was the fault. A flash sale is **a price and a deadline**. The panel asked for the price in one row of the bar, the deadline in another, and the flash row refused anything that had not already been discounted somewhere else — a form explaining itself instead of doing the job.
+
+The flash row now takes its own price: **`% off` / `RM off` · value · ends · Start flash sale**. One action, one click.
+
+Leaving the price blank keeps the old behaviour — put a deadline on the discount those products already carry — which is still the right answer for items already marked down.
+
+Server-side the discount is applied **first**, using exactly the arithmetic `/elfia/bulk-discount` uses (the item's own web price, falling back to list price), so the two paths can never drift into pricing the same product differently. Anything it cannot apply to is still named per SKU rather than skipped quietly, and the refusal message stopped being a dead end: *"no discount set — set the flash price here, or give it a discount first."*
+
 ## [1.67.0] — 2026-08-28 — a duty that repeats, and a day you can tick
 
 **CEO, assigning a standing operations duty across a week: "how to assigned like pick by date and update by daily?"**

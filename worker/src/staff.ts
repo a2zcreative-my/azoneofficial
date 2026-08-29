@@ -7024,12 +7024,36 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       until = new Date(t).toISOString();
     }
 
-    let rows: { id: number; sku: string; elfia_discount_cents: number | null }[];
+    /* v1.68.0 — THE PRICE AND THE DEADLINE, IN ONE ACTION.
+       The CEO, 28-08-2026: "how to update the flash sales price? seem it is
+       wrong flow." He was right. A flash sale needs a price and an end time,
+       and the panel asked for them in two separate rows of the same bar,
+       with the flash row refusing anything that had not already been
+       discounted somewhere else. That is a workflow that explains itself
+       instead of doing the job.
+       `discount` is optional, so the old two-step still works and a sale can
+       still be started on items already marked down. When it is present it
+       is applied FIRST, using exactly the arithmetic /elfia/bulk-discount
+       uses, so the two paths can never drift into pricing the same product
+       differently. */
+    const dMode = String((body?.discount as { mode?: unknown } | undefined)?.mode ?? "");
+    const dValue = Number((body?.discount as { value?: unknown } | undefined)?.value);
+    const setsDiscount = until !== null && ["amount", "percent"].includes(dMode);
+    if (setsDiscount && dMode === "amount" && (!Number.isFinite(dValue) || dValue <= 0 || dValue > 10000)) {
+      return err("invalid_input", "The flash price must be a positive RM amount", 400);
+    }
+    if (setsDiscount && dMode === "percent" && (!Number.isFinite(dValue) || dValue <= 0 || dValue >= 100)) {
+      return err("invalid_input", "The flash percentage must be above 0 and below 100", 400);
+    }
+
+    let rows: { id: number; sku: string; elfia_discount_cents: number | null;
+                unit_price_cents: number | null; elfia_price_cents: number | null }[];
     try {
       const q = await env.DB.prepare(
-        `SELECT id, sku, elfia_discount_cents FROM inventory_items
+        `SELECT id, sku, elfia_discount_cents, unit_price_cents, elfia_price_cents FROM inventory_items
          WHERE id IN (${clean.map((_, i) => `?${i + 1}`).join(",")})`,
-      ).bind(...clean).all<{ id: number; sku: string; elfia_discount_cents: number | null }>();
+      ).bind(...clean).all<{ id: number; sku: string; elfia_discount_cents: number | null;
+                            unit_price_cents: number | null; elfia_price_cents: number | null }>();
       rows = q.results;
     } catch {
       return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0093_elfia_flash_sale)", 500);
@@ -7038,9 +7062,29 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const applied: string[] = [];
     const skipped: { sku: string; why: string }[] = [];
     for (const r of rows) {
-      const disc = r.elfia_discount_cents;
+      let disc = r.elfia_discount_cents;
+
+      if (setsDiscount) {
+        /* The item's OWN price — the web price when it has one, else the
+           list price. Same base as /elfia/bulk-discount, deliberately. */
+        const base = r.elfia_price_cents ?? r.unit_price_cents ?? 0;
+        if (base <= 0) { skipped.push({ sku: r.sku, why: "no price set" }); continue; }
+        const cents = dMode === "percent" ? Math.round(base * dValue / 100) : Math.round(dValue * 100);
+        if (cents <= 0) { skipped.push({ sku: r.sku, why: "works out to nothing" }); continue; }
+        if (cents >= base) { skipped.push({ sku: r.sku, why: "that is the whole price or more" }); continue; }
+        try {
+          await env.DB.prepare(
+            `UPDATE inventory_items SET elfia_discount_cents = ?1, updated_by = ?2,
+               updated_at = datetime('now') WHERE id = ?3`,
+          ).bind(cents, user.id, r.id).run();
+        } catch {
+          return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0086, ELFIA product fields)", 500);
+        }
+        disc = cents;
+      }
+
       if (until !== null && !(typeof disc === "number" && disc > 0)) {
-        skipped.push({ sku: r.sku, why: "no discount set — give it one first, or the pill promises nothing" });
+        skipped.push({ sku: r.sku, why: "no discount set — set the flash price here, or give it a discount first" });
         continue;
       }
       try {
@@ -7055,7 +7099,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
 
     await audit(env, user.id, "elfia.flash_sale", "inventory_items", undefined,
-                { until, applied: applied.length, skipped: skipped.length });
+                { until, applied: applied.length, skipped: skipped.length,
+                  ...(setsDiscount ? { discount_mode: dMode, discount_value: dValue } : {}) });
     return json({ ok: true, until, applied, skipped });
   }
 
