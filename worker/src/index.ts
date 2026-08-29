@@ -649,6 +649,43 @@ async function ttAnalyticsVersions(
   return last;
 }
 
+/* ===================== v1.70.2 - TikTok ids survive the JSON parse =======
+   THE BUG THIS EXISTS FOR, and it cost three releases.
+
+   TikTok ids are 19-digit snowflakes. `Number.MAX_SAFE_INTEGER` is 16
+   digits. The analytics endpoints return ids as JSON NUMBERS, so
+   `res.json()` rounds them, silently and irreversibly:
+
+     1736703643101529119  ->  1736703643101529000
+     1737184156551578655  ->  1737184156551578600
+
+   Every id ending in 00 in the panel was a corrupted id. Nothing downstream
+   could ever match: the catalogue returns its ids as STRINGS, precise, so
+   the join compared a real id against a rounded one and found nothing. The
+   per-product lookup then asked TikTok for an id that does not exist and got
+   "Precondition Required. This operation requires an existing product ID" -
+   which is TRUE of the id we sent, and says nothing about the product.
+
+   I read that refusal as "the product was deleted" and shipped a panel that
+   told the CEO sixteen live products were gone. The API answered honestly;
+   the question had been corrupted before it was asked.
+
+   So the response is parsed from TEXT, with any integer too long to survive
+   quoted first. Applied to EVERY TikTok call, not only analytics: order and
+   shop ids are snowflakes too, and have been getting the same treatment
+   wherever TikTok happened to send them as numbers. */
+function ttParse(raw: string): unknown {
+  try {
+    /* Only integers in VALUE position (after : [ or ,) and only those long
+       enough to be unsafe. Digits already inside quotes are preceded by a
+       quote, so a string can never match. The trailing delimiter is a
+       lookahead so two adjacent ids in an array both match. */
+    return JSON.parse(raw.replace(/([:[,]\s*)(-?\d{16,})(?=\s*[,\]}])/g, '$1"$2"'));
+  } catch {
+    return null;
+  }
+}
+
 async function tiktokSignedFetch(
   env: Env, path: string, params: Record<string, string>, body?: string, method = "GET",
 ): Promise<unknown> {
@@ -671,7 +708,9 @@ async function tiktokSignedFetch(
       headers: { "x-tts-access-token": tok.access_token, "Content-Type": "application/json" },
       body: method === "GET" ? undefined : body,
     });
-    return await res.json().catch(() => null);
+    /* NOT res.json(): see ttParse above. Reading the body as text and
+       quoting the oversized integers first is the only way an id survives. */
+    return ttParse(await res.text().catch(() => ""));
   } catch {
     return null;
   }
@@ -727,7 +766,10 @@ function ttSampleId(m: Record<string, string>): string {
   return "";
 }
 
-const TT_NAMES_KEY = "tiktok_name_map";
+/* v1.70.2 - the key moves with the fix. Every map cached before this holds
+   ROUNDED ids and lives for six hours: leaving the key alone would have
+   shipped the fix and then served the bug for the rest of the day. */
+const TT_NAMES_KEY = "tiktok_name_map_v2";
 
 /** Pull every product page TikTok will give us. */
 async function ttNamesFromCatalogue(env: Env, out: TtNames, status = ""): Promise<string> {
@@ -3795,7 +3837,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     const qDays = Number(new URL(request.url).searchParams.get("days"));
     const days = qDays === 1 || qDays === 30 ? qDays : 7;
-    const cacheKey = `tiktok_analytics_cache_${days}`;
+    /* v1.70.2 - same reason as the name map: cached payloads carry rounded
+       ids in every row. A new key makes the first request after the deploy
+       correct, rather than correct in thirty minutes. */
+    const cacheKey = `tiktok_analytics_cache_v2_${days}`;
     const fresh = new URL(request.url).searchParams.get("fresh") === "1";
     if (!fresh) {
       try {

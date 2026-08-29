@@ -2,6 +2,51 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.70.2] — 2026-08-29 — every TikTok id was being silently rounded
+
+**CEO: "I want product name instead of product SKU!"** — with a screenshot of **BAWAL LUMI AURORA · Live** in Seller Center, sitting there perfectly alive, while the panel called it deleted.
+
+He was right, and my previous explanation was wrong. Here is what was actually happening.
+
+### The bug
+
+TikTok ids are **19-digit snowflakes**. `Number.MAX_SAFE_INTEGER` is **16 digits**. The analytics endpoints return ids as JSON **numbers**, so `res.json()` rounded every one of them, silently and irreversibly:
+
+```
+1736703643101529119  ->  1736703643101529000
+1737184156551578655  ->  1737184156551578600
+```
+
+**Every id ending in `00` on that panel was a corrupted id.** They were in plain sight in every screenshot for four days.
+
+The catalogue returns *its* ids as **strings** — precise. So the name join was comparing a real id against a rounded one and matching nothing, however many sources it tried. The per-product lookup then asked TikTok for an id that genuinely does not exist, and TikTok answered, correctly:
+
+> Precondition Required. This operation requires an existing product ID.
+
+That statement is **true of the id we sent** and says nothing about the product.
+
+### What I did with that, and why it was worse than the bug
+
+I read that refusal as *"the product was deleted"*, wrote a confident message saying so, and shipped it. The panel then told the CEO that sixteen live products were gone from his catalogue.
+
+The API had been answering honestly the whole time. The question was corrupted before it was ever asked, and I built an explanation on top of the corruption instead of checking the data I was reasoning about. The ids were right there.
+
+### The fix
+
+Responses are parsed from **text**, with any integer too long to survive quoted before `JSON.parse` sees it. Applied to **every** TikTok call, not just analytics — order and shop ids are snowflakes too and have been getting the same treatment wherever TikTok chose to send them as numbers.
+
+**Both caches got new keys.** The name map lives six hours and the analytics payload thirty minutes, and every row in both holds rounded ids. Shipping the fix without moving the keys would have served the bug for the rest of the day.
+
+### Guard #18 · `tiktok-id-precision`
+
+It extracts the **shipped** parser out of the worker so the test cannot drift from the code, then runs it against the real response shapes: a bare id, two adjacent ids in an array (the lookahead case), an id TikTok already sends quoted, digits inside a sentence, a full nested response, and malformed input. It ends with a control assertion that plain `JSON.parse` really does corrupt the same value — so the test proves the disease as well as the cure.
+
+Put `res.json()` back and it fails immediately.
+
+### What to expect
+
+Press **Refresh**. Product cards and Variants should show real names — *BAWAL LUMI AURORA* rather than `1737184156551578600`. Anything still unnamed is now a genuine question rather than an artefact.
+
 ## [1.70.1] — 2026-08-29 — a deleted product is not an error
 
 **The product scope is granted** — the panel now reports *"Names did come from: catalogue, orders"*, and product and variant names resolve. That was the fix; this is the tail of it.
