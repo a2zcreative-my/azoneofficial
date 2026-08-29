@@ -2,6 +2,52 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.66.0] — 2026-08-28 — Track R: the roster holds the whole week
+
+**CEO: "for schedule roster, I dont want only to use for live, I also want to use for Task schedule and also assignment Task."**
+
+The board planned live sessions and nothing else, so it showed three of eight staff and implied the marketing team did nothing all week. That was never true — their work simply lived on another screen.
+
+### Overlay, not merge — and the reason is money
+
+The obvious build is one `assignments` table holding both kinds of block. It would have been a real bug, not just a big refactor:
+
+> The sales leaderboard credits TikTok GMV to whoever was **in a live session at the time**. A task stored as a `live_sessions` row means somebody doing paperwork on Tuesday afternoon earns commission on the shop's sales for that hour. The money goes wrong quietly, and the first symptom is an argument about a payslip.
+
+So `live_sessions` is untouched. Tasks got their own table, and the roster became a view over two sources that the board draws in two colours and never confuses.
+
+**Guard #17 `roster-tasks` is the tripwire on that decision.** It reads `attributedSalesByUser` by brace balance — so it cannot be defeated by the function growing — and fails if a task block can ever reach the query that pays commission. Twenty-six checks, negative-tested four ways: leaking `task_blocks` into attribution, downgrading the live-overlap conflict, dropping the permission check, and dropping task hours from the totals each fail it.
+
+### `task_blocks` (migration 0095) — a side table, deliberately
+
+Not three columns on `tasks`. A task is often *two* blocks — three hours Tuesday, two hours Thursday — and one date field can never say that. It also means dragging a block writes here rather than to a hot `tasks` row carrying scope, status and assignment, and unscheduling deletes a row instead of nulling fields on a live record.
+
+### What the board does now
+
+**Both kinds of block, and totals that count both.** Per-person now reads "6 live · 4 tasks · 92 hrs" — committed hours that ignore tasks cannot answer *is this person overloaded*, which is the only question those hours were ever for. Day columns, the week header and the mobile agenda all count both; a phone showing half the day's work would be worse than showing none of it.
+
+**An Unscheduled work rail.** Open tasks with no block this week, due this week or already late. Tap the task, tap the day. **Not HTML5 drag-and-drop:** this board is used on a phone as much as a laptop, and dragging on a touch screen fights the page scroll. The rail is not manager-gated — a staff member planning their own week is exactly who it is for, and they see only their own.
+
+**`+ New assignment` asks which.** Task opens a form that creates the task *and* its first block in one action, because two actions is how a task ends up assigned and never scheduled. The assignee is notified with a time: "Wednesday 10:00–12:00" is a different instruction from "due Wednesday". The date is optional — leave it blank and it behaves exactly like the Tasks tab and waits in the rail.
+
+### The conflict the board made visible
+
+Three new checks, one of which is the point of the whole exercise:
+
+- **A task scheduled after its own deadline.** Invisible on a task list, invisible on a calendar of one, and obvious the moment due dates and working days share a screen. The assign form catches it before the save; the board flags it after.
+- **Work booked on approved leave** — red. The person is not there.
+- **A task under a live session** — **amber, not red** (OD-26). A live session is fixed to the hour it was sold at; the task is what moves. Colouring it the same red as two clashing lives would be crying wolf.
+
+### Permissions (OD-25)
+
+These follow the **task** rule, not the live rule. Live scheduling is management-only because a live session commits the storefront; planning your own week is not that. Staff schedule their own tasks on their own row; `team_manage` schedules anyone; moving work onto *another* person is management-only either way. Applying the live rule here would have taken self-planning away from the marketing team — consistency that cost a capability.
+
+### A guard that would have aged badly
+
+Guard #16, written yesterday, asserted `LATEST_MIGRATION` was `0094`. Migration 0095 broke it the next day. **A guard that fails on somebody else's unrelated work is a guard people learn to skip**, so it now checks 0094 is *registered and probed* — which stays true forever — rather than *latest*.
+
+`IMPLEMENTATION-PLAN.md` §12's migration reservations were stale for the same reason: ranges reserved per track go wrong the first time two tracks ship out of order. They are now a record of what is actually on disk, with the rule changed to "take the next free number, then record it".
+
 ## [1.65.0] — 2026-08-28 — live cards: the portal stops going stale
 
 **CEO: "for any updates that I do in my system, it will auto update the card so that I won't require to refresh it."**

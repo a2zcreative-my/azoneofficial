@@ -978,6 +978,104 @@ Geography comes free and first-party: every request through a Cloudflare Worker 
 
 ---
 
+## 6C. Track R — the roster as ONE work calendar (P1, CEO request 28-08-2026)
+
+> **CEO:** "for schedule roster, I dont want only to use for live, I also want to use for Task schedule and also assignment Task."
+
+**Status: R-1 and R-2 BUILT (v1.66.0, 28-08-2026). R-3 and R-4 still planned.**
+
+### R-0 — Audit finding
+
+Both halves already exist and both are more built than they look.
+
+| The roster today (`live_sessions`) | Tasks today (`tasks` + 0083) |
+|---|---|
+| Week grid + timeline, staff down the side | Title, description, priority, assignee |
+| Drag to reschedule — `PATCH /live-sessions/:id` | A **deadline** (a day, never a time) |
+| Conflict engine: overlaps + approved leave | Tickable scope items (`task_items`) |
+| PDF share plan, unassigned-request rail | Acknowledgement, comments, task reports |
+| Per-person session + hour totals | Own tab, dashboard card, notifications |
+
+The gap is one fact: a task knows *when it is due*, not *when the work happens*. That is the only reason it cannot sit on a grid of days × people.
+
+### R-0 decision — OVERLAY, not merge
+
+A single `assignments` table holding both kinds of block is rejected, and not on tidiness grounds:
+
+> **The leaderboard credits TikTok GMV to whoever was in a live session at the time.** Make a task a `live_sessions` row and a person doing paperwork earns commission on the shop's sales for that hour. The money goes wrong quietly, and the first symptom is an argument about a payslip.
+
+Secondary: tasks would lose scope items / ack / comments / reports (or we duplicate all four), and live sessions carry a client link and the "gone quiet" re-arm that tasks have no use for.
+
+**So: `live_sessions` is untouched. The roster becomes a VIEW over two sources.**
+
+### R-1 — A task can occupy a slot (migration 0095)
+
+A side table, not columns on `tasks`, because a task is often *two* blocks (three hours Tue, two hours Thu) and one date field can never say that. It also means rescheduling never writes to a hot `tasks` row, and unscheduling deletes a block instead of nulling fields on a live record.
+
+```sql
+CREATE TABLE IF NOT EXISTS task_blocks (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL,
+  user_id    INTEGER NOT NULL,   -- who works this block
+  block_date TEXT    NOT NULL,   -- YYYY-MM-DD
+  start_time TEXT    NOT NULL,   -- HH:MM
+  end_time   TEXT,
+  created_by INTEGER,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+```
+
+Routes: `POST /task-blocks`, `PATCH /task-blocks/:id` (drag + resize), `DELETE /task-blocks/:id`, and `GET /roster` extended to return `task_blocks[]` beside `sessions[]`.
+
+Board: a third rail **Unscheduled work** (open tasks due this week or overdue, draggable onto a slot); per-person header becomes "6 live · 4 tasks · 92 hrs committed"; the legend gains a task swatch.
+
+**The conflict engine gains a check that only becomes possible now: a task scheduled AFTER its own deadline.** Nobody catches that by eye and the board is the only place it is visible.
+
+### R-2 — Assign from the board (no migration)
+
+`+ New assignment` stops meaning "live session" and asks which. Task opens the Tasks-tab form (title, scope lines, priority, deadline) and creates the task **and** its first block in one action. The assignee is notified with a *time*: "Stock count, Wednesday 10:00-12:00" is a different instruction from "due Wednesday". The existing **Unassigned requests** rail gets the same drop target — request onto a person becomes a task linked back to the enquiry.
+
+### R-3 — Repeating work
+
+Two readings of "task schedule", a factor of ten apart in cost:
+
+- **Copy last week** — clone the previous week's blocks forward, skipping anyone on leave. No migration, no cron, ~1 day.
+- **True recurrence** — `task_recurrences` + a nightly materialiser, idempotent per (rule, date), plus editing one instance without breaking the series. That last clause is where every calendar app spends its bugs.
+
+**Recommendation: ship Copy last week. Use it a month.** If you copy-then-edit every week, build recurrence knowing which parts are actually needed.
+
+### R-4 — Capacity (presentational)
+
+Committed hours become a real overload signal once both block types share the grid: a threshold warning per person per day, empty rows reading as genuine spare capacity, and tasks included in the PDF plan so the printed week is the real week.
+
+### Open decisions for Track R
+
+| # | Question | Recommendation |
+|---|---|---|
+| OD-25 | Who may schedule a task? Live scheduling is management-only; task creation is not. | **The board follows the TASK rule** — staff schedule their own work on their own row, managers schedule anyone. The live rule would take self-planning away from marketing. |
+| OD-26 | Is a task block a conflict against a live session? | **Amber warning, not red.** Live sessions win; the task is the thing that moves. |
+| OD-27 | Does completing a block complete the task? | **No.** A block completes itself; the task completes when it has no unfinished blocks and its scope is ticked — one prompt, on the last block. |
+
+### Risks
+
+| Risk | Held down by |
+|---|---|
+| Sales attribution picks up task blocks | The overlay design makes it structurally impossible + a guard asserting `task_blocks` never reaches `attributedSalesByUser` |
+| Cells overflow (Nasuha already has 3 live blocks/day) | Cells cap at 3 with "+2 more"; the timeline view carries detail |
+| Two permission rules on one screen drift | `authz-guard` extended to resolve both to the ROLES they admit |
+| Live cards miss the new routes, board goes stale | Guard #16 `live-topics`; the board watches `tasks`, `task-blocks`, `live-sessions`, `leave` |
+| Migration numbering collides | **The §12 reservation table is stale** — 0089-0094 went to other work. Track R takes **0095**; §12 is corrected in the same pass. |
+
+### Release shape
+
+| Release | Contents | Migration |
+|---|---|---|
+| v1.66.0 | R-1 + R-2 together — shipping them apart gives a board you can look at but not use | 0095 |
+| v1.66.1 | R-3 as *Copy last week*, plus R-4's capacity warning | none |
+| later | True recurrence, only if a month of copying proves it necessary | 0096 |
+
+---
+
 ## 7. Track C — CRM (P1)
 
 **Goal:** stop treating `customers` as an address book. Know who a client is, what they have bought, what was said last, and what is due next — including the web buyers arriving from ELFIA.
@@ -1245,6 +1343,21 @@ Reserve numbers now so parallel tracks do not collide. **Keep file numbers monot
 | `0095`–`0096` | E | locations, stock take |
 | `0097`+ | F, G | reserved |
 
+**CORRECTED 28-08-2026.** The reservations above were made on 22-08 and reality diverged: the numbers were consumed in the order the work actually shipped, not the order it was planned. What is really on disk:
+
+| Range | Actually used by |
+|---|---|
+| `0079`–`0083` | SKU key + backfill, web orders, PO direction fix, task tracking |
+| `0084`–`0088` | ELFIA traffic, web-order consent, **two files numbered `0086`** (`elfia_product_fields` and `totp_replay_guard` — both applied, both registered, **do not renumber**: wrangler keys on the full filename and a rename re-applies the ALTER), ELFIA discount slides, slide framing |
+| `0089`–`0090` | ELFIA slide zoom, slide cutout |
+| `0091`–`0092` | leave `adjust`, leave `used_adjust` |
+| `0093` | ELFIA flash sale |
+| `0094` | `data_versions` — live cards (Track: live refresh) |
+| `0095` | `task_blocks` — Track R |
+| `0096`+ | free. Tracks C/D/E take their numbers from here, in ship order. |
+
+The lesson worth keeping: **reserve ranges per track and they go stale the first time two tracks ship out of order.** Take the next free number when you write the file, and record it here afterwards.
+
 Every migration also bumps `LATEST_MIGRATION` (`worker/src/index.ts:241`) and `EXPECTED_MIGRATIONS` (`worker/src/index.ts:~2869`), and adds a "History (do not remove)" row to `DATABASE.md`.
 
 ---
@@ -1335,6 +1448,8 @@ Newest first. One line per change; say what changed and why, not just that somet
 
 | Date | Rev | Change | By |
 |---|---|---|---|
+| 2026-08-28 | 1.4 | **Track R R-1 + R-2 BUILT** (v1.66.0). Migration `0095_task_blocks` — a side table, so one task can span several blocks and rescheduling never writes to the tasks row. `POST/PATCH/DELETE /task-blocks` with the TASK permission rule (OD-25: staff schedule their own work on their own row, `team_manage` schedules anyone; moving work onto another person is management-only). `GET /roster` returns `task_blocks[]` and `unscheduled[]` BESIDE `sessions[]`, never merged, and gains four conflict kinds: `task_over_live` (soft/amber per OD-26 — the live is fixed, the task moves), `task_on_leave`, `task_overlap`, and `task_after_deadline` (the check that only became possible once due dates and working days shared a screen). `POST /tasks` accepts an optional first `block`, so assigning and scheduling are one action and the notification carries a time rather than a day. Board: task chips in violet beside the live chips, an **Unscheduled work** rail (tap a task, tap a day — not HTML5 drag, which fights page scroll on a phone), totals that count both kinds of block, the mobile agenda carrying tasks too, and `+ New assignment` asking live-or-task. Guard #17 `roster-tasks` (26 checks) — the tripwire on the design decision: it reads `attributedSalesByUser` by brace balance and fails if a task block can ever reach the query that pays commission. Negative-tested four ways. Also fixed: guard #16 asserted `LATEST_MIGRATION` was 0094 and 0095 broke it the next day — a guard that fails on unrelated work is one people learn to skip, so it now checks 0094 is REGISTERED rather than LATEST. §12's migration reservations corrected against what is actually on disk. | Claude |
+| 2026-08-28 | 1.3 | **Track R planned — the roster as one work calendar** (CEO: "I dont want only to use for live, I also want to use for Task schedule and also assignment Task"). Audit: both halves are more built than they look; the only missing fact is that a task knows when it is DUE, never when the work HAPPENS. Decision: **overlay, not merge** — a single `assignments` table would put task blocks into `live_sessions`, and the leaderboard credits TikTok GMV to whoever was live at the time, so paperwork would earn commission. R-1 adds `task_blocks` (0095, a side table so one task can span several blocks) + four routes + an Unscheduled-work rail + a new conflict check (work scheduled after its own deadline). R-2 makes `+ New assignment` create task-and-block in one action and turns the unassigned-request rail into a drop target. R-3 recommends *Copy last week* over true recurrence until a month of use proves otherwise. R-4 turns committed hours into a capacity signal. OD-25…OD-27 raised. Also shipped this day: v1.63.0 bulk price + flash sales, v1.64.0-v1.64.5 the TikTok Shop Analytics panel (per-endpoint versions; `shop_lives/overview_performance` retired as TikTok-side dead; product names blocked by a missing PRODUCT scope, now stated as an instruction on the panel), v1.65.0 **live cards** (`0094 data_versions`, one counter per topic bumped at the single staff dispatch point, carried on the existing SSE stream, guard #16 `live-topics`). | Claude |
 | 2026-08-27 | 1.2 | **Security audit + remediation.** Read-only audit of both repos (four parallel reviews; every Critical/High re-verified by hand) produced `SECURITY-AUDIT-2026-08-27` findings; all of them are now closed. Portal v1.45.0: `PROTECTED_ROLES` closes admin→ceo/coo/cco escalation across create/reset/role-grant/offboard/force-logout (A1); `enforce2fa()` makes mandatory 2FA a SERVER rule for the first time (A2) and the enrolment flag now keys off `totp_enabled` (A3); `/payroll/pull-commission` moved to `PAYROLL_PROC` (S1); `/tasks/:id/comments` scoped + attachment ownership (S2); `/content` GET/POST gated (S3); login timing equalised (C5); `0086_totp_replay_guard` makes TOTP codes single-use (C6); `lib/escape-html.ts` applied to every hand-built print document (C7); no state-mutating GET (C11); CSP + HSTS added to `public/_headers` (C1); guard #15 `authz-guard` (resolves payroll gates to the ROLES they admit, not their names). Store v1.4.0: authenticated-bill binding kills the `reference_1` payment-forgery path (P1), signature mandatory + `billplzReady` gates the gateway (P2), `paid_amount`/collection checked (P3), admin passcode → HttpOnly cookie (ST3), real receipt cap + rate limit (ST1), bridge feeds rate-limited (ST2), dedicated `TRAFFIC_HMAC_KEY` with no public fallback (ST5), atomic `hitLimit` (C9), origin fail-closed (C4), order tokens out of `localStorage` (ST4), `.gitignore` added (C2), guard `payment-integrity` wired into DEPLOY.bat. Both guards negative-tested against re-introduced vulnerabilities. | Claude |
 | 2026-08-24 | 1.1 | **Marketing + accuracy (OD-24a)** — store v1.3.0: bilingual PDPA consent tick-box at checkout/sign-up (`0012_marketing_consent`, timestamped, never pre-ticked), s.7 privacy notice in EN+BM on /policies, withdrawal that propagates (account toggle rewrites the person's orders + bumps updated_at so feed C re-sends; admin `withdraw_marketing` action for guests), feed C carries `marketing_consent`. Portal v1.44.0: `0085_web_order_consent` (single ALTER), consent-aware upsert (armored pre-0085), `/staff/web-marketing` (revenue_view, audit-logged, deduped by phone), **Marketing reach** card (counts by state, list, copy-phones) + **Location accuracy** card (visit distribution vs order-address ground truth per state, agreement score, KL/Selangor gateway skew stated) on the ELFIA Traffic tab. | Claude |
 | 2026-08-24 | 1.0 | **Track T BUILT** — store v1.2.0 (`0011_traffic.sql`, `traffic.ts` beacon `POST /api/v1/t` with daily-rotating HMAC visitor hash + bot filter + rate limit, 5-min rollup + 60-day prune, feed D `GET /api/v1/bridge/traffic`, layout sendBeacon snippet, spec § D addendum; also fixed: the real D1 `database_id` UUID tripped `no-secrets` and would have blocked every DEPLOY.bat run — whitelisted as an identifier, not a credential) + portal v1.43.0 (`0084_elfia_traffic`, `pollElfiaTraffic` on the 5-min cron with replace-whole-day batches + final_through cursor, `/staff/web-traffic[/detail]` gated `revenue_view`, map geometry extracted verbatim to `lib/malaysia-map.ts`, `elfia-traffic-panel.tsx` with Today/7d/30d + per-state cities/pages/conversion, "ELFIA Traffic" through all five registries, triple-bump 0084). OD-20a/21b/22(60d)/23(store-first) decided. | Claude |

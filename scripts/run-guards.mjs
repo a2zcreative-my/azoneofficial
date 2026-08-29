@@ -41,6 +41,7 @@ const GUARDS = [
   ["authz-guard", "the authorization rules the 27-08 security audit found broken stay fixed"],
   ["no-public-signatures", "no real signature image is publicly downloadable"],
   ["live-topics", "every live card watches a topic that actually exists, and the bump plumbing is intact"],
+  ["roster-tasks", "a task block can never reach the sales attribution that pays commission"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

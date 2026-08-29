@@ -108,8 +108,11 @@ ok("versions only ever move forward", /\(versions\[topic\] \?\? -1\) < v/.test(l
 ok("bursts are coalesced", /flushTimer/.test(live),
    "one bulk action would fire a separate refetch per card");
 
-/* ---- 5. the migration is registered (the triple bump) ---- */
-ok("0094 is the latest migration", /LATEST_MIGRATION = "0094_data_versions"/.test(index));
+/* ---- 5. the migration is registered ----
+   NOT "0094 is the LATEST migration". That is what this guard asserted when
+   it was written, and 0095 broke it the next day — a guard that fails on
+   somebody else's unrelated work is a guard people learn to skip. What has
+   to stay true is that 0094 is REGISTERED and PROBED, which is true forever. */
 ok("0094 is in EXPECTED_MIGRATIONS", /"0094_data_versions",/.test(index));
 ok("0094 has a health probe", /0094 \(live card versions\)/.test(index));
 

@@ -14,6 +14,8 @@ import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
 import { MiniCalendar } from "@/components/portal/mini-calendar";
+// v1.66.0 Track R — the board is live, and it now carries two kinds of block.
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 const api = makeApi("/staff");
 
@@ -22,11 +24,25 @@ interface RosterSession {
   platform: string; status: string; client: string | null; notes: string | null;
   host_user_id: number; host_name: string; photo_key: string | null;
 }
+interface RosterTaskBlock {
+  id: number; task_id: number; user_id: number; user_name: string;
+  block_date: string; start_time: string; end_time: string | null;
+  title: string; priority: string; status: string; deadline: string | null;
+}
+interface UnscheduledTask {
+  id: number; title: string; priority: string; deadline: string | null;
+  assigned_to: number; assignee: string;
+}
 interface RosterData {
   week_start: string; days: string[]; manager: boolean;
   sessions: RosterSession[];
   on_leave: { user_id: number; name: string; start_date: string; end_date: string }[];
-  conflicts: { kind: string; session_ids: number[]; host_user_id: number; date: string }[];
+  conflicts: { kind: string; session_ids: number[]; task_block_ids?: number[];
+               host_user_id: number; date: string; soft?: boolean }[];
+  /* v1.66.0 — beside the sessions, never merged into them. A task block says
+     WHEN THE WORK HAPPENS; the task still owns what it is and who it is for. */
+  task_blocks?: RosterTaskBlock[];
+  unscheduled?: UnscheduledTask[];
   requests: { id: number; name: string; company: string | null; category: string | null; created_at: string }[];
   available_today: { id: number; name: string; role: string; photo_key: string | null }[];
 }
@@ -109,12 +125,67 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     else setFailed(true);
   }, []);
   useEffect(() => { void load(week); }, [week, load]);
+  /* v1.66.0: the board is one of the busiest shared screens in the portal —
+     a manager plans while a host marks a session done. Four topics, because
+     the week is now made of four things. */
+  const reload = useCallback(() => { void load(week); }, [load, week]);
+  useLiveRefresh(["live-sessions", "task-blocks", "tasks", "leave"], reload);
   useEffect(() => {
     if (!canManage) return;
     void api<{ staff: { id: number; name: string }[] }>(`/staff-list`).then((r) => { if (r.ok && r.data?.staff) setStaff(r.data.staff); });
   }, [canManage]);
 
   const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+  /* v1.66.0 — placing a task on the grid.
+     Not HTML5 drag-and-drop: this board is used on a phone as much as a
+     laptop, and dragging on a touch screen fights the page scroll. Pick the
+     task, then tap the day — the same two-tap gesture the rest of the portal
+     uses, and the only one that works with a thumb. */
+  const [armed, setArmed] = useState<UnscheduledTask | null>(null);
+  const [openBlock, setOpenBlock] = useState<number | null>(null);
+  const [newMenu, setNewMenu] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [tDraft, setTDraft] = useState({
+    title: "", assigned_to: "", priority: "normal", deadline: "",
+    block_date: "", start_time: "10:00", end_time: "12:00", items: "",
+  });
+  const [savingTask, setSavingTask] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const placeTask = useCallback(async (t: UnscheduledTask, date: string, userId: number) => {
+    setPlacing(true);
+    const r = await api<{ id: number }>(`/task-blocks`, {
+      method: "POST",
+      body: JSON.stringify({ task_id: t.id, user_id: userId, block_date: date,
+                             start_time: "10:00", end_time: "12:00" }),
+    });
+    setPlacing(false);
+    if (!r.ok) {
+      showToast(L("Not scheduled", "Tidak dijadualkan"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+      return;
+    }
+    setArmed(null);
+    showToast(L("Scheduled", "Dijadualkan"),
+          L(`${t.title} — ${dmy(date)} 10:00-12:00. Drag the block to change the time.`,
+            `${t.title} — ${dmy(date)} 10:00-12:00. Seret blok untuk menukar masa.`), "success");
+    void load(week);
+  }, [load, week, showToast]);
+
+  const unscheduleBlock = useCallback(async (b: RosterTaskBlock) => {
+    const r = await api(`/task-blocks/${b.id}`, { method: "DELETE" });
+    if (!r.ok) {
+      showToast(L("Not removed", "Tidak dibuang"),
+            (r.data as { error?: { message?: string } } | null)?.error?.message
+              ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+      return;
+    }
+    showToast(L("Back to unscheduled", "Kembali ke belum dijadualkan"),
+          L(`${b.title} left the grid. The task itself is untouched.`,
+            `${b.title} keluar dari grid. Tugasan itu sendiri tidak berubah.`), "success");
+    void load(week);
+  }, [load, week, showToast]);
 
   /* v1.22.1 (CEO: "I need to create multiple schedule in 1 day or in 1 week
      or advance date. provide me a better workflow"): the dialog builds a
@@ -387,6 +458,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
 
   const active = data.sessions.filter((s) => s.status !== "cancelled");
   const conflictIds = new Set(data.conflicts.flatMap((c) => c.session_ids));
+  /* v1.66.0 — task blocks, and the conflicts that belong to them. Soft
+     conflicts (a task under a live session) are kept apart from hard ones:
+     amber says "this will have to move", red says "this cannot happen". */
+  const blocks: RosterTaskBlock[] = data.task_blocks ?? [];
+  const unsched: UnscheduledTask[] = data.unscheduled ?? [];
+  const hardBlockIds = new Set(
+    data.conflicts.filter((c) => !c.soft).flatMap((c) => c.task_block_ids ?? []));
+  const softBlockIds = new Set(
+    data.conflicts.filter((c) => c.soft).flatMap((c) => c.task_block_ids ?? []));
   const onLeaveCount = new Set(data.on_leave.map((l) => l.user_id)).size;
   const gridHeight = (DAY_END - DAY_START) * HOUR_PX;
   const sel = data.sessions.find((s) => s.id === openSession) ?? null;
@@ -420,16 +500,47 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">{L("Plan live-host assignments, availability and replacements.", "Rancang tugasan hos live, ketersediaan dan pengganti.")}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{L("Plan live sessions and task work on one week: assignments, availability and replacements.", "Rancang sesi LIVE dan kerja tugasan dalam satu minggu: tugasan, ketersediaan dan pengganti.")}</p>
         </div>
+        {/* v1.66.0 — "+ New assignment" no longer means one thing.
+            A menu rather than two buttons: the header is tight on a phone,
+            and the second option is used far less often than the first. */}
         {canManage && (
-          <button type="button" className={btnClass} onClick={() => openAssign()}>＋ {L("New assignment", "Tugasan baharu")}</button>
+          <div className="relative">
+            <button type="button" className={btnClass} onClick={() => setNewMenu((o) => !o)}
+              aria-expanded={newMenu} aria-haspopup="menu">
+              ＋ {L("New assignment", "Tugasan baharu")}
+            </button>
+            {newMenu && (
+              <div role="menu"
+                className="bg-card border-border absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border shadow-xl">
+                <button type="button" role="menuitem"
+                  className="hover:bg-secondary block w-full px-3 py-2 text-left text-sm"
+                  onClick={() => { setNewMenu(false); openAssign(); }}>
+                  <span className="font-medium">{L("Live session", "Sesi LIVE")}</span>
+                  <span className="text-muted-foreground block text-[11px]">
+                    {L("A host, a platform, a client slot", "Hos, platform, slot pelanggan")}
+                  </span>
+                </button>
+                <button type="button" role="menuitem"
+                  className="hover:bg-secondary border-border block w-full border-t px-3 py-2 text-left text-sm"
+                  onClick={() => { setNewMenu(false); setTaskOpen(true); }}>
+                  <span className="font-medium">{L("Task", "Tugasan")}</span>
+                  <span className="text-muted-foreground block text-[11px]">
+                    {L("Assigned and scheduled in one step", "Ditugaskan dan dijadualkan sekali gus")}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {/* stat chips (reference: Scheduled / Available / On leave / Conflicts) */}
       <div className="mt-3 flex flex-wrap gap-2">
-        {chip(L("scheduled", "dijadualkan"), active.length, "bg-secondary")}
+        {chip(L("live", "LIVE"), active.length, "bg-secondary")}
+        {chip(L("tasks", "tugasan"), blocks.length,
+              "border border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40")}
         {data.manager && chip(L("available today", "tersedia hari ini"), data.available_today.length, chipSuccess)}
         {/* v1.21.0: the on-leave pill is a button — it opens WHO is away and
             the applied dates, so assignments are planned around real absences
@@ -523,6 +634,23 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, spanMins(s.start_time, s.end_time)) : 60);
                   const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} ${L("hrs", "jam")}`;
                   const nSess = (n: number) => (lang === "ms" ? `${n} sesi` : `${n} session${n === 1 ? "" : "s"}`);
+                  /* v1.66.0: a block's own duration, and the week's real
+                     commitment — live plus task, because "129 hrs" only
+                     answers "is this person overloaded" once it counts
+                     everything they are actually booked for. */
+                  const durOfB = (b: RosterTaskBlock) => (b.end_time ? Math.max(30, spanMins(b.start_time, b.end_time)) : 60);
+                  const cellTasks = (uid: number, d: string) =>
+                    blocks.filter((b) => b.user_id === uid && b.block_date === d)
+                      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+                  const blkCls = (b: RosterTaskBlock) =>
+                    hardBlockIds.has(b.id) ? "border-danger bg-danger-soft"
+                    : softBlockIds.has(b.id) ? "border-warning bg-warning-soft"
+                    : b.status === "completed" ? "border-success bg-success-soft"
+                    /* Violet, from Tailwind's own palette rather than a brand
+                       token: the brand colours are already spoken for by
+                       TikTok, Shopee, completed, conflict and leave, and an
+                       invented token would render as no colour at all. */
+                    : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40";
                   const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
                   const rows = staff;
                   const cellSessions = (uid: number, d: string) =>
@@ -546,16 +674,23 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       <div className="border-border grid border-b" style={gridCols}>
                         <div className="bg-brand flex min-w-0 flex-col justify-center px-3 py-2">
                           <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">{L("Staff", "Staf")}</p>
-                          <p className="text-xs font-semibold text-white tabular-nums">{nSess(active.length)} · {hrs(active.reduce((a, s) => a + durOf(s), 0))}</p>
+                          <p className="text-xs font-semibold text-white tabular-nums">
+                            {nSess(active.length)}{blocks.length > 0 ? ` · ${blocks.length} ${L("tasks", "tugasan")}` : ""}
+                            {" · "}
+                            {hrs(active.reduce((a, s) => a + durOf(s), 0) + blocks.reduce((a, b) => a + durOfB(b), 0))}
+                          </p>
                         </div>
                         {data.days.map((d, i) => {
                           const dayS = active.filter((s) => s.session_date === d);
+                          const dayB = blocks.filter((b) => b.block_date === d);
                           const isToday = d === todayS;
                           return (
                             <div key={d} className={`border-border min-w-0 border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
                               <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
-                                {dayS.length === 0 ? "—" : `${dayS.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0))}`}
+                                {dayS.length + dayB.length === 0
+                                  ? "—"
+                                  : `${dayS.length + dayB.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0))}`}
                               </p>
                             </div>
                           );
@@ -564,19 +699,37 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       {/* one row per staff member */}
                       {rows.map((u) => {
                         const mine = active.filter((s) => s.host_user_id === u.id);
+                        const mineB = blocks.filter((b) => b.user_id === u.id);
                         return (
                           <div key={u.id} className="border-border grid border-b last:border-b-0" style={gridCols}>
                             <div className="border-border flex min-w-0 flex-col justify-center border-r px-3 py-1.5">
                               <p className="truncate text-xs font-semibold" title={u.name}>{u.name.split(" ").slice(0, 2).join(" ")}</p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
-                                {mine.length === 0 ? L("no sessions", "tiada sesi") : `${nSess(mine.length)} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`}
+                                {mine.length + mineB.length === 0
+                                  ? L("nothing booked", "tiada tempahan")
+                                  : [
+                                      mine.length > 0 ? `${mine.length} ${L("live", "LIVE")}` : "",
+                                      mineB.length > 0 ? `${mineB.length} ${L("tasks", "tugasan")}` : "",
+                                      hrs(mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0)),
+                                    ].filter(Boolean).join(" · ")}
                               </p>
                             </div>
                             {data.days.map((d) => {
                               const cs = cellSessions(u.id, d);
+                              const ts = cellTasks(u.id, d);
                               const leave = onLeave(u.id, d);
+                              /* While a task is armed, every cell the current
+                                 user is allowed to fill becomes a target. A
+                                 non-manager may only place work on their own
+                                 row — the same rule the server enforces, said
+                                 here so the board never offers something the
+                                 save will refuse. */
+                              const canDrop = armed != null && !placing
+                                && (canManage || u.id === armed.assigned_to);
                               return (
-                                <div key={d} className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""}`}>
+                                <div key={d}
+                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""}`}
+                                  onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
                                   )}
@@ -588,6 +741,26 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                       <span className="block truncate text-[10px] leading-tight font-semibold">{s.client ?? "Live"}</span>
                                       <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
                                         {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {durOf(s)} min
+                                      </span>
+                                    </button>
+                                  ))}
+                                  {/* v1.66.0 — the other half of the week.
+                                      Live blocks first: a live session is
+                                      fixed to the hour it was sold at, and a
+                                      task is the thing that moves around it. */}
+                                  {ts.map((b) => (
+                                    <button key={`t${b.id}`} type="button"
+                                      title={`${b.title} · ${b.start_time}${b.end_time ? `–${b.end_time}` : ""} · ${b.user_name}`
+                                        + (b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : "")
+                                        + (hardBlockIds.has(b.id) ? ` · ${L("CONFLICT", "PERTINDIHAN")}` : "")
+                                        + (softBlockIds.has(b.id) ? ` · ${L("clashes with a live session — move the task", "bertindih dengan sesi LIVE — alihkan tugasan")}` : "")}
+                                      onClick={(e) => { e.stopPropagation(); setOpenBlock(openBlock === b.id ? null : b.id); }}
+                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${blkCls(b)}`}>
+                                      <span className="block truncate text-[10px] leading-tight font-semibold">
+                                        {b.priority === "urgent" ? "❗ " : ""}{b.title}
+                                      </span>
+                                      <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
+                                        {b.start_time}{b.end_time ? `–${b.end_time}` : ""} · {L("task", "tugasan")}
                                       </span>
                                     </button>
                                   ))}
@@ -641,6 +814,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />{L("Completed", "Selesai")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />{L("Conflict", "Pertindihan")}</span>
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />{L("On leave", "Bercuti")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40" />{L("Task", "Tugasan")}</span>
                       </div>
                     </>
                   );
@@ -795,6 +969,12 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               const dayS = active
                 .filter((s) => s.session_date === d)
                 .sort((a, b) => a.start_time.localeCompare(b.start_time));
+              /* v1.66.0 — the phone gets the whole week too. Without this the
+                 mobile agenda would quietly show half the day's work, which
+                 is worse than showing none of it. */
+              const dayB = blocks
+                .filter((b) => b.block_date === d)
+                .sort((a, b) => a.start_time.localeCompare(b.start_time));
               const isToday = d === todayS;
               return (
                 <div key={d} className={`border-border border-b px-3 py-2 last:border-b-0 ${isToday ? "bg-gold-soft/25" : ""}`}>
@@ -803,11 +983,16 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       {DAYS[i]} <span className="tabular-nums">{dmy(d)}</span>
                       {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">{L("TODAY", "HARI INI")}</span>}
                     </p>
-                    {dayS.length > 0 && (
-                      <span className="text-muted-foreground text-[10px] tabular-nums">{lang === "ms" ? `${dayS.length} sesi` : `${dayS.length} session${dayS.length === 1 ? "" : "s"}`}</span>
+                    {dayS.length + dayB.length > 0 && (
+                      <span className="text-muted-foreground text-[10px] tabular-nums">
+                        {[
+                          dayS.length > 0 ? (lang === "ms" ? `${dayS.length} sesi` : `${dayS.length} live`) : "",
+                          dayB.length > 0 ? `${dayB.length} ${L("tasks", "tugasan")}` : "",
+                        ].filter(Boolean).join(" · ")}
+                      </span>
                     )}
                   </div>
-                  {dayS.length === 0 ? (
+                  {dayS.length + dayB.length === 0 ? (
                     <p className="text-muted-foreground/60 mt-0.5 text-[11px]">—</p>
                   ) : dayS.map((s) => {
                     const isOpen = openSession === s.id;
@@ -860,10 +1045,72 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       </div>
                     );
                   })}
+                  {/* v1.66.0 — the day's task blocks, under its live
+                      sessions, in the same order the desktop grid uses. */}
+                  {dayB.map((b) => (
+                    <button key={`mt${b.id}`} type="button"
+                      onClick={() => setOpenBlock(openBlock === b.id ? null : b.id)}
+                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${hardBlockIds.has(b.id) ? "border-danger bg-danger-soft" : softBlockIds.has(b.id) ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+                      <span className="w-20 shrink-0 text-[11px] font-semibold tabular-nums">
+                        {b.start_time}{b.end_time ? `–${b.end_time}` : ""}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          {b.priority === "urgent" ? "❗ " : ""}{b.title}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-[10px]">
+                          {b.user_name.split(" ").slice(0, 2).join(" ")} · {L("task", "tugasan")}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
               );
             })}
           </div>
+
+          {/* v1.66.0 — a tapped task block. A bar, not a popover: the block
+              carries less to say than a live session (the task's own page is
+              where its scope and comments live), and this one has to work
+              identically on the mobile agenda below. */}
+          {(() => {
+            const b = blocks.find((x) => x.id === openBlock);
+            if (!b) return null;
+            const hard = hardBlockIds.has(b.id);
+            const soft = softBlockIds.has(b.id);
+            return (
+              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${hard ? "border-danger bg-danger-soft" : soft ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+                <span className="min-w-0">
+                  <span className="font-semibold">{b.title}</span>
+                  <span className="text-muted-foreground">
+                    {" · "}{b.user_name.split(" ").slice(0, 2).join(" ")}
+                    {" · "}<span className="tabular-nums">{dmy(b.block_date)} {b.start_time}{b.end_time ? `–${b.end_time}` : ""}</span>
+                    {b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : ""}
+                  </span>
+                  {hard && (
+                    <span className="text-danger block text-xs font-medium">
+                      {b.deadline && b.block_date > b.deadline
+                        ? L("This is scheduled AFTER its own deadline.", "Ini dijadualkan SELEPAS tarikh akhirnya sendiri.")
+                        : L("This clashes with approved leave or another task.", "Ini bertindih dengan cuti diluluskan atau tugasan lain.")}
+                    </span>
+                  )}
+                  {soft && (
+                    <span className="text-warning block text-xs font-medium">
+                      {L("Overlaps a live session — the live is fixed, so move the task.", "Bertindih dengan sesi LIVE — LIVE tetap, jadi alihkan tugasan.")}
+                    </span>
+                  )}
+                </span>
+                <span className="flex shrink-0 gap-2">
+                  <button type="button" className="text-muted-foreground text-xs underline"
+                    onClick={() => void unscheduleBlock(b)}>
+                    {L("Unschedule", "Nyahjadual")}
+                  </button>
+                  <button type="button" className="text-muted-foreground text-xs underline"
+                    onClick={() => setOpenBlock(null)}>{L("Close", "Tutup")}</button>
+                </span>
+              </div>
+            );
+          })()}
 
           {/* v1.9.0 drag-to-reschedule confirm bar */}
           {pendingMove && (
@@ -897,8 +1144,52 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         </div>
 
         {/* right rail */}
-        {data.manager && (
+        {(data.manager || unsched.length > 0) && (
           <div className="space-y-3">
+            {/* v1.66.0 — Unscheduled work.
+                Open tasks with no block anywhere this week, due this week or
+                already late. Deliberately NOT manager-gated: a staff member
+                planning their own week is exactly who this rail is for, and
+                they see only their own. Tap one, then tap a day. */}
+            {unsched.length > 0 && (
+              <div className={`rounded-lg border p-3 ${armed ? "border-gold bg-gold-soft/30" : "border-border"}`}>
+                <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
+                  {L("Unscheduled work", "Kerja belum dijadualkan")}
+                  <span className="bg-bear ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{unsched.length}</span>
+                </p>
+                {armed ? (
+                  <p className="text-gold-deep mt-1.5 text-xs font-medium">
+                    {L(`Now tap a day for “${armed.title}”.`, `Sekarang tekan hari untuk “${armed.title}”.`)}{" "}
+                    <button type="button" className="underline" onClick={() => setArmed(null)}>{L("cancel", "batal")}</button>
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground mt-1 text-[11px]">
+                    {L("Tap a task, then tap the day it should happen.", "Tekan tugasan, kemudian tekan hari ia patut berlaku.")}
+                  </p>
+                )}
+                {unsched.map((t) => {
+                  const late = t.deadline != null && t.deadline < todayS;
+                  return (
+                    <button key={t.id} type="button" disabled={placing}
+                      onClick={() => setArmed(armed?.id === t.id ? null : t)}
+                      className={`mt-1.5 block w-full rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors ${armed?.id === t.id ? "border-gold bg-gold-soft" : "border-border hover:bg-secondary"}`}>
+                      <span className="block truncate font-medium">
+                        {t.priority === "urgent" ? "❗ " : ""}{t.title}
+                      </span>
+                      <span className="text-muted-foreground block truncate">
+                        {t.assignee.split(" ").slice(0, 2).join(" ")}
+                        {t.deadline && (
+                          <span className={late ? "text-danger font-semibold" : ""}>
+                            {" · "}{late ? L("overdue", "lewat") : L("due", "tarikh akhir")} {dmy(t.deadline)}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {data.manager && (
             <div className="border-border rounded-lg border p-3">
               <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">
                 {L("Unassigned requests", "Permintaan belum ditugaskan")} {data.requests.length > 0 && <span className="bg-bear ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{data.requests.length}</span>}
@@ -918,6 +1209,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   </div>
                 ))}
             </div>
+            )}
+            {data.manager && (
             <div className="border-border rounded-lg border p-3">
               <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">{L("Available today", "Tersedia hari ini")}</p>
               {data.available_today.length === 0
@@ -930,9 +1223,149 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   </p>
                 ))}
             </div>
+            )}
           </div>
         )}
       </div>
+
+
+      {/* v1.66.0 — assign a task, and give it a slot, in one action.
+          Two actions is how a task ends up assigned and never scheduled, and
+          an unscheduled task is a wish rather than a plan. The date and time
+          are optional: leave them blank and this behaves exactly like the
+          Tasks tab, which is the right escape hatch for "do it sometime this
+          week". */}
+      {taskOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
+          onClick={() => setTaskOpen(false)}>
+          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-semibold">{L("Assign a task", "Tugaskan tugasan")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Give it a day and time and it lands on the board. Leave them blank and it waits in Unscheduled work.",
+                 "Beri hari dan masa dan ia akan muncul di papan. Biarkan kosong dan ia menunggu dalam Kerja belum dijadualkan.")}
+            </p>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className={fieldLabel} htmlFor="tk-title">{L("What needs doing", "Apa yang perlu dibuat")}</label>
+                <input id="tk-title" className={inputClass} value={tDraft.title} maxLength={200}
+                  placeholder={L("e.g. Photograph the new shawl restock", "cth. Ambil gambar stok shawl baharu")}
+                  onChange={(e) => setTDraft({ ...tDraft, title: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="tk-who">{L("Who", "Siapa")}</label>
+                  <select id="tk-who" className={inputClass} value={tDraft.assigned_to}
+                    onChange={(e) => setTDraft({ ...tDraft, assigned_to: e.target.value })}>
+                    <option value="">{L("Choose a person…", "Pilih orang…")}</option>
+                    {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="tk-prio">{L("Priority", "Keutamaan")}</label>
+                  <select id="tk-prio" className={inputClass} value={tDraft.priority}
+                    onChange={(e) => setTDraft({ ...tDraft, priority: e.target.value })}>
+                    <option value="low">{L("Low", "Rendah")}</option>
+                    <option value="normal">{L("Normal", "Biasa")}</option>
+                    <option value="high">{L("High", "Tinggi")}</option>
+                    <option value="urgent">{L("Urgent", "Segera")}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className={fieldLabel} htmlFor="tk-scope">{L("Scope — one deliverable per line", "Skop — satu penghantaran setiap baris")}</label>
+                <textarea id="tk-scope" className={inputClass} rows={3} value={tDraft.items}
+                  placeholder={L("Front shots\nBack shots\nUpload to the portal", "Gambar depan\nGambar belakang\nMuat naik ke portal")}
+                  onChange={(e) => setTDraft({ ...tDraft, items: e.target.value })} />
+                <p className="text-muted-foreground mt-1 text-[11px]">
+                  {L("Each line becomes a tick-box, so progress is counted rather than guessed.",
+                     "Setiap baris menjadi kotak tanda, jadi kemajuan dikira bukan diteka.")}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="tk-due">{L("Due by", "Perlu siap")}</label>
+                  <input id="tk-due" type="date" className={inputClass} value={tDraft.deadline}
+                    onChange={(e) => setTDraft({ ...tDraft, deadline: e.target.value })} />
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="tk-day">{L("Work it on", "Buat pada")}</label>
+                  <input id="tk-day" type="date" className={inputClass} value={tDraft.block_date}
+                    onChange={(e) => setTDraft({ ...tDraft, block_date: e.target.value })} />
+                </div>
+              </div>
+
+              {tDraft.block_date && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={fieldLabel} htmlFor="tk-st">{L("From", "Dari")}</label>
+                    <input id="tk-st" type="time" className={inputClassSm} value={tDraft.start_time}
+                      onChange={(e) => setTDraft({ ...tDraft, start_time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel} htmlFor="tk-et">{L("To", "Hingga")}</label>
+                    <input id="tk-et" type="time" className={inputClassSm} value={tDraft.end_time}
+                      onChange={(e) => setTDraft({ ...tDraft, end_time: e.target.value })} />
+                  </div>
+                </div>
+              )}
+
+              {/* The one mistake this form can catch before the server does,
+                  and the one worth catching here because it is a planning
+                  error rather than a typo. */}
+              {tDraft.block_date && tDraft.deadline && tDraft.block_date > tDraft.deadline && (
+                <p className="border-warning bg-warning-soft text-warning rounded-lg border px-2.5 py-1.5 text-xs font-medium">
+                  {L("That schedules the work after its own deadline.", "Itu menjadualkan kerja selepas tarikh akhirnya sendiri.")}
+                </p>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="text-muted-foreground text-sm underline"
+                onClick={() => setTaskOpen(false)}>{L("Cancel", "Batal")}</button>
+              <button type="button" className={btnClass} disabled={savingTask || !tDraft.title.trim() || !tDraft.assigned_to}
+                onClick={async () => {
+                  setSavingTask(true);
+                  const hasSlot = /^\d{4}-\d{2}-\d{2}$/.test(tDraft.block_date);
+                  const r = await api<{ id: number; block_id?: number; error?: { message?: string } }>(`/tasks`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      title: tDraft.title.trim(),
+                      assigned_to: Number(tDraft.assigned_to),
+                      priority: tDraft.priority,
+                      ...(tDraft.deadline ? { deadline: tDraft.deadline } : {}),
+                      items: tDraft.items.split("\n").map((x) => x.trim()).filter(Boolean),
+                      ...(hasSlot ? { block: { block_date: tDraft.block_date, start_time: tDraft.start_time, end_time: tDraft.end_time } } : {}),
+                    }),
+                  });
+                  setSavingTask(false);
+                  if (!r.ok) {
+                    showToast(L("Not assigned", "Tidak ditugaskan"),
+                      r.data?.error?.message ?? L("The server refused the task", "Pelayan menolak tugasan"), "notice");
+                    return;
+                  }
+                  const who = staff.find((u) => u.id === Number(tDraft.assigned_to))?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                  showToast(L("Assigned", "Ditugaskan"),
+                    hasSlot
+                      ? L(`${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`,
+                          `${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`)
+                      : L(`${tDraft.title} — ${who}. It is waiting in Unscheduled work.`,
+                          `${tDraft.title} — ${who}. Ia menunggu dalam Kerja belum dijadualkan.`));
+                  setTaskOpen(false);
+                  setTDraft({ title: "", assigned_to: "", priority: "normal", deadline: "",
+                              block_date: "", start_time: "10:00", end_time: "12:00", items: "" });
+                  void load(week);
+                }}>
+                {savingTask ? L("Assigning…", "Menugaskan…") : L("Assign", "Tugaskan")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* assignment modal (click-to-assign) */}
       {assignOpen && (

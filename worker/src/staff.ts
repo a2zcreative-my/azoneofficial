@@ -1609,7 +1609,8 @@ export async function handleStaff(
 
       // Conflicts: overlapping sessions for the same host, and sessions whose
       // host has approved leave covering the session day.
-      const conflicts: { kind: string; session_ids: number[]; host_user_id: number; date: string }[] = [];
+      const conflicts: { kind: string; session_ids: number[]; task_block_ids?: number[];
+                         host_user_id: number; date: string; soft?: boolean }[] = [];
       const live = sessions.filter((x) => x.status !== "cancelled");
       const endOf = (x: { start_time: string; end_time: string | null }) => x.end_time ?? addMinutes(x.start_time, 60);
       for (let i = 0; i < live.length; i++) {
@@ -1625,6 +1626,113 @@ export async function handleStaff(
       for (const sess of live) {
         if (leaveRows.some((l) => l.user_id === sess.host_user_id && l.start_date <= sess.session_date && l.end_date >= sess.session_date)) {
           conflicts.push({ kind: "host_on_leave", session_ids: [sess.id], host_user_id: sess.host_user_id, date: sess.session_date });
+        }
+      }
+
+      /* ===== v1.66.0 Track R — the other half of the week =====
+         Task blocks are fetched, scoped and conflict-checked exactly as
+         sessions are, and returned BESIDE them rather than merged into them.
+         The board draws two kinds of block; nothing downstream of here can
+         mistake one for the other, which is the point: the sales leaderboard
+         reads live_sessions, and a task must never be able to reach it. */
+      let taskBlocks: unknown[] = [];
+      let unscheduled: unknown[] = [];
+      let blockRows: { id: number; task_id: number; user_id: number; block_date: string;
+                       start_time: string; end_time: string | null; deadline: string | null;
+                       status: string }[] = [];
+      try {
+        const q = await env.DB.prepare(
+          mgrR
+            ? `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time,
+                      t.title, t.priority, t.status, t.deadline,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
+               FROM task_blocks b JOIN tasks t ON t.id = b.task_id JOIN users u ON u.id = b.user_id
+               WHERE b.block_date BETWEEN ?1 AND ?2
+               ORDER BY b.block_date, b.start_time LIMIT 400`
+            : `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time,
+                      t.title, t.priority, t.status, t.deadline,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
+               FROM task_blocks b JOIN tasks t ON t.id = b.task_id JOIN users u ON u.id = b.user_id
+               WHERE b.user_id = ?3 AND b.block_date BETWEEN ?1 AND ?2
+               ORDER BY b.block_date, b.start_time LIMIT 100`,
+        ).bind(...(mgrR ? [start, end] : [start, end, user.id]))
+          .all<{ id: number; task_id: number; user_id: number; block_date: string;
+                 start_time: string; end_time: string | null; deadline: string | null; status: string }>();
+        taskBlocks = q.results;
+        blockRows = q.results;
+
+        /* The rail: open tasks with no block anywhere in this week. Due this
+           week or already overdue, because a task due in three weeks is not
+           what this week's board is for. */
+        const un = await env.DB.prepare(
+          mgrR
+            ? `SELECT t.id, t.title, t.priority, t.deadline, t.assigned_to,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS assignee
+               FROM tasks t JOIN users u ON u.id = t.assigned_to
+               WHERE t.status != 'completed'
+                 AND (t.deadline IS NULL OR t.deadline <= ?2)
+                 AND NOT EXISTS (SELECT 1 FROM task_blocks b2 WHERE b2.task_id = t.id
+                                   AND b2.block_date BETWEEN ?1 AND ?2)
+               ORDER BY (t.deadline IS NULL), t.deadline LIMIT 12`
+            : `SELECT t.id, t.title, t.priority, t.deadline, t.assigned_to,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS assignee
+               FROM tasks t JOIN users u ON u.id = t.assigned_to
+               WHERE t.assigned_to = ?3 AND t.status != 'completed'
+                 AND (t.deadline IS NULL OR t.deadline <= ?2)
+                 AND NOT EXISTS (SELECT 1 FROM task_blocks b2 WHERE b2.task_id = t.id
+                                   AND b2.block_date BETWEEN ?1 AND ?2)
+               ORDER BY (t.deadline IS NULL), t.deadline LIMIT 12`,
+        ).bind(...(mgrR ? [start, end] : [start, end, user.id])).all();
+        unscheduled = un.results;
+      } catch { /* pre-0095 — the board is exactly what it was yesterday */ }
+
+      /* Three more conflict kinds, all of which only become checkable now
+         that both kinds of block share one calendar. */
+      const openBlocks = blockRows.filter((b) => b.status !== "completed");
+      for (const b of openBlocks) {
+        const bEnd = b.end_time ?? addMinutes(b.start_time, 60);
+
+        /* 1. A task sitting on top of a live session. AMBER, not red
+              (OD-26): a live session commits the storefront at a fixed hour
+              and cannot move; the task is the thing that gives way. Naming
+              it "soft" lets the board colour it differently instead of
+              crying wolf in the same red as two clashing lives. */
+        for (const sess of live) {
+          if (sess.host_user_id !== b.user_id || sess.session_date !== b.block_date) continue;
+          if (b.start_time < endOf(sess) && sess.start_time < bEnd) {
+            conflicts.push({ kind: "task_over_live", session_ids: [sess.id], task_block_ids: [b.id],
+                             host_user_id: b.user_id, date: b.block_date, soft: true });
+          }
+        }
+
+        /* 2. Work booked on an approved leave day. Red: the person is not
+              there. Same rule the live sessions already obey. */
+        if (leaveRows.some((l) => l.user_id === b.user_id && l.start_date <= b.block_date && l.end_date >= b.block_date)) {
+          conflicts.push({ kind: "task_on_leave", session_ids: [], task_block_ids: [b.id],
+                           host_user_id: b.user_id, date: b.block_date });
+        }
+
+        /* 3. Work scheduled AFTER its own deadline. This is the check the
+              whole exercise makes possible: it is invisible on a task list,
+              invisible on a calendar of one, and obvious the moment the due
+              date and the working day sit on the same screen. */
+        if (b.deadline && b.block_date > b.deadline) {
+          conflicts.push({ kind: "task_after_deadline", session_ids: [], task_block_ids: [b.id],
+                           host_user_id: b.user_id, date: b.block_date });
+        }
+      }
+
+      /* Two task blocks overlapping each other on one person's day. */
+      for (let i = 0; i < openBlocks.length; i++) {
+        for (let j = i + 1; j < openBlocks.length; j++) {
+          const a = openBlocks[i]!, b2 = openBlocks[j]!;
+          if (a.user_id !== b2.user_id || a.block_date !== b2.block_date) continue;
+          const aE = a.end_time ?? addMinutes(a.start_time, 60);
+          const bE = b2.end_time ?? addMinutes(b2.start_time, 60);
+          if (a.start_time < bE && b2.start_time < aE) {
+            conflicts.push({ kind: "task_overlap", session_ids: [], task_block_ids: [a.id, b2.id],
+                             host_user_id: a.user_id, date: a.block_date });
+          }
         }
       }
 
@@ -1661,6 +1769,8 @@ export async function handleStaff(
       return json({
         week_start: start, days, manager: mgrR,
         sessions, on_leave: onLeave, conflicts, requests, available_today: available,
+        /* Beside the sessions, never merged into them. */
+        task_blocks: taskBlocks, unscheduled,
       });
     } catch (e) {
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0056 (live sessions) first", 409);
@@ -3549,15 +3659,157 @@ export async function handleStaff(
         itemCount = lines.length;
       } catch { /* pre-0083 — the task still exists, scope stays in description */ }
     }
+    /* v1.66.0 Track R — assigned FROM the roster, with a slot.
+       The board creates the task and its first block in one action, because
+       two actions is how a task ends up assigned and never scheduled. The
+       block is optional: the Tasks tab still creates plain tasks and this
+       whole branch is skipped. */
+    let firstBlock: number | undefined;
+    const blk = body.block as { block_date?: unknown; start_time?: unknown; end_time?: unknown } | undefined;
+    const bDate = typeof blk?.block_date === "string" ? blk.block_date : "";
+    const bStart = typeof blk?.start_time === "string" ? blk.start_time : "";
+    if (res?.id && /^\d{4}-\d{2}-\d{2}$/.test(bDate) && /^\d{2}:\d{2}$/.test(bStart)) {
+      const bEnd = typeof blk?.end_time === "string" && /^\d{2}:\d{2}$/.test(blk.end_time) ? blk.end_time : null;
+      try {
+        const b = await env.DB.prepare(
+          `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+        ).bind(res.id, assignedTo, bDate, bStart, bEnd, user.id).first<{ id: number }>();
+        firstBlock = b?.id;
+      } catch { /* pre-0095 — the task exists, it is simply unscheduled */ }
+    }
     if (assignedTo !== user.id) {
-      const due = str(body.deadline, 10) ? ` (due ${body.deadline as string})` : "";
+      /* A time is a different instruction from a date. "Wednesday
+         10:00-12:00" tells somebody when to start; "due Wednesday" tells
+         them when to panic. When the board gave us a slot, say the slot. */
+      const when = firstBlock
+        ? ` — ${bDate.split("-").reverse().join("-")} ${bStart}${typeof blk?.end_time === "string" && blk.end_time ? `-${blk.end_time}` : ""}`
+        : str(body.deadline, 10) ? ` (due ${body.deadline as string})` : "";
       const scope = itemCount > 0 ? ` — ${itemCount} scope item${itemCount === 1 ? "" : "s"}` : "";
       await notify(env, assignedTo, "task",
-        `📋 New task assigned: ${body.title as string}${due}${scope}. Open the Tasks tab and press Acknowledge.`,
+        `${firstBlock ? "🗓️ Scheduled" : "📋 New task assigned"}: ${body.title as string}${when}${scope}. Open the Tasks tab and press Acknowledge.`,
         `task:${res?.id}`);
     }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
-    return json({ id: res?.id }, 201);
+    return json({ id: res?.id, block_id: firstBlock }, 201);
+  }
+
+  /* ===================== v1.66.0 — Track R: task blocks =====================
+     A block is WHEN THE WORK HAPPENS. The task itself still owns what the
+     work is, who it belongs to, its scope and its deadline; a block only
+     claims a slot on somebody's day. One task may have several.
+
+     PERMISSION (OD-27, decided 28-08): these follow the TASK rule, not the
+     live-session rule. Live scheduling is management-only because a live
+     session commits the shop's storefront; planning your own week is not
+     that. A staff member may schedule their OWN task on their OWN row;
+     `team_manage` may schedule anyone. Applying the live rule here would
+     have taken self-planning away from the marketing team, which would be a
+     step backwards dressed up as consistency. */
+  if (path === "/task-blocks" && method === "POST") {
+    const taskId = Number(body?.task_id);
+    const d = typeof body?.block_date === "string" ? body.block_date : "";
+    const st = typeof body?.start_time === "string" ? body.start_time : "";
+    if (!taskId || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(st)) {
+      return err("invalid_input", "task_id, block_date and start_time are required", 400);
+    }
+    const et = typeof body?.end_time === "string" && /^\d{2}:\d{2}$/.test(body.end_time) ? body.end_time : null;
+    if (et && et <= st) return err("invalid_input", "The end time must be after the start time", 400);
+    const t = await env.DB.prepare(`SELECT id, title, assigned_to, deadline FROM tasks WHERE id = ?1`)
+      .bind(taskId).first<{ id: number; title: string; assigned_to: number; deadline: string | null }>();
+    if (!t) return err("not_found", "Task not found", 404);
+    /* Who works it: the assignee by default. Naming someone else is a
+       management act, because it puts work on another person's day. */
+    const who = Number(body?.user_id) || t.assigned_to;
+    const mgr = can(user.role, "team_manage");
+    if (!mgr && (t.assigned_to !== user.id || who !== user.id)) {
+      return err("forbidden", "You can only schedule your own tasks, on your own row", 403);
+    }
+    if (who !== t.assigned_to) {
+      const u = await env.DB.prepare(`SELECT is_active, role FROM users WHERE id = ?1`)
+        .bind(who).first<{ is_active: number; role: string }>();
+      if (!u || !u.is_active || ["customer", "super_admin", "admin"].includes(u.role)) {
+        return err("invalid_input", "That must be an active staff member", 400);
+      }
+    }
+    let id: number | undefined;
+    try {
+      const res = await env.DB.prepare(
+        `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+      ).bind(taskId, who, d, st, et, user.id).first<{ id: number }>();
+      id = res?.id;
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0095 first", 409);
+      throw e;
+    }
+    /* The point of scheduling, from the assignee's side: an instruction with
+       a TIME in it. "Wednesday 10:00-12:00" is a different sentence from
+       "due Wednesday", and it is the one that gets the work done. */
+    if (who !== user.id) {
+      const when = `${d.split("-").reverse().join("-")} ${st}${et ? `-${et}` : ""}`;
+      await notify(env, who, "task", `🗓️ Scheduled: ${t.title} — ${when}`, `task:${taskId}:block:${id}`);
+    }
+    await audit(env, user.id, "task.schedule", "tasks", String(taskId), { date: d, start: st, user: who });
+    return json({ ok: true, id }, 201);
+  }
+
+  {
+    const mTB = path.match(/^\/task-blocks\/(\d+)$/);
+    if (mTB && (method === "PATCH" || method === "DELETE")) {
+      const bid = mTB[1]!;
+      let blk: { task_id: number; user_id: number; assigned_to: number; title: string } | null = null;
+      try {
+        blk = await env.DB.prepare(
+          `SELECT b.task_id, b.user_id, t.assigned_to, t.title
+           FROM task_blocks b JOIN tasks t ON t.id = b.task_id WHERE b.id = ?1`,
+        ).bind(bid).first();
+      } catch (e) {
+        if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0095 first", 409);
+        throw e;
+      }
+      if (!blk) return err("not_found", "Block not found", 404);
+      const mgrB = can(user.role, "team_manage");
+      if (!mgrB && blk.user_id !== user.id && blk.assigned_to !== user.id) {
+        return err("forbidden", "Not your block", 403);
+      }
+
+      if (method === "DELETE") {
+        await env.DB.prepare(`DELETE FROM task_blocks WHERE id = ?1`).bind(bid).run();
+        await audit(env, user.id, "task.unschedule", "tasks", String(blk.task_id));
+        return json({ ok: true });
+      }
+
+      /* The drag-and-drop backend: a new day, a new time, or a new person. */
+      const setsB: string[] = [];
+      const argsB: unknown[] = [];
+      const putB = (col: string, v: unknown) => { setsB.push(`${col} = ?${argsB.length + 1}`); argsB.push(v); };
+      const bd = typeof body?.block_date === "string" ? body.block_date : "";
+      const bs = typeof body?.start_time === "string" ? body.start_time : "";
+      const be = typeof body?.end_time === "string" ? body.end_time : "";
+      const bu = Number(body?.user_id) || 0;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(bd)) putB("block_date", bd);
+      if (/^\d{2}:\d{2}$/.test(bs)) putB("start_time", bs);
+      if (/^\d{2}:\d{2}$/.test(be)) putB("end_time", be);
+      else if (body?.end_time === "" || body?.end_time === null) putB("end_time", null);
+      if (bu && bu !== blk.user_id) {
+        /* Moving work onto another person is a management act, the same as
+           it is when creating a block. */
+        if (!mgrB) return err("forbidden", "Only management can move work onto another person", 403);
+        const nu = await env.DB.prepare(`SELECT is_active, role FROM users WHERE id = ?1`)
+          .bind(bu).first<{ is_active: number; role: string }>();
+        if (!nu || !nu.is_active || ["customer", "super_admin", "admin"].includes(nu.role)) {
+          return err("invalid_input", "That must be an active staff member", 400);
+        }
+        putB("user_id", bu);
+      }
+      if (setsB.length === 0) return err("invalid_input", "Nothing to update", 400);
+      argsB.push(bid);
+      await env.DB.prepare(`UPDATE task_blocks SET ${setsB.join(", ")} WHERE id = ?${argsB.length}`)
+        .bind(...argsB).run();
+      await audit(env, user.id, "task.reschedule", "tasks", String(blk.task_id));
+      return json({ ok: true });
+    }
   }
   const taskMatch = path.match(/^\/tasks\/(\d+)$/);
   if (taskMatch && method === "PATCH") {
