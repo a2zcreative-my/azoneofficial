@@ -670,11 +670,16 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 onClick={async () => {
                   /* v1.22.4: the PDF is the staff×day grid now — same table
                      the screen shows, landscape A4. */
+                  /* v1.69.1: the task blocks go with them. A shared plan
+                     that shows half the week is worse than no shared plan —
+                     it tells the marketing team they are free. */
                   const how = await shareRosterPdf(
                     data.days, data.sessions, staff, data.on_leave,
-                    data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal");
+                    data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal",
+                    blocks, [...hardBlockIds, ...softBlockIds]);
                   showToast(how === "shared" ? L("Ready to share", "Sedia untuk dikongsi") : L("Downloaded", "Dimuat turun"),
-                    `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`);
+                    `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`
+                    + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : ""));
                 }}>
                 {L("PDF — share plan", "PDF — kongsi pelan")}
               </button>

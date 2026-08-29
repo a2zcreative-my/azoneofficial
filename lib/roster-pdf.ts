@@ -4,9 +4,17 @@
  *
  * Same structure as the on-screen Staff grid: left column = staff with their
  * weekly totals, seven day columns with per-day totals in the header, and
- * every session as a colour chip in the cell where person meets day — navy
- * tint = TikTok, gold tint = Shopee, neutral = other, green = completed,
- * amber = conflict, red band = approved leave. Cancelled sessions excluded.
+ * every block as a colour chip in the cell where person meets day — navy
+ * tint = TikTok, gold tint = Shopee, neutral = other, violet = task work,
+ * green = completed, amber = conflict, red band = approved leave. Cancelled
+ * sessions excluded.
+ *
+ * v1.69.1 (CEO: "on the PDF, only appear Live instead of the task also!!!"):
+ * TASK BLOCKS TOO. The board grew a second kind of block in v1.66.0 and this
+ * file did not, so the printed week showed three of eight staff with nothing
+ * booked and said the marketing team was free — the exact fault the roster
+ * had on screen before Track R, still being handed round on paper. A shared
+ * plan that contradicts the board is worse than no shared plan.
  * Built on the in-house PDF writer (lib/doc-pdf.ts) so the letterhead and
  * colours match every other document we issue.
  */
@@ -37,6 +45,8 @@ const CF_FILL = "0.992 0.953 0.878";   // conflict
 const CF_EDGE = "0.702 0.463 0.035";
 const LV_FILL = "0.988 0.925 0.925";   // on leave
 const LV_TEXT = "0.753 0.161 0.161";
+const TK_FILL = "0.925 0.902 0.965";   // task work (violet), the print twin
+const TK_EDGE = "0.647 0.573 0.847";   // of the on-screen violet chip
 const TODAY_FILL = "0.984 0.969 0.929";
 const BAND_GREY = "0.949 0.957 0.973";
 
@@ -56,6 +66,14 @@ export interface RosterPdfSession {
   client?: string | null; host_user_id: number; host_name: string; platform: string;
   notes?: string | null; status: string;
 }
+/* A task block: when the work happens. Kept as its OWN type rather than
+   folded into RosterPdfSession, for the same reason the tables are separate
+   — a task must never be able to pass for a live session anywhere. */
+export interface RosterPdfBlock {
+  id: number; task_id: number; user_id: number; block_date: string;
+  start_time: string; end_time?: string | null;
+  title: string; priority?: string; done_at?: string | null;
+}
 export interface RosterPdfLeave { user_id: number; start_date: string; end_date: string }
 export interface RosterPdfStaff { id: number; name: string }
 
@@ -68,11 +86,23 @@ const durOf = (s: RosterPdfSession) => {
   if (d <= 0) d += 24 * 60;
   return Math.max(30, d);
 };
+/* Same overnight rule for a block — a 20:00-00:30 shift is four and a half
+   hours, not minus nineteen. */
+const durOfB = (b: RosterPdfBlock) => {
+  if (!b.end_time) return 60;
+  let d = minsOf(b.end_time) - minsOf(b.start_time);
+  if (d <= 0) d += 24 * 60;
+  return Math.max(30, d);
+};
 const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} hrs`;
 
 export function drawRosterGrid(
   days: string[], sessions: RosterPdfSession[], staff: RosterPdfStaff[],
   onLeave: RosterPdfLeave[], conflictIds: number[], generatedBy: string,
+  /* Optional, and last, so every existing caller keeps working: a portal
+     still on the old build prints exactly the sheet it printed yesterday
+     rather than failing. */
+  blocks: RosterPdfBlock[] = [], blockConflictIds: number[] = [],
 ): string {
   const c = new Canvas(LH);
   const active = sessions
@@ -80,6 +110,9 @@ export function drawRosterGrid(
     .sort((a, b) => `${a.session_date}${a.start_time}`.localeCompare(`${b.session_date}${b.start_time}`));
   const todayIso = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const conflictSet = new Set(conflictIds);
+  const blockSet = new Set(blockConflictIds);
+  const work = [...blocks].sort((a, b) =>
+    `${a.block_date}${a.start_time}`.localeCompare(`${b.block_date}${b.start_time}`));
   const leaveOn = (uid: number, d: string) => onLeave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
 
   /* Letterhead — compact for landscape. */
@@ -100,15 +133,20 @@ export function drawRosterGrid(
   const HEAD_H = 24;
   c.rect(FM, y, STAFF_W, HEAD_H, NAVY);
   c.text("STAFF", FM + 5, y + 9, 6, { bold: true, colour: WHITE, spacing: 0.8 });
-  c.text(`${active.length} session${active.length === 1 ? "" : "s"} · ${hrs(active.reduce((a, s) => a + durOf(s), 0))}`,
+  /* Committed hours, both kinds. A total that counts only live sessions
+     understates the week on paper exactly as it did on screen. */
+  const totalMins = active.reduce((a, s) => a + durOf(s), 0) + work.reduce((a, b) => a + durOfB(b), 0);
+  c.text(`${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""} · ${hrs(totalMins)}`,
     FM + 5, y + 18, 6.5, { bold: true, colour: WHITE });
   days.forEach((d, i) => {
     const x = edgeX(i);
     const dayS = active.filter((s) => s.session_date === d);
+    const dayB = work.filter((b) => b.block_date === d);
     c.box(x, y, dayW, HEAD_H, NAVY, 0.5);
     c.rect(x + 0.5, y + 0.5, dayW - 1, HEAD_H - 1, d === todayIso ? TODAY_FILL : BAND_GREY);
     c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 10, 7, { bold: true, align: "c" });
-    c.text(dayS.length === 0 ? "-" : `${dayS.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0))}`,
+    const dayMins = dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0);
+    c.text(dayS.length + dayB.length === 0 ? "-" : `${dayS.length + dayB.length} · ${hrs(dayMins)}`,
       x + dayW / 2, y + 19, 6, { colour: GREY, align: "c" });
   });
   y += HEAD_H;
@@ -120,8 +158,11 @@ export function drawRosterGrid(
 
   for (const u of staff) {
     const mine = active.filter((s) => s.host_user_id === u.id);
+    const mineB = work.filter((b) => b.user_id === u.id);
     const maxChips = Math.max(1, ...days.map((d) =>
-      mine.filter((s) => s.session_date === d).length + (leaveOn(u.id, d) ? 1 : 0)));
+      mine.filter((s) => s.session_date === d).length
+      + mineB.filter((b) => b.block_date === d).length
+      + (leaveOn(u.id, d) ? 1 : 0)));
     const rowH = Math.max(24, CELL_PAD * 2 + maxChips * (CHIP_H + 2) - 2);
     if (y + rowH > footerY - 14) { skippedStaff++; continue; }
 
@@ -129,7 +170,13 @@ export function drawRosterGrid(
     c.box(FM, y, STAFF_W, rowH, HAIR, 0.5);
     const shortName = u.name.split(" ").slice(0, 2).join(" ");
     c.text(clip(shortName, 7, STAFF_W - 10, true), FM + 5, y + 10, 7, { bold: true });
-    c.text(mine.length === 0 ? "no sessions" : `${mine.length} session${mine.length === 1 ? "" : "s"} · ${hrs(mine.reduce((a, s) => a + durOf(s), 0))}`,
+    const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0);
+    c.text(
+      mine.length + mineB.length === 0
+        ? "nothing booked"
+        : [mine.length > 0 ? `${mine.length} live` : "",
+           mineB.length > 0 ? `${mineB.length} task${mineB.length === 1 ? "" : "s"}` : "",
+           hrs(myMins)].filter(Boolean).join(" · "),
       FM + 5, y + 18, 5.5, { colour: GREY });
 
     /* day cells */
@@ -155,6 +202,19 @@ export function drawRosterGrid(
         c.text(`${s.start_time}${s.end_time ? `-${s.end_time}` : ""} · ${durOf(s)} min`, x + 5.5, cy + 12.5, 5, { colour: SLATE });
         cy += CHIP_H + 2;
       }
+      /* Task work, under the live sessions — the same order the screen uses,
+         so the printed sheet and the board read alike. */
+      for (const b of mineB.filter((v) => v.block_date === d)) {
+        const [fill, edge] = b.done_at ? [OK_FILL, OK_EDGE]
+          : blockSet.has(b.id) ? [CF_FILL, CF_EDGE]
+          : [TK_FILL, TK_EDGE];
+        c.box(x + 2.5, cy, dayW - 5, CHIP_H, edge, 0.6);
+        c.rect(x + 3, cy + 0.5, dayW - 6, CHIP_H - 1, fill);
+        const mark = b.done_at ? "OK " : b.priority === "urgent" ? "! " : "";
+        c.text(clip(`${mark}${b.title.trim() || "Task"}`, 6, dayW - 12, true), x + 5.5, cy + 6.5, 6, { bold: true });
+        c.text(`${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task`, x + 5.5, cy + 12.5, 5, { colour: SLATE });
+        cy += CHIP_H + 2;
+      }
     });
     y += rowH;
   }
@@ -170,6 +230,7 @@ export function drawRosterGrid(
   let lx = FM;
   const legend: [string, string, string][] = [
     ["TikTok", TT_FILL, TT_EDGE], ["Shopee", SP_FILL, SP_EDGE], ["Other", OT_FILL, OT_EDGE],
+    ["Task", TK_FILL, TK_EDGE],
     ["Completed", OK_FILL, OK_EDGE], ["Conflict", CF_FILL, CF_EDGE], ["On leave", LV_FILL, LV_TEXT],
   ];
   for (const [label, fill, edge] of legend) {
@@ -194,10 +255,12 @@ export function drawRosterGrid(
 export async function shareRosterPdf(
   days: string[], sessions: RosterPdfSession[], staff: RosterPdfStaff[],
   onLeave: RosterPdfLeave[], conflictIds: number[], generatedBy: string,
+  blocks: RosterPdfBlock[] = [], blockConflictIds: number[] = [],
 ): Promise<"shared" | "downloaded"> {
   const weekTag = days[0] ? days[0]!.slice(0, 10) : "week";
   const blob = new Blob(
-    [assemblePdf(drawRosterGrid(days, sessions, staff, onLeave, conflictIds, generatedBy), [], `A2Z Roster ${weekTag}`, true) as BlobPart],
+    [assemblePdf(drawRosterGrid(days, sessions, staff, onLeave, conflictIds, generatedBy, blocks, blockConflictIds),
+                 [], `A2Z Roster ${weekTag}`, true) as BlobPart],
     { type: "application/pdf" },
   );
   return sharePdfFile(blob, `a2z-roster-${weekTag}.pdf`, "A2Z Weekly Roster");

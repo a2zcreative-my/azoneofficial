@@ -185,6 +185,28 @@ ok("the edit dialog sends only what changed",
    && /const blockPatch: Record<string, unknown> = \{\};/.test(board),
    "posting the whole form back lets a stale dialog overwrite somebody else's fix");
 
+/* ---- 11. v1.69.1: the printed week is the whole week ---- */
+const pdf = read("lib/roster-pdf.ts");
+ok("the PDF builder accepts task blocks",
+   /blocks: RosterPdfBlock\[\] = \[\]/.test(pdf),
+   "a shared plan showing only live sessions tells the marketing team they are free");
+ok("the PDF draws task chips",
+   /for \(const b of mineB\.filter\(\(v\) => v\.block_date === d\)\)/.test(pdf));
+ok("the PDF counts task hours in its totals",
+   /work\.reduce\(\(a, b\) => a \+ durOfB\(b\), 0\)/.test(pdf)
+   && /mineB\.reduce\(\(a, b\) => a \+ durOfB\(b\), 0\)/.test(pdf),
+   "a printed total that counts only live understates the week exactly as the screen did");
+ok("the PDF legend names the task colour", /\["Task", TK_FILL, TK_EDGE\]/.test(pdf));
+ok("a block's overnight end is handled in print too",
+   /const durOfB = \(b: RosterPdfBlock\)[\s\S]{0,200}?d \+= 24 \* 60/.test(pdf),
+   "20:00-00:30 printed as minus nineteen hours before the same fix landed for sessions");
+ok("the block arguments are OPTIONAL and last",
+   /generatedBy: string,[\s\S]{0,400}?blocks: RosterPdfBlock\[\] = \[\], blockConflictIds: number\[\] = \[\],/.test(pdf),
+   "an older caller must still print yesterday's sheet rather than failing");
+ok("the board hands its blocks to the PDF",
+   /shareRosterPdf\([\s\S]{0,400}?blocks, \[\.\.\.hardBlockIds, \.\.\.softBlockIds\]\)/.test(board),
+   "the builder can accept them and still be sent nothing");
+
 ok("the board is live on the right topics",
    /useLiveRefresh\(\["live-sessions", "task-blocks", "tasks", "leave"\]/.test(board));
 

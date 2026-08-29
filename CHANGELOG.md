@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.69.1] — 2026-08-28 — the shared plan is the whole week
+
+**CEO: "on the PDF, only appear Live instead of the task also!!!"**
+
+The board grew a second kind of block in v1.66.0. `lib/roster-pdf.ts` did not, and nothing connected the two — so the printed sheet still showed three of eight staff and told the marketing team, on paper, that they had nothing booked.
+
+That is the exact fault the roster had on screen before Track R, still being handed round as a PDF. **A shared plan that contradicts the board is worse than no shared plan**, because it is the version that leaves the building.
+
+### What the sheet shows now
+
+Task chips in violet, drawn under each person's live sessions in the same order the screen uses, so the paper and the board read alike. Done days print green with an `OK` mark, conflicts amber, urgent work flagged `!`. The legend gains **Task**.
+
+Totals count both kinds everywhere they appear — the week header, each day column, and each person's row. A printed total that counts only live sessions understates the week exactly as the screen's did before v1.66.0. An empty row now reads **"nothing booked"** rather than "no sessions", because a person with four tasks and no live had been told they had nothing.
+
+Row heights grow with the busiest cell counting both, so a day with two lives and two tasks is not clipped.
+
+### Two details that only matter later
+
+**The new arguments are optional and last**, so any caller still on the old signature prints exactly the sheet it printed yesterday rather than failing.
+
+**A block's overnight end is handled in print**, the same way sessions were fixed in v1.22.8 — a 20:00–00:30 shift is four and a half hours, not minus nineteen.
+
+### Verified by rendering, not by reading
+
+The guard checks the wiring, but the wiring was never the doubt — the doubt was whether the chips would actually be drawn. A harness builds a real roster PDF from live sessions plus three task blocks (one done, one urgent, one in conflict) and asserts the output contains them, the mixed totals, and the "nothing booked" row. **118 draw ops, both kinds present.** Negative-tested three ways, including the original bug: stop passing blocks from the board and it fails.
+
 ## [1.69.0] — 2026-08-28 — update the task, from the board
 
 **CEO: "I want to have an option for me to update the Task."**
