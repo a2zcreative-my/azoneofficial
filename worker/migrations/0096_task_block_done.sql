@@ -1,0 +1,28 @@
+-- 0096 - v1.67.0: a task block records the day it was done.
+--
+-- The CEO, 28-08-2026, assigning a standing operations duty across a week:
+-- "how to assigned like pick by date and update by daily?"
+--
+-- Two things were missing and only one of them was obvious.
+--
+-- The obvious one: the assign form built ONE block, so a duty that runs
+-- Monday to Friday had to be entered five times.
+--
+-- The other one is why this column exists. A task carries ONE status and one
+-- set of tick-boxes. For a standing duty that is the wrong shape: ticking
+-- "monitor overall operation" once says nothing about whether it happened on
+-- Wednesday. Scope describes what a good day looks like. Completion is a
+-- fact about a DAY, so it belongs on the block.
+--
+-- NULL means not done. A timestamp means done, and when. Un-ticking is
+-- setting it back to NULL, because a day marked done by mistake has to be
+-- correctable without deleting the block and losing the schedule.
+--
+-- The status of the task itself stays separate and is not touched here. A task
+-- is finished when its days are done AND its scope is ticked, and that is a
+-- judgement a person makes on the Tasks tab, not something a checkbox on a
+-- calendar should decide for them.
+--
+-- Single ALTER, nothing else in this file (audit B4 rule).
+
+ALTER TABLE task_blocks ADD COLUMN done_at TEXT;

@@ -2,6 +2,44 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.67.0] — 2026-08-28 — a duty that repeats, and a day you can tick
+
+**CEO, assigning a standing operations duty across a week: "how to assigned like pick by date and update by daily?"**
+
+Two things were missing, and only one of them was obvious.
+
+### The obvious one: the form built one block
+
+A duty running Monday to Friday had to be entered five times. **Repeat** now sits in the assign form in exactly the words the live-session dialog has used since v1.22.1 — *One-off · Every day · Pick days*, with an **until** date — because a standing duty is the normal case for a task, not the exception.
+
+The preview prints **the dates the rule lands on**, never the search window. A previous version of the live dialog printed "until the 25th" for a rule that stopped on the 19th and the CEO caught it; that mistake is not worth making twice.
+
+The whole run posts in one request, so it either lands or is refused as a whole rather than half-appearing. Capped at 62 days, like the live planner — a rule that expands to a year is a mistake being made quickly.
+
+### The one that mattered: "done" is a fact about a day
+
+A task carries **one** status and **one** set of tick-boxes. For a standing duty that is the wrong shape entirely. Ticking *"monitor overall operation"* once says nothing about whether it happened on Wednesday, and no amount of repeating the schedule fixes that — five blocks pointing at one status still only records one answer.
+
+So `task_blocks` gained `done_at` (migration 0096), and the division is:
+
+> **The scope describes what a good day looks like. The block records that the day happened.**
+
+Each day gets its own tick. A done block goes green, struck through, and out of the conflict list — a finished Monday flagged against Monday's live session on Friday is noise, and noise is how a conflict list gets ignored. The detail bar shows the run: **"3/5 days done"**.
+
+Un-ticking is supported, because a day marked done by mistake has to be correctable without deleting the block and losing the schedule.
+
+### What it deliberately does not do
+
+**Marking a day done does not close the task.** A task is finished when its days are done *and* its scope is ticked, and that is a judgement a person makes on the Tasks tab — not something a checkbox on a calendar should decide for them. Guard #17 asserts this, because the shortcut is tempting and silently wrong.
+
+The alternative design — one task per day — was rejected: it turns a monthly duty into twenty rows in the Tasks tab and scatters one shared scope across all of them.
+
+### And a lesson I had to learn twice in one afternoon
+
+Guard #16 asserted `LATEST_MIGRATION` was 0094; migration 0095 broke it the next day, and I fixed it. Guard #17, written hours later, asserted `LATEST_MIGRATION` was 0095 — and 0096 broke it within the hour.
+
+Both now check that a migration is **registered and probed**, which stays true forever, rather than **latest**, which is true for exactly one release. A guard that fails on somebody else's unrelated work is a guard people learn to skip, and a skipped guard protects nothing.
+
 ## [1.66.0] — 2026-08-28 — Track R: the roster holds the whole week
 
 **CEO: "for schedule roster, I dont want only to use for live, I also want to use for Task schedule and also assignment Task."**

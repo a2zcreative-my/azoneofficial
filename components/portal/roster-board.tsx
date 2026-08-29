@@ -28,6 +28,7 @@ interface RosterTaskBlock {
   id: number; task_id: number; user_id: number; user_name: string;
   block_date: string; start_time: string; end_time: string | null;
   title: string; priority: string; status: string; deadline: string | null;
+  done_at?: string | null;
 }
 interface UnscheduledTask {
   id: number; title: string; priority: string; deadline: string | null;
@@ -150,6 +151,46 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     title: "", assigned_to: "", priority: "normal", deadline: "",
     block_date: "", start_time: "10:00", end_time: "12:00", items: "",
   });
+  /* v1.67.0 — the same repeat vocabulary the live-session dialog has used
+     since v1.22.1. A standing duty is the normal case for a task, not the
+     exception: "watch the floor, every weekday, until Friday". */
+  const [tRepeat, setTRepeat] = useState<"once" | "daily" | "days">("once");
+  const [tUntil, setTUntil] = useState("");
+  const [tDays, setTDays] = useState<number[]>([]);
+  /* The dates the rule actually lands on. Capped at 62, like the live
+     planner: a rule that expands to a year is a mistake made quickly. */
+  const tDates = (): string[] => {
+    if (!tDraft.block_date) return [];
+    if (tRepeat === "once") return [tDraft.block_date];
+    if (!tUntil || tUntil < tDraft.block_date) return [];
+    if (tRepeat === "days" && tDays.length === 0) return [];
+    const out: string[] = [];
+    const end = new Date(`${tUntil}T00:00:00Z`).getTime();
+    for (let t = new Date(`${tDraft.block_date}T00:00:00Z`).getTime(); t <= end && out.length < 62; t += 86400000) {
+      const dt = new Date(t);
+      if (tRepeat === "daily" || tDays.includes(dt.getUTCDay())) out.push(dt.toISOString().slice(0, 10));
+    }
+    return out;
+  };
+
+  /* Marking a day done. The count comes back from the server so the toast
+     can say "4 of 5 days" rather than leaving somebody to count chips. */
+  const setBlockDone = useCallback(async (b: RosterTaskBlock, done: boolean) => {
+    const r = await api<{ done: number; total: number; error?: { message?: string } }>(
+      `/task-blocks/${b.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+    if (!r.ok) {
+      showToast(L("No change", "Tiada perubahan"),
+        r.data?.error?.message ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+      return;
+    }
+    const n = r.data?.done ?? 0, tot = r.data?.total ?? 0;
+    showToast(done ? L("Day done", "Hari selesai") : L("Reopened", "Dibuka semula"),
+      tot > 1
+        ? L(`${b.title} — ${n} of ${tot} days done.`, `${b.title} — ${n} daripada ${tot} hari selesai.`)
+        : b.title);
+    setOpenBlock(null);
+    void load(week);
+  }, [load, week, showToast]);
   const [savingTask, setSavingTask] = useState(false);
   const [placing, setPlacing] = useState(false);
   const placeTask = useCallback(async (t: UnscheduledTask, date: string, userId: number) => {
@@ -643,7 +684,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     blocks.filter((b) => b.user_id === uid && b.block_date === d)
                       .sort((a, b) => a.start_time.localeCompare(b.start_time));
                   const blkCls = (b: RosterTaskBlock) =>
-                    hardBlockIds.has(b.id) ? "border-danger bg-danger-soft"
+                    /* Done wins over every other state. A day that happened
+                       is not a conflict and not a warning; it is history. */
+                    b.done_at ? "border-success bg-success-soft opacity-70"
+                    : hardBlockIds.has(b.id) ? "border-danger bg-danger-soft"
                     : softBlockIds.has(b.id) ? "border-warning bg-warning-soft"
                     : b.status === "completed" ? "border-success bg-success-soft"
                     /* Violet, from Tailwind's own palette rather than a brand
@@ -756,8 +800,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                         + (softBlockIds.has(b.id) ? ` · ${L("clashes with a live session — move the task", "bertindih dengan sesi LIVE — alihkan tugasan")}` : "")}
                                       onClick={(e) => { e.stopPropagation(); setOpenBlock(openBlock === b.id ? null : b.id); }}
                                       className={`block w-full rounded-md border px-1.5 py-1 text-left ${blkCls(b)}`}>
-                                      <span className="block truncate text-[10px] leading-tight font-semibold">
-                                        {b.priority === "urgent" ? "❗ " : ""}{b.title}
+                                      <span className={`block truncate text-[10px] leading-tight font-semibold ${b.done_at ? "line-through" : ""}`}>
+                                        {b.done_at ? "✓ " : b.priority === "urgent" ? "❗ " : ""}{b.title}
                                       </span>
                                       <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
                                         {b.start_time}{b.end_time ? `–${b.end_time}` : ""} · {L("task", "tugasan")}
@@ -1050,13 +1094,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   {dayB.map((b) => (
                     <button key={`mt${b.id}`} type="button"
                       onClick={() => setOpenBlock(openBlock === b.id ? null : b.id)}
-                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${hardBlockIds.has(b.id) ? "border-danger bg-danger-soft" : softBlockIds.has(b.id) ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${b.done_at ? "border-success bg-success-soft opacity-70" : hardBlockIds.has(b.id) ? "border-danger bg-danger-soft" : softBlockIds.has(b.id) ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
                       <span className="w-20 shrink-0 text-[11px] font-semibold tabular-nums">
                         {b.start_time}{b.end_time ? `–${b.end_time}` : ""}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">
-                          {b.priority === "urgent" ? "❗ " : ""}{b.title}
+                        <span className={`block truncate text-xs font-medium ${b.done_at ? "line-through" : ""}`}>
+                          {b.done_at ? "✓ " : b.priority === "urgent" ? "❗ " : ""}{b.title}
                         </span>
                         <span className="text-muted-foreground block truncate text-[10px]">
                           {b.user_name.split(" ").slice(0, 2).join(" ")} · {L("task", "tugasan")}
@@ -1079,13 +1123,22 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             const hard = hardBlockIds.has(b.id);
             const soft = softBlockIds.has(b.id);
             return (
-              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${hard ? "border-danger bg-danger-soft" : soft ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${b.done_at ? "border-success bg-success-soft" : hard ? "border-danger bg-danger-soft" : soft ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
                 <span className="min-w-0">
                   <span className="font-semibold">{b.title}</span>
                   <span className="text-muted-foreground">
                     {" · "}{b.user_name.split(" ").slice(0, 2).join(" ")}
                     {" · "}<span className="tabular-nums">{dmy(b.block_date)} {b.start_time}{b.end_time ? `–${b.end_time}` : ""}</span>
                     {b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : ""}
+                    {(() => {
+                      /* How the run is going, counted from what is on the
+                         board rather than asked for separately. Only shown
+                         when there IS a run — "1 of 1 day" is noise. */
+                      const run = blocks.filter((x) => x.task_id === b.task_id);
+                      if (run.length < 2) return "";
+                      const doneN = run.filter((x) => x.done_at).length;
+                      return ` · ${doneN}/${run.length} ${L("days done", "hari selesai")}`;
+                    })()}
                   </span>
                   {hard && (
                     <span className="text-danger block text-xs font-medium">
@@ -1100,7 +1153,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     </span>
                   )}
                 </span>
-                <span className="flex shrink-0 gap-2">
+                <span className="flex shrink-0 flex-wrap items-center gap-2">
+                  {/* v1.67.0 — the daily tick. This records THE DAY, not the
+                      task: a standing duty is finished on Wednesday and open
+                      again on Thursday, and one status on the task can never
+                      say that. */}
+                  <button type="button" className={btnSm}
+                    onClick={() => void setBlockDone(b, !b.done_at)}>
+                    {b.done_at ? L("↺ Not done after all", "↺ Belum selesai") : L("✓ Done today", "✓ Selesai hari ini")}
+                  </button>
                   <button type="button" className="text-muted-foreground text-xs underline"
                     onClick={() => void unscheduleBlock(b)}>
                     {L("Unschedule", "Nyahjadual")}
@@ -1314,6 +1375,75 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 </div>
               )}
 
+              {/* v1.67.0 — repeat, in the same words the live-session dialog
+                  uses. Only offered once a day is chosen: repeating nothing
+                  is not a thing to ask about. */}
+              {tDraft.block_date && (
+                <div className="border-border rounded-lg border p-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
+                    {([["once", L("One-off", "Sekali")], ["daily", L("Every day", "Setiap hari")], ["days", L("Pick days", "Pilih hari")]] as const).map(([v, l]) => (
+                      <button key={v} type="button"
+                        className={tRepeat === v
+                          ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                          : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
+                        onClick={() => {
+                          setTRepeat(v);
+                          if (v !== "once" && !tUntil && tDraft.block_date) {
+                            /* A week ahead, because that is the horizon this
+                               board shows and the one people mean by "daily". */
+                            setTUntil(new Date(new Date(`${tDraft.block_date}T00:00:00Z`).getTime() + 6 * 86400000).toISOString().slice(0, 10));
+                          }
+                        }}>{l}</button>
+                    ))}
+                    {tRepeat !== "once" && (
+                      <label className="ml-auto flex items-center gap-1.5 text-[11px]">
+                        <span className="text-muted-foreground">{L("until", "sehingga")}</span>
+                        <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={tUntil}
+                          min={tDraft.block_date} onChange={(e) => setTUntil(e.target.value)} />
+                      </label>
+                    )}
+                  </div>
+                  {tRepeat === "days" && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {([[L("Mon", "Isn"), 1], [L("Tue", "Sel"), 2], [L("Wed", "Rab"), 3], [L("Thu", "Kha"), 4], [L("Fri", "Jum"), 5], [L("Sat", "Sab"), 6], [L("Sun", "Ahd"), 0]] as const).map(([l, n]) => {
+                        const on = tDays.includes(n);
+                        return (
+                          <button key={n} type="button"
+                            className={on
+                              ? "bg-gold-solid rounded-md px-2 py-0.5 text-[11px] font-semibold text-white"
+                              : "border-border text-muted-foreground rounded-md border px-2 py-0.5 text-[11px]"}
+                            onClick={() => setTDays((ds) => (on ? ds.filter((x) => x !== n) : [...ds, n]))}>{l}</button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* The DATES it lands on, never the search window. A
+                      previous version of the live dialog printed "until the
+                      25th" for a rule that stopped on the 19th, and the CEO
+                      caught it — same mistake is not worth making twice. */}
+                  {tRepeat !== "once" && (() => {
+                    const ds = tDates();
+                    if (ds.length === 0) {
+                      return <p className="text-muted-foreground mt-1.5 text-[11px]">
+                        {tRepeat === "days" && tDays.length === 0
+                          ? L("Pick at least one weekday.", "Pilih sekurang-kurangnya satu hari.")
+                          : L("Choose an until date after the start.", "Pilih tarikh sehingga selepas tarikh mula.")}
+                      </p>;
+                    }
+                    return <p className="text-muted-foreground mt-1.5 text-[11px]">
+                      {L(`${ds.length} day${ds.length === 1 ? "" : "s"}: `, `${ds.length} hari: `)}
+                      <span className="tabular-nums">{ds.slice(0, 4).map((x) => dmy(x)).join(", ")}</span>
+                      {ds.length > 4 ? L(` … to ${dmy(ds[ds.length - 1]!)}`, ` … hingga ${dmy(ds[ds.length - 1]!)}`) : ""}
+                    </p>;
+                  })()}
+                  <p className="text-muted-foreground mt-1.5 text-[11px]">
+                    {L("Each day gets its own block you can tick off, so a standing duty shows which days actually happened.",
+                       "Setiap hari mendapat bloknya sendiri untuk ditanda, jadi tugas berterusan menunjukkan hari mana yang benar-benar berlaku.")}
+                  </p>
+                </div>
+              )}
+
               {/* The one mistake this form can catch before the server does,
                   and the one worth catching here because it is a planning
                   error rather than a typo. */}
@@ -1331,7 +1461,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 onClick={async () => {
                   setSavingTask(true);
                   const hasSlot = /^\d{4}-\d{2}-\d{2}$/.test(tDraft.block_date);
-                  const r = await api<{ id: number; block_id?: number; error?: { message?: string } }>(`/tasks`, {
+                  const r = await api<{ id: number; block_id?: number; days?: number; error?: { message?: string } }>(`/tasks`, {
                     method: "POST",
                     body: JSON.stringify({
                       title: tDraft.title.trim(),
@@ -1339,7 +1469,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       priority: tDraft.priority,
                       ...(tDraft.deadline ? { deadline: tDraft.deadline } : {}),
                       items: tDraft.items.split("\n").map((x) => x.trim()).filter(Boolean),
-                      ...(hasSlot ? { block: { block_date: tDraft.block_date, start_time: tDraft.start_time, end_time: tDraft.end_time } } : {}),
+                      ...(hasSlot ? { block: { dates: tDates(), block_date: tDraft.block_date,
+                                                start_time: tDraft.start_time, end_time: tDraft.end_time } } : {}),
                     }),
                   });
                   setSavingTask(false);
@@ -1349,15 +1480,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     return;
                   }
                   const who = staff.find((u) => u.id === Number(tDraft.assigned_to))?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                  const madeDays = r.data?.days ?? 0;
                   showToast(L("Assigned", "Ditugaskan"),
-                    hasSlot
-                      ? L(`${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`,
-                          `${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`)
-                      : L(`${tDraft.title} — ${who}. It is waiting in Unscheduled work.`,
-                          `${tDraft.title} — ${who}. Ia menunggu dalam Kerja belum dijadualkan.`));
+                    !hasSlot
+                      ? L(`${tDraft.title} — ${who}. It is waiting in Unscheduled work.`,
+                          `${tDraft.title} — ${who}. Ia menunggu dalam Kerja belum dijadualkan.`)
+                      : madeDays > 1
+                        ? L(`${tDraft.title} — ${who}, ${madeDays} days from ${dmy(tDraft.block_date)}. Tick each day off as it happens.`,
+                            `${tDraft.title} — ${who}, ${madeDays} hari dari ${dmy(tDraft.block_date)}. Tanda setiap hari apabila selesai.`)
+                        : `${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`);
                   setTaskOpen(false);
                   setTDraft({ title: "", assigned_to: "", priority: "normal", deadline: "",
                               block_date: "", start_time: "10:00", end_time: "12:00", items: "" });
+                  setTRepeat("once"); setTUntil(""); setTDays([]);
                   void load(week);
                 }}>
                 {savingTask ? L("Assigning…", "Menugaskan…") : L("Assign", "Tugaskan")}

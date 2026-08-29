@@ -95,11 +95,17 @@ ok("a pre-0095 database still renders the board",
 ok("the write routes name the missing migration",
    (staff.match(/Run migration 0095 first/g) ?? []).length >= 2);
 
-/* ---- 6. registry (the triple bump) ---- */
+/* ---- 6. registry ----
+   REGISTERED and PROBED, never "is the latest". Guard #16 asserted the
+   latest migration and the next one broke it the following day; this guard
+   was written the same afternoon and repeated the mistake within the hour.
+   A guard that fails on somebody else's unrelated work is a guard people
+   learn to skip, and a skipped guard protects nothing. */
 const index = read("worker/src/index.ts");
-ok("0095 is the latest migration", /LATEST_MIGRATION = "0095_task_blocks"/.test(index));
 ok("0095 is in EXPECTED_MIGRATIONS", /"0095_task_blocks",/.test(index));
 ok("0095 has a health probe", /0095 \(task blocks on the roster\)/.test(index));
+ok("0096 is in EXPECTED_MIGRATIONS", /"0096_task_block_done",/.test(index));
+ok("0096 has a health probe", /0096 \(a block records its day\)/.test(index));
 
 /* ---- 7. the board draws two kinds of block, and counts both ---- */
 const board = read("components/portal/roster-board.tsx");
@@ -116,6 +122,25 @@ ok("task hours are summed into the day and per-person totals",
    "a column or a row that counts only live sessions understates the week");
 ok("the mobile agenda shows tasks too", /dayB\.map/.test(board),
    "a phone showing half the day's work is worse than showing none of it");
+/* ---- 8. v1.67.0: runs of days, and the daily tick ---- */
+ok("a run of dates can be posted in one request", /body\?\.dates/.test(staff),
+   "five saves for a five-day duty is five chances to get one wrong");
+ok("a repeat rule is capped", /more than 62 days/.test(staff),
+   "a rule expanding to a year is a mistake made quickly, not a feature");
+ok("a block can be marked done for its day",
+   /UPDATE task_blocks SET done_at = \?1/.test(staff));
+ok("marking a day done does NOT touch the status of the task",
+   !/done_at = \?1[\s\S]{0,400}?UPDATE tasks SET/.test(staff),
+   "a task is finished when its days are done AND its scope is ticked — a person decides that");
+ok("a day already done is not counted as a conflict",
+   /status !== "completed" && !b\.done_at/.test(staff),
+   "flagging a finished Monday on Friday is noise, and noise gets conflict lists ignored");
+ok("the board offers the daily tick", /setBlockDone\(b, !b\.done_at\)/.test(board));
+ok("a done block reads as done", /b\.done_at \? "border-success bg-success-soft opacity-70"/.test(board));
+ok("the repeat preview shows the DATES, not the search window",
+   /ds\.slice\(0, 4\)\.map\(\(x\) => dmy\(x\)\)/.test(board),
+   "printing the until-date for a rule that stops earlier is the v1.22.6 bug");
+
 ok("the board is live on the right topics",
    /useLiveRefresh\(\["live-sessions", "task-blocks", "tasks", "leave"\]/.test(board));
 

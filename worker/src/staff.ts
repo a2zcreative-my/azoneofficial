@@ -1639,17 +1639,17 @@ export async function handleStaff(
       let unscheduled: unknown[] = [];
       let blockRows: { id: number; task_id: number; user_id: number; block_date: string;
                        start_time: string; end_time: string | null; deadline: string | null;
-                       status: string }[] = [];
+                       status: string; done_at: string | null }[] = [];
       try {
         const q = await env.DB.prepare(
           mgrR
-            ? `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time,
+            ? `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time, b.done_at,
                       t.title, t.priority, t.status, t.deadline,
                       COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
                FROM task_blocks b JOIN tasks t ON t.id = b.task_id JOIN users u ON u.id = b.user_id
                WHERE b.block_date BETWEEN ?1 AND ?2
                ORDER BY b.block_date, b.start_time LIMIT 400`
-            : `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time,
+            : `SELECT b.id, b.task_id, b.user_id, b.block_date, b.start_time, b.end_time, b.done_at,
                       t.title, t.priority, t.status, t.deadline,
                       COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
                FROM task_blocks b JOIN tasks t ON t.id = b.task_id JOIN users u ON u.id = b.user_id
@@ -1657,7 +1657,8 @@ export async function handleStaff(
                ORDER BY b.block_date, b.start_time LIMIT 100`,
         ).bind(...(mgrR ? [start, end] : [start, end, user.id]))
           .all<{ id: number; task_id: number; user_id: number; block_date: string;
-                 start_time: string; end_time: string | null; deadline: string | null; status: string }>();
+                 start_time: string; end_time: string | null; deadline: string | null;
+                 status: string; done_at: string | null }>();
         taskBlocks = q.results;
         blockRows = q.results;
 
@@ -1688,7 +1689,10 @@ export async function handleStaff(
 
       /* Three more conflict kinds, all of which only become checkable now
          that both kinds of block share one calendar. */
-      const openBlocks = blockRows.filter((b) => b.status !== "completed");
+      /* v1.67.0: a day already done cannot clash with anything — it has
+         happened. Flagging Monday against Monday's live session on Friday is
+         noise, and noise is how a conflict list gets ignored. */
+      const openBlocks = blockRows.filter((b) => b.status !== "completed" && !b.done_at);
       for (const b of openBlocks) {
         const bEnd = b.end_time ?? addMinutes(b.start_time, 60);
 
@@ -3665,17 +3669,29 @@ export async function handleStaff(
        block is optional: the Tasks tab still creates plain tasks and this
        whole branch is skipped. */
     let firstBlock: number | undefined;
-    const blk = body.block as { block_date?: unknown; start_time?: unknown; end_time?: unknown } | undefined;
-    const bDate = typeof blk?.block_date === "string" ? blk.block_date : "";
+    let blockDays = 0;
+    const blk = body.block as { block_date?: unknown; dates?: unknown;
+                                start_time?: unknown; end_time?: unknown } | undefined;
+    /* v1.67.0 — a run of days, from the form's repeat rule. One day still
+       works exactly as before: `block_date` on its own is a run of one. */
+    const rawB: unknown[] = Array.isArray(blk?.dates)
+      ? (blk.dates as unknown[])
+      : [typeof blk?.block_date === "string" ? blk.block_date : ""];
+    const bDates = [...new Set(rawB.filter((x): x is string =>
+      typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort().slice(0, 62);
+    const bDate = bDates[0] ?? "";
     const bStart = typeof blk?.start_time === "string" ? blk.start_time : "";
-    if (res?.id && /^\d{4}-\d{2}-\d{2}$/.test(bDate) && /^\d{2}:\d{2}$/.test(bStart)) {
+    if (res?.id && bDates.length > 0 && /^\d{2}:\d{2}$/.test(bStart)) {
       const bEnd = typeof blk?.end_time === "string" && /^\d{2}:\d{2}$/.test(blk.end_time) ? blk.end_time : null;
       try {
-        const b = await env.DB.prepare(
-          `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
-        ).bind(res.id, assignedTo, bDate, bStart, bEnd, user.id).first<{ id: number }>();
-        firstBlock = b?.id;
+        for (const day of bDates) {
+          const b = await env.DB.prepare(
+            `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+          ).bind(res.id, assignedTo, day, bStart, bEnd, user.id).first<{ id: number }>();
+          if (firstBlock === undefined) firstBlock = b?.id;
+          blockDays++;
+        }
       } catch { /* pre-0095 — the task exists, it is simply unscheduled */ }
     }
     if (assignedTo !== user.id) {
@@ -3684,6 +3700,7 @@ export async function handleStaff(
          them when to panic. When the board gave us a slot, say the slot. */
       const when = firstBlock
         ? ` — ${bDate.split("-").reverse().join("-")} ${bStart}${typeof blk?.end_time === "string" && blk.end_time ? `-${blk.end_time}` : ""}`
+          + (blockDays > 1 ? ` (${blockDays} days, to ${bDates[bDates.length - 1]!.split("-").reverse().join("-")})` : "")
         : str(body.deadline, 10) ? ` (due ${body.deadline as string})` : "";
       const scope = itemCount > 0 ? ` — ${itemCount} scope item${itemCount === 1 ? "" : "s"}` : "";
       await notify(env, assignedTo, "task",
@@ -3691,7 +3708,7 @@ export async function handleStaff(
         `task:${res?.id}`);
     }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
-    return json({ id: res?.id, block_id: firstBlock }, 201);
+    return json({ id: res?.id, block_id: firstBlock, days: blockDays }, 201);
   }
 
   /* ===================== v1.66.0 — Track R: task blocks =====================
@@ -3708,11 +3725,28 @@ export async function handleStaff(
      step backwards dressed up as consistency. */
   if (path === "/task-blocks" && method === "POST") {
     const taskId = Number(body?.task_id);
-    const d = typeof body?.block_date === "string" ? body.block_date : "";
     const st = typeof body?.start_time === "string" ? body.start_time : "";
-    if (!taskId || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(st)) {
-      return err("invalid_input", "task_id, block_date and start_time are required", 400);
+    /* v1.67.0 — a RUN, not a day.
+       A standing duty ("watch the shop floor, every weekday, until Friday")
+       was five separate saves, which is five chances to get one of them
+       wrong and no record that they belong together. The client expands its
+       repeat rule and posts the dates; the server validates every one of
+       them and writes them in a single request, so a run either lands or is
+       rejected as a whole rather than half-appearing.
+       `block_date` still works on its own — the rail's tap-a-day gesture
+       posts exactly one date and knows nothing about runs. */
+    const rawDates: unknown[] = Array.isArray(body?.dates)
+      ? (body.dates as unknown[])
+      : [typeof body?.block_date === "string" ? body.block_date : ""];
+    const dates = [...new Set(rawDates.filter((x): x is string =>
+      typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort();
+    const d = dates[0] ?? "";
+    if (!taskId || dates.length === 0 || !/^\d{2}:\d{2}$/.test(st)) {
+      return err("invalid_input", "task_id, a date and start_time are required", 400);
     }
+    /* The same cap the live-session planner uses. A rule that expands to a
+       year of blocks is a mistake being made quickly, not a feature. */
+    if (dates.length > 62) return err("invalid_input", "That repeat rule covers more than 62 days", 400);
     const et = typeof body?.end_time === "string" && /^\d{2}:\d{2}$/.test(body.end_time) ? body.end_time : null;
     if (et && et <= st) return err("invalid_input", "The end time must be after the start time", 400);
     const t = await env.DB.prepare(`SELECT id, title, assigned_to, deadline FROM tasks WHERE id = ?1`)
@@ -3734,11 +3768,13 @@ export async function handleStaff(
     }
     let id: number | undefined;
     try {
-      const res = await env.DB.prepare(
-        `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
-      ).bind(taskId, who, d, st, et, user.id).first<{ id: number }>();
-      id = res?.id;
+      for (const day of dates) {
+        const res = await env.DB.prepare(
+          `INSERT INTO task_blocks (task_id, user_id, block_date, start_time, end_time, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+        ).bind(taskId, who, day, st, et, user.id).first<{ id: number }>();
+        if (id === undefined) id = res?.id;
+      }
     } catch (e) {
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0095 first", 409);
       throw e;
@@ -3748,10 +3784,13 @@ export async function handleStaff(
        "due Wednesday", and it is the one that gets the work done. */
     if (who !== user.id) {
       const when = `${d.split("-").reverse().join("-")} ${st}${et ? `-${et}` : ""}`;
-      await notify(env, who, "task", `🗓️ Scheduled: ${t.title} — ${when}`, `task:${taskId}:block:${id}`);
+      const run = dates.length > 1
+        ? ` (${dates.length} days, to ${dates[dates.length - 1]!.split("-").reverse().join("-")})` : "";
+      await notify(env, who, "task", `🗓️ Scheduled: ${t.title} — ${when}${run}`, `task:${taskId}:block:${id}`);
     }
-    await audit(env, user.id, "task.schedule", "tasks", String(taskId), { date: d, start: st, user: who });
-    return json({ ok: true, id }, 201);
+    await audit(env, user.id, "task.schedule", "tasks", String(taskId),
+                { date: d, days: dates.length, start: st, user: who });
+    return json({ ok: true, id, created: dates.length }, 201);
   }
 
   {
@@ -3778,6 +3817,32 @@ export async function handleStaff(
         await env.DB.prepare(`DELETE FROM task_blocks WHERE id = ?1`).bind(bid).run();
         await audit(env, user.id, "task.unschedule", "tasks", String(blk.task_id));
         return json({ ok: true });
+      }
+
+      /* v1.67.0 — "done" is a fact about a DAY, and it is what makes a
+         standing duty legible. A task carries one status and one set of
+         tick-boxes; ticking "monitor the shop floor" once says nothing about
+         whether it happened on Wednesday. The scope describes what a good
+         day looks like; the block records that the day happened.
+         Deliberately does NOT touch the status of the task itself: a task is
+         finished when its days are done AND its scope is ticked, and that is
+         a judgement a person makes, not something a checkbox on a calendar
+         should decide for them. The count comes back so the board can say
+         "4 of 5 days" instead of leaving them to count chips. */
+      if (typeof body?.done === "boolean") {
+        await env.DB.prepare(`UPDATE task_blocks SET done_at = ?1 WHERE id = ?2`)
+          .bind(body.done ? new Date().toISOString() : null, bid).run();
+        let done = 0, total = 0;
+        try {
+          const c = await env.DB.prepare(
+            `SELECT COUNT(*) AS n, COALESCE(SUM(done_at IS NOT NULL), 0) AS d
+             FROM task_blocks WHERE task_id = ?1`,
+          ).bind(blk.task_id).first<{ n: number; d: number }>();
+          total = c?.n ?? 0; done = c?.d ?? 0;
+        } catch { /* pre-0096 */ }
+        await audit(env, user.id, body.done ? "task.day_done" : "task.day_reopened",
+                    "tasks", String(blk.task_id));
+        return json({ ok: true, done, total });
       }
 
       /* The drag-and-drop backend: a new day, a new time, or a new person. */
