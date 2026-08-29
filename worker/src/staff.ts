@@ -5,7 +5,7 @@
 
 import type { Env } from "./index";
 import { handleErp } from "./erp";
-import { logError as sharedLogError, postJournal } from "./shared";
+import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
 import { sendPush, type PushKeys } from "./webpush";
@@ -8322,6 +8322,16 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     let lastId = Number(new URL(request.url).searchParams.get("since") ?? "0") || 0;
     const encoder = new TextEncoder();
     let cancelled = false;
+    /* v1.65.0 — LIVE CARDS ride this stream rather than opening a second one.
+       The connection, the 5-second tick, the 20-second self-close and the
+       browser's own reconnect are all already here and already proven. A
+       parallel EventSource would have doubled every one of those costs to
+       deliver a payload measured in tens of bytes.
+       Only CHANGED topics are sent. The last snapshot is held in this
+       closure, so a quiet shop sends nothing at all: the common case costs
+       one query and zero bytes on the wire. */
+    let seenVersions: Record<string, number> = {};
+    let firstVersionFrame = true;
     const stream = new ReadableStream({
       cancel() { cancelled = true; }, // client disconnected — stop polling at once
       async start(controller) {
@@ -8340,6 +8350,22 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
             } else {
               send(`event: ping\ndata: ${lastId}\n\n`);
             }
+            /* The version sweep. The FIRST frame of a connection is always
+               sent in full, because the client has just reconnected and may
+               have missed changes while it was away — the client treats its
+               first frame as a baseline, not as a reason to reload, so this
+               costs one small message and closes the gap that every
+               reconnect would otherwise leave. */
+            const now = await readVersions(env);
+            const changed: Record<string, number> = {};
+            for (const [t, v] of Object.entries(now)) {
+              if (firstVersionFrame || seenVersions[t] !== v) changed[t] = v;
+            }
+            seenVersions = now;
+            if (firstVersionFrame || Object.keys(changed).length > 0) {
+              send(`event: versions\ndata: ${JSON.stringify(changed)}\n\n`);
+              firstVersionFrame = false;
+            }
             await new Promise((r) => setTimeout(r, 5000));
           }
         } catch { /* client disconnected */ }
@@ -8354,6 +8380,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  /* v1.65.0 — the version map on demand. The SSE stream is the fast path;
+     this is the one a tab calls when it comes back to the foreground, where
+     the stream may have died while the phone was in a pocket. One tiny table
+     scan, no auth beyond being staff: it says what changed, never what it
+     changed to. */
+  if (path === "/versions" && method === "GET") {
+    return json({ versions: await readVersions(env) });
   }
 
   /* Web-push: the browser fetches the public key, subscribes, and posts the

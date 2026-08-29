@@ -155,3 +155,49 @@ export async function postJournal(
     ).bind(entry.id, creditAcc, amountCents).run();
   } catch { /* pre-0071 — Accounting simply not in use yet */ }
 }
+
+/* ===================== v1.65.0 — live cards =============================
+   One counter per topic, bumped when a write on that topic succeeds. A card
+   watching a topic reloads when its number moves. That is the whole protocol.
+
+   WHY A COUNTER AND NOT AN EVENT PAYLOAD: an event carrying the changed row
+   has to be authorised per recipient, ordered, and de-duplicated, and gets
+   any of those wrong in a way that shows the wrong number to the wrong
+   person. A counter says only "something in this topic moved" — every card
+   then refetches through its own already-authorised endpoint. Nothing new is
+   exposed and nothing can arrive out of order, because a number that only
+   increases cannot be applied backwards. */
+
+/** The topic a staff route belongs to: the first path segment, which is how
+    the routes are already organised (/tasks/12/comments -> tasks). Derived
+    rather than declared, so a new route joins the system by existing. */
+export function topicOf(path: string): string {
+  const seg = path.replace(/^\/+/, "").split("/")[0] ?? "";
+  return /^[a-z0-9_-]{1,32}$/i.test(seg) ? seg.toLowerCase() : "";
+}
+
+/** Bump one topic. Never throws and never blocks the caller's response: a
+    failed bump costs a card its live update, which is not worth failing a
+    save the user already completed. */
+export async function bumpVersion(env: Env, topic: string): Promise<void> {
+  if (!topic) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO data_versions (topic, v, at) VALUES (?1, 1, ?2)
+       ON CONFLICT(topic) DO UPDATE SET v = v + 1, at = ?2`,
+    ).bind(topic, Date.now()).run();
+  } catch { /* table missing (pre-0094) or write failed - cards stay manual */ }
+}
+
+/** Every topic and its current number. Small by construction: one row per
+    topic, roughly twenty rows, no history. */
+export async function readVersions(env: Env): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  try {
+    const { results } = await env.DB.prepare(`SELECT topic, v FROM data_versions`)
+      .all<{ topic: string; v: number }>();
+    for (const r of results) out[r.topic] = r.v;
+  } catch { /* pre-0094 - an empty map means "nothing ever changes", which
+                degrades to the manual behaviour that came before. */ }
+  return out;
+}

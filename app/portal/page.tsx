@@ -11,6 +11,9 @@
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
+// v1.65.0 — live cards: the version store, and the hook that watches it.
+import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import {
   Fragment,
   useCallback,
@@ -615,6 +618,8 @@ function Dashboard({
   useEffect(() => {
     void load();
   }, [load]);
+  /* v1.65.0 live: The dashboard is four cards in a trench coat, so it watches all four. */
+  useLiveRefresh(["attendance", "leave", "tasks", "announcements"], load);
 
   const [punchToast, setPunchToast] = useState<{
     title: string;
@@ -5382,6 +5387,7 @@ function LeaveEntitlement() {
     setLoaded(true);
   }, [year]);
   useEffect(() => { void load(); }, [load]);
+  useLiveRefresh(["leave"], load);
 
   const saveOne = async (p: EntRow, type: EntType) => {
     const key = `${p.id}:${type}`;
@@ -5732,6 +5738,7 @@ function Leave({ user }: { user: User }) {
   useEffect(() => {
     void load();
   }, [load]);
+  useLiveRefresh(["leave"], load);
 
   const apply = async () => {
     if (!draft.start_date || !draft.end_date || draft.days <= 0) return;
@@ -6120,6 +6127,7 @@ function Tasks({ user }: { user: User }) {
   useEffect(() => {
     void load();
   }, [load]);
+  useLiveRefresh(["tasks"], load);
 
   const create = async () => {
     if (!draft.title) return;
@@ -6526,6 +6534,7 @@ function Announcements({ user }: { user: User }) {
   useEffect(() => {
     void load();
   }, [load]);
+  useLiveRefresh(["announcements"], load);
 
   const post = async () => {
     if (!draft.title || !draft.body) return;
@@ -8542,6 +8551,8 @@ function Sales({ user }: { user: User }) {
   useEffect(() => {
     void load();
   }, [load]);
+  /* v1.65.0 live: Sales reads customers, documents and the orders behind them. */
+  useLiveRefresh(["customers", "docs", "orders"], load);
 
   const addCustomer = async () => {
     if (!cust.company) return;
@@ -10724,6 +10735,7 @@ function UsersPanel({ role }: { role: string }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLiveRefresh(["users"], load);
   const saveRole = async (u: { id: number; name: string; email: string }) => {
     const res = await api<{
       role?: string;
@@ -11107,7 +11119,10 @@ function LeaderboardCard({ user, compact }: { user: User; compact?: boolean }) {
   const [rows, setRows] = useState<LeaderRow[] | null>(null);
   const [hasRules, setHasRules] = useState(false);
   const canSeeCommission = TARGET_ADMIN_ROLES.includes(user.role);
-  useEffect(() => {
+  /* v1.65.0: lifted out of the effect so the live hook can re-run it. The
+     board moves when an order lands, when a live session is logged and when
+     a commission rule changes — several topics, one loader. */
+  const load = useCallback(() => {
     void api<{ rows: LeaderRow[]; has_rules: boolean }>(
       `/staff/leaderboard`
     ).then((r) => {
@@ -11117,6 +11132,10 @@ function LeaderboardCard({ user, compact }: { user: User; compact?: boolean }) {
       } else setRows([]);
     });
   }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useLiveRefresh(["orders", "sales", "live-sessions", "targets", "commission"], load);
   /* v1.25.5: unknown until proven empty — a skeleton while the board loads,
      never a blank hole where the card should be. */
   if (!rows) {
@@ -11437,6 +11456,10 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
     loadTargets();
     loadRules();
   }, [loadTargets, loadRules]);
+  /* Two loaders, one topic each. A rule added on another screen appears here
+     without anyone reloading the tab. */
+  useLiveRefresh(["targets"], loadTargets);
+  useLiveRefresh(["commission"], loadRules);
 
   const saveTarget = async (
     scope: "user" | "team",
@@ -12149,6 +12172,18 @@ export default function PortalPage() {
             /* ignore malformed frame */
           }
         });
+        /* v1.65.0 — the same stream now carries data-version frames. The
+           store decides what changed; the cards decide what to do about it.
+           This listener knows about neither. */
+        es.addEventListener("versions", (ev) => {
+          try {
+            applyVersions(
+              JSON.parse((ev as MessageEvent).data) as Record<string, number>
+            );
+          } catch {
+            /* ignore malformed frame */
+          }
+        });
         es.onerror = () => {
           es?.close();
           es = null;
@@ -12162,12 +12197,34 @@ export default function PortalPage() {
       if (!es) openStream();
     }, 8000);
     const timer = window.setInterval(fetchNotifs, 120_000);
-    window.addEventListener("focus", fetchNotifs);
+
+    /* v1.65.0 — coming back to the foreground. The stream dies when a phone
+       sleeps, and frames that arrived while the tab was hidden were
+       deliberately not acted on, so returning does two things: ask for the
+       version map once over plain HTTP (cheap, and works even if SSE is
+       blocked by a proxy), then poke the store so every card that was owed a
+       reload takes it. This is also the safety net for the whole design — if
+       every stream in the building failed, the portal would still be correct
+       the moment somebody looked at it. */
+    const catchUp = () => {
+      if (document.visibilityState === "hidden") return;
+      fetchNotifs();
+      void api<{ versions: Record<string, number> }>("/staff/versions").then((r) => {
+        if (r.data?.versions) applyVersions(r.data.versions);
+        pokeVersions();
+      });
+    };
+    window.addEventListener("focus", catchUp);
+    document.addEventListener("visibilitychange", catchUp);
     return () => {
       es?.close();
       window.clearInterval(reconnect);
       window.clearInterval(timer);
-      window.removeEventListener("focus", fetchNotifs);
+      window.removeEventListener("focus", catchUp);
+      document.removeEventListener("visibilitychange", catchUp);
+      /* A different person may sign in next. Their first frame must be a
+         baseline, not a reason for every card to reload. */
+      resetVersions();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, chime]);

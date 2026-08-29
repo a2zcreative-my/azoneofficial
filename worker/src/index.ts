@@ -2,6 +2,8 @@
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, type StaffUser } from "./staff";
+// v1.65.0 — live cards: one counter per topic, bumped where writes land.
+import { bumpVersion, topicOf } from "./shared";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
 import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
@@ -263,7 +265,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0093_elfia_flash_sale";
+const LATEST_MIGRATION = "0094_data_versions";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1669,10 +1671,16 @@ export default {
     // the 30-min work below.
     if (event.cron === "*/5 * * * *") {
       await pollElfiaOrders(env);
+      /* The cron does not pass through the staff dispatch, so the topics it
+         writes are bumped by hand. A web order that lands while the ops map
+         is open should move the map, not wait for somebody to reload. */
+      await bumpVersion(env, "orders");
+      await bumpVersion(env, "web-orders");
       // v1.43.0: traffic aggregates ride the same tick, after orders — money
       // first, map second; pollElfiaTraffic catches everything it throws, so
       // a traffic failure can never mark the orders pull as failed.
       await pollElfiaTraffic(env);
+      await bumpVersion(env, "web-traffic");
       return;
     }
     if (event.cron === "20 19 * * *") {
@@ -3526,9 +3534,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path.startsWith("/api/v1/staff/")) {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
     if (user.role === "customer") return errorResponse("forbidden", "Staff access only", 403);
-    const staffRes = await handleStaff(
-      request, env, path.slice("/api/v1/staff".length), user as StaffUser,
-    );
+    const sub = path.slice("/api/v1/staff".length);
+    const staffRes = await handleStaff(request, env, sub, user as StaffUser);
+    /* v1.65.0 — THE ONE PLACE a write is noticed.
+       Every staff mutation already passes through this line, so the version
+       bump lives here rather than in three hundred route handlers. Putting it
+       in each handler would mean every future route silently opting out of
+       live updates by forgetting a call; here, a new route is live the day it
+       is written and nobody has to remember anything.
+       Only successful writes count: a rejected save changed nothing, and
+       telling every open tab to reload after a 403 would be a lie plus a
+       stampede. */
+    if (staffRes && method !== "GET" && staffRes.status >= 200 && staffRes.status < 300) {
+      await bumpVersion(env, topicOf(sub));
+    }
     if (staffRes) return staffRes;
     return errorResponse("not_found", "Staff route not found", 404);
   }
@@ -4061,6 +4080,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0091 (leave adjust)", `SELECT adjust FROM leave_balances LIMIT 1`],
       ["0092 (leave used adjust)", `SELECT used_adjust FROM leave_balances LIMIT 1`],
       ["0093 (ELFIA flash sale)", `SELECT elfia_flash_until FROM inventory_items LIMIT 1`],
+      ["0094 (live card versions)", `SELECT topic, v FROM data_versions LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4173,6 +4193,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0091_leave_adjust",
       "0092_leave_used_adjust",
       "0093_elfia_flash_sale",
+      "0094_data_versions",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

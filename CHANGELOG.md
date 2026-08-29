@@ -2,6 +2,71 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.65.0] — 2026-08-28 — live cards: the portal stops going stale
+
+**CEO: "for any updates that I do in my system, it will auto update the card so that I won't require to refresh it."**
+
+### The audit first
+
+The portal was not starting from nothing. Three things already existed and shaped the answer:
+
+- **A working SSE stream.** `/staff/notifications/stream` holds a connection for ~20 seconds, polls D1 every 5, self-closes, and lets the browser reconnect. A 120-second poll sits behind it as a safety net. This has been carrying notifications since v1.6.0 and it works.
+- **One dispatch point for every staff write.** All ~300 staff routes pass through a single `handleStaff` call in `index.ts`.
+- **One hand-built precursor.** The ops map already listened for an `azone:tiktok-synced` custom event so it would redraw after a sync — the right instinct, solved once, for one card.
+
+Those three facts decided the design. There was no need for a new transport, and no need to touch three hundred route handlers.
+
+### What was rejected, and why
+
+**WebSockets / Durable Objects.** The "proper" real-time answer, and the wrong one here: a new billable primitive and a new failure mode, to replace a stream that already works.
+
+**Pushing the changed data.** Tempting and dangerous. Every pushed row has to be authorised per recipient, per card, per role, forever — and the cost of getting that wrong is showing the wrong person real numbers. Rejected on that alone.
+
+**Polling every card on a timer.** Ten cards × a poll each is ten requests to learn that nothing happened.
+
+### What it does instead
+
+**One integer per topic.** The server keeps a counter — `tasks`, `leave`, `orders`, `elfia` — and adds one when a write on that topic succeeds. The counters ride the stream that was already open. A card names the topics it cares about; when one moves, the card refetches **through its own normal endpoint**.
+
+So a version bump can leak exactly one bit: *something in this topic moved*. The data still comes back through the door that already knows who is asking.
+
+And because the counters only ever increase, a late frame from a dying connection cannot be applied backwards. There is no ordering problem to get wrong.
+
+**The bump lives at the dispatch point, not in the routes.** One call site, in `index.ts`, after `handleStaff` returns. Put it in each handler and every future route opts out of live updates by forgetting a line; here, a new route is live the day it is written. Only 2xx non-GET responses count — a rejected save changed nothing, and telling every open tab to reload after a 403 is a lie plus a stampede.
+
+**Making a card live is two lines:**
+
+```tsx
+useEffect(() => { void load(); }, [load]);
+useLiveRefresh(["tasks"], load);
+```
+
+Live in this release: the dashboard, leave (both cards), tasks, announcements, sales, users, the sales leaderboard, targets & commission, and the operations map.
+
+### The three details that decide whether it is pleasant or awful
+
+**The first observation is a baseline, never a reload.** The card has just fetched for itself; reloading because it saw a number for the first time would double every card's traffic on every page load.
+
+**A hidden tab neither refetches nor consumes the change.** The version is left unread, so the card is still owed its reload when the tab comes back. A phone in a pocket costs nothing and is still correct when it is taken out.
+
+**Bursts are coalesced.** One bulk action bumps a topic that three open cards watch; a 250ms window turns a flurry into one round.
+
+**Coming back to the foreground** asks for the version map once over plain HTTP and then pokes the store. That path also covers a proxy that blocks SSE entirely — the portal stays correct the moment somebody looks at it, even if every stream in the building failed.
+
+Only *changed* topics go on the wire, with the last snapshot held in the stream's closure. A quiet shop sends one query and zero bytes per tick.
+
+### A new guard, because I made this mistake twice in one sitting
+
+A topic is a route's first path segment. Watch `commission-rules` when the route is `/commission`, or `documents` when it is `/docs`, and the card silently never updates — nothing throws, nothing logs, no test fails. The feature just quietly is not there, which is the worst kind of broken.
+
+I got two of eleven wrong on the first pass. **`tests/live-topics.mjs` (guard #16)** reads the real route table out of `staff.ts` and checks every watched topic against it, plus the bump call site, the success gate, the never-throw contracts, the changed-only stream, and the three client rules above. Negative-tested three ways: reintroducing the wrong topic name, removing the bump, and bumping on failed writes each fail it.
+
+### Migration 0094 · `data_versions`
+
+One row per topic. Deliberately **not** per user: it says what changed, never who may see it.
+
+Pre-0094 databases degrade to exactly the old behaviour rather than erroring — `readVersions` catching a missing table means "nothing ever changes", which is what the portal did yesterday.
+
 ## [1.64.5] — 2026-08-28 — the name error becomes an instruction
 
 The diagnostic in 1.64.4 worked. TikTok's answer, in their words:

@@ -8,7 +8,9 @@
    leaving the tab. Orders come from GET /staff/orders/geo (buyer city from
    the TikTok sync), grouped into states client-side. */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+// v1.65.0 — live cards.
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { makeApi } from "@/lib/api";
 import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
@@ -31,16 +33,23 @@ type StateAgg = { orders: number; cents: number; cities: CityRow[] };
 export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
   const [cities, setCities] = useState<CityRow[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
+  const load = useCallback(() => {
+    void api<{ cities: CityRow[] }>(`/orders/geo`)
+      .then((r) => setCities(r.ok && r.data?.cities ? r.data.cities : []));
+  }, []);
   useEffect(() => {
-    const load = () =>
-      void api<{ cities: CityRow[] }>(`/orders/geo`)
-        .then((r) => setCities(r.ok && r.data?.cities ? r.data.cities : []));
     load();
     /* v1.24.1 (CEO): re-pull the state distribution the moment a "Sync from
-       TikTok" pass finishes — no reload needed. */
+       TikTok" pass finishes — no reload needed. This was the first hand-built
+       version of what v1.65.0 now does for every card; it stays because it
+       fires on THIS tab the instant the sync returns, without waiting for the
+       stream's next tick. */
     window.addEventListener("azone:tiktok-synced", load);
     return () => window.removeEventListener("azone:tiktok-synced", load);
-  }, []);
+  }, [load]);
+  /* And the general case: an order landing anywhere — the 5-minute web-order
+     poll, a colleague's sync, a manual entry — moves the map. */
+  useLiveRefresh(["orders", "web-orders"], load);
 
   const agg = useMemo(() => {
     const byState = new Map<string, StateAgg>();
