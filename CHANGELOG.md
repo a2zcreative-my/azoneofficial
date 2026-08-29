@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.70.1] — 2026-08-29 — a deleted product is not an error
+
+**The product scope is granted** — the panel now reports *"Names did come from: catalogue, orders"*, and product and variant names resolve. That was the fix; this is the tail of it.
+
+Four rows still showed ids, above TikTok's own words:
+
+> product detail: **Precondition Required.** This operation requires an existing product ID. Please verify the product ID and retry.
+
+That reads like something is broken and someone must go and check a product id. Nothing is broken and there is nothing to check. **Those products sold, and were later deleted or archived from the catalogue.** The lookup is asking for something that no longer exists, and TikTok is answering correctly.
+
+### The catalogue list does not include the archive
+
+An empty search body is TikTok's *"everything I would normally show a seller"* — which excludes deleted and deactivated products. A shawl that sold last week and was archived on Monday is therefore absent from the list while still appearing in last week's analytics. That is the whole of it.
+
+There is now a second sweep for `SELLER_DEACTIVATED`, `PLATFORM_DEACTIVATED`, `FREEZE` and `DELETED`, so an archived product still gets its real name. It runs **only when something is still unnamed** and stops as soon as everything resolves, so a shop with an intact catalogue pays nothing for it.
+
+### And when a product really is gone, the panel says so
+
+> 4 rows are products that are no longer in your TikTok catalogue — they sold, then were deleted or archived, so only their id remains. **Nothing to fix.**
+
+TikTok's raw refusal is no longer quoted for this case, because "Precondition Required" is an answer to a question, not a failure to answer it. A real refusal — a scope problem, a network failure — still comes through in their words.
+
+### A crash this would have caused on deploy
+
+The name map is cached for six hours in `system_meta`, so **a map written by an earlier build is read by a newer one**. Adding a field to it and then reading `.length` off it would have returned a 500 on the first request after every such deploy, until the cache expired.
+
+The cached map is now normalised on the way in rather than trusted. Guarded, because the cache outlives the code that wrote it and this will not be the last field added to it.
+
 ## [1.70.0] — 2026-08-29 — one width, and a warning that fits
 
 ### One standard width for the whole portal

@@ -116,6 +116,21 @@ ok("bursts are coalesced", /flushTimer/.test(live),
 ok("0094 is in EXPECTED_MIGRATIONS", /"0094_data_versions",/.test(index));
 ok("0094 has a health probe", /0094 \(live card versions\)/.test(index));
 
+/* ---- 6. the TikTok name map's cache must survive its own schema ----
+   The map is cached for six hours in system_meta, so a map written by an
+   EARLIER build is read by a NEWER one. Every field added here has to be
+   normalised on the way in, or the first request after a deploy reads
+   `undefined.length` and returns 500. */
+ok("a cached name map is normalised before use",
+   /c\.map\.gone \?\?= \[\]/.test(index) && /c\.map\.notes \?\?= \[\]/.test(index),
+   "the cache outlives the code that wrote it");
+ok("a deleted product is not reported as an error",
+   /precondition\|existing product\|not exist\|not found/.test(index),
+   "quoting 'Precondition Required' reads as something broken; nothing is broken");
+ok("archived products are swept only when something is unnamed",
+   /wantProducts\.some\(\(id\) => !out\.products\[id\]\)[\s\S]{0,400}?SELLER_DEACTIVATED/.test(index),
+   "a shop with an intact catalogue must not pay for four extra list calls");
+
 console.log(fails.length === 0
   ? `PASS — live topics all resolve and the plumbing is intact (${pass} checks, ${watched} watched topics)`
   : `\n${fails.map((f) => `  ✗ ${f}`).join("\n")}\n\n${fails.length} check(s) failed.`);

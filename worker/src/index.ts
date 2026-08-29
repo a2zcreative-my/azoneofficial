@@ -713,6 +713,10 @@ interface TtNames {
   skuProduct: Record<string, string>; // sku id      -> its product's title
   sources: string[];                  // which of the three actually contributed
   notes: string[];                    // what each source said when it did not
+  /* v1.70.1 — product ids TikTok says no longer exist. Not a failure: the
+     product sold and was later deleted from the catalogue. Kept apart so the
+     panel can state it as a fact instead of quoting an error. */
+  gone: string[];
 }
 
 /* v1.64.5: one id from each side, so an id-space mismatch is VISIBLE rather
@@ -726,7 +730,7 @@ function ttSampleId(m: Record<string, string>): string {
 const TT_NAMES_KEY = "tiktok_name_map";
 
 /** Pull every product page TikTok will give us. */
-async function ttNamesFromCatalogue(env: Env, out: TtNames): Promise<string> {
+async function ttNamesFromCatalogue(env: Env, out: TtNames, status = ""): Promise<string> {
   type TtProd = {
     id?: string | number; title?: string; product_name?: string;
     skus?: { id?: string | number; seller_sku?: string;
@@ -741,9 +745,12 @@ async function ttNamesFromCatalogue(env: Env, out: TtNames): Promise<string> {
     const res = (await tiktokSignedFetch(
       env, "/product/202309/products/search",
       { page_size: "100", ...(token ? { page_token: token } : {}) },
-      /* An empty body means "everything". A status filter here would be a
-         guess at their enum, and a wrong enum fails the whole call. */
-      JSON.stringify({}), "POST",
+      /* An empty body is TikTok's "everything I would normally list", and
+         it is what the first pass sends. It does NOT include products the
+         shop has deleted or deactivated — which is why a product that sold
+         last week and was archived on Monday came back nameless. Those get
+         a second pass with an explicit status (v1.70.1). */
+      JSON.stringify(status ? { status } : {}), "POST",
     )) as TtResp;
     if (!res || (typeof res.code === "number" && res.code !== 0)) {
       if (pg === 0) said = String(res?.message ?? "no response");
@@ -757,20 +764,31 @@ async function ttNamesFromCatalogue(env: Env, out: TtNames): Promise<string> {
 }
 
 /** One product's detail, for ids the list did not cover. */
-async function ttNamesFromDetail(env: Env, out: TtNames, ids: string[]): Promise<string> {
+async function ttNamesFromDetail(
+  env: Env, out: TtNames, ids: string[],
+): Promise<{ said: string; gone: string[] }> {
   let said = "";
+  /* v1.70.1 — ids TikTok says do not exist any more.
+     "Precondition Required. This operation requires an existing product ID"
+     is not a fault to report and not something anybody can fix: it means the
+     product was deleted from the catalogue after it sold. Collecting them
+     separately is what lets the panel say "these are gone" instead of
+     pasting an error that reads like a problem with the shop. */
+  const gone: string[] = [];
   /* Capped hard: this runs behind a six-hour cache and must never turn into
      a scan of the catalogue one row at a time. */
   for (const id of ids.slice(0, 15)) {
     const res = (await tiktokSignedFetch(env, `/product/202309/products/${id}`, {})) as
       { code?: number; message?: string; data?: Record<string, unknown> } | null;
     if (!res || (typeof res.code === "number" && res.code !== 0)) {
-      if (!said) said = String(res?.message ?? "no response");
+      const msg = String(res?.message ?? "no response");
+      if (/precondition|existing product|not exist|not found/i.test(msg)) { gone.push(id); continue; }
+      if (!said) said = msg;
       continue;
     }
     if (res.data) ttNamesTakeProduct({ id, ...res.data }, out);
   }
-  return said;
+  return { said, gone };
 }
 
 /** Names carried by recent orders — no product scope needed. */
@@ -851,7 +869,7 @@ function ttNamesTakeProduct(pr: Record<string, unknown>, out: TtNames): void {
 async function ttNameMap(
   env: Env, fresh: boolean, wantProducts: string[], wantSkus: string[],
 ): Promise<TtNames> {
-  const empty = (): TtNames => ({ products: {}, variants: {}, skuProduct: {}, sources: [], notes: [] });
+  const empty = (): TtNames => ({ products: {}, variants: {}, skuProduct: {}, sources: [], notes: [], gone: [] });
   const covers = (m: TtNames): boolean =>
     wantProducts.every((id) => m.products[id])
     && wantSkus.every((id) => m.variants[id] ?? m.skuProduct[id]);
@@ -862,6 +880,16 @@ async function ttNameMap(
         .bind(TT_NAMES_KEY).first<{ value: string }>();
       if (row?.value) {
         const c = JSON.parse(row.value) as { at: number; map: TtNames };
+        /* A map cached by an EARLIER build has no `gone` (and, on a much
+           older one, no `sources`). Reading `.length` off undefined would
+           throw a 500 on the first request after every deploy that adds a
+           field here — the cache outlives the code that wrote it, so it is
+           normalised on the way in rather than trusted. */
+        if (c.map) {
+          c.map.gone ??= [];
+          c.map.notes ??= [];
+          c.map.sources ??= [];
+        }
         if (Date.now() - c.at < 6 * 3600 * 1000 && c.map?.products && covers(c.map)) return c.map;
       }
     } catch { /* no cache yet */ }
@@ -875,12 +903,36 @@ async function ttNameMap(
   if (before() > n) out.sources.push("catalogue");
   if (catalogue) out.notes.push(`catalogue list: ${catalogue}`);
 
+  /* v1.70.1 — the archived shelf.
+     The default list is what TikTok would normally show a seller, and it
+     leaves out anything deleted or deactivated. A product that sold last
+     week and was archived on Monday is therefore absent from it while still
+     appearing in the analytics — which is exactly the row that came back
+     nameless. These extra passes run ONLY when something is still unnamed,
+     so a shop whose catalogue is intact pays nothing for them. */
+  if (wantProducts.some((id) => !out.products[id])) {
+    for (const status of ["SELLER_DEACTIVATED", "PLATFORM_DEACTIVATED", "FREEZE", "DELETED"]) {
+      if (wantProducts.every((id) => out.products[id])) break;
+      n = before();
+      const extra = await ttNamesFromCatalogue(env, out, status);
+      if (before() > n && !out.sources.includes("archived products")) {
+        out.sources.push("archived products");
+      }
+      /* A status this shop has never used answers empty, which is not worth
+         telling anyone about. Only a real refusal is noted. */
+      if (extra && !/came back empty/.test(extra)) out.notes.push(`${status.toLowerCase()}: ${extra}`);
+    }
+  }
+
   const stillUnnamed = wantProducts.filter((id) => !out.products[id]);
   if (stillUnnamed.length > 0) {
     n = before();
     const detail = await ttNamesFromDetail(env, out, stillUnnamed);
     if (before() > n) out.sources.push("product detail");
-    if (detail) out.notes.push(`product detail: ${detail}`);
+    out.gone = detail.gone;
+    /* Only a REAL problem becomes a note. "This product no longer exists" is
+       the answer to the question, not a failure to answer it. */
+    if (detail.said) out.notes.push(`product detail: ${detail.said}`);
   }
 
   if (!covers(out)) {
@@ -3903,8 +3955,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const notes = [...new Set(names.notes)];
       const scopeDenied = notes.some((t) => /access denied|scope/i.test(t));
       const rows = `${unnamed} row${unnamed === 1 ? "" : "s"}`;
+      /* v1.70.1 — a product that no longer exists is not an error.
+         TikTok answers a lookup for a deleted product with "Precondition
+         Required. This operation requires an existing product ID", and
+         quoting that at the CEO reads like something is broken and something
+         must be done. Nothing is broken and there is nothing to do: the item
+         sold, then it was archived. Say THAT. */
+      const goneRows = names.gone.length > 0
+        && skuRows.filter((r) => !r.title && !r.product_name)
+             .every((r) => !r.product_id || names.gone.includes(r.product_id));
       let why: string;
-      if (scopeDenied) {
+      if (goneRows && !scopeDenied) {
+        why = `${rows} are products that are no longer in your TikTok catalogue — they sold, then were deleted or archived, so only their id remains. Nothing to fix.`;
+      } else if (scopeDenied) {
         /* v1.70.0 — SHORT. The first version of this said the same thing in
            three times the words, and at the top of a card it read as a wall
            rather than an instruction: a warning nobody finishes reading is a
