@@ -141,6 +141,50 @@ ok("the repeat preview shows the DATES, not the search window",
    /ds\.slice\(0, 4\)\.map\(\(x\) => dmy\(x\)\)/.test(board),
    "printing the until-date for a rule that stops earlier is the v1.22.6 bug");
 
+/* ---- 9. v1.68.1: the bell actually rings ---- */
+ok("scheduling notifies even when you scheduled it for yourself",
+   /assignedTo !== user\.id \|\| firstBlock !== undefined/.test(staff),
+   "a six-day booking you made for yourself must leave a record you can scroll back to");
+const idx = read("worker/src/index.ts");
+ok("today's blocks are announced in the morning",
+   /kind = 'block_today'/.test(idx),
+   "a roster nobody is reminded of is a diary only its author reads");
+/* Assert the BEHAVIOUR, not that an identifier exists. Checking for the
+   word "byUser" passed while the notify sat outside the grouping loop —
+   the third time today a name-only check let a real regression through. */
+ok("the morning reminder is one message per person, not per block",
+   /for \(const \[uid, list\] of byUser\)[\s\S]{0,500}?notify\(env, uid/.test(idx),
+   "three chips on a Wednesday is one working day; three bells is how a bell gets muted");
+ok("the morning reminder runs at 09:00 MYT, not on the 30-minute pass",
+   idx.indexOf("kind = 'block_today'") > idx.indexOf('event.cron === "0 1 * * *"')
+   && idx.indexOf("kind = 'block_today'") < idx.indexOf("CLOCK-OUT REMINDERS"),
+   "the 30-minute cron would deliver the day's work at ten past midnight");
+ok("a block already done is not announced", /b\.done_at IS NULL AND t\.status/.test(idx));
+
+/* ---- 10. v1.69.0: editing, not retyping ---- */
+ok("PATCH /tasks can change the title, priority and deadline",
+   /sets\.push\(`title = /.test(staff) && /sets\.push\(`priority = /.test(staff)
+   && /sets\.push\(`deadline = /.test(staff),
+   "status-only meant fixing a typo cost the task its scope, comments and history");
+ok("an empty deadline clears it rather than erroring",
+   /body\.deadline === ""[\s\S]{0,120}?vals\.push\(null\)/.test(staff),
+   "a task stuck with the WRONG due date alerts every morning until the bell is muted");
+ok("reassigning a task is management-only",
+   /Only management can reassign a task/.test(staff));
+ok("reassigning moves the scheduled days with it",
+   /UPDATE task_blocks SET user_id = \?1 WHERE task_id = \?2/.test(staff),
+   "blocks left behind would show two people booked for one piece of work");
+ok("a time change can apply to the whole run",
+   /apply_to_run === true/.test(staff),
+   "six corrections for a six-day duty means the sixth gets forgotten");
+ok("apply_to_run changes TIMES only, never the date",
+   /\/\^\(start_time\|end_time\) =\//.test(staff),
+   "pushing one date across a run would collapse every day onto it");
+ok("the edit dialog sends only what changed",
+   /const taskPatch: Record<string, unknown> = \{\};/.test(board)
+   && /const blockPatch: Record<string, unknown> = \{\};/.test(board),
+   "posting the whole form back lets a stale dialog overwrite somebody else's fix");
+
 ok("the board is live on the right topics",
    /useLiveRefresh\(\["live-sessions", "task-blocks", "tasks", "leave"\]/.test(board));
 

@@ -1711,6 +1711,59 @@ export default {
       } catch (e) {
         await logError(env, "birthday_cron", e instanceof Error ? e.message : String(e));
       }
+
+      /* v1.68.1 — TODAY'S SCHEDULED WORK, at 09:00 MYT.
+         The CEO, 28-08-2026: "there is no alert notification appear after
+         task assigned." The immediate bell was one half of that, and this is
+         the half that matters more.
+
+         A roster earns its keep by telling somebody what today holds. Booking
+         six days in September and hearing nothing on any of those mornings is
+         a diary that only the person who wrote it ever reads.
+
+         Why HERE and not the 30-minute pass: the 30-minute cron would first
+         notice "today" at about ten past midnight, and a list of the day's
+         work delivered at 00:10 is worse than no list at all. This block runs
+         at 09:00 MYT, which is when someone can act on it.
+
+         One message per person, not one per block: three chips on a Wednesday
+         is one working day, and three bells for it is how a bell gets muted.
+         Deduped through the same task_events row the other task sweeps use,
+         so a redeploy or a second pass can never double-bell anyone. */
+      try {
+        const dayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        const { results: due } = await env.DB.prepare(
+          `SELECT b.id, b.task_id, b.user_id, b.start_time, b.end_time, t.title
+           FROM task_blocks b JOIN tasks t ON t.id = b.task_id
+           WHERE b.block_date = ?1 AND b.done_at IS NULL AND t.status != 'completed'
+             AND NOT EXISTS (SELECT 1 FROM task_events e
+                             WHERE e.task_id = b.task_id AND e.kind = 'block_today' AND e.on_date = ?1)
+           ORDER BY b.user_id, b.start_time LIMIT 120`,
+        ).bind(dayS).all<{ id: number; task_id: number; user_id: number;
+                           start_time: string; end_time: string | null; title: string }>();
+        const byUser = new Map<number, typeof due>();
+        for (const b of due) {
+          const list = byUser.get(b.user_id) ?? [];
+          list.push(b);
+          byUser.set(b.user_id, list);
+        }
+        for (const [uid, list] of byUser) {
+          const lines = list
+            .map((b) => `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} ${b.title}`)
+            .join(" · ");
+          await notify(env, uid, "task",
+            `🗓️ Today: ${lines}. Tick each one off on the roster as it is done.`,
+            `blocks:${uid}:${dayS}`);
+        }
+        /* The dedupe row is written per TASK, after the person has been told,
+           so a failure above means they are told on the next pass rather than
+           silently skipped. */
+        for (const tid of new Set(due.map((b) => b.task_id))) {
+          await env.DB.prepare(
+            `INSERT INTO task_events (task_id, kind, on_date) VALUES (?1, 'block_today', ?2)`,
+          ).bind(tid, dayS).run();
+        }
+      } catch { /* pre-0095/0096 - no blocks to remind anyone about */ }
       return;
     }
     /* v1.9.1 CLOCK-OUT REMINDERS (CEO: "how to remind them to clock out").

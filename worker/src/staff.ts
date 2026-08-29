@@ -3694,7 +3694,10 @@ export async function handleStaff(
         }
       } catch { /* pre-0095 — the task exists, it is simply unscheduled */ }
     }
-    if (assignedTo !== user.id) {
+    /* v1.68.1: notify when it is somebody else's task, OR when it has been
+       SCHEDULED — see the note in POST /task-blocks. A plain task you made
+       for yourself is the only case that stays silent. */
+    if (assignedTo !== user.id || firstBlock !== undefined) {
       /* A time is a different instruction from a date. "Wednesday
          10:00-12:00" tells somebody when to start; "due Wednesday" tells
          them when to panic. When the board gave us a slot, say the slot. */
@@ -3703,8 +3706,10 @@ export async function handleStaff(
           + (blockDays > 1 ? ` (${blockDays} days, to ${bDates[bDates.length - 1]!.split("-").reverse().join("-")})` : "")
         : str(body.deadline, 10) ? ` (due ${body.deadline as string})` : "";
       const scope = itemCount > 0 ? ` — ${itemCount} scope item${itemCount === 1 ? "" : "s"}` : "";
+      const own = assignedTo === user.id;
       await notify(env, assignedTo, "task",
-        `${firstBlock ? "🗓️ Scheduled" : "📋 New task assigned"}: ${body.title as string}${when}${scope}. Open the Tasks tab and press Acknowledge.`,
+        `${firstBlock ? `🗓️ Scheduled${own ? " — yours" : ""}` : "📋 New task assigned"}: ${body.title as string}${when}${scope}.`
+        + (own ? "" : " Open the Tasks tab and press Acknowledge."),
         `task:${res?.id}`);
     }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
@@ -3779,14 +3784,21 @@ export async function handleStaff(
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0095 first", 409);
       throw e;
     }
-    /* The point of scheduling, from the assignee's side: an instruction with
-       a TIME in it. "Wednesday 10:00-12:00" is a different sentence from
-       "due Wednesday", and it is the one that gets the work done. */
-    if (who !== user.id) {
+    /* v1.68.1 (CEO: "there is no alert notification appear after task
+       assigned") — he had scheduled a six-day run FOR HIMSELF, and the rule
+       here was "tell them unless it is you", which is the right rule for a
+       plain task and the wrong one for a booking. Nobody needs a bell saying
+       what they did a second ago; everybody needs a record that the diary
+       now contains six days of work, and the bell is where this portal keeps
+       records you can scroll back to.
+       So a SCHEDULE always notifies, including your own. An unscheduled task
+       you made for yourself still does not, because you are looking at it. */
+    {
       const when = `${d.split("-").reverse().join("-")} ${st}${et ? `-${et}` : ""}`;
       const run = dates.length > 1
         ? ` (${dates.length} days, to ${dates[dates.length - 1]!.split("-").reverse().join("-")})` : "";
-      await notify(env, who, "task", `🗓️ Scheduled: ${t.title} — ${when}${run}`, `task:${taskId}:block:${id}`);
+      const mine = who === user.id ? " — yours" : "";
+      await notify(env, who, "task", `🗓️ Scheduled${mine}: ${t.title} — ${when}${run}`, `task:${taskId}:block:${id}`);
     }
     await audit(env, user.id, "task.schedule", "tasks", String(taskId),
                 { date: d, days: dates.length, start: st, user: who });
@@ -3869,10 +3881,34 @@ export async function handleStaff(
         putB("user_id", bu);
       }
       if (setsB.length === 0) return err("invalid_input", "Nothing to update", 400);
+
+      /* v1.69.0 — the whole run, not one day of it.
+         Getting the hours wrong on a six-day duty used to mean six separate
+         corrections, and the sixth is the one that gets forgotten. Times
+         only: a DATE applies to one day by definition, so pushing the same
+         date across a run would collapse six days into one. */
+      const wholeRun = body?.apply_to_run === true;
+      const timeOnly = setsB.filter((x) => /^(start_time|end_time) =/.test(x));
+      if (wholeRun && timeOnly.length > 0) {
+        /* Rebuild the placeholders for the narrower statement rather than
+           reusing argsB, whose numbering belongs to the full SET list. */
+        const runSets: string[] = [];
+        const runArgs: unknown[] = [];
+        const startI = setsB.findIndex((x) => x.startsWith("start_time ="));
+        if (startI >= 0) { runSets.push(`start_time = ?${runArgs.length + 1}`); runArgs.push(argsB[startI]); }
+        const endI = setsB.findIndex((x) => x.startsWith("end_time ="));
+        if (endI >= 0) { runSets.push(`end_time = ?${runArgs.length + 1}`); runArgs.push(argsB[endI]); }
+        runArgs.push(blk.task_id);
+        await env.DB.prepare(
+          `UPDATE task_blocks SET ${runSets.join(", ")} WHERE task_id = ?${runArgs.length}`,
+        ).bind(...runArgs).run();
+      }
+
       argsB.push(bid);
       await env.DB.prepare(`UPDATE task_blocks SET ${setsB.join(", ")} WHERE id = ?${argsB.length}`)
         .bind(...argsB).run();
-      await audit(env, user.id, "task.reschedule", "tasks", String(blk.task_id));
+      await audit(env, user.id, "task.reschedule", "tasks", String(blk.task_id),
+                  wholeRun ? { whole_run: true } : undefined);
       return json({ ok: true });
     }
   }
@@ -3886,12 +3922,51 @@ export async function handleStaff(
       return err("forbidden", "Not your task", 403);
     }
     const sets: string[] = [];
-    const vals: (string | number)[] = [];
+    const vals: (string | number | null)[] = [];
     if (typeof body?.progress === "number" && body.progress >= 0 && body.progress <= 100) {
       sets.push(`progress = ?${sets.length + 1}`); vals.push(body.progress);
     }
     if (typeof body?.status === "string" && ["open", "in_progress", "completed"].includes(body.status)) {
       sets.push(`status = ?${sets.length + 1}`); vals.push(body.status);
+    }
+    /* v1.69.0 (CEO: "I want to have an option for me to update the Task") —
+       until now this route could move a task's status and nothing else, so
+       fixing a wrong deadline or a typo in a title meant deleting the task
+       and building it again, losing its scope, its comments and its history.
+       That is not editing, that is retyping. */
+    if (str(body?.title, 200)) {
+      sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim());
+    }
+    if (typeof body?.description === "string") {
+      sets.push(`description = ?${sets.length + 1}`);
+      vals.push(body.description.trim() === "" ? null : body.description.slice(0, 5000));
+    }
+    if (typeof body?.priority === "string" && ["low", "normal", "high", "urgent"].includes(body.priority)) {
+      sets.push(`priority = ?${sets.length + 1}`); vals.push(body.priority);
+    }
+    /* An empty string clears the deadline. A task with no due date is a
+       normal thing; a task stuck with the WRONG due date is what generates
+       false overdue alerts every morning until somebody mutes the bell. */
+    if (typeof body?.deadline === "string") {
+      if (body.deadline === "") { sets.push(`deadline = ?${sets.length + 1}`); vals.push(null); }
+      else if (/^\d{4}-\d{2}-\d{2}$/.test(body.deadline)) {
+        sets.push(`deadline = ?${sets.length + 1}`); vals.push(body.deadline);
+      } else return err("invalid_input", "The due date must be a real date", 400);
+    }
+    /* Reassignment is a management act — it puts work on another person's
+       plate, the same rule the roster applies to moving a block. */
+    let reassignedTo: number | null = null;
+    if (Number(body?.assigned_to) && Number(body!.assigned_to) !== row.assigned_to) {
+      if (!can(user.role, "team_manage")) {
+        return err("forbidden", "Only management can reassign a task", 403);
+      }
+      const nu = await env.DB.prepare(`SELECT is_active, role FROM users WHERE id = ?1`)
+        .bind(Number(body!.assigned_to)).first<{ is_active: number; role: string }>();
+      if (!nu || !nu.is_active || ["customer", "super_admin", "admin"].includes(nu.role)) {
+        return err("invalid_input", "That must be an active staff member", 400);
+      }
+      reassignedTo = Number(body!.assigned_to);
+      sets.push(`assigned_to = ?${sets.length + 1}`); vals.push(reassignedTo);
     }
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
@@ -3913,6 +3988,23 @@ export async function handleStaff(
         await notify(env, row.assigned_to, "task", `📋 Your task was set to ${statusLbl}: ${row.title}`, `task:${id}:st:${body.status}`);
       }
     }
+    /* Whoever now owns it hears that it moved, and the blocks that were
+       already on the roster move with it — leaving them on the old person's
+       row would show two people booked for one piece of work. */
+    if (reassignedTo !== null) {
+      try {
+        await env.DB.prepare(`UPDATE task_blocks SET user_id = ?1 WHERE task_id = ?2`)
+          .bind(reassignedTo, id).run();
+      } catch { /* pre-0095 */ }
+      await notify(env, reassignedTo, "task",
+        `📋 Task moved to you: ${str(body?.title, 200) ? String(body!.title).trim() : row.title}. Open the Tasks tab and press Acknowledge.`,
+        `task:${id}:reassign:${reassignedTo}`);
+      if (row.assigned_to !== user.id) {
+        await notify(env, row.assigned_to, "task",
+          `📋 No longer yours: ${row.title} — it has been reassigned.`, `task:${id}:unassign`);
+      }
+    }
+    await audit(env, user.id, "task.update", "tasks", String(id));
     return json({ ok: true });
   }
   /* v1.42.0 — the scope checklist. Reading it: assignee, creator, or a

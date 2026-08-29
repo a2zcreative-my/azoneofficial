@@ -146,6 +146,29 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   const [armed, setArmed] = useState<UnscheduledTask | null>(null);
   const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [newMenu, setNewMenu] = useState(false);
+  /* v1.69.0 (CEO: "I want to have an option for me to update the Task").
+     The block bar could tick a day or throw the day away, and nothing in
+     between — a wrong deadline or a typo meant deleting the task and
+     rebuilding it, losing its scope and its history. One dialog edits both
+     halves, because from the board they are one thing: the work, and when
+     it happens. */
+  const [editBlock, setEditBlock] = useState<RosterTaskBlock | null>(null);
+  const [eDraft, setEDraft] = useState({
+    title: "", priority: "normal", deadline: "", status: "open", assigned_to: "",
+    block_date: "", start_time: "", end_time: "", whole_run: false,
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const openEditBlock = (b: RosterTaskBlock) => {
+    setEDraft({
+      title: b.title, priority: b.priority || "normal",
+      deadline: b.deadline ?? "", status: b.status || "open",
+      assigned_to: String(b.user_id),
+      block_date: b.block_date, start_time: b.start_time, end_time: b.end_time ?? "",
+      whole_run: false,
+    });
+    setEditBlock(b);
+    setOpenBlock(null);
+  };
   const [taskOpen, setTaskOpen] = useState(false);
   const [tDraft, setTDraft] = useState({
     title: "", assigned_to: "", priority: "normal", deadline: "",
@@ -1162,6 +1185,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     onClick={() => void setBlockDone(b, !b.done_at)}>
                     {b.done_at ? L("↺ Not done after all", "↺ Belum selesai") : L("✓ Done today", "✓ Selesai hari ini")}
                   </button>
+                  <button type="button" className={btnSm} onClick={() => openEditBlock(b)}>
+                    {L("Edit", "Sunting")}
+                  </button>
                   <button type="button" className="text-muted-foreground text-xs underline"
                     onClick={() => void unscheduleBlock(b)}>
                     {L("Unschedule", "Nyahjadual")}
@@ -1289,6 +1315,180 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         )}
       </div>
 
+
+
+      {/* v1.69.0 — edit the work and the day it happens, together.
+          Two sections in one dialog rather than two dialogs, because from
+          the board they are one question: what is this, and when. Saving
+          sends only what actually changed, so an edit to the title cannot
+          quietly rewrite a time somebody else adjusted while this was open. */}
+      {editBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
+          onClick={() => setEditBlock(null)}>
+          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-semibold">{L("Update task", "Kemas kini tugasan")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {(() => {
+                const run = blocks.filter((x) => x.task_id === editBlock.task_id);
+                const doneN = run.filter((x) => x.done_at).length;
+                return run.length > 1
+                  ? L(`${run.length} days scheduled, ${doneN} done.`, `${run.length} hari dijadualkan, ${doneN} selesai.`)
+                  : L("One day scheduled.", "Satu hari dijadualkan.");
+              })()}
+            </p>
+
+            <p className="text-muted-foreground mt-4 text-[10px] font-semibold tracking-wider uppercase">
+              {L("The task", "Tugasan")}
+            </p>
+            <div className="mt-1.5 space-y-3">
+              <div>
+                <label className={fieldLabel} htmlFor="ed-title">{L("What needs doing", "Apa yang perlu dibuat")}</label>
+                <input id="ed-title" className={inputClass} maxLength={200} value={eDraft.title}
+                  onChange={(e) => setEDraft({ ...eDraft, title: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="ed-prio">{L("Priority", "Keutamaan")}</label>
+                  <select id="ed-prio" className={inputClass} value={eDraft.priority}
+                    onChange={(e) => setEDraft({ ...eDraft, priority: e.target.value })}>
+                    <option value="low">{L("Low", "Rendah")}</option>
+                    <option value="normal">{L("Normal", "Biasa")}</option>
+                    <option value="high">{L("High", "Tinggi")}</option>
+                    <option value="urgent">{L("Urgent", "Segera")}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="ed-status">{L("Status", "Status")}</label>
+                  <select id="ed-status" className={inputClass} value={eDraft.status}
+                    onChange={(e) => setEDraft({ ...eDraft, status: e.target.value })}>
+                    <option value="open">{L("Open", "Terbuka")}</option>
+                    <option value="in_progress">{L("In progress", "Sedang berjalan")}</option>
+                    <option value="completed">{L("Completed", "Selesai")}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="ed-due">{L("Due by", "Perlu siap")}</label>
+                  <input id="ed-due" type="date" className={inputClass} value={eDraft.deadline}
+                    onChange={(e) => setEDraft({ ...eDraft, deadline: e.target.value })} />
+                  <p className="text-muted-foreground mt-1 text-[11px]">
+                    {L("Clear it to remove the due date.", "Kosongkan untuk membuang tarikh akhir.")}
+                  </p>
+                </div>
+                {canManage && (
+                  <div>
+                    <label className={fieldLabel} htmlFor="ed-who">{L("Who", "Siapa")}</label>
+                    <select id="ed-who" className={inputClass} value={eDraft.assigned_to}
+                      onChange={(e) => setEDraft({ ...eDraft, assigned_to: e.target.value })}>
+                      {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                    <p className="text-muted-foreground mt-1 text-[11px]">
+                      {L("Every scheduled day moves with them.", "Setiap hari yang dijadualkan berpindah bersama.")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <p className="text-muted-foreground mt-4 text-[10px] font-semibold tracking-wider uppercase">
+              {L("This day", "Hari ini")}
+            </p>
+            <div className="mt-1.5 grid grid-cols-3 gap-3">
+              <div>
+                <label className={fieldLabel} htmlFor="ed-day">{L("Date", "Tarikh")}</label>
+                <input id="ed-day" type="date" className={inputClassSm} value={eDraft.block_date}
+                  onChange={(e) => setEDraft({ ...eDraft, block_date: e.target.value })} />
+              </div>
+              <div>
+                <label className={fieldLabel} htmlFor="ed-st">{L("From", "Dari")}</label>
+                <input id="ed-st" type="time" className={inputClassSm} value={eDraft.start_time}
+                  onChange={(e) => setEDraft({ ...eDraft, start_time: e.target.value })} />
+              </div>
+              <div>
+                <label className={fieldLabel} htmlFor="ed-et">{L("To", "Hingga")}</label>
+                <input id="ed-et" type="time" className={inputClassSm} value={eDraft.end_time}
+                  onChange={(e) => setEDraft({ ...eDraft, end_time: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Getting the hours wrong on a six-day duty is six corrections
+                otherwise, and the sixth is the one that gets forgotten. */}
+            {blocks.filter((x) => x.task_id === editBlock.task_id).length > 1 && (
+              <label className="mt-2 flex items-start gap-2 text-xs">
+                <input type="checkbox" className="mt-0.5" checked={eDraft.whole_run}
+                  onChange={(e) => setEDraft({ ...eDraft, whole_run: e.target.checked })} />
+                <span>
+                  {L("Use these hours on every day of this task", "Guna jam ini pada setiap hari tugasan ini")}
+                  <span className="text-muted-foreground block text-[11px]">
+                    {L("The date above still only moves this one day.", "Tarikh di atas masih hanya mengalihkan hari ini sahaja.")}
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {eDraft.deadline && eDraft.block_date > eDraft.deadline && (
+              <p className="border-warning bg-warning-soft text-warning mt-3 rounded-lg border px-2.5 py-1.5 text-xs font-medium">
+                {L("This day is after the due date.", "Hari ini selepas tarikh akhir.")}
+              </p>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="text-muted-foreground text-sm underline"
+                onClick={() => setEditBlock(null)}>{L("Cancel", "Batal")}</button>
+              <button type="button" className={btnClass} disabled={savingEdit || !eDraft.title.trim()}
+                onClick={async () => {
+                  setSavingEdit(true);
+                  const b = editBlock;
+                  /* Only what changed. Sending the whole form back would let
+                     an edit opened five minutes ago overwrite a time somebody
+                     else has since fixed. */
+                  const taskPatch: Record<string, unknown> = {};
+                  if (eDraft.title.trim() !== b.title) taskPatch.title = eDraft.title.trim();
+                  if (eDraft.priority !== (b.priority || "normal")) taskPatch.priority = eDraft.priority;
+                  if (eDraft.status !== (b.status || "open")) taskPatch.status = eDraft.status;
+                  if (eDraft.deadline !== (b.deadline ?? "")) taskPatch.deadline = eDraft.deadline;
+                  if (canManage && Number(eDraft.assigned_to) !== b.user_id) taskPatch.assigned_to = Number(eDraft.assigned_to);
+
+                  const blockPatch: Record<string, unknown> = {};
+                  if (eDraft.block_date !== b.block_date) blockPatch.block_date = eDraft.block_date;
+                  if (eDraft.start_time !== b.start_time) blockPatch.start_time = eDraft.start_time;
+                  if (eDraft.end_time !== (b.end_time ?? "")) blockPatch.end_time = eDraft.end_time;
+                  if (eDraft.whole_run && (blockPatch.start_time || blockPatch.end_time)) blockPatch.apply_to_run = true;
+
+                  let failed = "";
+                  if (Object.keys(taskPatch).length > 0) {
+                    const r = await api<{ error?: { message?: string } }>(`/tasks/${b.task_id}`, {
+                      method: "PATCH", body: JSON.stringify(taskPatch) });
+                    if (!r.ok) failed = r.data?.error?.message ?? L("The task could not be updated", "Tugasan tidak dapat dikemas kini");
+                  }
+                  if (!failed && Object.keys(blockPatch).length > 0) {
+                    const r = await api<{ error?: { message?: string } }>(`/task-blocks/${b.id}`, {
+                      method: "PATCH", body: JSON.stringify(blockPatch) });
+                    if (!r.ok) failed = r.data?.error?.message ?? L("The day could not be moved", "Hari tidak dapat dialihkan");
+                  }
+                  setSavingEdit(false);
+                  if (failed) { showToast(L("Not saved", "Tidak disimpan"), failed, "notice"); return; }
+                  if (Object.keys(taskPatch).length === 0 && Object.keys(blockPatch).length === 0) {
+                    showToast(L("Nothing changed", "Tiada perubahan"), eDraft.title.trim(), "notice");
+                    setEditBlock(null);
+                    return;
+                  }
+                  showToast(L("Updated", "Dikemas kini"),
+                    eDraft.whole_run && blockPatch.apply_to_run
+                      ? L(`${eDraft.title.trim()} — hours applied to every day.`,
+                          `${eDraft.title.trim()} — jam digunakan pada setiap hari.`)
+                      : eDraft.title.trim());
+                  setEditBlock(null);
+                  void load(week);
+                }}>
+                {savingEdit ? L("Saving…", "Menyimpan…") : L("Save changes", "Simpan perubahan")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* v1.66.0 — assign a task, and give it a slot, in one action.
           Two actions is how a task ends up assigned and never scheduled, and

@@ -2,6 +2,68 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.69.0] — 2026-08-28 — update the task, from the board
+
+**CEO: "I want to have an option for me to update the Task."**
+
+Tapping a block offered *Done today · Unschedule · Close*. Tick it, or throw the day away — nothing in between. A wrong deadline or a typo in a title meant deleting the task and building it again, losing its scope, its comments and its history. That is not editing, that is retyping.
+
+### `PATCH /tasks/:id` was status-only
+
+It could move a task between open, in-progress and completed, and touch nothing else. It now takes **title, description, priority, deadline and assignee** as well.
+
+Three details that decide whether an edit route is safe:
+
+**An empty deadline clears it** rather than erroring. A task with no due date is a normal thing; a task stuck with the *wrong* due date is what fires a false overdue alert every morning until somebody mutes the bell — and a muted bell takes the real alerts with it.
+
+**Reassigning is management-only**, the same rule the roster already applies to moving a block onto another person's day.
+
+**Reassigning moves the scheduled days with it.** Leaving the blocks behind would show two people booked for one piece of work — the board would be lying about who is busy, which is the one thing it exists to answer.
+
+### One dialog, two halves
+
+**Update task** edits the work and the day it happens together, because from the board those are one question: *what is this, and when.* The task's title, priority, status, due date and owner sit above; this day's date and hours sit below.
+
+**"Use these hours on every day of this task."** Getting the hours wrong on a six-day duty was six corrections, and the sixth is the one that gets forgotten. The date deliberately still moves one day only — pushing a single date across a run would collapse six days onto it.
+
+**It sends only what changed.** Posting the whole form back would let a dialog opened five minutes ago overwrite a time somebody else has since fixed — the classic last-write-wins bug on a screen two people share. Change nothing and it says so instead of pretending to save.
+
+The dialog also shows where the run stands (*"5 days scheduled, 2 done"*) and warns before saving if the day you have chosen falls after the due date.
+
+## [1.68.1] — 2026-08-28 — the roster rings the bell
+
+**CEO, after booking a six-day run for himself: "there is no alert notification appear after task assigned."**
+
+Correct, and for two separate reasons. One was a rule applied in the wrong place; the other was a missing feature that mattered more.
+
+### Scheduling yourself was silent
+
+The rule was *"tell them unless it is you"* — right for a plain task, wrong for a booking. Nobody needs a bell saying what they did a second ago. But everybody needs a record that the diary now holds six days of work, and the bell is where this portal keeps records you can scroll back to.
+
+So a **schedule** always notifies, including your own: *"🗓️ Scheduled — yours: Operation — 01-09-2026 10:00-21:00 (6 days, to 06-09-2026)."*
+
+An unscheduled task you made for yourself is still silent. You are looking at it.
+
+### Nothing told you when the day arrived
+
+This is the half that matters. A roster earns its keep by telling somebody what today holds. Booking six days in September and hearing nothing on any of those mornings is a diary only its author ever reads.
+
+**At 09:00 MYT, everyone with work booked for today gets one message:** *"🗓️ Today: 10:00-21:00 Operation. Tick each one off on the roster as it is done."*
+
+Three decisions in that one line:
+
+**09:00, not the 30-minute pass.** The half-hourly cron would first notice "today" at about ten past midnight, and a list of the day's work delivered at 00:10 is worse than no list at all. It rides the daily block that already sends birthdays, which fires when somebody can act on it.
+
+**One message per person, not one per block.** Three chips on a Wednesday is one working day. Three bells for it is how a bell gets muted, and a muted bell takes the overdue and unacknowledged alerts down with it.
+
+**A day already ticked off is not announced**, and the dedupe row is written *after* the person has been told — so a failure means they hear it on the next pass rather than being silently skipped.
+
+### And the mistake I keep making
+
+The first version of the guard for this checked that the word `byUser` appeared in the file. It passed while the notification sat outside the grouping loop, firing once per block.
+
+That is the third time today a check asserted an **identifier exists** rather than a **behaviour holds** — the same fault as checking `durOfB` was present while the totals ignored it. All three now assert the actual shape: the notify call inside the per-person loop, the reduce inside the total, the discount inside the flash sale.
+
 ## [1.68.0] — 2026-08-28 — the ELFIA store panel: a filter that filters, and a flash sale you can price
 
 **CEO: "when I choose Bawal, it doesnt only show Bawal then how to update the flash sales price? seem it is wrong flow."**
