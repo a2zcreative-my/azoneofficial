@@ -28,6 +28,7 @@
  *
  *   node tests/business-cards.mjs           # check
  *   node tests/business-cards.mjs --write   # regenerate the .vcf files
+ *   python scripts/card-og.py               # regenerate the QR + OG images
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -205,16 +206,27 @@ ok("the page carries Person structured data", /"@type": "Person"/.test(page));
 /* ---- 7. the assets each card needs ---- */
 for (const m of TEAM) {
   for (const [rel, why] of [
-    [`public/cards/${m.slug}-og.png`, "forwarding the link in WhatsApp would show a bare URL"],
-    [`public/cards/${m.slug}-qr.png`, "the on-page QR would be a broken image"],
+    [`public/cards/${m.slug}-og.png`, "forwarding the link in WhatsApp would show a bare URL - run: python scripts/card-og.py"],
+    [`public/cards/${m.slug}-qr.png`, "the on-page QR would be a broken image - run: python scripts/card-og.py"],
   ]) {
     const there = existsSync(at(rel));
     ok(`${rel} exists`, there, why);
     if (there) ok(`${rel} is a real image`, statSync(at(rel)).size > 2000, "suspiciously small");
   }
+  /* A photo is optional. When one IS set the page stops drawing the monogram
+     and shows it instead, so a missing or broken file turns the first thing a
+     client sees into a grey box. */
   if (m.photo) {
-    ok(`${m.slug}: the photo file exists`, existsSync(at(`public${m.photo}`)),
+    const there = existsSync(at(`public${m.photo}`));
+    ok(`${m.slug}: the photo file exists`, there,
        `${m.photo} is set in constants/team.ts but not in public/`);
+    ok(`${m.slug}: the photo is a web image format`, /\.(jpe?g|png|webp)$/i.test(m.photo), m.photo);
+    if (there) {
+      ok(`${m.slug}: the photo is a real image`, statSync(at(`public${m.photo}`)).size > 5000,
+         "suspiciously small - a placeholder or a failed export?");
+      ok(`${m.slug}: the photo lives with the other card assets`, m.photo.startsWith("/cards/"),
+         "keep them together, so one folder is the whole feature");
+    }
   }
 }
 

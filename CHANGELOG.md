@@ -27,6 +27,10 @@ That is a deliberate refusal of the obvious design. **A card is printed on paper
 - **Its own QR** on the page, for when the holder is out of cards.
 - **A per-card Open Graph image** — forwarding the link in WhatsApp shows a name and a role, not a bare URL. That is how a card actually spreads.
 
+### The photos
+
+Each card carries the person's own headshot, cropped square on the face and cut to a circle — the same three images the portal holds, but **as static files in `public/cards/`, not fetched from it**. Pointing the page at `/api/v1/media/file/<key>` would have put a grey box on a client's screen every time the API had a bad day, and would have made every staff photo publicly fetchable by key. All three are framed identically (the face fills 59% of the frame) so the three cards read as one set, and the same photo goes onto the link-preview image, so forwarding a card in WhatsApp now shows the person rather than two letters. `scripts/card-og.py` does the compositing and regenerates every QR and preview from `constants/team.ts`; the monogram stays as the fallback for a record with no photo yet.
+
 `N:;MOHD ALIF FARHAN;;;` — given name only, no surname field. A phone that decides "MOHD" is a surname sorts the contact wrongly and then greets them by it.
 
 ### The floating WhatsApp button is hidden on a card page

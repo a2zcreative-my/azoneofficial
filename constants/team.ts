@@ -71,7 +71,7 @@ export const TEAM: readonly TeamCard[] = [
     mobile: "012-2461823",
     mobileE164: "+60122461823",
     monogram: "AF",
-    photo: "",
+    photo: "/cards/farhan.jpg",
     lead: "Leads A2Z Creative Marketing — brand direction, live commerce, and the client partnerships behind both.",
   },
   {
@@ -84,7 +84,7 @@ export const TEAM: readonly TeamCard[] = [
     mobile: "012-7087920",
     mobileE164: "+60127087920",
     monogram: "IZ",
-    photo: "",
+    photo: "/cards/izz.jpg",
     lead: "Creative direction across campaigns, content and the way the brands we work with are seen.",
   },
   {
@@ -97,7 +97,7 @@ export const TEAM: readonly TeamCard[] = [
     mobile: "014-3569293",
     mobileE164: "+60143569293",
     monogram: "ZO",
-    photo: "",
+    photo: "/cards/zoll.jpg",
     lead: "Operations — live schedules, fulfilment and the day-to-day that keeps a campaign running.",
   },
 ] as const;
