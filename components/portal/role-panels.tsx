@@ -1953,13 +1953,34 @@ function utcToMytLocal(utc: string): string {
  * add clock in/out for days worked before this system existed. Every change
  * is marked (manual/amended) and audit-logged with the actor.
  */
-export function AttendanceAdminPanel() {
+/* v1.72.0 — an unpaid day, as the payroll sees it. */
+type UnpaidDay = {
+  id: number;
+  user_id: number;
+  d: string;
+  days: number;
+  reason: string | null;
+  recorded_direct: number;
+  name: string;
+  full_name?: string | null;
+};
+
+export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
   const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null }[]>([]);
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
+  /* v1.72.0 (CEO: "I also want to have a option for me to update their
+     attendance to Unpaid Leave which is for payroll") — recorded here, but
+     stored as an APPROVED unpaid leave request, which is what payroll has
+     always read. Nothing in the payslip had to change: the UNPAID LEAVE line
+     and the 1/26 statutory rate were already there, waiting for a day to
+     count. CEO only, matching the server. */
+  const canUnpaid = ["ceo", "super_admin"].includes(role);
+  const [unpaid, setUnpaid] = useState<UnpaidDay[]>([]);
+  const [ul, setUl] = useState({ user_id: 0, date: "", reason: "" });
   // v1.4.80: click a column HEADER to sort (▲ asc / ▼ desc); click again to
   // flip. Default = the API's chronological order.
   const [sortKey, setSortKey] = useState<"name" | "type" | "time" | "mark" | null>(null);
@@ -1973,7 +1994,13 @@ export function AttendanceAdminPanel() {
   };
   const markOf = (r: AttRecord) => (r.manual_by ? "manual" : r.amended_by ? "amended" : "punch");
 
+  const loadUnpaid = useCallback(async () => {
+    const r = await api<{ unpaid: UnpaidDay[] }>(`/attendance/unpaid?month=${month}`);
+    setUnpaid(r.data?.unpaid ?? []);
+  }, [month]);
+
   const load = useCallback(async () => {
+    void loadUnpaid();
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
       api<{ users?: { id: number; name: string; full_name?: string | null; role: string }[]; staff?: { id: number; name: string; full_name?: string | null; role: string }[] }>(`/users`),
@@ -1981,7 +2008,7 @@ export function AttendanceAdminPanel() {
     if (r.data) setRows(r.data.records ?? []);
     const list = u.data?.users ?? u.data?.staff ?? [];
     setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
-  }, [month]);
+  }, [month, loadUnpaid]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -2045,6 +2072,72 @@ export function AttendanceAdminPanel() {
           onChange={(e) => setMonth(e.target.value)} />
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      {canUnpaid && (
+        <>
+          <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
+            {L("Unpaid leave — deducted from pay", "Cuti tanpa gaji — dipotong daripada gaji")}
+          </span>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L(
+              "Mark a day nobody applied for — absent, or agreed unpaid time off. The payslip deducts one day at the statutory rate (monthly wage ÷ 26, Employment Act 1955 s.60I), shows it as its own line, and leaves Basic full. The staff member is notified the moment you record it, and the day is excluded from the incomplete-month proration so nothing is deducted twice. Undo removes it from that month's pay.",
+              "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui. Slip gaji memotong satu hari pada kadar statutori (gaji bulanan ÷ 26, Akta Kerja 1955 s.60I), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
+            )}
+          </p>
+          <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+            <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={ul.user_id}
+              onChange={(e) => setUl((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+              <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
+              {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
+            </select>
+            <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={ul.date}
+              onChange={(e) => setUl((d) => ({ ...d, date: e.target.value }))} />
+            <input className={`${inputClass} w-full min-w-0 sm:max-w-56`} value={ul.reason}
+              placeholder={L("Reason (optional)", "Sebab (pilihan)")}
+              onChange={(e) => setUl((d) => ({ ...d, reason: e.target.value }))} />
+            <button type="button"
+              className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
+              disabled={!ul.user_id || !ul.date}
+              onClick={() => {
+                void act(`/attendance/unpaid`, {
+                  method: "POST",
+                  body: JSON.stringify({ user_id: ul.user_id, date: ul.date, reason: ul.reason || undefined }),
+                }, L("Recorded as unpaid leave — payroll will deduct it.", "Direkod sebagai cuti tanpa gaji — gaji akan dipotong."));
+                setUl({ user_id: 0, date: "", reason: "" });
+              }}>
+              {L("Mark unpaid", "Tanda tanpa gaji")}
+            </button>
+          </div>
+          {unpaid.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {unpaid.map((u) => (
+                <span key={u.id}
+                  className="border-border inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs">
+                  <span className="font-medium">{properName(u.full_name || u.name)}</span>
+                  <span className="text-muted-foreground">{u.d}</span>
+                  {u.recorded_direct === 1 ? (
+                    <button type="button"
+                      className="text-muted-foreground hover:text-danger leading-none"
+                      title={L("Undo — this day stops being deducted", "Buat asal — hari ini tidak lagi dipotong")}
+                      aria-label={L("Undo unpaid leave", "Buat asal cuti tanpa gaji")}
+                      onClick={() => void act(`/attendance/unpaid?id=${u.id}`, { method: "DELETE" },
+                        L("Removed — that day is paid again.", "Dikeluarkan — hari itu dibayar semula."))}>
+                      ×
+                    </button>
+                  ) : (
+                    /* Applied for by the staff member and approved through the
+                       chain. It still deducts, but it is their record, not a
+                       management entry, so it is not undone from here. */
+                    <span className="text-muted-foreground" title={L("Applied for and approved through the leave chain — manage it on the Leave tab", "Dipohon dan diluluskan melalui rantaian cuti — uruskan pada tab Cuti")}>
+                      {L("applied", "dipohon")}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
         <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">

@@ -2,6 +2,58 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.72.1] — 2026-08-30 — the website build, blocked by one anchor
+
+`DEPLOY EVERYTHING` got through the migration and published the API, then stopped in step 5:
+
+    ./app/portal/page.tsx
+    12465:9  Error: Do not use an `<a>` element to navigate to `/login/`.
+             Use `<Link />` from `next/link` instead.  @next/next/no-html-link-for-pages
+
+Nothing to do with this release. It is the **"Sign in required"** screen, and that anchor has been there for months — `next lint` refuses it because a raw `<a>` to an in-app route throws away the router and reloads the whole bundle to reach a page the browser already has.
+
+It surfaced now because **this was the first deploy where the website half of the pipeline actually ran.** Step 5 is the half that used to be missing; until it ran, `next build` was never executed on this machine and the lint error sat there unrun. The sandbox those changes are written in cannot run `next build` either — Google Fonts is blocked there — so this class of error can only ever appear here, on the first real build.
+
+`<a href="/login">` → `<Link href="/login">`, one import added. Everything else in that output is a warning and does not block a build.
+
+## [1.72.0] — 2026-08-30 — three things the CEO could not do, and one he already could
+
+**CEO:** *"on Tasks tabs, I want to have an option for me to delete which is roles CEO only... Leave tabs I want to have a function for me to approved the leave form of all the staff which is can by pass their HOD... I also want to have a option for me to update their attendance to Unpaid Leave which is for payroll. on Payroll also to capture this unpaid leave."*
+
+Four asks. Three needed building. The fourth was already there, and saying so is more useful than pretending otherwise.
+
+### Delete a task — CEO only
+
+`DELETE /staff/tasks/:id`, gated by a new `task_delete` permission that admits the CEO and the break-glass account and nobody else. Every other thing that can go wrong with a task is reversible — a wrong status flips back, a wrong deadline is edited, a wrong assignee is reassigned — so deletion sits with `claims_decide` and `leave_entitlement` rather than with `team_manage`.
+
+The children go first and by hand: `task_items`, `task_events`, `task_comments`, `task_blocks`. None of these tables carry ON DELETE CASCADE, and **the roster reads `task_blocks` by date, not through `tasks`** — leaving them would keep a deleted task occupying somebody's working week forever. The assignee and the person who set the task are notified once, and the audit row records the **title**, because a log line saying "task 41 deleted" tells nobody what was lost.
+
+The confirm dialog says what leaves with it, and points at Closed for the case that is actually meant.
+
+### Approve leave past the HOD
+
+`PATCH /staff/leave/:id` now accepts `override: true`, refused to everyone but the CEO. It takes a request from whatever stage it is sitting at straight to approved.
+
+The chain itself is untouched — HR checks the balance, the COO or CCO pre-approves, the CEO signs. What the chain cannot survive is an approver being away, and the CEO is the last signature on that form in any case. **Two rules the bypass does not relax:** nobody approves their own leave, and a closed request cannot be re-decided.
+
+There is no "was bypassed" column, deliberately: `hr_by` and `preapp_by` stay NULL while `final_by` carries the CEO, and that unsigned shape is exactly what the printed form already renders. `audit_log` records `leave.override_approve` with the stage it jumped from.
+
+### Mark a day as Unpaid Leave
+
+New in Attendance → corrections, CEO only: pick the person, pick the day, an optional reason. **The day is stored as an approved unpaid-leave request** (`recorded_direct = 1`, migration `0097`) rather than in a new table — so the payslip, the payroll table, the Leave tab and the balance card all keep reading the same rows and there is no second source of truth to drift.
+
+A day already covered by unpaid leave is refused, because two rows over one day is two deductions. The staff member is notified the moment it is recorded — **a deduction first discovered on the payslip is how trust in a payroll system ends** — and again if it is undone. Undo deletes only `recorded_direct = 1` rows: a leave the staff member applied for and the chain approved is their record, and is not erased from an attendance screen.
+
+### Payroll capturing it — already true since v1.4.79
+
+The payslip has carried an explicit **UNPAID LEAVE (n DAYS × 1/26 MONTHLY WAGE)** line at the Employment Act 1955 s.60I ordinary rate for months, Basic stays full so the slip shows *why* the pay is lower, and those days are excluded from the incomplete-month proration so one absence is never deducted twice. Nothing had to change for the new days to count, which is the point of storing them as leave requests.
+
+One thing did change: the attendance list filters by the month a leave **starts** in, matching what payroll actually attributes — an overlap filter would have shown a July leave under August while August pay was untouched, a screen about money disagreeing with the money.
+
+### Guard #20 `unpaid-leave` (46 checks, seven ways negative-tested)
+
+Permissions are checked as a **set** (`["ceo","super_admin"]`), not by string presence — appending `hr_admin` to the line would otherwise still pass. The cascade is checked table by table. The self-approval rule is checked. And the rate is checked **everywhere it is computed** — the payslip, the recompute and the payroll panel's three sites — because the first draft of that check asserted only that *one* of them said 26, and passed with another quietly changed to 22. That is an underpaid salary that no screen would show.
+
 ## [1.71.0] — 2026-08-30 — the business cards go digital
 
 **CEO: "based on this Business Card, I want to make it digital ... all this card should be individual slug url who are representing to their own roles."** Three printed cards are now three URLs:

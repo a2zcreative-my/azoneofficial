@@ -35,6 +35,21 @@ export const PERMS: Record<string, readonly Role[]> = {
      with the old and new figure. */
   leave_entitlement: ["super_admin", "ceo"],
 
+  /* v1.72.0 (CEO: "I want to have an option for me to delete which is roles
+     CEO only to have this fuction access") — deleting a task destroys its
+     scope, its comments, its acknowledgement and the days already booked
+     for it on the roster. Everything else about a task is recoverable;
+     this is not, so it sits with claims_decide and leave_entitlement in the
+     narrow set that only the CEO holds. Managers still close, reassign and
+     edit a task - which is what "this is finished" or "this was wrong"
+     usually means. */
+  task_delete: ["super_admin", "ceo"],
+  /* v1.72.0 — recording an unpaid day is a pay decision, not attendance
+     data entry: it removes one twenty-sixth of a month wage. Same reasoning
+     as claims_decide. Admin and hr_admin keep every other correction on the
+     Attendance tab. */
+  unpaid_leave: ["super_admin", "ceo"],
+
   // === erp.ts (v1.18.0 — programme phases 4–7). The client's TAB_ROLES
   // mirrors these; this matrix is the one that is actually enforced. ===
   orders_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],

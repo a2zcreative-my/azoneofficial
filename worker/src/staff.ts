@@ -2182,6 +2182,35 @@ export async function handleStaff(
     const action = body?.action;
     const comment = str(body?.comment, 500) ? (body!.comment as string) : null;
 
+    /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
+       form of all the staff which is can by pass their HOD").
+
+       The chain exists for a reason and stays exactly as it is: HR checks
+       the balance, the COO or CCO pre-approves, the CEO signs. What it
+       cannot survive is a person being away. A request stuck at HR while
+       the applicant is already on the plane is not governance, it is a
+       queue - and the CEO is the last signature on that form anyway, so
+       nothing is being approved by someone who could not have approved it.
+
+       The bypass is NOT a silent shortcut. hr_by and preapp_by stay NULL
+       while final_by carries the CEO, and that shape is exactly what the
+       printed form and the Leave tab read to say the stages were skipped -
+       no extra column needed to tell the two paths apart. audit_log records
+       the stage it jumped from. */
+    const OVERRIDE_ROLES: readonly Role[] = ["super_admin", "ceo"];
+    if (body?.override === true && !OVERRIDE_ROLES.includes(user.role)) {
+      return err("forbidden", "Only the CEO can decide outside the approval chain", 403);
+    }
+    const override = body?.override === true;
+    /* One rule the override does NOT relax: nobody signs their own leave.
+       That is the whole integrity of the form. */
+    if (override && row.user_id === user.id) {
+      return err("forbidden", "You cannot approve your own leave", 403);
+    }
+    if (override && ["approved", "rejected", "cancelled"].includes(row.stage)) {
+      return err("invalid_input", "This request is already closed", 400);
+    }
+
     // Owner may cancel while the request is still moving.
     if (action === "cancel") {
       if (row.user_id !== user.id) return err("forbidden", "Not your request", 403);
@@ -2194,7 +2223,7 @@ export async function handleStaff(
 
     // Reject at any active stage ends the request.
     if (action === "reject") {
-      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+      if (!override && !leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
         return err("forbidden", "You cannot act on this request at its current stage", 403);
       }
       await env.DB.prepare(
@@ -2202,12 +2231,31 @@ export async function handleStaff(
            review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1`,
       ).bind(id, comment, user.id).run();
       await notify(env, row.user_id, "leave", `Your leave request #${id} was rejected`, `leave:${id}`);
-      await audit(env, user.id, "leave.reject", "leave_requests", id);
+      await audit(env, user.id, override ? "leave.override_reject" : "leave.reject", "leave_requests", id,
+        override ? { from_stage: row.stage } : undefined);
       return json({ ok: true });
     }
 
     // Approve advances one stage along the applicant's chain.
     if (action === "approve") {
+      /* The bypass: straight to fully approved from whatever stage it was
+         sitting at, with the CEO as the final signature. */
+      if (override) {
+        await env.DB.prepare(
+          `UPDATE leave_requests SET stage = 'approved', status = 'approved',
+             review_comment = COALESCE(?2, review_comment),
+             final_by = ?3, final_at = datetime('now') WHERE id = ?1`,
+        ).bind(id, comment, user.id).run();
+        await notify(
+          env, row.user_id, "leave",
+          `Your leave request #${id} was approved directly by the CEO`,
+          `leave:${id}`,
+        );
+        await audit(env, user.id, "leave.override_approve", "leave_requests", id, {
+          from_stage: row.stage, applicant: row.user_id,
+        });
+        return json({ ok: true, stage: "approved", bypassed_from: row.stage });
+      }
       if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
         return err("forbidden", "You cannot approve this request at its current stage", 403);
       }
@@ -4007,6 +4055,60 @@ export async function handleStaff(
     await audit(env, user.id, "task.update", "tasks", String(id));
     return json({ ok: true });
   }
+
+  /* v1.72.0 (CEO: "on Tasks tabs, I want to have an option for me to delete
+     which is roles CEO only to have this fuction access").
+
+     Everything else a task can suffer is reversible - a wrong status flips
+     back, a wrong deadline is edited, a wrong assignee is reassigned. This
+     is not, so it is the CEO alone (see task_delete in permissions.ts).
+
+     The children go first and by hand. These tables were created without ON
+     DELETE CASCADE, so deleting only the parent would leave scope items,
+     events, comments and roster blocks pointing at a task id that no longer
+     exists - and the roster reads task_blocks by date, not through tasks, so
+     a deleted task would keep occupying somebody working week forever.
+
+     What is deliberately NOT deleted: the audit row, which records the title
+     so the log still says what was destroyed rather than just an id, and any
+     media attached to a comment, which may be referenced from elsewhere. */
+  if (taskMatch && method === "DELETE") {
+    if (!can(user.role, "task_delete")) {
+      return err("forbidden", "Only the CEO can delete a task", 403);
+    }
+    const id = taskMatch[1]!;
+    const row = await env.DB.prepare(
+      `SELECT title, assigned_to, created_by FROM tasks WHERE id = ?1`,
+    ).bind(id).first<{ title: string; assigned_to: number; created_by: number | null }>();
+    if (!row) return err("not_found", "Task not found", 404);
+    for (const childSql of [
+      `DELETE FROM task_items WHERE task_id = ?1`,
+      `DELETE FROM task_events WHERE task_id = ?1`,
+      `DELETE FROM task_comments WHERE task_id = ?1`,
+      `DELETE FROM task_blocks WHERE task_id = ?1`,
+    ]) {
+      /* Each child table arrived with a different migration (0083, 0095).
+         A database that has not reached one of them must still be able to
+         delete a task, so a missing table is skipped rather than fatal. */
+      try { await env.DB.prepare(childSql).bind(id).run(); } catch { /* pre-0083 / pre-0095 */ }
+    }
+    await env.DB.prepare(`DELETE FROM tasks WHERE id = ?1`).bind(id).run();
+    /* The people who were carrying it are told, once. Silence here means a
+       staff member keeps a deleted task on their list until they refresh
+       and wonder where their work went. */
+    if (row.assigned_to && row.assigned_to !== user.id) {
+      await notify(env, row.assigned_to, "task",
+        `Removed: ${row.title} - this task was deleted by the CEO.`, `task:${id}:deleted`);
+    }
+    if (row.created_by && row.created_by !== user.id && row.created_by !== row.assigned_to) {
+      await notify(env, row.created_by, "task",
+        `Removed: ${row.title} - the task you set was deleted by the CEO.`, `task:${id}:deleted`);
+    }
+    await audit(env, user.id, "task.delete", "tasks", String(id), {
+      title: row.title, assigned_to: row.assigned_to,
+    });
+    return json({ ok: true });
+  }
   /* v1.42.0 — the scope checklist. Reading it: assignee, creator, or a
      manager. Ticking it: assignee or a manager — ticking IS the progress
      report, tasks.progress becomes derived (done/total). */
@@ -5482,6 +5584,142 @@ export async function handleStaff(
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
     await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1]);
+    return json({ ok: true });
+  }
+
+  /* ---- v1.72.0: a day marked UNPAID LEAVE, straight from Attendance ----
+
+     CEO: "I also want to have a option for me to update their attendance to
+     Unpaid Leave which is for payroll. on Payroll also to capture this
+     unpaid leave."
+
+     Payroll already deducts unpaid leave and has since v1.4.79 - an explicit
+     payslip line at the Employment Act 1955 s.60I rate of one twenty-sixth
+     of monthly wages per day, with those days excluded from the
+     incomplete-month proration so nothing is taken twice. The gap was never
+     the arithmetic. It was that the ONLY way a day could become unpaid was a
+     leave request the staff member had submitted and three people had
+     signed, so a day nobody applied for could not be recorded at all.
+
+     A day recorded here therefore becomes exactly what it is: an approved
+     unpaid leave request, created by management (recorded_direct = 1). One
+     source of truth - the payslip, the payroll table, the Leave tab and the
+     balance card all keep reading the same rows, and there is no second
+     table to drift out of step with the first. Nothing in payroll had to
+     change to make this count, which is the point. */
+  if (path === "/attendance/unpaid" && method === "GET") {
+    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    const urlU = new URL(request.url);
+    const mU = urlU.searchParams.get("month") ??
+      new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mU)) return err("invalid_input", "month must be YYYY-MM", 400);
+    /* recorded_direct arrives with 0097. On a database that has not applied
+       it the days still exist and still deduct - only the "recorded by
+       management" flag is unknown, so the list degrades to read-only rather
+       than 500.
+
+       The month filter is start_date, NOT an overlap of the date range, and
+       that is deliberate: payroll attributes a leave to the month it STARTS
+       in (payslipExtras and /payroll/recompute both read start_date LIKE
+       month). Listing by overlap here would show a July leave under August
+       while August pay was untouched - a screen about money disagreeing with
+       the money. */
+    const SELU = (col: string) =>
+      `SELECT l.id, l.user_id, l.start_date AS d, l.end_date, l.days, l.reason, ${col} AS recorded_direct,
+              u.name, u.full_name
+       FROM leave_requests l JOIN users u ON u.id = l.user_id
+       WHERE l.type = 'unpaid' AND l.status = 'approved'
+         AND l.start_date LIKE ?1 || '%'
+       ORDER BY l.start_date DESC, u.name`;
+    let rowsU;
+    try {
+      rowsU = (await env.DB.prepare(SELU("l.recorded_direct")).bind(mU).all()).results;
+    } catch {
+      rowsU = (await env.DB.prepare(SELU("0")).bind(mU).all()).results;
+    }
+    return json({ month: mU, unpaid: rowsU });
+  }
+
+  if (path === "/attendance/unpaid" && method === "POST") {
+    /* Deliberately NARROWER than the rest of this panel. Every other control
+       here corrects a record of what happened; this one takes a day of pay
+       off a person, so it sits with claims_decide and leave_entitlement. */
+    if (!can(user.role, "unpaid_leave")) {
+      return err("forbidden", "Only the CEO can record unpaid leave", 403);
+    }
+    const dateU = str(body?.date, 10) ? (body!.date as string) : "";
+    if (typeof body?.user_id !== "number" || !/^\d{4}-\d{2}-\d{2}$/.test(dateU)) {
+      return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    }
+    /* A typo in the year is the one mistake here that would not look wrong
+       on screen and would quietly sit in a payroll month nobody is reading. */
+    const dayMs = Date.parse(`${dateU}T00:00:00Z`);
+    if (!Number.isFinite(dayMs) || Math.abs(dayMs - Date.now()) > 400 * 86400 * 1000) {
+      return err("invalid_input", "That date is more than a year away - check the year", 400);
+    }
+    const targetU = await env.DB.prepare(
+      `SELECT id, name, role, is_active FROM users WHERE id = ?1`,
+    ).bind(body.user_id).first<{ id: number; name: string; role: string; is_active: number }>();
+    if (!targetU || !targetU.is_active || targetU.role === "customer") {
+      return err("invalid_input", "That must be an active staff member", 400);
+    }
+    /* Already unpaid - whether the staff member applied for it or it was
+       recorded here. Two rows covering one day is two deductions. */
+    const clashU = await env.DB.prepare(
+      `SELECT id FROM leave_requests
+       WHERE user_id = ?1 AND type = 'unpaid' AND status = 'approved'
+         AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
+    ).bind(body.user_id, dateU).first<{ id: number }>();
+    if (clashU) return err("invalid_input", "That day is already unpaid leave", 400);
+    const reasonU = str(body?.reason, 500) ? (body!.reason as string) : null;
+    let idU: number | undefined;
+    try {
+      idU = (await env.DB.prepare(
+        `INSERT INTO leave_requests
+           (user_id, type, start_date, end_date, days, reason, stage, status,
+            final_by, final_at, recorded_direct)
+         VALUES (?1, 'unpaid', ?2, ?2, 1, ?3, 'approved', 'approved', ?4, datetime('now'), 1)
+         RETURNING id`,
+      ).bind(body.user_id, dateU, reasonU, user.id).first<{ id: number }>())?.id;
+    } catch (eU) {
+      if (!String(eU).includes("no such column")) throw eU;
+      return err("migration_missing", "Migration 0097 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
+    }
+    await stampIssuer(env, "leave_requests", idU);
+    /* Told, not discovered on the payslip. A deduction a person first hears
+       about on pay day is how trust in a payroll system ends. */
+    await notify(env, body.user_id, "leave",
+      `${dateU} has been recorded as UNPAID LEAVE. It will be deducted from that month pay at one day rate.`,
+      `unpaid:${dateU}`);
+    await audit(env, user.id, "leave.unpaid_record", "leave_requests", String(idU), {
+      user_id: body.user_id, date: dateU, reason: reasonU,
+    });
+    return json({ ok: true, id: idU }, 201);
+  }
+
+  if (path === "/attendance/unpaid" && method === "DELETE") {
+    if (!can(user.role, "unpaid_leave")) {
+      return err("forbidden", "Only the CEO can record unpaid leave", 403);
+    }
+    const urlD2 = new URL(request.url);
+    const idD2 = Number(urlD2.searchParams.get("id"));
+    if (!Number.isFinite(idD2) || idD2 <= 0) return err("invalid_input", "id is required", 400);
+    /* recorded_direct = 1 in the WHERE clause is the whole safety of this
+       route: undo may only remove a day the COMPANY recorded. A leave the
+       staff member applied for and the chain approved is their record and
+       is not deleted from an attendance screen. */
+    const rowD2 = await env.DB.prepare(
+      `SELECT user_id, start_date FROM leave_requests
+       WHERE id = ?1 AND type = 'unpaid' AND recorded_direct = 1`,
+    ).bind(idD2).first<{ user_id: number; start_date: string }>().catch(() => null);
+    if (!rowD2) return err("not_found", "No management-recorded unpaid day with that id", 404);
+    await env.DB.prepare(`DELETE FROM leave_requests WHERE id = ?1 AND recorded_direct = 1`)
+      .bind(idD2).run();
+    await notify(env, rowD2.user_id, "leave",
+      `${rowD2.start_date} is no longer recorded as unpaid leave.`, `unpaid:undo:${rowD2.start_date}`);
+    await audit(env, user.id, "leave.unpaid_undo", "leave_requests", String(idD2), {
+      user_id: rowD2.user_id, date: rowD2.start_date,
+    });
     return json({ ok: true });
   }
 

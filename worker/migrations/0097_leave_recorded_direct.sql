@@ -1,0 +1,36 @@
+-- 0097 - v1.72.0: an unpaid day the COMPANY recorded, not one the staff applied for.
+--
+-- The CEO, 30-08-2026:
+--   "I also want to have a option for me to update their attendance to
+--    Unpaid Leave which is for payroll."
+--
+-- Payroll already knew how to deduct unpaid leave. Since v1.4.79 the payslip
+-- has carried an explicit UNPAID LEAVE line at the Employment Act 1955
+-- s.60I ordinary rate of pay - monthly wages divided by 26 per day - and the
+-- incomplete-month proration subtracts those same days so nothing is
+-- deducted twice. What was missing was the way IN. The only source of an
+-- unpaid day was a leave request the staff member had submitted and three
+-- people had signed. A day nobody applied for - absent, walked out, no show -
+-- could not be turned into one, so it either quietly went unpaid nowhere or
+-- somebody typed a manual deduction with no record of what it was for.
+--
+-- So the day is recorded as what it actually is: an approved unpaid leave
+-- request, created by management. That keeps ONE source of truth for
+-- "how many unpaid days this month" - the payslip, the payroll table and the
+-- Leave tab all read the same rows, and there is no second table to fall out
+-- of step with the first.
+--
+-- This column is what separates the two ways a row can arrive:
+--
+--   0 - the staff member applied and the chain approved it.
+--   1 - management recorded the day directly from Attendance.
+--
+-- It exists so UNDO is safe. Removing an unpaid day has to be possible - it
+-- is money, and a wrong one must be correctable - but the undo may only ever
+-- delete a row the company itself created. Without this column the two kinds
+-- are indistinguishable once approved, and an undo could silently erase a
+-- staff member own application along with its history.
+--
+-- Single ALTER, nothing else in this file (audit B4 rule).
+
+ALTER TABLE leave_requests ADD COLUMN recorded_direct INTEGER NOT NULL DEFAULT 0;

@@ -8,6 +8,8 @@
  * Desktop-first, responsive; light/dark mode.
  */
 
+import Link from "next/link";
+
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
@@ -5704,6 +5706,17 @@ function LeaveEntitlement() {
   );
 }
 
+/* Whose approval a leave request is waiting on. Module scope because two
+   places read it now: the board badge, and the CEO override confirm, which
+   has to say out loud which stage is being skipped. */
+function waitingOnLabel(l: LeaveReq): string {
+  const st = l.stage ?? "";
+  if (st === "applied") return "HR";
+  if (st === "hr_reviewed")
+    return ["coo", "cco"].includes(l.applicant_role ?? "") ? "CEO" : "COO / CCO";
+  return "CEO";
+}
+
 function Leave({ user }: { user: User }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
   const [balances, setBalances] = useState<
@@ -5726,6 +5739,7 @@ function Leave({ user }: { user: User }) {
     "cco",
     "ceo",
   ].includes(user.role);
+  const { confirm: askOverride, node: overrideConfirmNode } = useConfirm();
 
   const load = useCallback(async () => {
     const b = await api<{ balances: typeof balances }>(`/staff/leave/balance`);
@@ -5767,6 +5781,40 @@ function Leave({ user }: { user: User }) {
     });
     void load();
   };
+  /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
+     form of all the staff which is can by pass their HOD") — the chain is
+     untouched; this is the way past a stage whose approver is away. The
+     server refuses `override` from anyone but the CEO, and refuses it on
+     your own application, so this button cannot do anything a hand-made
+     request could not. The stages skipped stay visibly unsigned on the
+     printed form — that is the record. */
+  const canOverride = ["ceo", "super_admin"].includes(user.role);
+  const overrideAct = async (l: LeaveReq, action: "approve" | "reject") => {
+    const nm = properName(l.user_full || l.user_name || "");
+    if (
+      !(await askOverride({
+        title:
+          action === "approve"
+            ? L("Approve now, skipping the chain?", "Luluskan terus, langkau rantaian?")
+            : L("Reject now, skipping the chain?", "Tolak terus, langkau rantaian?"),
+        message: L(
+          `${nm} — ${leaveTypeL(l.type)}, ${dmy(l.start_date)} → ${dmy(l.end_date)} (${l.days}d). This is currently waiting on ${waitingOnLabel(l)}. Deciding it here records you as the only signature; the stages that were skipped stay blank on the form.`,
+          `${nm} — ${leaveTypeL(l.type)}, ${dmy(l.start_date)} → ${dmy(l.end_date)} (${l.days}h). Ini sedang menunggu ${waitingOnLabel(l)}. Membuat keputusan di sini merekodkan anda sebagai satu-satunya tandatangan; peringkat yang dilangkau kekal kosong pada borang.`
+        ),
+        confirmLabel:
+          action === "approve"
+            ? L("Approve now", "Luluskan terus")
+            : L("Reject now", "Tolak terus"),
+        variant: action === "approve" ? "default" : "danger",
+      }))
+    )
+      return;
+    await api(`/staff/leave/${l.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action, override: true }),
+    });
+    void load();
+  };
 
   /* v1.62.0 — the CEO's entitlement control. Mirrors the server's
      `leave_entitlement` permission exactly; the API refuses anyone else
@@ -5775,6 +5823,7 @@ function Leave({ user }: { user: User }) {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {overrideConfirmNode}
       {canSetEntitlement && <LeaveEntitlement />}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
@@ -5995,15 +6044,7 @@ function Leave({ user }: { user: User }) {
           const decided = all
             .filter((l) => TERMINAL.includes(l.stage ?? l.status))
             .slice(0, 5);
-          const waitingOn = (l: LeaveReq) => {
-            const st = l.stage ?? "";
-            if (st === "applied") return "HR";
-            if (st === "hr_reviewed")
-              return ["coo", "cco"].includes(l.applicant_role ?? "")
-                ? "CEO"
-                : "COO / CCO";
-            return "CEO";
-          };
+          const waitingOn = waitingOnLabel;
           const who = (l: LeaveReq) =>
             properName(l.user_full || l.user_name || "");
           return (
@@ -6048,6 +6089,28 @@ function Leave({ user }: { user: User }) {
                           {L("waiting on", "menunggu")} {waitingOn(l)}
                         </span>
                       </span>
+                      {!mine && canOverride && l.user_id !== user.id && (
+                        <span className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className={btnGhost}
+                            title={L(
+                              "Approve without waiting for the stages before you",
+                              "Luluskan tanpa menunggu peringkat sebelum anda"
+                            )}
+                            onClick={() => void overrideAct(l, "approve")}
+                          >
+                            {L("Approve now", "Luluskan terus")}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-destructive text-sm underline"
+                            onClick={() => void overrideAct(l, "reject")}
+                          >
+                            {L("Reject", "Tolak")}
+                          </button>
+                        </span>
+                      )}
                       {mine && (
                         <span className="flex gap-2">
                           <button
@@ -6112,6 +6175,7 @@ function Tasks({ user }: { user: User }) {
   });
   const [openTask, setOpenTask] = useState<number | null>(null);
   const [items, setItems] = useState<TaskItem[] | null>(null);
+  const { confirm: askDelete, node: deleteConfirmNode } = useConfirm();
   const canManage = MANAGE_ROLES.includes(user.role);
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -6188,9 +6252,32 @@ function Tasks({ user }: { user: User }) {
     });
     void load();
   };
+  /* v1.72.0 (CEO: "I want to have an option for me to delete which is roles
+     CEO only") — the button is CEO-only here AND the route refuses everyone
+     else, so a hand-made request gets the same answer as a hidden button.
+     The confirm names the task and says what leaves with it: closing a task
+     is the reversible act, this one is not. */
+  const canDelete = ["ceo", "super_admin"].includes(user.role);
+  const remove = async (t: Task) => {
+    if (
+      !(await askDelete({
+        title: L("Delete this task?", "Padam tugasan ini?"),
+        message: L(
+          `"${t.title}" goes for good, and so does everything on it — the scope checklist, the comments, the acknowledgement, and any days already booked for it on the roster. To simply end a task, set it to Closed instead.`,
+          `"${t.title}" akan hilang terus, berserta segalanya padanya — senarai skop, komen, pengakuan terima, dan mana-mana hari yang telah ditempah untuknya pada roster. Untuk menamatkan tugasan sahaja, tetapkan kepada Selesai.`
+        ),
+        confirmLabel: L("Delete task", "Padam tugasan"),
+        variant: "danger",
+      }))
+    )
+      return;
+    await api(`/staff/tasks/${t.id}`, { method: "DELETE" });
+    void load();
+  };
 
   return (
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
+      {deleteConfirmNode}
       <div className={card}>
         <p className="text-sm font-semibold">
           {canManage
@@ -6410,6 +6497,17 @@ function Tasks({ user }: { user: User }) {
                   <span className="text-muted-foreground text-xs">
                     {t.progress}%
                   </span>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-danger px-1 text-base leading-none"
+                      title={L("Delete this task (CEO only)", "Padam tugasan ini (CEO sahaja)")}
+                      aria-label={L("Delete task", "Padam tugasan")}
+                      onClick={() => void remove(t)}
+                    >
+                      ×
+                    </button>
+                  )}
                 </span>
               </div>
               {openTask === t.id && (
@@ -12366,9 +12464,14 @@ export default function PortalPage() {
             "Portal Kakitangan hanya untuk pekerja A2Z CREATIVE MARKETING."
           )}
         </p>
-        <a href="/login" className={`${btnClass} mt-6`}>
+        {/* v1.72.1: a raw <a> to an in-app route. next lint refuses it
+            (@next/next/no-html-link-for-pages) because it throws away the
+            router and reloads the whole bundle to reach a page the client
+            already has. It only surfaced now because this is the first
+            deploy where the WEBSITE half of the pipeline actually ran. */}
+        <Link href="/login" className={`${btnClass} mt-6`}>
           {L("Go to login", "Pergi ke log masuk")}
-        </a>
+        </Link>
       </div>
     );
   }
@@ -13139,7 +13242,7 @@ export default function PortalPage() {
                 />
               )}
               {["ceo", "super_admin", "admin"].includes(user.role) ? (
-                <AttendanceAdminPanel />
+                <AttendanceAdminPanel role={user.role} />
               ) : (
                 <PermissionPlaceholder
                   title={L("Attendance Admin", "Admin Kehadiran")}
