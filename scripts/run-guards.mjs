@@ -43,6 +43,7 @@ const GUARDS = [
   ["live-topics", "every live card watches a topic that actually exists, and the bump plumbing is intact"],
   ["roster-tasks", "a task block can never reach the sales attribution that pays commission"],
   ["tiktok-id-precision", "19-digit TikTok ids survive the JSON parse instead of being silently rounded"],
+  ["business-cards", "the printed slugs still resolve, and every vCard matches constants/team.ts"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

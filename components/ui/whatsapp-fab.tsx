@@ -4,6 +4,13 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { whatsappUrl } from "@/constants/content";
+import { TEAM } from "@/constants/team";
+
+/* v1.71.0 — a digital business card carries the CARD HOLDER's own WhatsApp.
+   A second floating WhatsApp button in the corner opens the OFFICE number,
+   and a client who taps it believes they are messaging the person whose card
+   they were just handed. One number per page. */
+const CARD_PATHS = new Set(TEAM.map((m) => `/${m.slug}`));
 
 /**
  * WhatsAppFab (v1.2.18) — floating WhatsApp button.
@@ -23,7 +30,11 @@ export function WhatsAppFab() {
      useless there anyway: nobody WhatsApps sales to sign in to their own
      staff account. */
   const hidden =
-    pathname.startsWith("/portal") || pathname.startsWith("/admin") || pathname.startsWith("/login");
+    pathname.startsWith("/portal") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/login") ||
+    CARD_PATHS.has(pathname) ||
+    CARD_PATHS.has(pathname.replace(/\/$/, ""));
 
   useEffect(() => {
     const footer = document.getElementById("site-footer");

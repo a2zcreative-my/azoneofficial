@@ -38,6 +38,14 @@
 # HSTS: one year, subdomains included. Every route is https already; this
 # closes the first-request downgrade window.
 #
+# v1.71.0 (Track V) - /cards/*.vcf must be served as text/vcard. Cloudflare
+# Pages has no mapping for the extension and falls back to octet-stream,
+# which some phones save as a file instead of opening the contact card. The
+# whole point of the feature is the "Add to contacts" sheet appearing.
+# Immutable is deliberately NOT set on them: a vCard is small, and a stale
+# phone number cached for a year is exactly the failure this feature exists
+# to prevent.
+#
 # NOTE: comments live ONLY here at the top — a # line inside a rule block
 # can be misparsed as a header. tests/permissions-policy.mjs guards this.
 /*
@@ -51,3 +59,6 @@
 
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
+
+/cards/*.vcf
+  Content-Type: text/vcard; charset=utf-8

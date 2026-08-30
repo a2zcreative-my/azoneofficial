@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.71.0] — 2026-08-30 — the business cards go digital
+
+**CEO: "based on this Business Card, I want to make it digital ... all this card should be individual slug url who are representing to their own roles."** Three printed cards are now three URLs:
+
+    a2zcreative.my/farhan   MOHD ALIF FARHAN   Managing Director / CEO
+    a2zcreative.my/izz      MOHAMAD IZZUDIN    Director / CCO
+    a2zcreative.my/zoll     ZOLKEFLI           Director / COO
+
+The slugs are the names already printed on the paper — a client who met En. Zoll types `zoll`. Role aliases `/ceo`, `/coo` and `/cco` redirect (302, never 301) to whoever holds the chair: a person's URL follows the person, a role's URL stays with the company.
+
+### Static in the site repo, not served by the API
+
+`constants/team.ts` holds one record per person and everything else reads from it — the page, the vCard, the QR, the sitemap entry, the Open Graph image. No table, no worker, no runtime.
+
+That is a deliberate refusal of the obvious design. **A card is printed on paper and handed to a stranger, so the URL on it has to resolve on a bad day.** The site is a static export on Pages and deploys reliably; `azoneofficial-api` is a separate deploy whose build connection has never worked — the live API has sat on v1.32.1 for weeks. The one URL a client types after meeting you does not belong behind that. The record is shaped exactly as a database row would be, so the day this becomes portal-managed the source changes and nothing above it moves.
+
+### What the page does that paper cannot
+
+- **Save to contacts** — a real `.vcf` per person: name, role, direct email, `hello@`, mobile, company, office address and the card's own URL. This is the feature; everything else supports it.
+- **One tap to call, WhatsApp or email**, the direct address and the office one both.
+- **The office with a map link**, from the same address string that prints on every invoice this company issues — the card can never disagree with the paperwork.
+- **Links into the business** — services, packages, work, contact.
+- **Its own QR** on the page, for when the holder is out of cards.
+- **A per-card Open Graph image** — forwarding the link in WhatsApp shows a name and a role, not a bare URL. That is how a card actually spreads.
+
+`N:;MOHD ALIF FARHAN;;;` — given name only, no surname field. A phone that decides "MOHD" is a surname sorts the contact wrongly and then greets them by it.
+
+### The floating WhatsApp button is hidden on a card page
+
+It opens the OFFICE number. On a page whose whole purpose is one person's own WhatsApp, a client taps the green circle believing they are messaging the person whose card they were handed. One number per page.
+
+### Guard #19 `business-cards` (84 checks, nine ways negative-tested)
+
+The slugs sit at the ROOT of the site, one level from `/about`. Adding `app/izz/` later would shadow a card that is already printed and nothing would fail — the wrong page would simply start rendering. So the guard checks every slug and alias against the real `app/` directory, the real `public/` directory and a reserved list, and fails the **build**. It also:
+
+- rebuilds each `.vcf` from `constants/team.ts` and compares byte-for-byte (`node tests/business-cards.mjs --write` regenerates them) — a stale number in a saved contact is worse than no card, because the client believes they have the right one;
+- checks the **printed** number against the **dialled** one (`012-2461823` vs `+60122461823`) — a typo in either is invisible on screen;
+- pins `*.vcf text eol=crlf` in `.gitattributes` and asserts it. vCard is a CRLF format, and `* text=auto` would have rewritten all three to LF on the Linux build container **after** this guard approved them on Windows;
+- asserts the aliases are 302, the sitemap lists the cards, and `_headers` serves `.vcf` as `text/vcard` (as octet-stream some phones save a file instead of offering to add the contact).
+
+### Still to do
+
+The printed QR still opens a WhatsApp chat. Pointed at the card URL instead, one scan hands over the number, both emails, the address, the vCard **and** WhatsApp. That is artwork, so it lands at the next print run — `public/cards/<slug>-qr.png` is 900 px and ready for it. Cloudflare Web Analytics needs only a token in `SITE_CONFIG.cfAnalyticsToken`; the CSP already allows the beacon.
+
 ## [1.70.3] — 2026-08-29 — the totals come back, and every variant gets a label
 
 The id fix landed: the panel now reads **BAWAL COTTON VOILE** and **ELFIA Shawl Chiffon Premium (170cm × 65cm)** where nineteen digits used to be, and the diagnostic confirms *"17 products, 4 variants from catalogue"*. Two things were still wrong.

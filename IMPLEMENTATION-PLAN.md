@@ -6,7 +6,7 @@
 **Portal version at time of writing:** v1.34.0 · 74 migrations (latest `0074_customer_brand`)
 **Counterpart system:** ELFIA OFFICIAL STORE (`elfiaofficialstore.my`) — Next.js + Worker `elfia-api` + D1 `elfia-store` + R2 `elfia-media`
 **Created:** 22 August 2026
-**Last revised:** 27 August 2026 · rev 1.2 (see [Revision log](#revision-log))
+**Last revised:** 30 August 2026 · rev 1.7 (see [Revision log](#revision-log))
 
 ---
 
@@ -1076,6 +1076,85 @@ Committed hours become a real overload signal once both block types share the gr
 
 ---
 
+## 6D. Track V — digital business cards (P1, CEO request 29-08-2026)
+
+> **CEO:** "based on this Business Card, I want to make it digital for https://a2zcreative.my/ with new slug url which is to share to my client or customer for them earier to visit my page after they view my business card. all this card should be individual slug url who are representing to their own roles."
+
+**Status: V-1 BUILT (v1.71.0, 30-08-2026). V-2 is the QR artwork + the analytics token.**
+
+Full plan with visual mock-ups: the Track V plan card issued to the CEO on 29-08-2026. This section is the durable record.
+
+### V-0 — what is on the printed cards
+
+All three follow one template: the mark on the front, the person on the back, a QR that currently opens a WhatsApp chat.
+
+| Name on the card | Known as | Role | Direct email | Mobile |
+|---|---|---|---|---|
+| MOHD ALIF FARHAN | En. Farhan | Managing Director / CEO | `aliffarhan@a2zcreative.my` | 012-2461823 |
+| MOHAMAD IZZUDIN | En. Izz | Director / CCO | `izzudin.amdan@a2zcreative.my` | 012-7087920 |
+| ZOLKEFLI | En. Zoll | Director / COO | `zolkefli@a2zcreative.my` | 014-3569293 |
+
+Shared by all three: `hello@a2zcreative.my`, the Setia Tropika office, and the tagline **LIVE · CONNECT · GROW**. Brand navy `#1D2841` and cream `#F9F2E5` were **sampled from the artwork, not guessed**, so the page and the card read as one object in two materials.
+
+### V-0 decision — STATIC in the site repo, not served by the API
+
+The obvious move is a `staff_cards` table edited from the portal. Rejected for version one, and not on architectural taste:
+
+> **A card is printed on paper and handed to a stranger.** It has to resolve when everything else is having a bad day. The marketing site is a static export on Cloudflare Pages and deploys reliably; `azoneofficial-api` is a separate deploy whose **build connection has never worked** — the live API sat on v1.32.1 for weeks. Putting the one URL a client types after meeting you behind that is the wrong risk to take.
+
+So the three cards are **data in the site repo, rendered at build time**. No database, no worker, no runtime: a card page is a file on a CDN. Adding a person is a deploy — which, for three directors, is the right trade.
+
+The data is shaped so the later version is a swap rather than a rewrite: one `constants/team.ts` with a typed record per person, read by the page, the `.vcf` and the sitemap alike. When the team is fifteen people and changes monthly, the same shape comes from D1 and nothing above it moves.
+
+### V-1 — the URLs
+
+`a2zcreative.my/farhan` · `/izz` · `/zoll` — the names **already printed on the cards**, which is the whole point: a client who met En. Zoll types `zoll`.
+
+Plus **role aliases** `/ceo`, `/coo`, `/cco` that redirect to whoever holds the role. A person's URL belongs to the person and follows them; the role's URL belongs to the company and stays.
+
+`/c/farhan` would namespace the cards so a slug could never collide with a site route. It is the safer design and it is **not** proposed, because a card is read aloud across a table and typed with a thumb, and two characters matter there. The collision risk is removed by **a build-time guard instead**: the build fails if any slug matches a directory in `app/` or a reserved word. The short URL is then safe by construction rather than by memory.
+
+### V-1 — what the page does that paper cannot
+
+| Feature | Why it earns its place |
+|---|---|
+| **Save to contacts** — a real `.vcf` per person (name, role, both emails, mobile, company, address, the card's own URL), generated as a static file | This is the feature. Everything else supports it |
+| One tap to call, WhatsApp, or email — direct address **and** `hello@` | A client often wants the company rather than the person |
+| The office with a map link, read from `lib/issuers.ts` | The address is never separately maintained and can never disagree with an invoice |
+| Links into the business — services, packages, portfolio, the ELFIA store | A card that got someone's attention has to lead somewhere |
+| Its own QR on the page | The holder can show their screen when they are out of cards |
+| A per-card Open Graph image showing the person | Forwarding it in WhatsApp shows a face and a name, not a bare link. This is how a card actually spreads |
+
+### V-2 — then change the QR on the print file
+
+The QR on the current cards opens a WhatsApp chat. Pointed at the card URL instead, **one scan gives the client the number, both emails, the address, the vCard AND WhatsApp** — everything the chat window gave them, plus the rest. That is a change to the artwork, so it lands at the next print run; the digital cards stand on their own URL until then, which is why the URL has to be short enough to type.
+
+### V-2 — measurement
+
+**Cloudflare Web Analytics.** Already permitted by the CSP added in v1.45.0, so there is no new script host to allow, no cookie, and **no consent burden under the PDPA** — which matters because these pages are public, not staff. Per-page views answer the only question worth asking: which cards get scanned, and whether the QR change makes a difference.
+
+### Risks
+
+| Risk | Held down by |
+|---|---|
+| A slug collides with a site route, now or later | A build-time guard over the real `app/` directory plus a reserved list — the **build** fails, not the page |
+| A person leaves and their URL is on a hundred printed cards | The slug stays and becomes a page naming their successor and the role. A dead link on a printed card is worse than an awkward one |
+| Contact details drift between the card, the invoice and the site | Company details come from `lib/issuers.ts`, which already prints on every document issued |
+| The vCard imports wrongly on one phone | The generated file is parsed in CI, plus a real import test on iOS and Android before launch — a broken vCard fails silently and looks like the client's fault |
+| The card is the first thing a new client sees and looks unfinished | Navy and cream sampled from the artwork; the same typographic weight as the print |
+
+### Release shape
+
+| Release | Contents | Migration |
+|---|---|---|
+| V-1 **SHIPPED v1.71.0** | Three cards, `.vcf` files, per-person OG images, sitemap entries, guard #19 — **and the role aliases, pulled forward**: they were one line each in `public/_redirects`, and holding them back would have meant a second release for three lines | **none** |
+| V-2 | The QR artwork for the next print run (`public/cards/<slug>-qr.png`, 900 px, ready), and `SITE_CONFIG.cfAnalyticsToken` | **none** |
+| later | Portal-managed cards, if and when the team outgrows a deploy per change | one table |
+
+**V-1 is a day.** It touches no worker, no database and no existing page — which is exactly why it can ship while the API deploy question is still open.
+
+---
+
 ## 7. Track C — CRM (P1)
 
 **Goal:** stop treating `customers` as an address book. Know who a client is, what they have bought, what was said last, and what is due next — including the web buyers arriving from ELFIA.
@@ -1354,7 +1433,8 @@ Reserve numbers now so parallel tracks do not collide. **Keep file numbers monot
 | `0093` | ELFIA flash sale |
 | `0094` | `data_versions` — live cards (Track: live refresh) |
 | `0095` | `task_blocks` — Track R |
-| `0096`+ | free. Tracks C/D/E take their numbers from here, in ship order. |
+| `0096` | `task_block_done` — Track R (the day tick on a repeated block) |
+| `0097`+ | free. Tracks C/D/E take their numbers from here, in ship order. Track V needs **none**. |
 
 The lesson worth keeping: **reserve ranges per track and they go stale the first time two tracks ship out of order.** Take the next free number when you write the file, and record it here afterwards.
 
@@ -1392,6 +1472,12 @@ Nothing here should be settled by whoever writes the code first. Each needs your
 | **OD-19** | **Fix scope before go-live** | (a) Blockers only. (b) Blockers + bridge majors M1–M10. (c) Everything. | **(b)**. The bridge majors are all silent-failure modes on money and stock — production is the most expensive place to find them.  **Decided 22-08-2026: (b)** — blockers + all ten bridge majors closed before go-live; tabs and release integrity done in the same batch. |
 
 | **OD-14** | Google OAuth sign-in bypasses the mandatory TOTP challenge | (a) Accept (Google account is itself 2FA-protected). (b) Enforce TOTP after OAuth for staff roles. | Needs your call. If (a), write it into `SECURITY.md` as a deliberate decision rather than leaving it as a footnote. |
+
+| **OD-29** | **Are the directors' mobile numbers public on the card pages?** (Track V) | (a) Publish as printed. (b) Behind one tap (*Show number*), which stops most scrapers. (c) WhatsApp only, no number shown. | **(a).** You hand this number to strangers by design; a card that hides it failed at its one job. Revisit if spam actually arrives — (b) is a one-line change. **Decided 30-08-2026: (a)** — published as printed. (b) stays a one-line change if spam arrives. |
+
+| **OD-30** | **Which photo goes on a card page?** (Track V) | (a) Reuse the portal staff photo (`photo_key`, already on the badge card). (b) Commission studio shots first. | **(a).** A card that ships is worth more than a card waiting on a photographer, and the page reads a field — swap them individually later. **Decided 30-08-2026: (a) deferred to a field** — v1.71.0 ships an explicit two-letter monogram (`AF`, `IZ`, `ZO`) rather than the portal photo, because the portal photo lives behind the API this track deliberately does not depend on. Drop a file into `public/` and set `photo` and it renders; nothing else changes. |
+
+| **OD-31** | **Three directors only, or everyone client-facing?** (Track V) | (a) The three printed cards. (b) Also Nur Nasuha (sales marketing) and Nur Dini (live host), who deal with clients directly. | **(a) first.** Ship exactly what is printed, then extend once the shape has survived contact with a real client. The work is identical either way. **Decided 30-08-2026: (a)** — the three printed cards. Adding a fourth person is one record in `constants/team.ts` plus `--write`. |
 
 ---
 
@@ -1448,6 +1534,9 @@ Newest first. One line per change; say what changed and why, not just that somet
 
 | Date | Rev | Change | By |
 |---|---|---|---|
+| 2026-08-30 | 1.7 | **Track V V-1 BUILT** (v1.71.0). `a2zcreative.my/farhan` `/izz` `/zoll`, with `/ceo` `/coo` `/cco` pulled forward from V-2 because they were one line each in `public/_redirects`. `constants/team.ts` is the single record per person; the page, the `.vcf`, the QR, the sitemap entry and the Open Graph image all read from it. One route (`app/[card]/page.tsx`, `dynamicParams = false`) renders all three as static files with no client JavaScript of its own. Headline feature is a real vCard — `N:;MOHD ALIF FARHAN;;;`, given name only, because a phone that decides "MOHD" is a surname sorts the contact wrongly and then greets them by it. The floating WhatsApp FAB is hidden on card pages: it opens the OFFICE number, and a client would tap it believing they were messaging the person whose card they were handed. **Guard #19 `business-cards`** (84 checks, negative-tested nine ways) is the tripwire on the one risk the short slug creates — a future `app/izz/` would shadow a card that is already printed and nothing would fail — so slugs and aliases are checked against the real `app/` and `public/` directories plus a reserved list, the `.vcf` files are rebuilt from the constants and compared byte-for-byte, the printed number is checked against the dialled one, and `*.vcf text eol=crlf` is pinned in `.gitattributes` because `* text=auto` would otherwise rewrite all three to LF on the Linux build container AFTER the guard had passed on Windows. OD-29/30/31 decided as recommended, except OD-30, which became a FIELD: an explicit monogram ships now, because the portal photo lives behind the API this track exists to avoid depending on. No migration, no worker change. | Claude |
+| 2026-08-30 | 1.6 | **Track V planned — digital business cards** (CEO: "I want to make it digital ... all this card should be individual slug url who are representing to their own roles"). Read all three printed cards; brand navy `#1D2841` and cream `#F9F2E5` sampled from the artwork. Decision: **static in the site repo, not the API** — a card is handed to a stranger and has to resolve on the site's reliable Pages deploy, not behind the `azoneofficial-api` build connection that has never worked. Slugs are the nicknames already printed (`/farhan`, `/izz`, `/zoll`) rather than a `/c/` namespace, with a **build-time guard** over `app/` removing the collision risk that the namespace would have removed by convention. Headline feature is a real per-person `.vcf`; plus tap-to-call/WhatsApp/email, the office from `lib/issuers.ts` so it can never disagree with an invoice, per-card OG images (how a card actually spreads in WhatsApp), and role aliases `/ceo` `/coo` `/cco` that follow the role rather than the person. V-2 repoints the printed QR from a WhatsApp chat to the card URL at the next print run, and turns on Cloudflare Web Analytics (already CSP-permitted, no cookie, no PDPA burden). **No migration, no worker change.** OD-29…OD-31 raised. No code until approved. | Claude |
+| 2026-08-30 | 1.5 | **Shipped since 1.4 — portal v1.67.0–v1.70.3, store v1.42.0.** Track R finished on CEO feedback: repeat-by-date (`dates[]` on `POST /task-blocks`) and a per-day done tick (`0096_task_block_done`, `apply_to_run`); the assignment notification that never fired (the `notify` call sat outside the `byUser` loop); `PATCH /tasks/:id` extended to title/description/priority/deadline/assignee with block reassignment, behind an Update-task modal; the roster **PDF carrying task blocks** as violet chips beside the live blocks (it had shown live only) and **full staff names** wrapped over two lines in both the board and the PDF. `PORTAL_WIDTH` in `lib/ui-styles.ts` standardises one content width across every tab. Store: the Maybank "Access denied" at checkout diagnosed as an **in-app-browser refusal, not a gateway fault** — `lib/in-app-browser.ts` + a warning above Pay + `pay_attempts_in_app`/`_browser` counters on `/bridge/payment-check`, guarded by 28 real user agents. TikTok analytics: **the 19-digit id precision bug** — `res.json()` rounds every snowflake id past `Number.MAX_SAFE_INTEGER`, so the catalogue join matched nothing and the per-id lookup asked for an id that does not exist; TikTok's "Precondition Required" was read as *"the product was deleted"* and **v1.70.1 wrongly told the CEO sixteen live products were gone**. Fixed by `ttParse`, quoting 16+ digit numbers before `JSON.parse` (guard #18 `tiktok-id-precision`). Then v1.70.3 added the retry that error `36009003` — transient, "Retry later" in TikTok's own message — had needed since round three. Lesson recorded: **when an API's refusal implies a fact about the world, check the data you sent before believing it.** | Claude |
 | 2026-08-28 | 1.4 | **Track R R-1 + R-2 BUILT** (v1.66.0). Migration `0095_task_blocks` — a side table, so one task can span several blocks and rescheduling never writes to the tasks row. `POST/PATCH/DELETE /task-blocks` with the TASK permission rule (OD-25: staff schedule their own work on their own row, `team_manage` schedules anyone; moving work onto another person is management-only). `GET /roster` returns `task_blocks[]` and `unscheduled[]` BESIDE `sessions[]`, never merged, and gains four conflict kinds: `task_over_live` (soft/amber per OD-26 — the live is fixed, the task moves), `task_on_leave`, `task_overlap`, and `task_after_deadline` (the check that only became possible once due dates and working days shared a screen). `POST /tasks` accepts an optional first `block`, so assigning and scheduling are one action and the notification carries a time rather than a day. Board: task chips in violet beside the live chips, an **Unscheduled work** rail (tap a task, tap a day — not HTML5 drag, which fights page scroll on a phone), totals that count both kinds of block, the mobile agenda carrying tasks too, and `+ New assignment` asking live-or-task. Guard #17 `roster-tasks` (26 checks) — the tripwire on the design decision: it reads `attributedSalesByUser` by brace balance and fails if a task block can ever reach the query that pays commission. Negative-tested four ways. Also fixed: guard #16 asserted `LATEST_MIGRATION` was 0094 and 0095 broke it the next day — a guard that fails on unrelated work is one people learn to skip, so it now checks 0094 is REGISTERED rather than LATEST. §12's migration reservations corrected against what is actually on disk. | Claude |
 | 2026-08-28 | 1.3 | **Track R planned — the roster as one work calendar** (CEO: "I dont want only to use for live, I also want to use for Task schedule and also assignment Task"). Audit: both halves are more built than they look; the only missing fact is that a task knows when it is DUE, never when the work HAPPENS. Decision: **overlay, not merge** — a single `assignments` table would put task blocks into `live_sessions`, and the leaderboard credits TikTok GMV to whoever was live at the time, so paperwork would earn commission. R-1 adds `task_blocks` (0095, a side table so one task can span several blocks) + four routes + an Unscheduled-work rail + a new conflict check (work scheduled after its own deadline). R-2 makes `+ New assignment` create task-and-block in one action and turns the unassigned-request rail into a drop target. R-3 recommends *Copy last week* over true recurrence until a month of use proves otherwise. R-4 turns committed hours into a capacity signal. OD-25…OD-27 raised. Also shipped this day: v1.63.0 bulk price + flash sales, v1.64.0-v1.64.5 the TikTok Shop Analytics panel (per-endpoint versions; `shop_lives/overview_performance` retired as TikTok-side dead; product names blocked by a missing PRODUCT scope, now stated as an instruction on the panel), v1.65.0 **live cards** (`0094 data_versions`, one counter per topic bumped at the single staff dispatch point, carried on the existing SSE stream, guard #16 `live-topics`). | Claude |
 | 2026-08-27 | 1.2 | **Security audit + remediation.** Read-only audit of both repos (four parallel reviews; every Critical/High re-verified by hand) produced `SECURITY-AUDIT-2026-08-27` findings; all of them are now closed. Portal v1.45.0: `PROTECTED_ROLES` closes admin→ceo/coo/cco escalation across create/reset/role-grant/offboard/force-logout (A1); `enforce2fa()` makes mandatory 2FA a SERVER rule for the first time (A2) and the enrolment flag now keys off `totp_enabled` (A3); `/payroll/pull-commission` moved to `PAYROLL_PROC` (S1); `/tasks/:id/comments` scoped + attachment ownership (S2); `/content` GET/POST gated (S3); login timing equalised (C5); `0086_totp_replay_guard` makes TOTP codes single-use (C6); `lib/escape-html.ts` applied to every hand-built print document (C7); no state-mutating GET (C11); CSP + HSTS added to `public/_headers` (C1); guard #15 `authz-guard` (resolves payroll gates to the ROLES they admit, not their names). Store v1.4.0: authenticated-bill binding kills the `reference_1` payment-forgery path (P1), signature mandatory + `billplzReady` gates the gateway (P2), `paid_amount`/collection checked (P3), admin passcode → HttpOnly cookie (ST3), real receipt cap + rate limit (ST1), bridge feeds rate-limited (ST2), dedicated `TRAFFIC_HMAC_KEY` with no public fallback (ST5), atomic `hitLimit` (C9), origin fail-closed (C4), order tokens out of `localStorage` (ST4), `.gitignore` added (C2), guard `payment-integrity` wired into DEPLOY.bat. Both guards negative-tested against re-introduced vulnerabilities. | Claude |

@@ -18,3 +18,15 @@
 # exactly what we do NOT want on a link whose destination may change.
 /go/azone  https://azoneofficial.com      302
 /go/elfia  https://elfiaofficialstore.my  302
+
+# v1.71.0 - the digital business cards (Track V). A person's URL belongs to
+# the person and follows them; a ROLE's URL belongs to the company and stays
+# with the chair. Print /ceo on anything company-issued and it keeps working
+# after the person behind it changes.
+# 302 for the same reason as /go above: a 301 is cached by the browser
+# forever, and a role does change hands.
+# tests/business-cards.mjs fails the build if these drift from
+# constants/team.ts.
+/ceo  /farhan  302
+/coo  /zoll    302
+/cco  /izz     302

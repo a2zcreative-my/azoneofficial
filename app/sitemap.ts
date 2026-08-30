@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { BLOG_POSTS } from "@/constants/pages";
 import { SITE_CONFIG } from "@/constants/site";
+import { TEAM } from "@/constants/team";
 
 export const dynamic = "force-static";
 
@@ -31,5 +32,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     lastModified: new Date(post.date),
   }));
 
-  return [...staticRoutes, ...blogRoutes];
+  /* v1.71.0 — the digital business cards. A card page is reachable from
+     a printed QR whether or not it is indexed, but a person who searches
+     the name they were just given should find it too. */
+  const cardRoutes = TEAM.map((m) => ({
+    url: `${base}/${m.slug}`,
+    lastModified: new Date(),
+  }));
+
+  return [...staticRoutes, ...cardRoutes, ...blogRoutes];
 }

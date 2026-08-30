@@ -8,4 +8,8 @@
 *.ico binary
 *.jpg binary
 *.svg text
+# v1.71.0 - vCard is a CRLF format (RFC 6350). Without this line `* text=auto`
+# above rewrites public/cards/*.vcf to LF on the Linux build container, after
+# tests/business-cards.mjs has already approved them on Windows.
+*.vcf text eol=crlf
 *.xlsm binary
