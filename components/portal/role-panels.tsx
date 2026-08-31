@@ -1985,8 +1985,26 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   // flip. Default = the API's chronological order.
   const [sortKey, setSortKey] = useState<"name" | "type" | "time" | "mark" | null>(null);
   const [sortDir, setSortDir] = useState<1 | -1>(1);
-  // v1.4.78: find one specific staff member instead of scanning the full list.
-  const [filterId, setFilterId] = useState(0);
+  /* v1.72.2 (CEO: "I want to have the search box for me to find the staff and
+     to filter based on what I want to view either in or out or anything") —
+     the v1.4.78 single-staff dropdown becomes a filter bar: typed search on
+     the name, In/Out, how the record got there, off-site punches only, and
+     one specific day. Every filter is applied in the browser to the month
+     already loaded, so it is instant and costs no request. */
+  const [q, setQ] = useState("");
+  const [typeF, setTypeF] = useState<"all" | "clock_in" | "clock_out">("all");
+  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite">("all");
+  const [dayF, setDayF] = useState("");
+  const filtersOn = q.trim() !== "" || typeF !== "all" || markF !== "all" || dayF !== "";
+  const clearFilters = () => { setQ(""); setTypeF("all"); setMarkF("all"); setDayF(""); };
+  const matches = (r: AttRecord) => {
+    if (q.trim() && !properName(r.name).toLowerCase().includes(q.trim().toLowerCase())) return false;
+    if (typeF !== "all" && r.type !== typeF) return false;
+    if (markF === "offsite") { if (attLoc(r)?.tone !== "flag") return false; }
+    else if (markF !== "all" && markOf(r) !== markF) return false;
+    if (dayF && utcToMytLocal(r.created_at).slice(0, 10) !== dayF) return false;
+    return true;
+  };
   const { show: showToast, node: toastNode } = useSaveToast();
   const clickSort = (k: "name" | "type" | "time" | "mark") => {
     if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
@@ -2062,14 +2080,6 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           }, L("Record added.", "Rekod ditambah."))}>
           {L("Add", "Tambah")}
         </button>
-        <select className={`${inputClass} col-span-2 w-full sm:ml-auto sm:max-w-52`} value={filterId}
-          title={L("Show one staff member's records only", "Tunjuk rekod seorang kakitangan sahaja")}
-          onChange={(e) => setFilterId(Number(e.target.value))}>
-          <option value={0}>{L("Find staff: everyone", "Cari kakitangan: semua")}</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
-        </select>
-        <input type="month" className={`${inputClass} col-span-2 w-full min-w-0 sm:max-w-40`} value={month}
-          onChange={(e) => setMonth(e.target.value)} />
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
@@ -2139,6 +2149,52 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </>
       )}
 
+      <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
+        {L("Find & filter", "Cari & tapis")}
+      </span>
+      <div className="mt-1 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+        <input type="search" className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={q}
+          placeholder={L("Search staff name…", "Cari nama kakitangan…")}
+          aria-label={L("Search staff", "Cari kakitangan")}
+          onChange={(e) => setQ(e.target.value)} />
+        <select className={`${inputClass} w-full sm:max-w-32`} value={typeF}
+          aria-label={L("In or out", "Masuk atau keluar")}
+          onChange={(e) => setTypeF(e.target.value as typeof typeF)}>
+          <option value="all">{L("In & out", "Masuk & keluar")}</option>
+          <option value="clock_in">{L("In only", "Masuk sahaja")}</option>
+          <option value="clock_out">{L("Out only", "Keluar sahaja")}</option>
+        </select>
+        <select className={`${inputClass} w-full sm:max-w-44`} value={markF}
+          aria-label={L("Record kind", "Jenis rekod")}
+          onChange={(e) => setMarkF(e.target.value as typeof markF)}>
+          <option value="all">{L("Any record", "Semua rekod")}</option>
+          <option value="punch">{L("Punched by staff", "Ketukan kakitangan")}</option>
+          <option value="manual">{L("Added manually", "Ditambah manual")}</option>
+          <option value="amended">{L("Time amended", "Masa dipinda")}</option>
+          <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
+        </select>
+        <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={dayF}
+          aria-label={L("One day only", "Satu hari sahaja")}
+          title={L("Show one day only", "Tunjuk satu hari sahaja")}
+          onChange={(e) => setDayF(e.target.value)} />
+        <input type="month" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={month}
+          aria-label={L("Month", "Bulan")}
+          onChange={(e) => setMonth(e.target.value)} />
+        <span className="text-muted-foreground col-span-2 text-xs sm:ml-auto">
+          {(() => {
+            const n = rows.filter(matches).length;
+            return filtersOn
+              ? L(`${n} of ${rows.length} records`, `${n} daripada ${rows.length} rekod`)
+              : L(`${rows.length} records`, `${rows.length} rekod`);
+          })()}
+          {filtersOn && (
+            <button type="button" className="ml-2 underline" onClick={clearFilters}>
+              {L("Clear", "Kosongkan")}
+            </button>
+          )}
+        </span>
+      </div>
+
       <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
         <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">
           <thead>
@@ -2157,11 +2213,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             {rows.length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records this month.", "Tiada rekod bulan ini.")}</td></tr>
             )}
-            {rows.length > 0 && filterId !== 0 && rows.filter((r) => r.user_id === filterId).length === 0 && (
-              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records for this staff member this month.", "Tiada rekod untuk kakitangan ini bulan ini.")}</td></tr>
+            {rows.length > 0 && filtersOn && rows.filter(matches).length === 0 && (
+              <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("Nothing matches these filters this month.", "Tiada yang sepadan dengan tapisan ini bulan ini.")}</td></tr>
             )}
             {(() => {
-              const visible = filterId === 0 ? rows : rows.filter((r) => r.user_id === filterId);
+              const visible = filtersOn ? rows.filter(matches) : rows;
               if (!sortKey) return visible;
               const val = (r: AttRecord) =>
                 sortKey === "name" ? (r.name ?? "") :

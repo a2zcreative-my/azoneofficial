@@ -265,7 +265,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0097_leave_recorded_direct";
+const LATEST_MIGRATION = "0098_web_order_tracking_url";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4289,6 +4289,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0095 (task blocks on the roster)", `SELECT task_id, block_date FROM task_blocks LIMIT 1`],
       ["0096 (a block records its day)", `SELECT done_at FROM task_blocks LIMIT 1`],
       ["0097 (unpaid day recorded by management)", `SELECT recorded_direct FROM leave_requests LIMIT 1`],
+      ["0098 (courier tracking link on a web order)", `SELECT tracking_url FROM web_orders LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4405,6 +4406,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0095_task_blocks",
       "0096_task_block_done",
       "0097_leave_recorded_direct",
+      "0098_web_order_tracking_url",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

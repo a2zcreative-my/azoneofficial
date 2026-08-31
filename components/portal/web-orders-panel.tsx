@@ -15,6 +15,11 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { dmyMYT, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+/* The shop's address comes from the brand registry, never typed here:
+   tests/brands-guard.mjs fails the build on a hardcoded client domain, and
+   the reason it does is that a domain written in twelve files is a domain
+   that cannot be changed. */
+import { brandByCode } from "@/constants/brands";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -24,6 +29,9 @@ interface WebOrder {
   customer_name?: string | null; phone?: string | null; address?: string | null;
   subtotal_cents: number; shipping_cents: number; total_cents: number;
   payment_method?: string | null; tracking_no?: string | null; tracking_courier?: string | null;
+  /* v1.73.0 — built by the SHOP and mirrored here (feed C). Never assembled
+     in this file: one courier map, in one repository. */
+  tracking_url?: string | null;
   placed_at?: string | null; store_updated_at?: string | null; paid_seen_at?: string | null;
 }
 interface WebOrderLine { id: number; name?: string | null; sku?: string | null; qty: number; price_cents: number }
@@ -80,6 +88,33 @@ export function WebOrdersPanel() {
   const [tracking, setTracking] = useState("");
   const [courier, setCourier] = useState("jnt");
   const [acting, setActing] = useState(false);
+  /* v1.73.0 — the link the last action returned, so "send it to the
+     customer" works the second a parcel is marked shipped rather than after
+     the next five-minute poll. */
+  const [freshUrl, setFreshUrl] = useState<Record<string, string>>({});
+
+  /* CEO: "how to make sure that they able to tracking their order?" — this
+     is the answer. Marking an order shipped updates the shop's own order
+     page, but nothing reaches the customer until somebody tells them, and
+     there is still no outbound email (OD-12). WhatsApp is what this shop
+     actually uses, so the message is composed here and opened in WhatsApp
+     with one tap: the order number, the courier, the number itself, the
+     direct courier link, and the shop's own lookup page as a fallback. */
+  const waTrack = (o: WebOrder, url?: string) => {
+    const digits = (o.phone ?? "").replace(/\D/g, "").replace(/^0/, "60");
+    const link = url ?? o.tracking_url ?? "";
+    const lines = [
+      `Hi ${o.customer_name ?? ""}! Your ELFIA order ${o.order_number} is on its way.`,
+      "",
+      `Courier: ${COURIERS.find((c) => c.key === o.tracking_courier)?.label ?? o.tracking_courier ?? "-"}`,
+      `Tracking number: ${o.tracking_no ?? ""}`,
+      ...(link ? ["", `Track it here: ${link}`] : []),
+      "",
+      `You can also check your order any time at ${brandByCode("elfia")?.url ?? ""}/track`,
+      "Thank you for shopping with ELFIA!",
+    ];
+    return `https://wa.me/${digits}?text=${encodeURIComponent(lines.join("\n"))}`;
+  };
 
   /* One relay call, then reload: the store is the source of truth for what
      an order IS, so the panel never guesses the new state — it asks. */
@@ -94,11 +129,14 @@ export function WebOrdersPanel() {
       showToast(L("Not changed", "Tidak diubah"), res.data?.error?.message ?? L("The shop refused that", "Kedai menolaknya"), "notice");
       return;
     }
+    const back = res.data as unknown as { tracking_url?: string | null } | null;
+    if (back?.tracking_url) setFreshUrl((m) => ({ ...m, [o.order_number]: back.tracking_url! }));
     const done: Record<string, string> = {
       confirm_paid: L("marked paid — the customer sees it too", "ditanda dibayar — pelanggan juga nampak"),
       ship: L("tracking saved — the customer can track it now", "penjejakan disimpan — pelanggan boleh menjejak sekarang"),
       complete: L("marked delivered", "ditanda sampai"),
       cancel: L("cancelled and the stock is back", "dibatalkan dan stok dipulangkan"),
+      update_tracking: L("tracking number corrected — the customer sees the new one", "nombor penjejakan dibetulkan — pelanggan nampak yang baharu"),
     };
     showToast(L("Saved", "Disimpan"), `${o.order_number} — ${done[action] ?? L("updated", "dikemas kini")}`);
     setTracking("");
@@ -194,7 +232,20 @@ export function WebOrdersPanel() {
                     <td className={td}>{o.customer_name ?? "—"}<span className="text-muted-foreground ml-1 text-xs">{o.phone ?? ""}</span></td>
                     <td className={`${td} text-right font-medium`}>{fmtRM(o.total_cents)}</td>
                     <td className={`${td} text-xs`}>{dmyMYT(o.placed_at)}</td>
-                    <td className={`${td} text-xs`}>{o.tracking_no ? `${o.tracking_courier ?? ""} ${o.tracking_no}` : "—"}</td>
+                    <td className={`${td} text-xs`}>
+                      {o.tracking_no ? (
+                        o.tracking_url ? (
+                          /* The link is the shop's, not one built here. */
+                          <a href={o.tracking_url} target="_blank" rel="noopener noreferrer"
+                            className="underline" onClick={(e) => e.stopPropagation()}
+                            title={L("Open the courier's tracking page", "Buka halaman penjejakan kurier")}>
+                            {COURIERS.find((c) => c.key === o.tracking_courier)?.label ?? o.tracking_courier} {o.tracking_no}
+                          </a>
+                        ) : (
+                          `${o.tracking_courier ?? ""} ${o.tracking_no}`
+                        )
+                      ) : "—"}
+                    </td>
                   </tr>
                   {open === o.id && (
                     <tr className="border-border border-b last:border-0">
@@ -293,16 +344,51 @@ export function WebOrdersPanel() {
                                 </div>
                               )}
                               {o.status === "shipped" && (
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                                  <span className="text-muted-foreground">
-                                    {o.tracking_no
-                                      ? L(`Customer is tracking ${o.tracking_no}`, `Pelanggan menjejak ${o.tracking_no}`)
-                                      : L("No tracking number was entered", "Tiada nombor penjejakan dimasukkan")}
-                                  </span>
-                                  <button type="button" className={btnSm} disabled={acting}
-                                    onClick={() => void act(o, "complete")}>
-                                    {L("Mark delivered", "Tanda sampai")}
-                                  </button>
+                                <div className="mt-2 space-y-2 text-xs">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-muted-foreground">
+                                      {o.tracking_no
+                                        ? L(`Customer is tracking ${o.tracking_no}`, `Pelanggan menjejak ${o.tracking_no}`)
+                                        : L("No tracking number was entered", "Tiada nombor penjejakan dimasukkan")}
+                                    </span>
+                                    {/* v1.73.0 — one tap sends it. Nothing reaches a
+                                        customer on its own: the shop's page updates,
+                                        but only if they go and look. */}
+                                    {o.tracking_no && o.phone && (
+                                      <a className={btnSm} target="_blank" rel="noopener noreferrer"
+                                        href={waTrack(o, freshUrl[o.order_number])}
+                                        onClick={(e) => e.stopPropagation()}>
+                                        {L("WhatsApp the tracking", "WhatsApp penjejakan")}
+                                      </a>
+                                    )}
+                                    <button type="button" className={btnSm} disabled={acting}
+                                      onClick={() => void act(o, "complete")}>
+                                      {L("Mark delivered", "Tanda sampai")}
+                                    </button>
+                                  </div>
+                                  {/* A tracking number is typed off a label by hand.
+                                      Until now a typo was permanent and the customer
+                                      followed somebody else's parcel. */}
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <label className="flex flex-col gap-1">
+                                      <span className="text-muted-foreground">{L("Correct the courier", "Betulkan kurier")}</span>
+                                      <select className="border-input bg-background rounded border px-1.5 py-1"
+                                        value={courier} onChange={(e) => setCourier(e.target.value)}>
+                                        {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                                      </select>
+                                    </label>
+                                    <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
+                                      <span className="text-muted-foreground">{L("Correct the number", "Betulkan nombor")}</span>
+                                      <input className={inputClass} value={tracking} maxLength={60}
+                                        placeholder={o.tracking_no ?? ""}
+                                        onChange={(e) => setTracking(e.target.value)} />
+                                    </label>
+                                    <button type="button" className={btnSm}
+                                      disabled={acting || tracking.trim() === "" || tracking.trim() === o.tracking_no}
+                                      onClick={() => void act(o, "update_tracking", { tracking_no: tracking.trim(), tracking_courier: courier })}>
+                                      {L("Update tracking", "Kemas kini penjejakan")}
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                               {["completed", "cancelled"].includes(o.status) && (

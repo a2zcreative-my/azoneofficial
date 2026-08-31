@@ -8020,8 +8020,12 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return err("not_configured", "The store's address or bridge key is not set on this worker yet.", 501);
     }
     const action = String(body?.action ?? "");
-    if (!["confirm_paid", "ship", "complete", "cancel"].includes(action)) {
-      return err("invalid_input", "action must be confirm_paid, ship, complete or cancel", 400);
+    /* v1.73.0 adds update_tracking: correcting the number on a parcel that
+       has already gone. The store owns the rule that it is only legal from
+       `shipped` and answers with a sentence for a human if it is not - this
+       list is only about which action names are forwarded at all. */
+    if (!["confirm_paid", "ship", "complete", "cancel", "update_tracking"].includes(action)) {
+      return err("invalid_input", "action must be confirm_paid, ship, complete, cancel or update_tracking", 400);
     }
     try {
       const r = await fetch(`${base}/api/v1/bridge/orders/${encodeURIComponent(orderAct[1]!)}`, {

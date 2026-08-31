@@ -1,0 +1,29 @@
+-- 0098 - v1.73.0: the courier link the shop already built, mirrored here.
+--
+-- The CEO, 30-08-2026:
+--   "on the web order, I want to add their tracking number and also how to
+--    make sure that they able to tracking their order based on the tracking
+--    number provided. I want to use J&T service or Ninjavan service."
+--
+-- Most of that already existed - the Web Orders tab has taken a courier and
+-- a tracking number since v1.51.0, and the shop turns them into a working
+-- track parcel link on the customer order page. What was missing was the
+-- link on THIS side: the portal held the number and the courier key but no
+-- URL, so the tracking column was dead text and nothing could be handed to a
+-- customer without somebody assembling a courier URL by hand.
+--
+-- The obvious fix is to build the URL here from the courier key. That is
+-- rejected. The shop already owns that map - six couriers and the shape of
+-- each ones tracking URL - and a courier that changes its URL would then have
+-- to be fixed in two repositories, with the forgotten one quietly sending
+-- customers to a dead page for months. So feed C carries the finished link
+-- (spec section C, v1.43.0) and this column is where it lands.
+--
+-- Mirrored, not derived: web_orders is a copy of the shops record, and this
+-- is one more field of that copy. NULL means either no tracking number yet
+-- or a courier the shop has no builder for - in both cases the number is
+-- shown on its own, because a wrong link is worse than none.
+--
+-- Single ALTER, nothing else in this file (audit B4 rule).
+
+ALTER TABLE web_orders ADD COLUMN tracking_url TEXT;

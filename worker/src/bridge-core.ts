@@ -110,6 +110,9 @@ export interface WebOrderInput {
   payment_method?: string | null;
   tracking_no?: string | null;
   tracking_courier?: string | null;
+  /** v1.73.0 — the finished customer-facing courier link, built by the
+      shop. Optional: a pre-v1.43.0 store does not send it. */
+  tracking_url?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   /** v1.44.0 — PDPA marketing consent as the store recorded it (store 0012).
@@ -152,6 +155,13 @@ export function parseWebOrder(raw: unknown): WebOrderInput | null {
     payment_method: s(o.payment_method, 30),
     tracking_no: s(o.tracking_no, 60),
     tracking_courier: s(o.tracking_courier, 60),
+    /* v1.73.0 — the finished courier link, built by the SHOP (feed C).
+       https only: this URL is put in front of a customer, and anything the
+       feed sends that is not an https link is dropped rather than shown. */
+    tracking_url: (() => {
+      const u = s(o.tracking_url, 300);
+      return u && u.startsWith("https://") ? u : null;
+    })(),
     created_at: s(o.created_at, 30),
     updated_at: s(o.updated_at, 30),
     marketing_consent: o.marketing_consent === 1 ? 1 : 0,

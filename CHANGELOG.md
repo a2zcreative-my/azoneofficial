@@ -2,6 +2,51 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.73.0] — 2026-08-30 — the tracking link, and correcting a wrong number
+
+**CEO:** *"on the web order, I want to add their tracking number and also how to make sure that they able to tracking their order based on the tracking number provided? I want to use J&T service or Ninjavan service."*
+
+**Most of this was already built, and saying so is more useful than shipping it twice.** Since v1.51.0 the Web Orders tab has taken a courier and a tracking number and pushed both to the shop over the bridge; the shop turns them into a **track parcel** link on the customer's order page; and **J&T Express and Ninja Van have been in the courier list from the start**, with Pos Laju, Flash, City-Link and DHL.
+
+Two reasons it looked missing:
+
+1. **Every order on the tab was Cancelled.** The courier and tracking boxes appear on a **paid** order — a cancelled one says "nothing left to do here". There has not been a paid web order to try it on.
+2. **Until today the live API was v1.32.1.** The route those buttons call arrived in v1.51.0, so even on a paid order it would have failed. This morning's deploy is the first time it has existed on live.
+
+What was genuinely missing is now built.
+
+### The tracking number is a link, everywhere
+
+Feed C carries `tracking_url` (store v1.43.0) — built by the **shop**, from its one courier map — and `0098` gives it a column. The Tracking column in the tab becomes a real link, so a parcel can be checked without retyping a number into a courier site.
+
+The portal holds the courier key and could assemble that URL itself. It deliberately does not, and guard #21 fails the build if it ever starts: the day J&T changes its tracking URL, the fix has to be one edit in one repository, not two with the forgotten one sending customers to a dead page for months.
+
+### A typo is no longer permanent
+
+A tracking number is typed off a parcel label by hand, and `ship` — legal only from `paid` — was the only way it could ever be set. One wrong digit and the customer followed somebody else's parcel forever. A **shipped** order now has a correct-the-number control that calls the shop's new `update_tracking` action; the correction is written into the order's own history, so the customer sees the number change rather than quietly finding a different one.
+
+### Handing it to the customer
+
+Marking a parcel shipped updates the shop's order page — **but nothing reaches the customer until somebody tells them**, and there is still no outbound email (OD-12). So: a **WhatsApp the tracking** button on a shipped order, which opens WhatsApp to that customer's number with the order number, the courier, the tracking number, the direct courier link and the shop's own lookup page. The link comes back with the ship action itself, not on the next five-minute poll — five minutes of "no link yet" is exactly when somebody sends a bare number.
+
+### Guard #21 `web-order-tracking` (20 checks, four ways negative-tested)
+
+The headline rule is a **repository-wide ban on courier domains** in `app/`, `components/`, `lib/`, `constants/` and `worker/src/` — the only way to keep one courier map honest across two repositories that cannot import from each other. Plus: the feed link must be https or dropped, the poller must stay armored for a pre-0098 database, the six courier keys must still match the shop's list, and the WhatsApp message must read the shop's address from the brand registry rather than typing it.
+
+## [1.72.2] — 2026-08-30 — find & filter on the attendance corrections table
+
+**CEO:** *"I want to have the search box for me to find the staff and to filter based on what I want to view either in or out or anything that I want to view."*
+
+The v1.4.78 "Find staff" dropdown becomes a filter bar of its own, sitting directly above the table instead of tucked into the Add-record row where it did not belong:
+
+- **Search** — type part of a name.
+- **In & out / In only / Out only.**
+- **Any record / Punched by staff / Added manually / Time amended / Off-site (flagged)** — the last one is the geofence flag, so "show me every punch that was not at the office this month" is one click.
+- **One day** — a date picker that narrows the month to a single day.
+- The **month** picker moves here too; it was always a view control, not an entry field.
+
+A live count reads *"12 of 148 records"* while anything is active, with a **Clear** beside it, and an empty result says so rather than showing a blank table. Everything filters in the browser against the month already loaded, so it is instant and costs no request; sorting by column header still works on the filtered set.
+
 ## [1.72.1] — 2026-08-30 — the website build, blocked by one anchor
 
 `DEPLOY EVERYTHING` got through the migration and published the API, then stopped in step 5:

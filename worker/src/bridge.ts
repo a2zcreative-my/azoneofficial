@@ -359,6 +359,15 @@ async function upsertWebOrder(env: Env, o: NonNullable<ReturnType<typeof parseWe
     o.subtotal_cents, o.shipping_cents, o.total_cents, o.payment_method,
     o.tracking_no, o.tracking_courier, o.created_at, o.updated_at).run();
 
+  /* v1.73.0 — the courier link, built by the SHOP (feed C, spec C) and
+     mirrored here. Same armored shape as consent below: a pre-0098 database
+     keeps syncing orders, it just cannot store the link yet. Never derived
+     locally from tracking_courier — see 0098 for why that would rot. */
+  await env.DB.prepare(
+    `UPDATE web_orders SET tracking_url = ?2 WHERE store = 'elfia' AND order_number = ?1`,
+  ).bind(o.order_number, typeof o.tracking_url === "string" && o.tracking_url.startsWith("https://")
+    ? o.tracking_url : null).run().catch(() => null);
+
   /* v1.44.0 — PDPA marketing consent rides the same upsert: the store sends
      the CURRENT value on every re-send, so a withdrawal over there clears
      the flag here within one poll. A separate armored statement (not a
