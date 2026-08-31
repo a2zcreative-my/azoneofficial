@@ -13,7 +13,7 @@
  * Desktop layout:
  *
  *   backdrop (bg-shell-backdrop, p-5)
- *     └ canvas (rounded-shell, bg-background, shadow-shell, flex)
+ *     └ canvas (rounded-shell, bg-background, shadow-shell, flex, full width)
  *         ├ gutter (bg-brand, w-14, rounded-l-shell) → sticky icon rail
  *         ├ context panel (w-[264px], optional, own scroll)
  *         ├ main content (flex-1, min-w-0)
@@ -37,7 +37,16 @@ import type { ReactNode } from "react";
 
 export function AppShell({
   rail, contextPanel, rightRail, children,
-  maxWidth = "md:max-w-[1440px]",
+  /* v1.74.0 (CEO: "I want it full fit to the website width... dont change
+     the interface layout or any new. just make it fit only") — the canvas
+     capped at 1440px, so on a 1920 monitor a 370px band of backdrop sat down
+     each side and the app read as a window that had failed to maximise.
+     Nothing about the layout changes: the rounded canvas, the p-5 backdrop
+     that makes it a canvas at all, the icon rail and both side columns are
+     exactly as they were. Only the ceiling is gone, so the canvas takes the
+     window it is given. A caller can still pass a cap if a screen ever wants
+     one. */
+  maxWidth = "md:max-w-none",
 }: {
   rail?: ReactNode;
   /** Left context column — mini calendar, "today at a glance". Desktop only. */

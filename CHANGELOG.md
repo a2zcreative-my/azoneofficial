@@ -2,6 +2,39 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.74.0] — 2026-08-30 — export what you filtered to, and fill the window
+
+### CSV that follows the filters
+
+**CEO:** *"I want to generate in excel csv by follow to the filter that I want or a month that I want."*
+
+A **⬇ CSV** button in the attendance Find & filter bar, labelled with the number of rows it will write. It exports **exactly what the table is showing, in the order it is showing it** — search, In/Out, record kind, one day, the month, and the column you sorted by. The table and the button share one `exportRows()`, because two definitions of "visible" drift the first time a filter is added and then the file quietly disagrees with the screen.
+
+Columns: Staff · Type · Date (MYT) · Time (MYT) · Mark · Location · Record ID, above three comment lines recording the month, when it was generated and **which filters were active** — the file outlives the screen it came from. The filename carries them too: `attendance-2026-08-nasuha-clock_in.csv`, not `export(3).csv`.
+
+New `lib/csv.ts` is the one builder, and it gets the four things that make a CSV Excel opens *correctly* rather than merely opens:
+
+- a **UTF-8 BOM**, or Excel reads the file as the local code page and any diacritic becomes mojibake;
+- **CRLF**, because these files get forwarded to accountants;
+- proper quoting of commas, quotes and newlines;
+- **formula defusing** — a cell beginning with `=`, `+`, `-` or `@` is *executed* by Excel on open. Today these cells are names and times; "the data was harmless when I wrote the exporter" is exactly how that hole ships.
+
+The inventory stock-count export, which had its own hand-rolled escaper, now goes through the same builder.
+
+The server's existing `/attendance/export` (whole month, payroll-shaped, with shift flags) is untouched — this is the other thing: what is on your screen, right now.
+
+### The portal fills the window
+
+**CEO:** *"I want it full fit to the website width... dont change the interface layout or any new. just make it fit only."*
+
+Two ceilings, both removed: `AppShell` capped the canvas at **1440px** and `PORTAL_WIDTH` capped the content at **1600px**, so on a 1920 monitor a band of backdrop sat down each side and the app read as a window that had failed to maximise.
+
+Nothing else moves. The rounded canvas, the `p-5` backdrop that makes it a canvas at all, the icon rail, both side columns and every phone rule are exactly as they were — and `PORTAL_WIDTH` is still ONE width in ONE place applied to the outer container, so it can be capped again with one edit if a screen ever wants it.
+
+### Guard #22 `csv-export` (20 checks, five ways negative-tested)
+
+It compiles `lib/csv.ts` and inspects the **bytes it produces** — BOM present, CRLF between rows, a comma quoted, a quote doubled, `=SUM(A1)` defused, a number left unquoted so the column still sums — rather than checking that the source looks about right. Plus: the table and the export must share one visible-rows definition, and no file outside `lib/csv.ts` may build a `text/csv` blob of its own.
+
 ## [1.73.0] — 2026-08-30 — the tracking link, and correcting a wrong number
 
 **CEO:** *"on the web order, I want to add their tracking number and also how to make sure that they able to tracking their order based on the tracking number provided? I want to use J&T service or Ninjavan service."*

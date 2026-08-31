@@ -39,7 +39,19 @@ export const card = "rounded-2xl md:rounded-card border border-border bg-card p-
    Use this on the OUTER container of a screen, never on a card: cards are
    meant to fill their column, and capping them individually is how the
    inconsistency started. */
-export const PORTAL_WIDTH = "mx-auto max-w-[1600px]";
+/* v1.74.0 (CEO: "I want it full fit to the website width... just make it
+   fit only") — the cap is gone, the RULE is not.
+
+   1600px was chosen for line length, and on a 1920 monitor it left a band of
+   page background down both sides that reads as a window that failed to
+   maximise. The portal is a dense work surface, not an article: the roster,
+   the payroll table and the attendance list all want every pixel, and the
+   person using it is looking at data, not reading prose.
+
+   What this still is: ONE width for every screen, set in ONE place, applied
+   to the OUTER container and never to a card. Change this line and every
+   screen changes together — which was the whole point of it existing. */
+export const PORTAL_WIDTH = "mx-auto w-full max-w-none";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =

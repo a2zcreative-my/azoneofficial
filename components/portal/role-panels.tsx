@@ -30,6 +30,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { buildClaimPdf } from "@/lib/form-pdf";
+import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { sharePdfFile } from "@/lib/doc-pdf";
 /* v1.28.0 — the printed claim form follows the issuer STAMPED on its row
    (resolveIssuer); operational artefacts issued today (the stock-count
@@ -884,16 +885,16 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               blank for the person walking the shelves. */}
           <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
             onClick={() => {
-              const esc = (v: string | number) => {
-                const t = String(v);
-                return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-              };
+              /* v1.74.0: was a hand-rolled CSV with its own escaper. Same
+                 file, now through the one builder — rows of CELLS rather
+                 than pre-joined strings, which is what lets the builder
+                 quote correctly and defuse a leading =, + or @ that Excel
+                 would otherwise run as a formula. */
               const now = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
-              const stamp = `${now.slice(8, 10)}-${now.slice(5, 7)}-${now.slice(0, 4)} ${now.slice(11, 16)} MYT`;
-              const lines: string[] = [
-                `# ${DOCUMENT_ISSUER.name} — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`,
-                `# ${L("Generated", "Dijana")} ${stamp} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`,
-                ["SKU", L("Item", "Barang"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")].join(","),
+              const rows: (string | number)[][] = [
+                [`# ${DOCUMENT_ISSUER.name} — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`],
+                [`# ${L("Generated", "Dijana")} ${csvStampMyt()} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`],
+                ["SKU", L("Item", "Barang"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")],
               ];
               let units = 0;
               for (const it of sortedItems) {
@@ -901,19 +902,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                 const rebate = it.live_rebate_cents ?? 0;
                 const net = Math.max(0, price - rebate);
                 units += it.stock;
-                lines.push([
-                  esc(it.sku), esc(it.name), rmBare(price),
+                rows.push([
+                  it.sku, it.name, rmBare(price),
                   rebate > 0 ? `-${rmBare(rebate)}` : "",
                   rmBare(net), it.stock, it.status ?? "", "", "", "",
-                ].join(","));
+                ]);
               }
-              lines.push([L("TOTAL", "JUMLAH"), "", "", "", "", units, "", "", "", ""].join(","));
-              const url = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" }));
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `azoo-stock-count-${now.slice(0, 10)}.csv`;
-              a.click();
-              URL.revokeObjectURL(url);
+              rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", units, "", "", "", ""]);
+              downloadCsv(`azoo-stock-count-${now.slice(0, 10)}`, rows);
             }}>
             {L("⬇ CSV — stock count", "⬇ CSV — kiraan stok")}
           </button>
@@ -1996,6 +1992,21 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite">("all");
   const [dayF, setDayF] = useState("");
   const filtersOn = q.trim() !== "" || typeF !== "all" || markF !== "all" || dayF !== "";
+  /* ONE definition of "the rows on screen", used by the table AND by the CSV
+     button. Two definitions would drift the moment somebody adds a filter,
+     and the export would quietly disagree with what was being looked at —
+     which is the whole thing the CEO asked for. */
+  const exportRows = (): AttRecord[] => {
+    const visible = filtersOn ? rows.filter(matches) : rows;
+    if (!sortKey) return visible;
+    const val = (r: AttRecord) =>
+      sortKey === "name" ? (r.name ?? "") :
+      sortKey === "type" ? r.type :
+      sortKey === "mark" ? markOf(r) : r.created_at;
+    return [...visible].sort(
+      (a, b) => (val(a).localeCompare(val(b)) || a.created_at.localeCompare(b.created_at)) * sortDir,
+    );
+  };
   const clearFilters = () => { setQ(""); setTypeF("all"); setMarkF("all"); setDayF(""); };
   const matches = (r: AttRecord) => {
     if (q.trim() && !properName(r.name).toLowerCase().includes(q.trim().toLowerCase())) return false;
@@ -2180,6 +2191,55 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         <input type="month" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={month}
           aria-label={L("Month", "Bulan")}
           onChange={(e) => setMonth(e.target.value)} />
+        {/* v1.74.0 (CEO: "I want to generate in excel csv by follow to the
+            filter that I want or a month that I want") — the export takes
+            the rows this table is SHOWING, in the order it is showing them.
+            Not the month, not the unfiltered set: what you filtered to is
+            what lands in Excel, which is the only behaviour that never
+            surprises anyone. Built in the browser from data already loaded,
+            so it is instant and needs no round trip. */}
+        <button type="button"
+          className="border-border hover:bg-secondary col-span-2 inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-medium disabled:opacity-50 sm:h-8 sm:w-auto"
+          disabled={exportRows().length === 0}
+          title={L("Download these rows as a CSV for Excel", "Muat turun baris ini sebagai CSV untuk Excel")}
+          onClick={() => {
+            const rows = exportRows();
+            const active = [
+              q.trim() ? `${L("search", "cari")}: ${q.trim()}` : "",
+              typeF === "all" ? "" : typeF === "clock_in" ? L("in only", "masuk sahaja") : L("out only", "keluar sahaja"),
+              markF === "all" ? "" : markF,
+              dayF ? dayF : "",
+            ].filter(Boolean);
+            downloadCsv(
+              /* The filename says what narrowed it — a folder of
+                 attendance(3).csv is a folder nobody can use. */
+              ["attendance", month, q.trim().replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+               typeF === "all" ? "" : typeF, markF === "all" ? "" : markF, dayF]
+                .filter(Boolean).join("-"),
+              [
+                [`# ${L("Staff attendance", "Kehadiran kakitangan")} — ${month}`],
+                [`# ${L("Generated", "Dijana")} ${csvStampMyt()}${active.length ? ` — ${L("filters", "tapisan")}: ${active.join(" · ")}` : ` — ${L("no filters", "tiada tapisan")}`}`],
+                [`# ${rows.length} ${L("records", "rekod")}`],
+                [],
+                [L("Staff", "Kakitangan"), L("Type", "Jenis"), L("Date (MYT)", "Tarikh (MYT)"),
+                 L("Time (MYT)", "Masa (MYT)"), L("Mark", "Tanda"), L("Location", "Lokasi"), "Record ID"],
+                ...rows.map((r) => {
+                  const local = utcToMytLocal(r.created_at); // YYYY-MM-DDTHH:MM
+                  return [
+                    properName(r.name),
+                    r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar"),
+                    local.slice(0, 10),
+                    local.slice(11, 16),
+                    markOf(r),
+                    attLoc(r)?.text ?? L("no location", "tiada lokasi"),
+                    r.id,
+                  ];
+                }),
+              ],
+            );
+          }}>
+          {L(`⬇ CSV — ${exportRows().length} rows`, `⬇ CSV — ${exportRows().length} baris`)}
+        </button>
         <span className="text-muted-foreground col-span-2 text-xs sm:ml-auto">
           {(() => {
             const n = rows.filter(matches).length;
@@ -2216,17 +2276,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             {rows.length > 0 && filtersOn && rows.filter(matches).length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("Nothing matches these filters this month.", "Tiada yang sepadan dengan tapisan ini bulan ini.")}</td></tr>
             )}
-            {(() => {
-              const visible = filtersOn ? rows.filter(matches) : rows;
-              if (!sortKey) return visible;
-              const val = (r: AttRecord) =>
-                sortKey === "name" ? (r.name ?? "") :
-                sortKey === "type" ? r.type :
-                sortKey === "mark" ? markOf(r) : r.created_at;
-              return [...visible].sort(
-                (a, b) => (val(a).localeCompare(val(b)) || a.created_at.localeCompare(b.created_at)) * sortDir,
-              );
-            })().map((r) => (
+            {exportRows().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{properName(r.name)}</td>
                 <td className={td}>{r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar")}</td>
