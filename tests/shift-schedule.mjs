@@ -81,7 +81,7 @@ const ok = (label, cond, extra = "") => {
      /if \(sh\.kind === "rest_day"\) \{\s*flag = "rest_day";/.test(staff),
      "measuring a Saturday against hours that do not apply produced a false early_out");
   ok("the register annotates against each person's own schedule",
-     /shR = await shiftOn\(env, r\.user_id, dateIso\)/.test(staff));
+     /const shR = shiftAtR\(r\.user_id, dateIso\)/.test(staff));
   ok("the payroll export carries which schedule it judged against",
      /"day_kind", "pattern", "shift_start", "shift_end"/.test(staff),
      "a late flag nobody can trace back to a set of hours is a late flag nobody can dispute");
@@ -98,6 +98,62 @@ const ok = (label, cond, extra = "") => {
   ok("a person with no assignment falls back to the default pattern",
      /FROM shift_patterns WHERE is_default = 1 LIMIT 1/.test(staff));
   ok("a database without 0099 still resolves hours", /catch \{\s*return fallback\(\); \/\/ pre-0099/.test(staff));
+}
+
+/* ---- 3A. NO SHIFT LOOKUP INSIDE A LOOP ----
+   `shiftOn` is two remote D1 queries. Inside the absence scan that is two per
+   person PER DAY, and inside the attendance export two per PUNCH: the Payroll
+   tab sat on "TOTAL - 0 staff" for the better part of a minute because of it
+   (CEO, 31-08-2026: *"why seem too take longer to load? this is abnormal!"*).
+
+   `shiftResolver` reads the whole schedule once - a handful of patterns and
+   one row per assignment - and answers in memory afterwards. The invariant is
+   not "call the fast one", which is advice; it is that NO await'd shift
+   lookup may sit inside a loop, which is checkable. Brace-tracked, because a
+   line-window would not know where a loop ends. */
+{
+  const lines = staff.split(/\r?\n/);
+  let depth = 0;
+  const open = [];
+  const inLoop = [];
+  lines.forEach((l, i) => {
+    const code = l.replace(/\/\/.*$/, "");
+    const loopHere = /\b(for|while)\s*\(/.test(code) ||
+                     /\.(map|forEach|flatMap)\s*\(\s*(async\s*)?\(/.test(code);
+    const o = (code.match(/\{/g) ?? []).length;
+    const c = (code.match(/\}/g) ?? []).length;
+    if (/await shiftOn\(env/.test(code) && open.length) inLoop.push(i + 1);
+    if (loopHere && o > c) open.push(depth);
+    depth += o - c;
+    while (open.length && depth <= open[open.length - 1]) open.pop();
+  });
+  ok("no shift lookup runs inside a loop", inLoop.length === 0,
+     `worker/src/staff.ts line(s) ${inLoop.join(", ")} — that is two database round trips per iteration; ` +
+     "read the schedule once with shiftResolver() before the loop");
+  ok("the batch resolver exists and reads everything in two queries",
+     /export async function shiftResolver/.test(staff) &&
+     /SELECT \* FROM shift_patterns/.test(staff) &&
+     /SELECT user_id, pattern_id, effective_from FROM staff_shifts/.test(staff));
+  ok("the three loops that used to query per iteration all use it",
+     ["shiftAtR", "shiftAtA", "shiftAtE"].every((n) => new RegExp(`const ${n} = await shiftResolver\\(env\\)`).test(staff)),
+     "the register, the absence scan and the attendance export");
+  ok("both paths read a pattern row the same way",
+     /function dayShiftFrom\(/.test(staff) &&
+     (staff.match(/dayShiftFrom\(/g) ?? []).length >= 3,
+     "two readings of the same row is two answers to whether a blank start means a rest day");
+  ok("the resolver still honours the effective date",
+     /\.find\(\(x\) => x\.effective_from <= iso\)/.test(staff) &&
+     /sort\(\(a, b\) => b\.effective_from\.localeCompare\(a\.effective_from\)\)/.test(staff),
+     "sorted newest-first, so the first match at or before the date is the one in force");
+  ok("a pre-0099 database still gets hours out of the resolver",
+     /return \(_u, iso\) => shiftFallback\(new Date\(`\$\{iso\}T00:00:00Z`\)\.getUTCDay\(\)\); \/\/ pre-0099/.test(staff));
+
+  /* And the client half: the tab must not wait on the scan to draw a table. */
+  const pay = read("components/portal/payroll-panel.tsx");
+  ok("the payroll table does not wait for the absence scan",
+     /void api<\{ staff: AbsenceRow\[\] \}>\(`\/payroll\/absences\?month=\$\{month\}`\)/.test(pay) &&
+     !/const ab = await api<\{ staff: AbsenceRow\[\] \}>/.test(pay),
+     "awaiting it mid-load left the page reading TOTAL - 0 staff, which looks like a payroll with nobody in it");
 }
 
 /* ---- 4. the approval ---- */

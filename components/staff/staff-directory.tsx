@@ -33,7 +33,11 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
-import { useConfirm } from "@/components/ui/confirm-dialog";
+/* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
+   and it now asks for a date, which the prompt dialog does. The friction is
+   not lost — you cannot offboard without choosing a date and pressing a red
+   button. */
+import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
 /* v1.28.0 — the ID badge identifies the CURRENT employer, so it carries
    DOCUMENT_ISSUER (lib/issuers.ts), not a hardcoded company block. */
@@ -42,6 +46,12 @@ import { getLang } from "@/lib/i18n";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
+
+/** Today in Malaysia, as YYYY-MM-DD. The same expression the worker uses for
+    its own default, so the date pre-filled in the offboard dialog is exactly
+    the date the server would have chosen — a laptop left on UTC must not
+    suggest yesterday as somebody's last day. */
+const todayIso = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
 
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
@@ -415,7 +425,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
   const { show: showToast, node: toastNode } = useSaveToast();
-  const { confirm, node: confirmNode } = useConfirm();
+  const { prompt, node: promptNode } = usePrompt();
 
   const toggleSelect = (id: number) =>
     setSelected((prev) => {
@@ -503,7 +513,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
 
   return (
     <div className="space-y-3">
-      {toastNode}{confirmNode}
+      {toastNode}{promptNode}
       <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
         <p className="text-sm font-medium">{L("Staff directory & ID badges", "Direktori kakitangan & lencana ID")}</p>
         <p className="text-muted-foreground text-xs">
@@ -825,23 +835,39 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 )}
                 {/* v1.4.282 (auditor pick 3): the WHOLE exit in one tap —
                     status + final date + sessions revoked + 2FA cleared, one
-                    audited call, so no step can be forgotten. Fields stay
-                    editable after (e.g. change the date or to terminated). */}
+                    audited call, so no step can be forgotten.
+
+                    v1.77.0 (CEO: "offboard should I can insert the date of
+                    their resignation ... instead of capture to today date"):
+                    THE DIALOG ASKS FOR THE LAST DAY. It defaulted to today,
+                    which is only right if you offboard somebody the moment
+                    they walk out — and notice is usually served in advance,
+                    so the common case was the wrong one. The date is not
+                    cosmetic: `left_on` is what payroll prorates a final month
+                    on, so a day out is money out. Today is still the pre-filled
+                    suggestion; it just has to be looked at now. */}
                 {open.has(u.id) && canAmend && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <button type="button" className={rowBtnDanger}
                     onClick={() => {
-                      void confirm({
+                      void prompt({
                         title: L(`Offboard ${displayName(u)}?`, `Tamatkan khidmat ${displayName(u)}?`),
                         message: L(
-                          "One tap does the whole exit: marks resigned with today as the final day, signs them out everywhere, and removes their two-factor setup. Everything is audited. You can edit the date or change to terminated in the fields afterwards.",
-                          "Satu ketukan melakukan keseluruhan proses keluar: menandakan letak jawatan dengan hari ini sebagai hari terakhir, melog keluar mereka di semua peranti, dan membuang persediaan dua faktor mereka. Semuanya diaudit. Anda boleh menyunting tarikh atau menukar kepada ditamatkan dalam medan selepas itu.",
+                          "This does the whole exit in one audited step: marks them resigned from the date below, signs them out everywhere, and removes their two-factor setup. The date is their LAST DAY of employment — payroll prorates their final month on it. You can change it, or switch to terminated, in the fields afterwards.",
+                          "Ini melakukan keseluruhan proses keluar dalam satu langkah yang diaudit: menandakan letak jawatan dari tarikh di bawah, melog keluar mereka di semua peranti, dan membuang persediaan dua faktor. Tarikh itu ialah HARI TERAKHIR pekerjaan mereka — gaji bulan akhir dikira mengikutnya. Anda boleh menukarnya, atau menukar kepada ditamatkan, dalam medan selepas itu.",
                         ),
+                        text: false,
+                        date: {
+                          label: L("Last day of employment", "Hari terakhir bekerja"),
+                          initial: todayIso(),
+                          required: true,
+                        },
                         confirmLabel: L("Offboard", "Tamatkan khidmat"), variant: "danger",
-                      }).then(async (ok) => {
-                        if (!ok) return;
-                        const res = await apiRoot<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({}) });
+                      }).then(async (r) => {
+                        if (!r?.date) return;
+                        const res = await apiRoot<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({ left_on: r.date }) });
                         if (res.ok) {
-                          showToast(L("Offboarded", "Khidmat ditamatkan"), `${displayName(u)} — ${L("resigned, signed out everywhere, 2FA cleared", "letak jawatan, dilog keluar di semua peranti, 2FA dibuang")}`);
+                          showToast(L("Offboarded", "Khidmat ditamatkan"),
+                            `${displayName(u)} — ${L(`last day ${dmy(res.data?.left_on ?? r.date)}, signed out everywhere, 2FA cleared`, `hari terakhir ${dmy(res.data?.left_on ?? r.date)}, dilog keluar di semua peranti, 2FA dibuang`)}`);
                           void load();
                         } else {
                           setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? L("Offboard failed", "Tamat khidmat gagal") }));

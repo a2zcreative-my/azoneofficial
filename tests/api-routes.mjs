@@ -185,10 +185,35 @@ ok("the handful of runtime-chosen paths stays a handful", runtimeChosen <= 6,
    "the admin CRUD component is the reason there are any; a growing number means this guard is quietly covering less");
 
 /* ------------------------------------------------------------------ *
- * 3. The one the CEO hit, named so it cannot come back.
+ * 3. The Offboard button — the 404 that started this, and the date.
  * ------------------------------------------------------------------ */
 {
   const dir = read("components/staff/staff-directory.tsx");
+
+  /* CEO, 31-08-2026: *"offboard should I can insert the date of their
+     resignation which is to ensure that I can insert correctly instead of
+     capture to today date"*. `left_on` is what payroll prorates a final month
+     on, so the date is money, not decoration. */
+  ok("offboarding asks for the last day",
+     /date: \{\s*\n?\s*label: L\("Last day of employment"/.test(dir),
+     "it used to take today, which is only right if somebody walks out the moment you press it");
+  ok("the date cannot be left empty",
+     /label: L\("Last day of employment"[\s\S]{0,200}?required: true/.test(dir) &&
+     /if \(!r\?\.date\) return;/.test(dir),
+     "an OK button that submits no date puts the server back on today");
+  ok("the chosen date is what gets sent",
+     /body: JSON\.stringify\(\{ left_on: r\.date \}\)/.test(dir));
+  ok("the suggested date is today in MALAYSIA",
+     /const todayIso = \(\) => new Date\(Date\.now\(\) \+ 8 \* 3600 \* 1000\)/.test(dir),
+     "a laptop on UTC would otherwise propose yesterday as somebody's last day");
+  ok("the server refuses a date it cannot read instead of substituting today",
+     /if \(bodyOb\.left_on !== undefined &&[\s\S]{0,200}?return errorResponse\("invalid_input", "Last day must be a date/.test(index),
+     "a silent substitution is a final salary computed against a day nobody chose");
+  ok("omitting the date still means today, so an older client keeps working",
+     /const leftOn = typeof bodyOb\.left_on === "string"\s*\n?\s*\? bodyOb\.left_on/.test(index));
+  ok("the confirmation says which day it recorded",
+     /last day \$\{dmy\(res\.data\?\.left_on \?\? r\.date\)\}/.test(dir),
+     "the one field worth getting wrong is the one worth reading back");
   ok("offboarding is called at the API root, not through the staff prefix",
      /const apiRoot = makeApi\(""\)/.test(dir) &&
      /apiRoot<[^>]*>\(`\/users\/\$\{u\.id\}\/offboard`/.test(dir),

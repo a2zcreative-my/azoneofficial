@@ -545,10 +545,18 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     setPayableDays(emap);
     setUnpaidDays(umap);
     /* The proposal list. Read-only viewers and non-CEOs never see it, so it
-       is not fetched for them either. */
+       is not fetched for them either.
+
+       v1.77.0 — NOT AWAITED. It used to be, right here in the middle of
+       load(), and the salary table is only put on screen at the END of this
+       function. So the whole tab waited on a scan of every person against
+       every day of the month, and until that came back the page read
+       "TOTAL — 0 staff" — which looks exactly like a payroll with nobody in
+       it. The scan is a suggestion card and can arrive late. The table
+       cannot. */
     if (canMarkUnpaid && !readOnly) {
-      const ab = await api<{ staff: AbsenceRow[] }>(`/payroll/absences?month=${month}`);
-      setAbsences(ab.data?.staff ?? []);
+      void api<{ staff: AbsenceRow[] }>(`/payroll/absences?month=${month}`)
+        .then((ab) => setAbsences(ab.data?.staff ?? []));
     }
     const bmap: Record<number, number> = {};
     for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;

@@ -31,7 +31,14 @@ interface PromptOpts {
   /* v1.4.250 (CEO: "a calendar for me to pick which date they make the
      payment for accurate tracking"): an optional second field, a real date
      input so the phone raises its own picker. */
-  date?: { label: string; initial?: string; max?: string };
+  date?: { label: string; initial?: string; max?: string; required?: boolean };
+  /* v1.77.0 — a dialog that asks ONLY for a date. Offboarding needs the last
+     day and nothing else, and an empty text box above it would be a field
+     nobody can fill in correctly. Defaults to true, so every existing caller
+     is untouched. */
+  text?: boolean;
+  /** danger paints the confirm button red, as in useConfirm. */
+  variant?: "default" | "danger";
 }
 
 export interface PromptResult { value: string; date: string }
@@ -58,9 +65,17 @@ export function usePrompt() {
     setOpts(null);
   };
 
+  /* v1.77.0 — whichever fields are actually on screen have to be filled.
+     A date-only dialog whose OK button ignores an empty date would submit
+     "no date", and the server would fall back to today, which is the exact
+     bug this option exists to fix. */
+  const incomplete =
+    (opts?.text !== false && !!opts?.required && !value.trim()) ||
+    (!!opts?.date?.required && !date);
+
   const submit = () => {
-    if (opts?.required && !value.trim()) return;
-    close({ value: value.trim(), date });
+    if (incomplete) return;
+    close({ value: opts?.text === false ? "" : value.trim(), date });
   };
 
   const node = opts ? (
@@ -75,31 +90,39 @@ export function usePrompt() {
         <div className="from-gold to-gold h-1 w-10 rounded-full bg-gradient-to-r" aria-hidden="true" />
         <p id="prompt-title" className="mt-3 text-base font-semibold">{opts.title}</p>
         {opts.message && <p className="text-muted-foreground mt-1.5 text-sm whitespace-pre-line">{opts.message}</p>}
-        <label className="mt-4 block">
-          {opts.label && <span className="text-muted-foreground mb-1 block text-xs">{opts.label}</span>}
-          <input ref={input} className="border-input bg-background h-10 w-full rounded-lg border px-3 text-sm"
-            placeholder={opts.placeholder} value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); submit(); }
-              if (e.key === "Escape") close(null);
-            }} />
-        </label>
+        {opts.text !== false && (
+          <label className="mt-4 block">
+            {opts.label && <span className="text-muted-foreground mb-1 block text-xs">{opts.label}</span>}
+            <input ref={input} className="border-input bg-background h-10 w-full rounded-lg border px-3 text-sm"
+              placeholder={opts.placeholder} value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submit(); }
+                if (e.key === "Escape") close(null);
+              }} />
+          </label>
+        )}
         {opts.date && (
-          <label className="mt-3 block">
+          <label className={opts.text === false ? "mt-4 block" : "mt-3 block"}>
             <span className="text-muted-foreground mb-1 block text-xs">{opts.date.label}</span>
-            <input type="date" className="border-input bg-background h-10 w-full rounded-lg border px-3 text-sm"
+            <input type="date" autoFocus={opts.text === false}
+              className="border-input bg-background h-10 w-full rounded-lg border px-3 text-sm"
               value={date} max={opts.date.max}
               onChange={(e) => setDate(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} />
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submit(); }
+                if (e.key === "Escape") close(null);
+              }} />
           </label>
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="border-border hover:bg-secondary inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium"
             onClick={() => close(null)}>{opts.cancelLabel ?? L("Cancel", "Batal")}</button>
           <button type="button"
-            className="bg-primary inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-            disabled={!!opts.required && !value.trim()} onClick={submit}>
+            className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white disabled:opacity-40 ${
+              opts.variant === "danger" ? "bg-red-700 hover:bg-red-800" : "bg-primary hover:opacity-90"
+            }`}
+            disabled={incomplete} onClick={submit}>
             {opts.confirmLabel ?? L("Save", "Simpan")}
           </button>
         </div>

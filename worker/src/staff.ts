@@ -100,21 +100,44 @@ export interface DayShift {
 
 const DOW_COL = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
+/** The last-resort hours for a weekday, when no pattern can be read at all
+    (a database that has not applied 0099, or one with no patterns in it). */
+function shiftFallback(dow: number): DayShift {
+  const weekday = dow >= 1 && dow <= 5;
+  return {
+    start: weekday ? SHIFT.startMinutes : null,
+    end: weekday ? SHIFT.endMinutes : null,
+    halfDay: SHIFT.halfDayMinutes,
+    kind: weekday ? "workday" : "rest_day",
+    pattern: SHIFT.label,
+  };
+}
+
+/** What one pattern row MEANS for one weekday. Both the single lookup and the
+    batch resolver go through here, so they cannot come to different answers
+    about the same row - in particular about a blank start being a rest day. */
+function dayShiftFrom(
+  row: { name: string; half_day_minutes: number | null; s: number | null; e: number | null },
+): DayShift {
+  return {
+    start: row.s ?? null,
+    end: row.e ?? null,
+    halfDay: row.half_day_minutes ?? SHIFT.halfDayMinutes,
+    kind: row.s === null || row.s === undefined ? "rest_day" : "workday",
+    pattern: row.name,
+  };
+}
+
 /** The pattern in force for a person on a date, and what it says about that
-    weekday. Falls back: their assignment -> the default pattern -> SHIFT. */
+    weekday. Falls back: their assignment -> the default pattern -> SHIFT.
+
+    TWO QUERIES PER CALL. That is fine for a single lookup - classifying one
+    punch - and ruinous in a loop. Anything iterating over people or dates
+    must use `shiftResolver` instead; see the note there. */
 export async function shiftOn(env: Env, userId: number, iso: string): Promise<DayShift> {
   const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
   const col = DOW_COL[dow]!;
-  const fallback = (): DayShift => {
-    const weekday = dow >= 1 && dow <= 5;
-    return {
-      start: weekday ? SHIFT.startMinutes : null,
-      end: weekday ? SHIFT.endMinutes : null,
-      halfDay: SHIFT.halfDayMinutes,
-      kind: weekday ? "workday" : "rest_day",
-      pattern: SHIFT.label,
-    };
-  };
+  const fallback = (): DayShift => shiftFallback(dow);
   try {
     /* The assignment that had started by this date, newest first. A change
        made in March cannot alter what January was flagged against. */
@@ -129,16 +152,73 @@ export async function shiftOn(env: Env, userId: number, iso: string): Promise<Da
          FROM shift_patterns WHERE is_default = 1 LIMIT 1`,
     ).first<{ name: string; half_day_minutes: number; s: number | null; e: number | null }>();
     if (!use) return fallback();
-    return {
-      start: use.s ?? null,
-      end: use.e ?? null,
-      halfDay: use.half_day_minutes ?? SHIFT.halfDayMinutes,
-      kind: use.s === null || use.s === undefined ? "rest_day" : "workday",
-      pattern: use.name,
-    };
+    return dayShiftFrom(use);
   } catch {
     return fallback(); // pre-0099
   }
+}
+
+/** One person's hours on one date, answered WITHOUT touching the database. */
+export type ShiftLookup = (userId: number, iso: string) => DayShift;
+
+/** v1.77.0 - THE WHOLE SCHEDULE, READ ONCE.
+ *
+ * The Payroll tab took the better part of a minute to show anything and then
+ * said "0 staff". The absence scan was calling `shiftOn` inside two nested
+ * loops - every person, every day of the month - and each call is two remote
+ * D1 queries, awaited one after another. Nine people over August is roughly
+ * five hundred sequential round trips before the page could render a row.
+ * The attendance export was worse: two queries per PUNCH.
+ *
+ * Nothing about the data justified that. There are a handful of patterns and
+ * one assignment row per person per change; the entire schedule of the
+ * company fits in two queries and a few kilobytes. So it is read once, and
+ * every lookup after that is a comparison in memory.
+ *
+ * The rule this encodes: **a shift lookup inside a loop must come from here.**
+ * `shiftOn` stays for the single-punch classifier, where two queries is two
+ * queries. Guard #24 fails the build if a loop reaches for it again.
+ */
+export async function shiftResolver(env: Env): Promise<ShiftLookup> {
+  interface Pat {
+    id: number; name: string; half_day_minutes: number | null; is_default: number;
+    [col: string]: number | string | null;
+  }
+  let pats: Pat[] = [];
+  let assigns: { user_id: number; pattern_id: number; effective_from: string }[] = [];
+  try {
+    pats = (await env.DB.prepare(`SELECT * FROM shift_patterns`).all<Pat>()).results ?? [];
+    /* Newest first, so the first assignment at or before a date wins - the
+       same "latest that had started" rule as the single-row query, kept as a
+       sort rather than a second SQL ORDER BY that could drift from it. */
+    assigns = ((await env.DB.prepare(
+      `SELECT user_id, pattern_id, effective_from FROM staff_shifts`,
+    ).all<{ user_id: number; pattern_id: number; effective_from: string }>()).results ?? [])
+      .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  } catch {
+    return (_u, iso) => shiftFallback(new Date(`${iso}T00:00:00Z`).getUTCDay()); // pre-0099
+  }
+  const byId = new Map(pats.map((p) => [p.id, p]));
+  const def = pats.find((p) => p.is_default === 1) ?? null;
+  const mine = new Map<number, typeof assigns>();
+  for (const a of assigns) {
+    const list = mine.get(a.user_id);
+    if (list) list.push(a);
+    else mine.set(a.user_id, [a]);
+  }
+  return (userId, iso) => {
+    const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
+    const col = DOW_COL[dow]!;
+    const a = mine.get(userId)?.find((x) => x.effective_from <= iso);
+    const p = (a ? byId.get(a.pattern_id) : null) ?? def;
+    if (!p) return shiftFallback(dow);
+    return dayShiftFrom({
+      name: p.name,
+      half_day_minutes: p.half_day_minutes,
+      s: (p[`${col}_start`] as number | null) ?? null,
+      e: (p[`${col}_end`] as number | null) ?? null,
+    });
+  };
 }
 
 /** Every person's shift for one date, in one pass - for the register, the
@@ -146,10 +226,11 @@ export async function shiftOn(env: Env, userId: number, iso: string): Promise<Da
 export async function shiftsOn(env: Env, iso: string): Promise<Map<number, DayShift>> {
   const out = new Map<number, DayShift>();
   try {
+    const at = await shiftResolver(env);
     const { results } = await env.DB.prepare(
       `SELECT id FROM users WHERE role != 'customer' AND is_active = 1`,
     ).all<{ id: number }>();
-    for (const u of results) out.set(u.id, await shiftOn(env, u.id, iso));
+    for (const u of results) out.set(u.id, at(u.id, iso));
   } catch { /* fallback handled per call */ }
   return out;
 }
@@ -2243,16 +2324,16 @@ export async function handleStaff(
        staff member: a pattern with no hours on Saturday makes Saturday a rest
        day for them, and somebody whose pattern works Saturday is not "on the
        weekend" at all. `pending` marks a punch that is a claim, not a record.
-       Resolved once per (person, date) rather than per row. */
-    const shiftCache = new Map<string, DayShift>();
+       v1.77.0 — the whole schedule is read ONCE before the loop. This used to
+       cache per (person, date), which still meant a pair of database queries
+       for every new day in the month. */
+    const shiftAtR = await shiftResolver(env);
     const annotated: Record<string, unknown>[] = [];
     for (const r of results as { user_id: number; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
       const dateIso = myt.toISOString().slice(0, 10);
-      const key = `${r.user_id}|${dateIso}`;
-      let shR = shiftCache.get(key);
-      if (!shR) { shR = await shiftOn(env, r.user_id, dateIso); shiftCache.set(key, shR); }
+      const shR = shiftAtR(r.user_id, dateIso);
       annotated.push({
         ...r,
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
@@ -6644,6 +6725,11 @@ export async function handleStaff(
        WHERE status = 'approved' AND start_date <= ?1 || '-31' AND end_date >= ?1 || '-01'`,
     ).bind(mA2).all<{ user_id: number; type: string; start_date: string; end_date: string }>();
 
+    /* v1.77.0 — read the whole schedule once, BEFORE the two nested loops
+       below. Resolving it per (person, day) inside them was two database
+       round trips per iteration, which is what made the Payroll tab sit at
+       "0 staff" for the better part of a minute. */
+    const shiftAtA = await shiftResolver(env);
     const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] }[] = [];
     for (const u of staffA) {
       /* Hourly part-timers are paid by the clock already - a day they did not
@@ -6658,7 +6744,7 @@ export async function handleStaff(
            pattern that does not work this day is not absent from it, and
            somebody on 11:00-19:00 is measured against eight of their own
            hours, not against a day that ended at 18:00. */
-        const shD = await shiftOn(env, u.id, d);
+        const shD = shiftAtA(u.id, d);
         if (shD.kind === "rest_day") continue;
         const scheduled = shD.start !== null && shD.end !== null
           ? shD.end - shD.start : WORK_DAY_MINUTES;
@@ -7057,12 +7143,17 @@ export async function handleStaff(
     /* v1.76.0 — flagged against the person's OWN schedule on that date, and
        the export says which schedule, so a payroll query about a late flag
        can be answered without guessing which hours were in force. */
+    /* v1.77.0 — once, before the loop. This was two database queries per
+       PUNCH: a month of attendance for nine people is several hundred rows,
+       so the export spent its entire time asking the same handful of
+       patterns over and over. */
+    const shiftAtE = await shiftResolver(env);
     const rows: (string | number)[][] = [];
     for (const r of results as { user_id: number; name: string; email: string; employee_id: string | null; type: string; created_at: string }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
       const date = myt.toISOString().slice(0, 10);
-      const shE = await shiftOn(env, r.user_id, date);
+      const shE = shiftAtE(r.user_id, date);
       const flag = shE.kind === "rest_day" ? "rest_day"
         : r.type === "clock_in" && shE.start !== null && minutes > shE.start ? "late"
         : r.type === "clock_out" && shE.end !== null && minutes < shE.end ? "early_out"

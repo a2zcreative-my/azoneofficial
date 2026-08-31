@@ -14,6 +14,16 @@ Three different symptoms, one theme. **A button either does what it says or tell
 
 **Offboarding called an address nobody was listening at.** The staff directory builds its requests with the staff-portal prefix, so `/users/12/offboard` went out as `/api/v1/staff/users/12/offboard`. The real route is `/api/v1/users/12/offboard` — offboarding kills sessions and clears two-factor, so it lives with the account-lifecycle routes rather than in the portal. The handler was perfect. The address was wrong. One call site now uses the API root.
 
+### Offboarding asks for the last day
+
+**CEO:** *"offboard should I can insert the date of their resignation which is to ensure that I can insert correctly instead of capture to today date"*.
+
+The button stamped **today**, which is only correct if you offboard somebody the moment they walk out — and notice is normally served in advance, so the common case was the wrong one. The date is not decoration: `left_on` is what payroll prorates a final month on, so a day out is money out.
+
+The dialog now asks for the last day, pre-filled with today in **Malaysia** time (the same expression the worker uses, so a laptop left on UTC cannot propose yesterday) and refusing to submit while it is empty. The confirmation reads the date back. And the server no longer replaces a date it cannot parse with today: a value that was sent and is not a date is a 400, because a silent substitution there is a final salary computed against a day nobody chose, printed on a payslip, with nothing saying it happened. Omitting the field entirely still means today, so an older client keeps working.
+
+`usePrompt` gained a date-only mode (`text: false`) and a `danger` button, rather than growing a second bespoke modal.
+
 ### The audit he asked for
 
 Every mutating call in all 64 client files, read in turn. Nine actions changed money, time off or a record and then said nothing:
@@ -32,6 +42,18 @@ Every mutating call in all 64 client files, read in turn. Nine actions changed m
 - **`action-feedback`** — a DELETE must report, and anything gated behind *"are you sure?"* must report. Its first draft read forty lines around each call and passed a deliberately silent delete, because a helper defined underneath it happened to show a message. It reads the enclosing function now: what the code three lines down does is not evidence about this call.
 - **`api-routes`** — resolves all 342 API calls in the portal to the path they actually put on the wire, and checks each against the routes the worker really serves. Nothing else could have caught the Offboard bug: both sides are strings, TypeScript sees two valid strings, and the handler it was looking for is genuinely there.
 - **`worker-compile-gate`** — already ran the real compiler over the API, already saw the crash (`TS2448`), and passed it anyway, because it was being counted among the pre-existing strict-mode complaints it ignores by design. *Used before its declaration* is not an opinion about strictness; it is a name that will not exist when the line runs, which is the same bug as the 19-08 outage. It is fatal now.
+
+### The Payroll tab was taking the better part of a minute
+
+**CEO:** *"why seem too take longer to load? this is abnormal!"* — with the tab showing **TOTAL — 0 staff**.
+
+Two separate faults, both introduced with the shift schedules in v1.76.0.
+
+**The scan asked the database the same question five hundred times.** Resolving one person's hours on one date is two queries. The absence scan did that inside two nested loops — every person, every day of the month — and the attendance export did it *per punch*. Nothing about the data justified it: there are a handful of patterns and one row per assignment, so the entire schedule of the company now loads in **two queries** and every lookup after that is a comparison in memory.
+
+**And the table was waiting for it.** The scan was `await`ed in the middle of the panel's load, and the salary table is only drawn at the end — so the whole tab sat behind it, reading "TOTAL — 0 staff", which looks exactly like a payroll with nobody in it. The scan is a suggestion card; it can arrive late. The table cannot.
+
+Guard #24 gained the invariant, stated as something checkable rather than as advice: **no shift lookup may sit inside a loop** (brace-tracked, because a line window cannot tell where a loop ends), and the payroll table must not await the scan.
 
 ### Notes
 

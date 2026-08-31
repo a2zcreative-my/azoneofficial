@@ -4441,7 +4441,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     let bodyOb: { left_on?: string; status?: string } = {};
     try { bodyOb = await request.json(); } catch { /* defaults below */ }
-    const leftOn = typeof bodyOb.left_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(bodyOb.left_on)
+    /* v1.77.0 — a date that was SENT and is not a date is now refused rather
+       than quietly replaced with today. Omitting it still means today, which
+       is what an older client does; but the CEO now picks the last day in the
+       dialog, and `left_on` is what payroll prorates the final month on. A
+       silent substitution there is a salary computed against a day nobody
+       chose, printed on a payslip, with nothing anywhere saying it happened. */
+    if (bodyOb.left_on !== undefined &&
+        !(typeof bodyOb.left_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(bodyOb.left_on))) {
+      return errorResponse("invalid_input", "Last day must be a date (YYYY-MM-DD)", 400);
+    }
+    const leftOn = typeof bodyOb.left_on === "string"
       ? bodyOb.left_on
       : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const statusOb = bodyOb.status === "terminated" ? "terminated" : "resigned";
