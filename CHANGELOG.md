@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.77.0] — 2026-08-31 — buttons that answer
+
+**CEO:** *"on the Task, there is no popup box to show if there is any task successfully deleted. I also want to make sure that all this being done globally, you require to audit all the files in this project to ensure that all is globally!"* — then, an hour later, two things that were plainly broken: a "no clock-in" chip that answered *"Something went wrong"*, and **Offboard** that answered *"Staff route not found"*.
+
+Three different symptoms, one theme. **A button either does what it says or tells you why not.**
+
+### The two that were broken
+
+**Marking a day unpaid crashed.** The route read `WORK_DAY_MINUTES` — a `const` declared about a hundred lines *further down the same function*. JavaScript does not hoist a value into that gap; it throws. The constant now sits at module scope, initialised before any request exists.
+
+**Offboarding called an address nobody was listening at.** The staff directory builds its requests with the staff-portal prefix, so `/users/12/offboard` went out as `/api/v1/staff/users/12/offboard`. The real route is `/api/v1/users/12/offboard` — offboarding kills sessions and clears two-factor, so it lives with the account-lifecycle routes rather than in the portal. The handler was perfect. The address was wrong. One call site now uses the API root.
+
+### The audit he asked for
+
+Every mutating call in all 64 client files, read in turn. Nine actions changed money, time off or a record and then said nothing:
+
+- **deleting a task** (his own report) — now says so, and says it differently when the server refuses
+- **deciding somebody's leave**, and the **CEO override** that bypasses the HOD
+- **approving or rejecting overtime**
+- **removing a commission rule**
+- **crediting a supplier return** and **recording a replacement** — money coming back, recorded in silence
+- **deleting a supplier return** — a dialog promising stock movement, then nothing
+- **deleting a company event** — every member of staff is notified when one is created; removing one was mute, and did not even check whether the server agreed
+- **deleting a file from a staff member's document vault** — and **uploading one**, which succeeded and failed identically. Somebody who uploads a signed contract and sees nothing assumes it is filed. The vault is its own component, so it now carries its own toast rather than borrowing the directory's.
+
+### Three guards, so this is the last time
+
+- **`action-feedback`** — a DELETE must report, and anything gated behind *"are you sure?"* must report. Its first draft read forty lines around each call and passed a deliberately silent delete, because a helper defined underneath it happened to show a message. It reads the enclosing function now: what the code three lines down does is not evidence about this call.
+- **`api-routes`** — resolves all 342 API calls in the portal to the path they actually put on the wire, and checks each against the routes the worker really serves. Nothing else could have caught the Offboard bug: both sides are strings, TypeScript sees two valid strings, and the handler it was looking for is genuinely there.
+- **`worker-compile-gate`** — already ran the real compiler over the API, already saw the crash (`TS2448`), and passed it anyway, because it was being counted among the pre-existing strict-mode complaints it ignores by design. *Used before its declaration* is not an opinion about strictness; it is a name that will not exist when the line runs, which is the same bug as the 19-08 outage. It is fatal now.
+
+### Notes
+
+- No migration. Nothing to apply.
+- 27 guards.
+
 ## [1.76.0] — 2026-08-30 — working hours become a schedule
 
 **CEO:** *"clock in/out should capture their clock working hour which is 10am to 6pm for Monday to Thursday, Friday 10am to 5:30pm... if they forget to clock in or clock out, they will be able to clock in and out but system will require them to get the approval... The approval will be require CEO... then CEO will update the clock in/out time during the approval... on weekend the system should be able to capture it is out of working day... I want to have the working hour schedule for me to setup their working hours so that system able to capture their working hours without everything dump into 1 working hour."*

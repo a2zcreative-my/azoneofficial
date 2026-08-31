@@ -49,6 +49,8 @@ const GUARDS = [
   ["csv-export", "an export Excel reads correctly, holding exactly the rows on screen"],
   ["payroll-days", "only a joiner or a leaver is prorated, and approved paid leave never costs a ringgit"],
   ["shift-schedule", "hours come from each person's schedule, and an unapproved punch counts for nothing"],
+  ["action-feedback", "nothing destructive happens in silence — a delete says so, either way"],
+  ["api-routes", "every path the portal calls is one the worker answers at (the Offboard 404)"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

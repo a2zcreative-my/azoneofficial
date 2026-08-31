@@ -76,6 +76,18 @@ const SHIFT = {
   endMinutes: 18 * 60,
 } as const;
 
+/** 8 hours, break included (CEO). The unit a partial unpaid day is measured
+    against.
+
+    MODULE SCOPE ON PURPOSE. This lived inside handleStaff, declared beside the
+    payable-days helpers - about a hundred lines BELOW the /attendance/unpaid
+    POST route that reads it. `const` does not hoist a value: the route entered
+    its temporal dead zone and threw ReferenceError, so every click on a
+    "no clock-in" chip came back as "Something went wrong". esbuild does not
+    catch that; only running it does. Up here it is initialised before any
+    request handler exists, and cannot be re-broken by moving a route. */
+export const WORK_DAY_MINUTES = 8 * 60;
+
 /** One person's hours on one date: NULL start = not a working day for them. */
 export interface DayShift {
   start: number | null;
@@ -6138,8 +6150,8 @@ export async function handleStaff(
      the difference is zero. No special case, no flag - the formula is the
      rule. */
 
-  /** 8 hours, break included (CEO). The unit a partial unpaid day is measured against. */
-  const WORK_DAY_MINUTES = 8 * 60;
+  /* WORK_DAY_MINUTES is at module scope - see the note beside it. It is read
+     by /attendance/unpaid, which is routed above this point. */
 
   /** Every working day in a month: Mon-Fri minus the company calendar. */
   const workingDayList = async (month: string): Promise<string[]> => {

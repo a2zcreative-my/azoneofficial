@@ -15,6 +15,15 @@
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
+/* v1.77.0 — offboarding is NOT a staff-portal route. It is served at
+   /api/v1/users/:id/offboard in the worker's own dispatcher, next to the
+   other account-lifecycle routes, because it kills sessions and clears 2FA.
+   Calling it through the staff-scoped helper produced
+   /api/v1/staff/users/42/offboard, which handleStaff does not serve, so the
+   CEO's Offboard button answered "Staff route not found" every time.
+   tests/api-routes.mjs now checks every client path against the routes the
+   worker actually serves, so a helper with the wrong base cannot ship again. */
+const apiRoot = makeApi("");
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { esc, safeUrl } from "@/lib/escape-html";
 import { dmy } from "@/lib/format";
@@ -830,7 +839,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                         confirmLabel: L("Offboard", "Tamatkan khidmat"), variant: "danger",
                       }).then(async (ok) => {
                         if (!ok) return;
-                        const res = await api<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({}) });
+                        const res = await apiRoot<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({}) });
                         if (res.ok) {
                           showToast(L("Offboarded", "Khidmat ditamatkan"), `${displayName(u)} — ${L("resigned, signed out everywhere, 2FA cleared", "letak jawatan, dilog keluar di semua peranti, 2FA dibuang")}`);
                           void load();
@@ -964,6 +973,10 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   const [onb, setOnb] = useState<Record<string, boolean>>({});
   const [kind, setKind] = useState("contract");
   const [loaded, setLoaded] = useState(false);
+  /* v1.77.0 — the vault is its own component, so it needs its own toast.
+     The directory's showToast belongs to the list above and is not in scope
+     here; reaching for it is what broke the 31-08 website build. */
+  const { show: vaultToast, node: vaultToastNode } = useSaveToast();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const load = async () => {
     const r = await api<{ documents?: Doc[]; onboarding?: Record<string, boolean> }>(`/users/${userId}/documents`);
@@ -972,7 +985,9 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   };
   useEffect(() => { void load(); }, [userId]);
   const upload = async (f: File) => {
-    await csrfFetch(`${API}/users/${userId}/documents`, {
+    /* v1.77.0 — this used to succeed and fail identically. Somebody who
+       uploads a signed contract and sees nothing assumes it is filed. */
+    const res = await csrfFetch(`${API}/users/${userId}/documents`, {
       method: "POST",
       headers: {
         "Content-Type": f.type || "application/octet-stream",
@@ -980,6 +995,9 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
       },
       body: f,
     });
+    vaultToast(res.ok ? L("Document uploaded", "Dokumen dimuat naik") : L("Not uploaded", "Tidak dimuat naik"),
+      res.ok ? `${f.name} — ${name}` : L("The file did not save — try again", "Fail tidak disimpan — cuba lagi"),
+      res.ok ? undefined : "notice");
     void load();
   };
   const toggle = async (key: string) => {
@@ -991,6 +1009,7 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   const KIND_LABEL: Record<string, string> = { contract: L("Contract", "Kontrak"), offer_letter: L("Offer letter", "Surat tawaran"), resignation: L("Resignation", "Peletakan jawatan"), other: L("Other", "Lain-lain") };
   return (
     <div className="border-border mt-3 rounded-lg border p-3">
+      {vaultToastNode}
       <p className="text-xs font-semibold">📁 {L("Documents & onboarding", "Dokumen & onboarding")} — {name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select className="border-input bg-background rounded border px-2 py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -1012,8 +1031,18 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
               </span>
               <span className="flex items-center gap-2">
                 <a className={rowBtn} href={`${API}/staff-documents/${d.id}`}>{L("Download", "Muat turun")}</a>
+                {/* v1.77.0 — deleting somebody's document said nothing.
+                    A file in a staff vault is exactly the thing you want a
+                    receipt for. */}
                 <button type="button" className="text-destructive underline"
-                  onClick={async () => { await api(`/staff-documents/${d.id}`, { method: "DELETE" }); void load(); }}>{L("Delete", "Padam")}</button>
+                  onClick={async () => {
+                    const res = await api<{ error?: { message?: string } }>(`/staff-documents/${d.id}`, { method: "DELETE" });
+                    vaultToast(res.ok ? L("Document deleted", "Dokumen dipadam") : L("Not deleted", "Tidak dipadam"),
+                      res.ok ? (d.filename ?? d.label ?? L("The file is gone.", "Fail telah hilang."))
+                             : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+                      res.ok ? undefined : "notice");
+                    void load();
+                  }}>{L("Delete", "Padam")}</button>
               </span>
             </div>
           ))}

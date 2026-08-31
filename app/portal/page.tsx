@@ -3645,8 +3645,18 @@ function UpcomingEventsCard({ role }: { role: string }) {
     void loadEvents();
   };
 
+  /* v1.77.0 — this used to delete and say nothing, not even checking whether
+     the server agreed. Creating an event notifies every member of staff; the
+     person removing one deserves at least to know it went. */
   const removeEvent = async (id: number) => {
-    await api(`/staff/events/${id}`, { method: "DELETE" });
+    const res = await api(`/staff/events/${id}`, { method: "DELETE" });
+    showToast(
+      res.ok ? L("Event removed", "Acara dibuang") : L("Not removed", "Tidak dibuang"),
+      res.ok
+        ? L("It is off the calendar", "Ia telah keluar dari kalendar")
+        : L("The event is still there — try again", "Acara masih ada — cuba lagi"),
+      res.ok ? undefined : "notice",
+    );
     void loadEvents();
   };
 
@@ -5764,6 +5774,7 @@ function Leave({ user }: { user: User }) {
     "ceo",
   ].includes(user.role);
   const { confirm: askOverride, node: overrideConfirmNode } = useConfirm();
+  const { show: showLeaveToast, node: leaveToastNode } = useSaveToast();
 
   const load = useCallback(async () => {
     const b = await api<{ balances: typeof balances }>(`/staff/leave/balance`);
@@ -5799,10 +5810,26 @@ function Leave({ user }: { user: User }) {
     void load();
   };
   const act = async (id: number, action: string, comment = "") => {
-    await api(`/staff/leave/${id}`, {
+    /* v1.77.0 — approving or rejecting somebody's leave used to report
+       nothing at all: the row simply moved. A decision about a person's time
+       off should say what it did. */
+    const res = await api<{ stage?: string; error?: { message?: string } }>(`/staff/leave/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ action, comment }),
     });
+    if (!res.ok) {
+      showLeaveToast(L("Not changed", "Tidak diubah"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showLeaveToast(
+      action === "reject" ? L("Rejected", "Ditolak")
+      : action === "cancel" ? L("Cancelled", "Dibatalkan")
+      : res.data?.stage === "approved" ? L("Approved", "Diluluskan") : L("Passed on", "Dihantar ke peringkat seterusnya"),
+      action === "cancel"
+        ? L("Your application has been withdrawn.", "Permohonan anda telah ditarik balik.")
+        : L("The staff member has been notified.", "Kakitangan telah dimaklumkan."),
+    );
     void load();
   };
   /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
@@ -5833,10 +5860,20 @@ function Leave({ user }: { user: User }) {
       }))
     )
       return;
-    await api(`/staff/leave/${l.id}`, {
+    const res = await api<{ error?: { message?: string } }>(`/staff/leave/${l.id}`, {
       method: "PATCH",
       body: JSON.stringify({ action, override: true }),
     });
+    if (!res.ok) {
+      showLeaveToast(L("Not changed", "Tidak diubah"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showLeaveToast(
+      action === "approve" ? L("Approved by you", "Diluluskan oleh anda") : L("Rejected", "Ditolak"),
+      L(`${nm} has been notified. The stages that were skipped stay blank on the form.`,
+        `${nm} telah dimaklumkan. Peringkat yang dilangkau kekal kosong pada borang.`),
+    );
     void load();
   };
 
@@ -5848,6 +5885,7 @@ function Leave({ user }: { user: User }) {
   return (
     <div className="space-y-4 md:space-y-6">
       {overrideConfirmNode}
+      {leaveToastNode}
       {canSetEntitlement && <LeaveEntitlement />}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
@@ -6200,6 +6238,7 @@ function Tasks({ user }: { user: User }) {
   const [openTask, setOpenTask] = useState<number | null>(null);
   const [items, setItems] = useState<TaskItem[] | null>(null);
   const { confirm: askDelete, node: deleteConfirmNode } = useConfirm();
+  const { show: showTaskToast, node: taskToastNode } = useSaveToast();
   const canManage = MANAGE_ROLES.includes(user.role);
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -6295,13 +6334,25 @@ function Tasks({ user }: { user: User }) {
       }))
     )
       return;
-    await api(`/staff/tasks/${t.id}`, { method: "DELETE" });
+    const res = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}`, { method: "DELETE" });
+    /* v1.77.0 (CEO: "there is no popup box to show if there is any task
+       successfully deleted") — a destructive action that says nothing leaves
+       the person unsure whether it happened, and the row vanishing could just
+       as easily be a filter. Both outcomes are now spoken. */
+    if (!res.ok) {
+      showTaskToast(L("Not deleted", "Tidak dipadam"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showTaskToast(L("Task deleted", "Tugasan dipadam"),
+      L(`"${t.title}" and everything on it is gone.`, `"${t.title}" dan segalanya padanya telah hilang.`));
     void load();
   };
 
   return (
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       {deleteConfirmNode}
+      {taskToastNode}
       <div className={card}>
         <p className="text-sm font-semibold">
           {canManage
@@ -7058,6 +7109,7 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
+  const { show: showOtToast, node: otToastNode } = useSaveToast();
   const load = async () => {
     const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
     if (r.ok) setPending(r.data?.pending ?? []);
@@ -7080,7 +7132,7 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
       }))
     )
       return;
-    await api(`/staff/attendance/ot/decide`, {
+    const res = await api<{ error?: { message?: string } }>(`/staff/attendance/ot/decide`, {
       method: "POST",
       body: JSON.stringify({
         user_id: p.user_id,
@@ -7089,9 +7141,21 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
         note: note[`${p.user_id}:${p.d}`] || undefined,
       }),
     });
+    /* v1.77.0 — an OT decision is money. It says so now. */
+    if (!res.ok) {
+      showOtToast(L("Not changed", "Tidak diubah"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showOtToast(
+      decision === "approved" ? L("OT approved", "OT diluluskan") : L("OT rejected", "OT ditolak"),
+      L(`${properName(p.name)} · ${dmy(p.d)} — they have been notified.`,
+        `${properName(p.name)} · ${dmy(p.d)} — mereka telah dimaklumkan.`),
+      decision === "approved" ? undefined : "notice",
+    );
     void load();
   };
-  if (!loaded || pending.length === 0) return <>{otConfirmNode}</>;
+  if (!loaded || pending.length === 0) return <>{otConfirmNode}{otToastNode}</>;
   const dur = (p: Pend) => {
     if (!p.ot_in || !p.ot_out) return "";
     const [h1, m1] = p.ot_in.split(":").map(Number);
@@ -7123,6 +7187,7 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
   return (
     <>
       {otConfirmNode}
+      {otToastNode}
       {wrapCard(
         <>
           {pending.map((p) => (
@@ -11758,9 +11823,19 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
                 type="button"
                 className={`${btnSm} text-destructive`}
                 onClick={async () => {
-                  await api(`/staff/commission/rules/${r.id}`, {
-                    method: "DELETE",
-                  });
+                  /* v1.77.0 — a rule that pays commission, removed in
+                     silence. Both outcomes are spoken now. */
+                  const res = await api<{ error?: { message?: string } }>(
+                    `/staff/commission/rules/${r.id}`,
+                    { method: "DELETE" },
+                  );
+                  showToast(
+                    res.ok ? L("Rule removed", "Peraturan dibuang") : L("Not removed", "Tidak dibuang"),
+                    res.ok
+                      ? L("It no longer applies to new commission.", "Ia tidak lagi digunakan untuk komisen baharu.")
+                      : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+                    res.ok ? undefined : "notice",
+                  );
                   loadRules();
                 }}
               >

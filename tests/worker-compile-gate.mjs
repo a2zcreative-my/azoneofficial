@@ -71,14 +71,35 @@ if (lines.some((l) => /TS2688|Cannot find type definition file/.test(l))) {
   process.exit(1);
 }
 
-const fatal = lines.filter((l) => /error TS2304|error TS2552/.test(l));
+/* v1.77.0 — TS2448 and TS2454 join the fatal list.
+ *
+ * The CEO clicked a "no clock-in" chip and got "Something went wrong". The
+ * route read WORK_DAY_MINUTES, a `const` declared about a hundred lines
+ * FURTHER DOWN the same function: a temporal dead zone, ReferenceError, 500.
+ * Twice in two days — /payroll/absences was the same shape.
+ *
+ * This gate ran over that code and passed it. Not because it could not see it
+ * — tsc reports it precisely, as TS2448 — but because it was being counted
+ * among the "pre-existing strict-mode warnings ignored by design". It is not
+ * one of those. `url is not defined` (TS2304) and `used before its
+ * declaration` (TS2448) are the same bug wearing different hats: an
+ * identifier that is not there at the moment the line runs, esbuild strips
+ * the types and ships it, and the first person to press the button gets a
+ * 500. The tolerated list is for opinions about strictness, not for names
+ * that will not exist.
+ *
+ * There are zero of these in the worker today, so promoting them costs
+ * nothing and shuts the door that let two through. */
+const fatal = lines.filter((l) => /error TS2304|error TS2552|error TS2448|error TS2454/.test(l));
 const tolerated = lines.filter((l) => /error TS\d+/.test(l)).length - fatal.length;
 
 if (fatal.length > 0) {
   console.error("");
-  console.error("[X] THE API CODE REFERENCES SOMETHING THAT DOES NOT EXIST.");
-  console.error("    Deploying this would throw at runtime on every affected");
-  console.error("    request — the 19-08 login outage was exactly this.");
+  console.error("[X] THE API CODE USES A NAME THAT IS NOT THERE YET.");
+  console.error("    Either it does not exist at all, or it is declared further");
+  console.error("    down than the line that reads it. Both throw at runtime on");
+  console.error("    every affected request — the 19-08 login outage was the");
+  console.error("    first kind, the 31-08 attendance 500 was the second.");
   console.error("");
   for (const l of fatal) console.error("    " + l);
   console.error("");

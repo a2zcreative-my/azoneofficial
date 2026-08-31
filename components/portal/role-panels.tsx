@@ -1509,7 +1509,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           onChange={(e) => setCreditAmt(e.target.value)} />
                         <button type="button" className="text-xs font-medium underline"
                           onClick={async () => {
-                            await api(`/inventory/returns/${r.id}/credit`, { method: "POST", body: JSON.stringify({ credited: creditAmt.trim() === "" ? undefined : Number(creditAmt) }) });
+                            /* v1.77.0 — money coming back from a supplier,
+                               recorded in silence. It says so now. */
+                            const res = await api<{ error?: { message?: string } }>(`/inventory/returns/${r.id}/credit`, { method: "POST", body: JSON.stringify({ credited: creditAmt.trim() === "" ? undefined : Number(creditAmt) }) });
+                            invToast(res.ok ? L("Credit recorded", "Kredit direkodkan") : L("Not recorded", "Tidak direkodkan"),
+                              res.ok ? L("The return is credited against the supplier.", "Pemulangan dikreditkan kepada pembekal.")
+                                     : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+                              res.ok ? undefined : "notice");
                             setCreditingId(null); setCreditAmt("");
                             void load();
                           }}>
@@ -1526,7 +1532,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           onChange={(e) => setReplaceQty(e.target.value)} />
                         <button type="button" className="text-xs font-medium underline"
                           onClick={async () => {
-                            await api(`/inventory/returns/${r.id}/replace`, { method: "POST", body: JSON.stringify({ qty: replaceQty.trim() === "" ? undefined : Number(replaceQty) }) });
+                            /* v1.77.0 — a replacement moves stock. Silence
+                               here meant nobody knew whether it had. */
+                            const res = await api<{ error?: { message?: string } }>(`/inventory/returns/${r.id}/replace`, { method: "POST", body: JSON.stringify({ qty: replaceQty.trim() === "" ? undefined : Number(replaceQty) }) });
+                            invToast(res.ok ? L("Replacement recorded", "Gantian direkodkan") : L("Not recorded", "Tidak direkodkan"),
+                              res.ok ? L("Stock has been put back for the replaced pieces.", "Stok dipulangkan bagi barang yang diganti.")
+                                     : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+                              res.ok ? undefined : "notice");
                             setReplacingId(null); setReplaceQty("");
                             void load();
                           }}>
@@ -1563,7 +1575,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
                           message: `${r.qty} × ${r.sku} ${L("goes back into stock and the", "kembali ke dalam stok dan rekod tuntutan")} ${rmR(r.total_cents)} ${L("claim record is removed.", "dibuang.")}`,
                           confirmLabel: L("Delete return", "Padam pemulangan"), variant: "danger",
                         }))) return;
-                        await api(`/inventory/returns/${r.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                        /* v1.77.0 — the dialog above promises that stock moves
+                           and a claim record disappears. Doing all of that and
+                           then saying nothing is the worst of both. */
+                        const res = await api<{ error?: { message?: string } }>(`/inventory/returns/${r.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                        invToast(res.ok ? L("Return deleted", "Pemulangan dipadam") : L("Not deleted", "Tidak dipadam"),
+                          res.ok ? `${r.qty} × ${r.sku} ${L("is back in stock", "kembali dalam stok")}`
+                                 : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+                          res.ok ? undefined : "notice");
                         void load();
                       }}>
                       {L("Delete", "Padam")}
