@@ -43,6 +43,52 @@ Every mutating call in all 64 client files, read in turn. Nine actions changed m
 - **`api-routes`** — resolves all 342 API calls in the portal to the path they actually put on the wire, and checks each against the routes the worker really serves. Nothing else could have caught the Offboard bug: both sides are strings, TypeScript sees two valid strings, and the handler it was looking for is genuinely there.
 - **`worker-compile-gate`** — already ran the real compiler over the API, already saw the crash (`TS2448`), and passed it anyway, because it was being counted among the pre-existing strict-mode complaints it ignores by design. *Used before its declaration* is not an opinion about strictness; it is a name that will not exist when the line runs, which is the same bug as the 19-08 outage. It is fatal now.
 
+### A month of unpaid leave still paid five Saturdays
+
+**CEO:** *"Zul Hisyam should entitle 2 PH but seem like the payroll make it around 5++ which is not correct! you have to audit it to ensure that I didnt pay something that incorrect and overpaid!"*
+
+He was right, and both halves of his sentence were exact. Zul was absent every one of August's 19 working days. Unpaid leave deducts at the Employment Act's ordinary rate — monthly wage ÷ 26 — so 19 days took RM1,461.54 and left **RM538.46 for a month in which he did nothing**. That residue is exactly seven days: his 2 public holidays, and 5 Saturdays.
+
+**The cause is a divisor mismatch, not a rounding error.** The 1/26 rate assumes a six-day week, one rest day in seven. This company works five days. So no number of unpaid working days can ever reach the whole salary, and anyone with heavy unpaid leave was affected — not just Zul.
+
+**The rule, of three put to the CEO:** a week in which *every* one of that person's working days is unpaid also loses that week's rest days. Rest days are earned by working the week. It was chosen over a flat "absent all month = nothing" because it has no cliff — a heavily-but-not-wholly unpaid month tapers instead of jumping — and over leaving it alone because leaving it alone pays Saturdays to somebody who was not there.
+
+**Public holidays are never touched**, by the rule or by the cap beneath it. Section 60D(2) removes holiday pay only for absence *without* the employer's consent, and recorded unpaid leave is consented absence. That is the whole of the CEO's "2 PH".
+
+| | before | after |
+|---|---|---|
+| Zul Hisyam — all 19 days unpaid | RM538.46 | **RM153.85** (his 2 public holidays) |
+| 15 of 19 unpaid (3 whole weeks) | RM846.15 | RM384.62 |
+| Nur Nasuha — 2.75 days scattered | RM1,788.46 | **unchanged** |
+
+The cap is a second fix in its own right: incomplete-month and unpaid leave were two independent deductions that together could exceed the basic and print a **negative payslip**. They cannot now.
+
+### Working on a public holiday now pays what the Act says
+
+**CEO:** *"if they are working on Public Holiday, then only will be paid as double. if they are not working on public holiday consider that they will receive 1 day of paid instead of double paid of working day which is we need to follow on the regulation"*.
+
+Until now the payroll paid **nothing extra** for a public holiday worked. The holiday was already inside the monthly salary — that is the "1 day of paid" for not working — but a person who clocked in on Merdeka Day was paid exactly the same as one who stayed home.
+
+The rate was confirmed with the CEO against the Act rather than the word "double": **Employment Act 1955 s.60D(3)(a)(i)** — an employee who works on a paid holiday is paid *two days' wages at the ordinary rate of pay in addition to* the holiday pay. So one public holiday worked adds 2 × (basic ÷ 26) to the month: **+RM153.85 on RM2,000.** A part-time hourly host follows the Employment (Part-Time Employees) Regulations 2010 instead — twice the hourly rate — so the hours on that day earn a second RM15/h.
+
+What counts as worked: an **approved** clock-in (a pending claim earns nothing) on a date the holiday calendar marks *public* or *replacement*. A *company* day off is the company's gift, not a gazetted holiday, and carries no statutory premium.
+
+One resolver, four surfaces — the payslip, the panel's figures, `/payroll/recompute` and the hourly save. The payslip carries it as its own earnings line naming the days; the row shows it under BASIC in green; the totals row shows how much of the month's basic is holiday premium. Guard #23 runs the arithmetic and refuses a build where any of the four surfaces forgets it, where a company day starts paying it, or where "double" quietly becomes one day.
+
+### A returning employee was charged for every day since they first left
+
+`employedDays` — which decides how much of a month somebody is paid for — read `Joined on` and `End date` and **ignored `Re-joined on` entirely**, though the field has existed since v1.4.101 and the staff list already honours it. Anyone who resigned and came back was prorated away from their old leaving date, silently, for as long as that date sat in their record. Threaded through all six call sites.
+
+### Five copies of one formula became one
+
+The unpaid deduction was written out in the payslip, in `/payroll/recompute` (which is what *writes* `net_cents`), and three times in the browser. A rule with a week clause and a public-holiday floor cannot survive five copies — the first one anybody forgot would be a row disagreeing with its own payslip. There is now **one resolver** in the worker, called by all three server surfaces, and a runnable twin in `lib/payroll-days.ts` that guard #23 executes against the real August figures. The browser no longer derives per-day pay at all; it prints the server's number, and the guard fails on *any* `÷ 26` arithmetic reappearing in the panel.
+
+### And the reason is on the screen
+
+The red line under a net said `− RM 1,052.63 auto`, with the explanation hidden in a hover tooltip. Two completely different deductions rendered identically — unpaid leave at 1/26, and an incomplete month at 1/working-days. That is how a RM1,052.63 charge sat on Nurfarah Suaidah's row unexplained. Every automatic deduction now says what it is, in words, on the row and on the payslip.
+
+Her row also exposed something no formula can settle: the system had her **employed for 9 of 19 working days but clocked in on 12**. Both cannot be true; one of her employment dates is wrong. The payroll now flags that contradiction on the row rather than quietly charging for the difference — a warning, not a block, so a genuine edge case can still be processed.
+
 ### The Payroll tab was taking the better part of a minute
 
 **CEO:** *"why seem too take longer to load? this is abnormal!"* — with the tab showing **TOTAL — 0 staff**.

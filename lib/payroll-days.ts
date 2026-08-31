@@ -67,3 +67,99 @@ export function unpaidDaysFromHours(hoursWorked: number): number {
 export function unpaidCents(monthlyWageCents: number, days: number): number {
   return days > 0 ? Math.round((monthlyWageCents / 26) * days) : 0;
 }
+
+/** Monday of the week a date falls in. */
+export function mondayOf(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+export interface UnpaidInput {
+  basicCents: number;
+  /** The person's working days in the month, after employment dates. */
+  workingDays: string[];
+  /** Days of the month that are neither working days nor public holidays. */
+  restDays: string[];
+  /** Public holidays inside the person's employment. */
+  publicHolidays: number;
+  /** Dates unpaid for the WHOLE day. A part day is not a day nobody worked. */
+  fullyUnpaid: string[];
+  /** Total recorded unpaid days, fractions included. */
+  unpaidDays: number;
+  /** The incomplete-month deduction already being taken, in sen. */
+  incompleteCents: number;
+}
+
+export interface UnpaidResult { days: number; restDays: number; cents: number; capped: boolean }
+
+/**
+ * THE UNPAID-LEAVE DEDUCTION (v1.77.0).
+ *
+ * CEO, 31-08-2026: *"Zul Hisyam should entitle 2 PH but seem like the payroll
+ * make it around 5++ which is not correct!"* He was right. Unpaid leave
+ * deducts at the Employment Act's 1/26 ordinary rate, and 26 assumes a SIX-day
+ * week. This company works five. So a person absent every one of August's 19
+ * working days lost only 19/26 and kept 7/26 — RM 538.46 for a month in which
+ * they did nothing, being the five Saturdays plus the two public holidays.
+ *
+ * THE RULE: a week in which every one of that person's working days is unpaid
+ * also loses that week's rest days. Rest days are earned by working the week.
+ * Chosen over "absent all month = nothing" because it has no cliff, and over
+ * leaving it alone because leaving it alone pays Saturdays to somebody who
+ * was not there.
+ *
+ * PUBLIC HOLIDAYS SURVIVE, always. s.60D(2) removes holiday pay only for
+ * absence WITHOUT consent; recorded unpaid leave is consented absence. The cap
+ * also stops incomplete-month and unpaid together exceeding the basic, which
+ * they could before — and would have printed a negative payslip.
+ */
+export function unpaidDeduction(inp: UnpaidInput): UnpaidResult {
+  const orp = inp.basicCents / 26;
+  if (!(inp.unpaidDays > 0)) return { days: 0, restDays: 0, cents: 0, capped: false };
+  const fully = new Set(inp.fullyUnpaid);
+  const byWeek = new Map<string, string[]>();
+  for (const d of inp.workingDays) {
+    const k = mondayOf(d);
+    const list = byWeek.get(k);
+    if (list) list.push(d); else byWeek.set(k, [d]);
+  }
+  const restByWeek = new Map<string, number>();
+  for (const d of inp.restDays) {
+    const k = mondayOf(d);
+    restByWeek.set(k, (restByWeek.get(k) ?? 0) + 1);
+  }
+  let restDays = 0;
+  for (const [k, work] of byWeek) {
+    /* A week with none of their working days in it cannot be a week they
+       failed to work — there was nothing to work. */
+    if (work.length === 0) continue;
+    if (work.every((d) => fully.has(d))) restDays += restByWeek.get(k) ?? 0;
+  }
+  const raw = Math.round(orp * (inp.unpaidDays + restDays));
+  const room = Math.max(0, inp.basicCents - inp.incompleteCents - Math.round(orp * inp.publicHolidays));
+  const cents = Math.min(raw, room);
+  return { days: inp.unpaidDays, restDays, cents, capped: cents < raw };
+}
+
+/**
+ * WORKING ON A PUBLIC HOLIDAY (v1.77.0).
+ *
+ * CEO, 31-08-2026: *"if they are working on Public Holiday, then only will be
+ * paid as double... which is we need to follow on the regulation"*. The
+ * regulation, confirmed with him against the word "double": Employment Act
+ * 1955 s.60D(3)(a)(i) — an employee who works on a paid holiday is paid TWO
+ * days' wages at the ordinary rate IN ADDITION to the holiday pay already in
+ * the monthly salary. Not working the holiday is the "1 day of paid" — it is
+ * already inside the month.
+ */
+export function publicHolidayWorkedCents(monthlyWageCents: number, holidaysWorked: number): number {
+  return holidaysWorked > 0 ? Math.round((monthlyWageCents / 26) * 2 * holidaysWorked) : 0;
+}
+
+/** A part-time hourly host's premium for hours on a public holiday:
+    Employment (Part-Time Employees) Regulations 2010 — not less than twice
+    the hourly rate. The hours already earned 1×; this is the second 1×. */
+export function partTimeHolidayPremiumCents(minutesOnHoliday: number, hourlyRateCents: number): number {
+  return minutesOnHoliday > 0 ? Math.round((minutesOnHoliday * hourlyRateCents) / 60) : 0;
+}

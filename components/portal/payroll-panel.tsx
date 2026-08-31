@@ -135,6 +135,12 @@ export type SlipExtras = { working_day: number; public_holiday: number; annual_l
   /* v1.75.0 — the employment-date figures. The server computes the
      incomplete-month deduction once and the slip prints THAT number. */
   month_working_days?: number; payable_days?: number; incomplete_deduction_cents?: number;
+  /* v1.77.0 — what the unpaid deduction is MADE of, so the slip can say it:
+     the rest days lost to fully-unpaid weeks, and whether the cap that keeps
+     public holidays paid actually bit. */
+  unpaid_rest_days?: number; unpaid_capped?: boolean; clocked_beyond_employment?: boolean;
+  /* v1.77.0 — the public-holiday premium, from the server. */
+  ph_worked?: number; ph_worked_dates?: string[]; ph_worked_minutes?: number; ph_worked_cents?: number;
   joined_on?: string | null; left_on?: string | null } | null;
 
 /* v1.28.0: issuerCode is the month's payslip_releases.issuer_code — NULL or
@@ -150,7 +156,10 @@ export function payslipData(
 ): PayslipData & { issuer_code: string | null } {
   const hourlySlip = isHourly(u) || (e.hourly_minutes != null && e.hourly_rate_cents != null);
   const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
-  const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
+  /* v1.77.0 — the premium for working a public holiday. The server computes
+     it; the slip prints it and names the days. */
+  const phCents = x?.ph_worked_cents ?? 0;
+  const gross = e.basic_cents + phCents + e.commission_cents + e.allowance_cents + otCents;
   const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
   const incompAdj = hourlySlip ? 0 : (x?.incomplete_deduction_cents ?? 0);
   const totalDed = e.deduction_cents + unpaidDed + incompAdj;
@@ -160,6 +169,16 @@ export function payslipData(
   const earnings: [string, number][] = hourlySlip
     ? [[`HOURLY PAY (${hrs} × ${fmtRM(e.hourly_rate_cents ?? 1500)}/HOUR)`, e.basic_cents]]
     : [["BASIC PAY", e.basic_cents]];
+  if (phCents > 0) {
+    const n = x?.ph_worked ?? 0;
+    const when = (x?.ph_worked_dates ?? []).map((d) => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ");
+    earnings.push([
+      hourlySlip
+        ? `PUBLIC HOLIDAY WORKED (${when} — ${Math.floor((x?.ph_worked_minutes ?? 0) / 60)}H ${String((x?.ph_worked_minutes ?? 0) % 60).padStart(2, "0")}M × 2ND RM15/HOUR)`
+        : `PUBLIC HOLIDAY WORKED (${when} — ${n} × 2 DAYS ORP, EA s.60D(3))`,
+      phCents,
+    ]);
+  }
   if (e.commission_cents > 0) earnings.push(["COMMISSION", e.commission_cents]);
   if (e.allowance_cents > 0) earnings.push(["ALLOWANCE", e.allowance_cents]);
   if (otCents > 0) earnings.push([`OVERTIME (${e.ot_hours ?? 0} HRS × 1.5 × HOURLY ORP)`, otCents]);
@@ -168,9 +187,18 @@ export function payslipData(
   if (e.deduction_cents > 0) deductions.push(["LATE / OTHER DEDUCTION", e.deduction_cents]);
   if (unpaidDed > 0) {
     /* v1.75.0: fractions are real now — half a day, or the hours somebody
-       was short of eight. n2v already prints two decimals. */
+       was short of eight. n2v already prints two decimals.
+       v1.77.0: the line states EVERY part of the sum. A week in which all of
+       somebody's working days were unpaid loses that week's rest days too,
+       and the whole deduction is capped so the public holidays stay paid.
+       A payslip that showed only a total would leave the person holding it
+       unable to check the one number that changed their pay. */
     const d = x?.unpaid_leave ?? 0;
-    deductions.push([`UNPAID LEAVE (${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE)`, unpaidDed]);
+    const rest = x?.unpaid_rest_days ?? 0;
+    const parts = [`${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE`];
+    if (rest > 0) parts.push(`${rest} REST DAY${rest === 1 ? "" : "S"} IN FULLY UNPAID WEEKS`);
+    if (x?.unpaid_capped) parts.push(`CAPPED — ${x.public_holiday} PUBLIC HOLIDAY${x.public_holiday === 1 ? "" : "S"} STAY PAID`);
+    deductions.push([`UNPAID LEAVE (${parts.join("; ")})`, unpaidDed]);
   }
   /* v1.75.0: this line now only ever appears for a mid-month joiner or
      leaver, and says why — "EMPLOYED 12 OF 19", not "WORKED 15 OF 19", which
@@ -343,6 +371,28 @@ export function printPayslip(
    eight hours. Proposed, never deducted on its own. */
 type AbsenceRow = { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] };
 
+/** v1.77.0 — the server's unpaid-leave deduction, and what it is made of. */
+type UnpaidDetail = {
+  user_id: number;
+  /** Days of approved unpaid leave, as recorded. */
+  days: number;
+  /** Rest days lost because their whole week was unpaid (the CEO's rule). */
+  rest_days: number;
+  cents: number;
+  /** The deduction was reduced to keep the public holidays paid. */
+  capped: boolean;
+  /** More days clocked than the person was employed for — impossible, and
+      it means a date in their staff record is wrong. */
+  clocked_beyond_employment: boolean;
+  clocked_days: number;
+  payable_days: number;
+  /** Public holidays worked — two days' ORP each (s.60D(3)(a)(i)); for a
+      part-timer, a second RM15/h on those hours. */
+  ph_worked: number;
+  ph_worked_dates: string[];
+  ph_worked_cents: number;
+};
+
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
   const [month, setMonth] = useState(payrollCycleMonth());
@@ -442,13 +492,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       // v1.4.183: hourly pay (auto from the clock) + commission + allowance
       // − deduction. The server recomputes authoritatively on save anyway.
       const hourly = e.hourly_pay_live ?? e.basic_cents;
-      return Math.max(0, hourly + e.commission_cents + e.allowance_cents - e.deduction_cents);
+      const phH = unpaidInfo[id]?.ph_worked_cents ?? 0; // v1.77.0: 2nd RM15/h on a public holiday
+      return Math.max(0, hourly + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
     }
-    const ul = unpaidDays[id] ?? 0;
-    const ulDed = ul > 0 ? Math.round(((base[id] || e.basic_cents) / 26) * ul) : 0;
+    /* v1.77.0 — the server's figure, not a second copy of the formula. */
+    const ulDed = unpaidInfo[id]?.cents ?? 0;
     const adj = incompleteMonthAdj(e.basic_cents, payableDays[id] ?? monthDays, monthDays);
     const ot = otPay(e.basic_cents, e.ot_hours);
-    return Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
+    const phW = unpaidInfo[id]?.ph_worked_cents ?? 0; // v1.77.0: 2 days' ORP per public holiday worked
+    return Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
   };
 
   const saveAll = async () => {
@@ -480,6 +532,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [attDays, setAttDays] = useState<Record<number, number>>({});
   // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
   const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
+  /* v1.77.0 — the unpaid-leave DEDUCTION, from the server, per person. The
+     browser used to recompute `base / 26 * days` at three separate call
+     sites. Once the rule grew a week clause and a public-holiday floor, three
+     copies would have become three answers, and the first one anybody forgot
+     to update would be a row disagreeing with its own payslip. The one thing
+     the browser is allowed to do with this number is print it. */
+  const [unpaidInfo, setUnpaidInfo] = useState<Record<number, UnpaidDetail>>({});
   /* v1.75.0 — how many of the month's working days each person was EMPLOYED
      for, from the server (joined_on / left_on). This, not the attendance
      clock, is what prorates a basic. Absent = the same for everyone except a
@@ -527,12 +586,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
       api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null } }>(`/payroll?month=${month}`),
-      api<{ days: { user_id: number; days: number }[]; working_days?: number }>(`/payroll/attendance-days?month=${month}`),
+      api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
     const dmap: Record<number, number> = {};
     for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
     setAttDays(dmap);
+    /* v1.77.0 — the server's unpaid deduction and what it is made of. */
+    const udmap: Record<number, UnpaidDetail> = {};
+    for (const r of a.data?.unpaid_detail ?? []) udmap[r.user_id] = r;
+    setUnpaidInfo(udmap);
     // v1.4.84: the month's working days are COMPUTED (Mon–Fri minus every
     // calendar holiday) — no more blanket 26. Still editable for exceptions.
     if (typeof a.data?.working_days === "number" && a.data.working_days > 0) setMonthDays(a.data.working_days);
@@ -671,8 +734,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           <p className="text-sm font-semibold">{L("Payroll processing", "Pemprosesan gaji")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (statutory rate: 1/26 of monthly wage per day, Employment Act — a FIXED divisor, separate from the month's working days) − incomplete month (basic × missing working days ÷ this month's working days; unpaid-leave days excluded so nothing deducts twice). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave is paid, never deducted.",
-              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (kadar statutori: 1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP, berasingan daripada hari bekerja bulan itu) − bulan tidak lengkap (pokok × hari bekerja yang tiada ÷ hari bekerja bulan ini; hari cuti tanpa gaji dikecualikan supaya tiada potongan dua kali). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan dibayar, tidak sekali-kali dipotong.",
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (1/26 of monthly wage per day, Employment Act — a FIXED divisor; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × working days not yet employed ÷ this month's working days — joiners, leavers and re-joiners only). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave is paid, never deducted.",
+              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari bekerja belum diambil bekerja ÷ hari bekerja bulan ini — pekerja baharu, berhenti dan kembali sahaja). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan dibayar, tidak sekali-kali dipotong.",
             )}
           </p>
         </div>
@@ -1052,7 +1115,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const hourlyPay = e.hourly_pay_live ?? (hourlyRow ? e.basic_cents : 0);
               // hourly rows: no unpaid-leave maths, no proration, no OT.
               const ul = hourlyRow ? 0 : (unpaidDays[u.id] ?? 0);
-              const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
+              const ud = unpaidInfo[u.id];
+              const ulDed = hourlyRow ? 0 : (ud?.cents ?? 0);
               const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
               const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
               const net = netFor(u.id);
@@ -1083,6 +1147,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         placeholder="0.00"
                         onChange={(ev) => setField(u.id, k, ev.target.value)}
                       />
+                      )}
+                      {/* v1.77.0 — a public holiday worked earns two days' ORP
+                          on top (a second RM15/h for a part-timer). It sits
+                          under BASIC because that is what it is a premium on,
+                          and it names the day so it can be checked against
+                          the calendar. */}
+                      {k === "basic_cents" && (ud?.ph_worked_cents ?? 0) > 0 && (
+                        <span className="block text-[10px] text-emerald-700">
+                          +{rm(ud!.ph_worked_cents)} · {L(
+                            `${ud!.ph_worked} public holiday${ud!.ph_worked === 1 ? "" : "s"} worked (${ud!.ph_worked_dates.map((d) => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ")})`,
+                            `${ud!.ph_worked} cuti umum bekerja (${ud!.ph_worked_dates.map((d) => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ")})`,
+                          )}
+                        </span>
                       )}
                     </td>
                   ))}
@@ -1117,12 +1194,42 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     <span className="font-medium">{rm(Math.max(0, net))}</span>
+                    {/* v1.77.0 — THE REASON IS ON THE SCREEN NOW.
+                        It used to be a hover tooltip reading "− RM X auto",
+                        and two completely different deductions rendered
+                        identically: unpaid leave at 1/26, and an incomplete
+                        month at 1/working-days. That is how a RM 1,052.63
+                        charge sat on a row for a fortnight without anybody
+                        being able to see what it was for. A number that
+                        changes somebody's salary says what it is. */}
                     {(adj > 0 || ulDed > 0) && (
-                      <span
-                        className="block text-[10px] text-red-700"
-                        title={L(`Auto-deducted on the payslip: ${adj > 0 ? `incomplete month ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `unpaid leave ${rm(ulDed)}` : ""} — Basic stays full`, `Dipotong automatik pada slip gaji: ${adj > 0 ? `bulan tidak lengkap ${rm(adj)}` : ""}${adj > 0 && ulDed > 0 ? " + " : ""}${ulDed > 0 ? `cuti tanpa gaji ${rm(ulDed)}` : ""} — Gaji pokok kekal penuh`)}
-                      >
-                        −{rm(adj + ulDed)} auto
+                      <span className="block text-[10px] text-red-700">
+                        −{rm(adj + ulDed)}
+                        {adj > 0 && (
+                          <span className="block">
+                            {L(`incomplete month — employed ${payableDays[u.id] ?? monthDays} of ${monthDays} working days`,
+                               `bulan tidak lengkap — bekerja ${payableDays[u.id] ?? monthDays} daripada ${monthDays} hari`)}
+                          </span>
+                        )}
+                        {ulDed > 0 && (
+                          <span className="block">
+                            {L(`unpaid leave — ${ud?.days ?? ul} day${(ud?.days ?? ul) === 1 ? "" : "s"}`,
+                               `cuti tanpa gaji — ${ud?.days ?? ul} hari`)}
+                            {(ud?.rest_days ?? 0) > 0 &&
+                              L(` + ${ud?.rest_days} rest day${ud?.rest_days === 1 ? "" : "s"} (whole week unpaid)`,
+                                ` + ${ud?.rest_days} hari rehat (seminggu penuh tanpa gaji)`)}
+                            {ud?.capped && L(" · capped so public holidays stay paid", " · dihadkan supaya cuti umum kekal dibayar")}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {/* Employment dates and the clock disagreeing is not a
+                        deduction question — it is a wrong date somewhere, and
+                        it is money either way. */}
+                    {ud?.clocked_beyond_employment && (
+                      <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">
+                        {L(`⚠ employed ${ud.payable_days} of ${monthDays} working days but clocked in on ${ud.clocked_days} — check Joined on / End date / Re-joined on`,
+                           `⚠ bekerja ${ud.payable_days} daripada ${monthDays} hari tetapi mendaftar masuk ${ud.clocked_days} hari — semak Tarikh masuk / Tarikh tamat / Tarikh kembali`)}
                       </span>
                     )}
                   </td>
@@ -1193,26 +1300,34 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   if (isHourly(u)) {
                     // v1.4.183: hourly rows — clocked pay, no UL/proration/OT
                     const hp = e.hourly_pay_live ?? e.basic_cents;
-                    a.basic += hp; a.comm += e.commission_cents; a.allow += e.allowance_cents;
+                    const phH = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+                    a.basic += hp; a.ph += phH; a.comm += e.commission_cents; a.allow += e.allowance_cents;
                     a.ded += e.deduction_cents;
-                    a.net += Math.max(0, hp + e.commission_cents + e.allowance_cents - e.deduction_cents);
+                    a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
                     return a;
                   }
-                  const ul = unpaidDays[u.id] ?? 0;
-                  const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
+                  const ulDed = unpaidInfo[u.id]?.cents ?? 0;
                   const adj = incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
                   const ot = otPay(e.basic_cents, e.ot_hours);
-                  a.basic += e.basic_cents; a.comm += e.commission_cents;
+                  const phW = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+                  a.basic += e.basic_cents; a.ph += phW; a.comm += e.commission_cents;
                   a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj;
-                  a.net += Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
+                  a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
                   return a;
                 },
-                { basic: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
+                { basic: 0, ph: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
               );
               return (
                 <tr className="border-border border-t-2 font-semibold">
                   <td className="px-2 py-2">{L("TOTAL", "JUMLAH")} — {staff.length} {L("staff", "kakitangan")}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.basic)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {rm(tot.basic)}
+                    {tot.ph > 0 && (
+                      <span className="block text-[10px] font-normal text-emerald-700">
+                        +{rm(tot.ph)} {L("public holidays worked", "cuti umum bekerja")}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.comm)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.allow)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.ot)}</td>
@@ -1275,7 +1390,7 @@ export function MyPayslip() {
     : 0;
   const otC = entry ? (entry.ot_cents ?? otPay(entry.basic_cents, entry.ot_hours)) : 0;
   const net = entry
-    ? entry.basic_cents + entry.commission_cents + entry.allowance_cents + otC - entry.deduction_cents - autoDed
+    ? entry.basic_cents + (extras?.ph_worked_cents ?? 0) + entry.commission_cents + entry.allowance_cents + otC - entry.deduction_cents - autoDed
     : 0;
 
   return (

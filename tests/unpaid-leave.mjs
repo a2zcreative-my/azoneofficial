@@ -143,24 +143,30 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
    Employment Act 1955 s.60I — monthly wages ÷ 26 per day. A FIXED divisor,
    deliberately not the month's working days. */
 {
-  ok("the payslip deducts at basic ÷ 26",
-     /unpaidDays > 0 \? Math\.round\(\(orpBase \/ 26\) \* unpaidDays\) : 0/.test(staff));
-  ok("the payroll recompute deducts at the same rate",
-     /ul > 0 \? Math\.round\(\(\(e\.base_salary_cents \|\| e\.basic_cents\) \/ 26\) \* ul\) : 0/.test(staff));
-  /* EVERY site, not "a" site. The panel computes this figure in three
-     places (the auto-fill, the table row and the save loop) and the server
-     in two. A first draft of this guard asserted that ONE of them said 26,
-     which still passed with another quietly changed to 22 — the failure
-     that only shows up as an underpaid salary. So: find every unpaid-leave
-     rate expression in the codebase and require all of them to be 26. */
+  /* v1.77.0 — the five scattered copies of this rate became ONE resolver in
+     the worker plus its runnable twin in lib/payroll-days.ts, so this section
+     no longer hunts for five expressions. What it still guarantees is the
+     thing that matters: wherever an ordinary rate of pay is computed, the
+     divisor is 26. The previous draft named the exact old expressions and
+     went red the moment the duplication it was policing was removed — a
+     guard should fail when the BEHAVIOUR breaks, not when the code improves. */
+  ok("the payslip and the recompute share one unpaid-leave rate",
+     /const orp = opts\.orpBase \/ 26;/.test(staff),
+     "one resolver, called by the payslip, the panel's figures and /payroll/recompute");
   {
-    const RATE = /\/ (\d+)\) \* (?:ul|unpaidDays)\)/g;
+    /* EVERY ordinary-rate divisor in every file that computes pay. A first
+       draft of this guard checked ONE site and still passed with another
+       quietly changed to 22 — the failure that only ever shows up as an
+       underpaid salary. */
+    const RATE = /(?:orp|orpBase|basicCents|monthlyWageCents|base_salary_cents|basicCents)\s*\/\s*(\d+)/g;
     const sites = [];
-    for (const [file, src] of [["payroll-panel.tsx", payroll], ["staff.ts", staff]]) {
+    for (const [file, src] of [
+      ["staff.ts", staff], ["payroll-panel.tsx", payroll], ["payroll-days.ts", read("lib/payroll-days.ts")],
+    ]) {
       for (const m of src.matchAll(RATE)) sites.push([file, Number(m[1])]);
     }
-    ok("every unpaid-leave rate in the codebase was found", sites.length >= 4,
-       `found ${sites.length} — expected the payslip, the recompute and the panel's three`);
+    ok("every ordinary-rate divisor in the codebase was found", sites.length >= 3,
+       `found ${sites.length} — the worker's resolver, the library's twin and the hourly/overtime rate`);
     const wrong = sites.filter(([, n]) => n !== 26);
     ok("every one of them divides by 26 (Employment Act 1955 s.60I)", wrong.length === 0,
        wrong.map(([f, n]) => `${f} uses ${n}`).join(", ") +
@@ -177,12 +183,14 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
      !/workD - \(e\.worked_days as number\)/.test(staff),
      "prorating on days clocked is what deducted approved paid leave as absence");
   ok("proration is computed from employment dates (server)",
-     /const payable = employedDays\(monthDayList, e\.joined_on, e\.left_on\)\.length;/.test(staff));
+     /const payable = employedDays\(monthDayList, e\.joined_on, e\.left_on, e\.rejoined_on\)\.length;/.test(staff),
+     "v1.77.0 added the re-join date — without it somebody who left and came back is prorated away from their old leaving date");
   ok("proration never reads the attendance clock (browser)",
      !/incompleteMonthAdj\([^)]*worked_days/.test(payroll),
      "the panel POSTs the net it computed — if it still prorates on attendance the saved net is wrong");
-  ok("the payslip shows the deduction as its own line",
-     /UNPAID LEAVE \(\$\{n2v\(d\)\} DAY/.test(payroll),
+  ok("the payslip shows the deduction as its own line, and what it is made of",
+     /`UNPAID LEAVE \(\$\{parts\.join\("; "\)\}\)`/.test(payroll) &&
+     /\$\{n2v\(d\)\} DAY\$\{d === 1 \? "" : "S"\} × 1\/26 MONTHLY WAGE/.test(payroll),
      "a smaller number with no line explaining it is what makes staff distrust a payslip");
 }
 

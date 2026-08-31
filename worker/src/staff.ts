@@ -88,6 +88,14 @@ const SHIFT = {
     request handler exists, and cannot be re-broken by moving a route. */
 export const WORK_DAY_MINUTES = 8 * 60;
 
+/** RM15.00/hour - the CEO's rule for part-time live hosts, one place to change.
+    Module scope for the same reason as WORK_DAY_MINUTES: the public-holiday
+    premium is computed in payslipExtras, which runs BEFORE the line inside
+    handleStaff where this used to be declared. A const read before its
+    declaration line has executed throws, and the guard that now catches that
+    (worker-compile-gate, TS2448) would have refused the build. */
+export const PART_TIME_LH_RATE_CENTS = 1500;
+
 /** One person's hours on one date: NULL start = not a working day for them. */
 export interface DayShift {
   start: number | null;
@@ -6259,8 +6267,23 @@ export async function handleStaff(
   /** The subset of those days the person was actually employed for. Equal to
       the whole list for anybody who did not join or leave inside the month -
       which is why nobody else is ever prorated. */
-  const employedDays = (days: string[], joined?: string | null, left?: string | null): string[] =>
-    days.filter((d) => (!joined || d >= joined.slice(0, 10)) && (!left || d <= left.slice(0, 10)));
+  const employedDays = (
+    days: string[], joined?: string | null, left?: string | null, rejoined?: string | null,
+  ): string[] =>
+    days.filter((d) => {
+      if (joined && d < joined.slice(0, 10)) return false;
+      /* v1.77.0 — RE-JOINERS. This read only joined_on and left_on, so
+         somebody who resigned and came back was still "gone" from the day
+         they first left: every working day after it was prorated away as an
+         incomplete month, silently, for as long as the old left_on sat in
+         their record. `rejoined_on` has existed as a field since v1.4.101 and
+         the staff list already honours it; the money did not.
+         After the re-join date they are employed again. */
+      if (left && d > left.slice(0, 10)) {
+        return Boolean(rejoined && d >= rejoined.slice(0, 10));
+      }
+      return true;
+    });
 
   /** The incomplete-month deduction, in sen. Zero unless they joined or left
       inside this month. */
@@ -6282,6 +6305,253 @@ export async function handleStaff(
         (!left || h.holiday_date <= left.slice(0, 10)),
       ).length;
     } catch { return 0; }
+  };
+
+  /* ================= THE UNPAID-LEAVE DEDUCTION ==================
+   *
+   * CEO, 31-08-2026, on Zul Hisyam: *"should entitle 2 PH but seem like the
+   * payroll make it around 5++ which is not correct!"*
+   *
+   * He was right, and the cause is a DIVISOR MISMATCH. Unpaid leave deducts
+   * at the Employment Act's ordinary rate of pay, monthly wage / 26 - and 26
+   * assumes a SIX-day week, one rest day in seven. This company works five.
+   * So August has 19 working days, and somebody absent for every single one
+   * of them loses only 19/26 of their salary and keeps 7/26: RM 538.46 for a
+   * month in which they did nothing. Those seven days are the five Saturdays
+   * and the two public holidays. His "2 PH" was exactly right and his "5++"
+   * was exactly the five Saturdays.
+   *
+   * THE RULE HE CHOSE (of three put to him): a week in which EVERY one of
+   * that person's working days is unpaid also loses that week's rest days.
+   * Rest days are earned by working the week; a week nobody worked earns
+   * none. It is chosen over a flat "absent all month = nothing" because it
+   * has no cliff - a month that is heavily but not wholly unpaid tapers
+   * instead of jumping - and over leaving it alone because leaving it alone
+   * pays five Saturdays to somebody who was not there.
+   *
+   * PUBLIC HOLIDAYS ARE NEVER TOUCHED. Not by this rule and not by the cap
+   * below. Section 60D(2) removes holiday pay only for absence WITHOUT the
+   * employer's consent, and recorded unpaid leave is consented absence - so
+   * the holiday stays paid. That is the whole of the CEO's "2 PH".
+   *
+   * AND A CAP, which is a bug fix of its own: the deduction can never take
+   * the basic below the value of the public holidays inside the person's
+   * employment, and incomplete-month + unpaid can no longer add up to more
+   * than the basic. Before this they could, and the payslip would have
+   * printed a negative net.
+   *
+   * ONE IMPLEMENTATION, TWO CALLERS. The payslip and /payroll/recompute both
+   * come through here. Two of these written separately is two answers to
+   * "what was I paid", which is the failure this codebase keeps paying for.
+   * Three queries for the whole month, not three per person.
+   */
+
+  /** Monday of the week a date falls in - ISO weeks, so a week is never split
+      between two months for the purpose of "was this week worked". */
+  const mondayOf = (iso: string): string => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+
+  interface UnpaidBreakdown {
+    /** Days of approved unpaid leave, as recorded. Fractions are real. */
+    days: number;
+    /** Rest days lost because their whole week was unpaid. */
+    rest_days: number;
+    cents: number;
+    /** True when the cap bit - the deduction was reduced to protect the
+        public holidays or to stop the basic going negative. */
+    capped: boolean;
+  }
+
+  const unpaidResolver = async (month: string) => {
+    const monthDayList = await workingDayList(month);
+    const workingSet = new Set(monthDayList);
+    let hols = new Set<string>();
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(month).all<{ holiday_date: string }>();
+      hols = new Set(results.map((h) => h.holiday_date));
+    } catch { /* holidays has existed since 0011 */ }
+    /* Every approved unpaid day in the month, per person. The ROWS, not just
+       the sum - which week a day sits in is the whole question now. */
+    let rows: { user_id: number; start_date: string; end_date: string; days: number }[] = [];
+    try {
+      rows = (await env.DB.prepare(
+        `SELECT user_id, start_date, end_date, COALESCE(days, 1) AS days FROM leave_requests
+         WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%'`,
+      ).bind(month).all<{ user_id: number; start_date: string; end_date: string; days: number }>()).results ?? [];
+    } catch { /* leave_requests has existed since 0003 */ }
+
+    const totals = new Map<number, number>();
+    /** Dates a person was unpaid for the WHOLE day. A half day means they
+        worked half of it, so that week was not a week nobody worked. */
+    const whole = new Map<number, Set<string>>();
+    for (const r of rows) {
+      totals.set(r.user_id, (totals.get(r.user_id) ?? 0) + r.days);
+      const span: string[] = [];
+      const d = new Date(`${r.start_date.slice(0, 10)}T00:00:00Z`);
+      const end = new Date(`${(r.end_date || r.start_date).slice(0, 10)}T00:00:00Z`);
+      for (let i = 0; i < 62 && d <= end; i++) {
+        span.push(d.toISOString().slice(0, 10));
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      /* Only mark whole days when the row accounts for one full day each.
+         A 2.5-day row over 3 dates marks none, which favours the employee -
+         the right way to be wrong about somebody's salary. */
+      if (span.length > 0 && r.days >= span.length) {
+        const set = whole.get(r.user_id) ?? new Set<string>();
+        for (const s of span) set.add(s);
+        whole.set(r.user_id, set);
+      }
+    }
+
+    return (
+      userId: number,
+      opts: { joined?: string | null; left?: string | null; rejoined?: string | null; orpBase: number; incompleteCents: number; phCount: number },
+    ): UnpaidBreakdown => {
+      const days = totals.get(userId) ?? 0;
+      const orp = opts.orpBase / 26;
+      if (days <= 0) return { days: 0, rest_days: 0, cents: 0, capped: false };
+
+      /* The person's own working days, and the rest days beside them. */
+      const mineDays = employedDays(monthDayList, opts.joined, opts.left, opts.rejoined);
+      const fully = whole.get(userId) ?? new Set<string>();
+      const workByWeek = new Map<string, string[]>();
+      for (const d of mineDays) {
+        const k = mondayOf(d);
+        const list = workByWeek.get(k);
+        if (list) list.push(d); else workByWeek.set(k, [d]);
+      }
+      /* A rest day is a day of the month that is neither a working day nor a
+         public holiday - a Saturday or a Sunday here. Holidays are excluded
+         on purpose: they are the one thing this rule must not take. */
+      const restByWeek = new Map<string, number>();
+      {
+        const y = Number(month.slice(0, 4)), mo = Number(month.slice(5, 7));
+        const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+        for (let n = 1; n <= last; n++) {
+          const iso = new Date(Date.UTC(y, mo - 1, n)).toISOString().slice(0, 10);
+          if (workingSet.has(iso) || hols.has(iso)) continue;
+          if (opts.joined && iso < opts.joined.slice(0, 10)) continue;
+          if (opts.left && iso > opts.left.slice(0, 10)) continue;
+          const k = mondayOf(iso);
+          restByWeek.set(k, (restByWeek.get(k) ?? 0) + 1);
+        }
+      }
+      let restDays = 0;
+      for (const [k, work] of workByWeek) {
+        /* A week with no working days of theirs cannot be "a week they did
+           not work" - there was nothing to work. Requiring at least one stops
+           a stray weekend at the edge of the month being charged for. */
+        if (work.length === 0) continue;
+        if (work.every((d) => fully.has(d))) restDays += restByWeek.get(k) ?? 0;
+      }
+
+      const raw = Math.round(orp * (days + restDays));
+      /* The floor under every deduction: the public holidays inside their
+         employment stay paid, and incomplete-month + unpaid together can
+         never exceed the basic. */
+      const room = Math.max(0, opts.orpBase - opts.incompleteCents - Math.round(orp * opts.phCount));
+      const cents = Math.min(raw, room);
+      return { days, rest_days: restDays, cents, capped: cents < raw };
+    };
+  };
+
+  /* ================= WORKING ON A PUBLIC HOLIDAY ==================
+   *
+   * CEO, 31-08-2026: *"if they are working on Public Holiday, then only will
+   * be paid as double. if they are not working on public holiday consider
+   * that they will receive 1 day of paid instead of double paid of working
+   * day which is we need to follow on the regulation"*.
+   *
+   * Until now the payroll paid NOTHING extra for a public holiday worked. The
+   * holiday itself was already inside the monthly salary - that is the "1 day
+   * of paid" for not working - but a person who clocked in on Merdeka Day was
+   * paid exactly the same as one who stayed home.
+   *
+   * THE RATE, confirmed with the CEO against the Act rather than the word
+   * "double": Employment Act 1955 s.60D(3)(a)(i) - an employee who works on a
+   * paid holiday is paid TWO days' wages at the ordinary rate of pay IN
+   * ADDITION to the holiday pay. So one public holiday worked adds
+   * 2 x (basic / 26) to that month. For a part-time hourly host the rule is
+   * the Employment (Part-Time Employees) Regulations 2010: not less than two
+   * times the hourly rate, so the hours on that day earn one extra RM15/h on
+   * top of the RM15/h already paid for them.
+   *
+   * WHAT COUNTS AS WORKED: an approved clock-in (not a pending claim) on a
+   * date the holiday calendar marks `public` or `replacement`. A `company` day
+   * off is the company's gift, not a gazetted holiday, and carries no
+   * statutory premium. Any approved clock-in counts for the whole premium -
+   * s.60D(3)(a)(i) says two days' wages for working the day, not per hour.
+   *
+   * ONE PASS FOR THE MONTH, the same shape as unpaidResolver: every payroll
+   * surface asks this, and it must never be a query per person.
+   */
+  interface PhWork {
+    /** Public holidays inside the person's employment that they clocked in on. */
+    days: number;
+    /** The dates, so the payslip can name them. */
+    dates: string[];
+    /** Paired minutes actually clocked on those dates (for the hourly rule). */
+    minutes: number;
+    cents: number;
+  }
+
+  const phWorkResolver = async (month: string) => {
+    const notPendingP = await notPendingSql(env);
+    let phDates = new Set<string>();
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT holiday_date FROM holidays
+         WHERE holiday_date LIKE ?1 || '%' AND kind IN ('public', 'replacement')`,
+      ).bind(month).all<{ holiday_date: string }>();
+      phDates = new Set(results.map((h) => h.holiday_date));
+    } catch { /* holidays has existed since 0011 */ }
+    /* One row per person per holiday date they punched on, with the paired
+       minutes. Empty when the month has no holidays or nobody worked one. */
+    const byUser = new Map<number, { d: string; mins: number }[]>();
+    if (phDates.size > 0) {
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT user_id, date(created_at, '+8 hours') AS d,
+                  MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
+                  MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
+           FROM attendance_records
+           WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingP}
+           GROUP BY user_id, d`,
+        ).bind(month).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
+        for (const r of results) {
+          if (!phDates.has(r.d) || !r.i) continue; // not a holiday, or no clock-in
+          const mins = r.o ? Math.max(0, Math.round((new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000)) : 0;
+          const list = byUser.get(r.user_id) ?? [];
+          list.push({ d: r.d, mins });
+          byUser.set(r.user_id, list);
+        }
+      } catch { /* attendance_records has existed since 0002 */ }
+    }
+    return (
+      userId: number,
+      opts: { joined?: string | null; left?: string | null; rejoined?: string | null; orpBase: number; hourly: boolean },
+    ): PhWork => {
+      const mine = (byUser.get(userId) ?? []).filter((x) => {
+        if (opts.joined && x.d < opts.joined.slice(0, 10)) return false;
+        if (opts.left && x.d > opts.left.slice(0, 10)) {
+          return Boolean(opts.rejoined && x.d >= opts.rejoined.slice(0, 10));
+        }
+        return true;
+      });
+      if (mine.length === 0) return { days: 0, dates: [], minutes: 0, cents: 0 };
+      const minutes = mine.reduce((n, x) => n + x.mins, 0);
+      const cents = opts.hourly
+        /* Part-time: the hours already earned 1x; the premium is the second 1x. */
+        ? Math.round((minutes * PART_TIME_LH_RATE_CENTS) / 60)
+        /* Monthly: two days' ORP per holiday worked, s.60D(3)(a)(i). */
+        : Math.round((opts.orpBase / 26) * 2 * mine.length);
+      return { days: mine.length, dates: mine.map((x) => x.d).sort(), minutes, cents };
+    };
   };
 
   /** Payslip side-data (v1.4.41): the month's working days, public holidays,
@@ -6316,10 +6586,10 @@ export async function handleStaff(
     /* v1.75.0 — the person's employment dates decide their payable days and
        which public holidays are theirs. */
     const who = await env.DB.prepare(
-      `SELECT joined_on, left_on, base_salary_cents FROM users WHERE id = ?1`,
-    ).bind(uid).first<{ joined_on: string | null; left_on: string | null; base_salary_cents: number }>();
+      `SELECT joined_on, left_on, rejoined_on, base_salary_cents, role, employment_status FROM users WHERE id = ?1`,
+    ).bind(uid).first<{ joined_on: string | null; left_on: string | null; rejoined_on: string | null; base_salary_cents: number; role: string; employment_status: string | null }>();
     const monthDays = await workingDayList(month);
-    const mine = employedDays(monthDays, who?.joined_on, who?.left_on);
+    const mine = employedDays(monthDays, who?.joined_on, who?.left_on, who?.rejoined_on);
     const phCount = await holidaysInSpan(month, who?.joined_on, who?.left_on);
     const leaveDays = async (t: string) =>
       (await env.DB.prepare(
@@ -6363,7 +6633,6 @@ export async function handleStaff(
         `SELECT basic_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`,
       ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
     }
-    const unpaidDeduction = unpaidDays > 0 ? Math.round((orpBase / 26) * unpaidDays) : 0;
     /* The incomplete-month figure is computed HERE, once, and the payslip
        and the payroll panel both print this number rather than each deriving
        their own. Three copies of one sum is how they drift. */
@@ -6373,6 +6642,24 @@ export async function handleStaff(
         `SELECT basic_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`,
       ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
     }
+    const incompleteDed = incompleteCents(incBase, monthDays.length, mine.length);
+    /* v1.77.0 — the week rule, the public-holiday floor and the cap, all in
+       the one place /payroll/recompute also calls. */
+    const unpaidAt = await unpaidResolver(month);
+    const ub = unpaidAt(uid, {
+      joined: who?.joined_on, left: who?.left_on, rejoined: who?.rejoined_on,
+      orpBase, incompleteCents: incompleteDed, phCount,
+    });
+    const unpaidDeduction = ub.cents;
+    /* v1.77.0 — two days' ORP for each public holiday actually worked
+       (s.60D(3)(a)(i)); for a part-time hourly host, a second RM15/h on the
+       hours of that day. Read the note above phWorkResolver. */
+    const phAt = await phWorkResolver(month);
+    const pw = phAt(uid, {
+      joined: who?.joined_on, left: who?.left_on, rejoined: who?.rejoined_on,
+      orpBase,
+      hourly: who?.role === "live_host" && who?.employment_status === "part_time",
+    });
     return {
       working_day: wd?.n ?? 0,
       /* v1.75.0: what the month owed them, and what it owes a mid-month
@@ -6381,8 +6668,21 @@ export async function handleStaff(
       payable_days: mine.length,
       joined_on: who?.joined_on ?? null,
       left_on: who?.left_on ?? null,
-      incomplete_deduction_cents: incompleteCents(incBase, monthDays.length, mine.length),
+      incomplete_deduction_cents: incompleteDed,
       public_holiday: phCount,
+      /* v1.77.0 — what the deduction is MADE OF, so the payslip can say it
+         rather than print one number and hope. */
+      /* v1.77.0 — the premium for working a public holiday, and which ones. */
+      ph_worked: pw.days,
+      ph_worked_dates: pw.dates,
+      ph_worked_minutes: pw.minutes,
+      ph_worked_cents: pw.cents,
+      unpaid_rest_days: ub.rest_days,
+      unpaid_capped: ub.capped,
+      /* The contradiction the CEO found on Nurfarah: employed for 9 working
+         days, clocked in on 12. Both cannot be true; the payroll surfaces it
+         rather than quietly charging for the difference. */
+      clocked_beyond_employment: (wd?.n ?? 0) > mine.length,
       annual_leave: await leaveDays("annual"),
       medical_leave: await leaveDays("medical"),
       emergency_leave: emergencyDays,
@@ -6452,7 +6752,7 @@ export async function handleStaff(
      the month. Contract/permanent live hosts stay on the salary model (and
      keep OT eligibility; part-time never had it). One helper feeds the GET
      view, the save route and the recompute button — single source of truth. */
-  const PART_TIME_LH_RATE_CENTS = 1500; // RM15.00/hour — CEO's rule, one place to change
+  /* PART_TIME_LH_RATE_CENTS is at module scope (v1.77.0) - see the note beside it. */
   const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
     role === "live_host" && emp === "part_time";
   const clockedMinutes = async (userId: number, month: string): Promise<number> => {
@@ -6668,16 +6968,61 @@ export async function handleStaff(
        what was deducting approved paid leave. */
     const dayListA = await workingDayList(mA);
     const { results: peopleA } = await env.DB.prepare(
-      `SELECT id, joined_on, left_on FROM users WHERE role != 'customer' AND is_active = 1`,
-    ).all<{ id: number; joined_on: string | null; left_on: string | null }>();
+      `SELECT id, joined_on, left_on, rejoined_on FROM users WHERE role != 'customer' AND is_active = 1`,
+    ).all<{ id: number; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
     const employed = peopleA.map((u) => ({
       user_id: u.id,
-      payable_days: employedDays(dayListA, u.joined_on, u.left_on).length,
+      payable_days: employedDays(dayListA, u.joined_on, u.left_on, u.rejoined_on).length,
       partial: Boolean(
         (u.joined_on && u.joined_on.slice(0, 7) === mA) || (u.left_on && u.left_on.slice(0, 7) === mA),
       ),
     }));
-    return json({ month: mA, days: results, unpaid, working_days: workingDays, employed });
+
+    /* v1.77.0 — THE DEDUCTION ITSELF, computed here rather than in the
+       browser. The panel used to re-derive `base / 26 * days` at three
+       separate call sites; the week rule and the public-holiday floor would
+       have had to be written into all three, and the first one anybody
+       forgot would be a row whose total disagreed with its own payslip.
+       The panel now prints this number, exactly as it already does for the
+       incomplete-month figure. */
+    const unpaidAtA = await unpaidResolver(mA);
+    const phAtA = await phWorkResolver(mA);
+    const { results: basesA } = await env.DB.prepare(
+      `SELECT id, base_salary_cents, role, employment_status FROM users WHERE role != 'customer' AND is_active = 1`,
+    ).all<{ id: number; base_salary_cents: number | null; role: string; employment_status: string | null }>();
+    const baseMapA = new Map(basesA.map((b) => [b.id, b.base_salary_cents ?? 0]));
+    const hourlyA = new Set(basesA.filter((b) => b.role === "live_host" && b.employment_status === "part_time").map((b) => b.id));
+    const clockedA = new Map(results.map((r) => [r.user_id, r.days]));
+    const unpaidDetail = peopleA.map((u) => {
+      const payable = employedDays(dayListA, u.joined_on, u.left_on, u.rejoined_on).length;
+      const basic = baseMapA.get(u.id) ?? 0;
+      const ph = holSet.size === 0 ? 0 : [...holSet].filter((h) =>
+        (!u.joined_on || h >= u.joined_on.slice(0, 10)) &&
+        (!u.left_on || h <= u.left_on.slice(0, 10))).length;
+      const b = unpaidAtA(u.id, {
+        joined: u.joined_on, left: u.left_on, rejoined: u.rejoined_on, orpBase: basic,
+        incompleteCents: incompleteCents(basic, dayListA.length, payable),
+        phCount: ph,
+      });
+      /* v1.77.0 — the premium for working a public holiday, from the same
+         resolver the payslip and recompute use. */
+      const pw = phAtA(u.id, {
+        joined: u.joined_on, left: u.left_on, rejoined: u.rejoined_on,
+        orpBase: basic, hourly: hourlyA.has(u.id),
+      });
+      return {
+        user_id: u.id, days: b.days, rest_days: b.rest_days,
+        cents: b.cents, capped: b.capped,
+        ph_worked: pw.days, ph_worked_dates: pw.dates, ph_worked_cents: pw.cents,
+        /* The contradiction the CEO found: more days clocked than the
+           person was employed for. Nothing can make both true. */
+        clocked_beyond_employment: (clockedA.get(u.id) ?? 0) > payable,
+        clocked_days: clockedA.get(u.id) ?? 0,
+        payable_days: payable,
+      };
+    }).filter((r) => r.days > 0 || r.clocked_beyond_employment || r.ph_worked > 0);
+
+    return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed });
   }
 
   /* v1.75.0 (CEO: "Unpaid will be count based on their no data in") — the
@@ -6698,9 +7043,9 @@ export async function handleStaff(
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
     const { results: staffA } = await env.DB.prepare(
-      `SELECT id, name, full_name, joined_on, left_on, role, employment_status
+      `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status
        FROM users WHERE role != 'customer' AND is_active = 1`,
-    ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; role: string; employment_status: string | null }>();
+    ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null }>();
 
     /* One row per person per day, with the minutes actually clocked. */
     /* A punch waiting for approval is not evidence that somebody was here -
@@ -6735,7 +7080,7 @@ export async function handleStaff(
       /* Hourly part-timers are paid by the clock already - a day they did not
          work is simply a day they are not paid for, not a deduction. */
       if (isHourlyUser(u.role, u.employment_status)) continue;
-      const mineDays = employedDays(dayList, u.joined_on, u.left_on).filter((d) => d <= todayMyt);
+      const mineDays = employedDays(dayList, u.joined_on, u.left_on, u.rejoined_on).filter((d) => d <= todayMyt);
       const missing: string[] = [];
       const short: { d: string; hours: number; of: number }[] = [];
       for (const d of mineDays) {
@@ -7002,16 +7347,29 @@ export async function handleStaff(
       `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
               p.worked_days, u.base_salary_cents, u.role AS user_role, u.employment_status,
-              u.joined_on, u.left_on
+              u.joined_on, u.left_on, u.rejoined_on
        FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
-    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number; user_role: string; employment_status: string | null; joined_on: string | null; left_on: string | null }>();
+    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number; user_role: string; employment_status: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
     /* v1.75.0 — the same day list every other payroll surface uses. */
     const monthDayList = await workingDayList(monthR);
-    const { results: ulsR } = await env.DB.prepare(
-      `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
-       WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
-    ).bind(monthR).all<{ user_id: number; days: number }>();
-    const ulMapR = new Map(ulsR.map((r) => [r.user_id, r.days]));
+    /* v1.77.0 — the SAME resolver the payslip uses: the week rule, the
+       public-holiday floor and the cap. This route is the one that WRITES
+       net_cents, so a formula here that disagreed with the payslip would be
+       a number in the bank that no slip can explain. */
+    const unpaidAtR = await unpaidResolver(monthR);
+    const phAtR = await phWorkResolver(monthR);
+    /* The month's holidays, read ONCE. Counting them per person inside the
+       loop below would be a query per staff member - the same shape of bug
+       that made the Payroll tab take a minute this morning. */
+    let holDatesR: string[] = [];
+    try {
+      holDatesR = ((await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(monthR).all<{ holiday_date: string }>()).results ?? []).map((h) => h.holiday_date);
+    } catch { /* holidays has existed since 0011 */ }
+    const phInSpan = (joined?: string | null, left?: string | null) =>
+      holDatesR.filter((h) =>
+        (!joined || h >= joined.slice(0, 10)) && (!left || h <= left.slice(0, 10))).length;
     let fixed = 0;
     for (const e of ents) {
       /* v1.4.183: hourly (part-time live host) rows re-derive from the
@@ -7019,7 +7377,10 @@ export async function handleStaff(
       if (isHourlyUser(e.user_role, e.employment_status)) {
         const minsR = await clockedMinutes(e.user_id, monthR);
         const basicR = hourlyPayCents(minsR);
-        const netHR = Math.max(0, basicR + e.commission_cents + e.allowance_cents - e.deduction_cents);
+        /* v1.77.0 — a part-timer's hours on a public holiday earn a second
+           RM15/h (Part-Time Employees Regulations 2010). */
+        const phH = phAtR(e.user_id, { joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on, orpBase: 0, hourly: true }).cents;
+        const netHR = Math.max(0, basicR + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
         try {
           await env.DB.prepare(
             `UPDATE payroll_entries SET basic_cents = ?1, ot_hours = NULL, ot_cents = 0,
@@ -7034,16 +7395,25 @@ export async function handleStaff(
         }
         continue;
       }
-      const ul = ulMapR.get(e.user_id) ?? 0;
-      const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
       /* v1.75.0 — proration comes from EMPLOYMENT DATES, not from the clock.
          An existing staff member has payable === workD, so this is zero for
          everyone except a mid-month joiner or leaver. `worked_days` stays on
          the row as information; it no longer moves money, which is what
          stopped approved paid leave being deducted as if it were absence. */
-      const payable = employedDays(monthDayList, e.joined_on, e.left_on).length;
+      const payable = employedDays(monthDayList, e.joined_on, e.left_on, e.rejoined_on).length;
       const adj = incompleteCents(e.basic_cents, monthDayList.length, payable);
-      const net = Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+      const ulDed = unpaidAtR(e.user_id, {
+        joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on,
+        orpBase: e.base_salary_cents || e.basic_cents,
+        incompleteCents: adj,
+        phCount: phInSpan(e.joined_on, e.left_on),
+      }).cents;
+      /* v1.77.0 — two days' ORP for each public holiday worked, s.60D(3)(a)(i). */
+      const phW = phAtR(e.user_id, {
+        joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on,
+        orpBase: e.base_salary_cents || e.basic_cents, hourly: false,
+      }).cents;
+      const net = Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
       try {
         await env.DB.prepare(
           `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
@@ -7085,7 +7455,13 @@ export async function handleStaff(
     if (tRow && isHourlyUser(tRow.role, tRow.employment_status)) {
       const minsH = await clockedMinutes(body.user_id, month);
       const basicH = hourlyPayCents(minsH);
-      const netH = Math.max(0, basicH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents));
+      /* v1.77.0 — a second RM15/h for hours on a public holiday. */
+      const whoH = await env.DB.prepare(`SELECT joined_on, left_on, rejoined_on FROM users WHERE id = ?1`).bind(body.user_id)
+        .first<{ joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
+      const phH = (await phWorkResolver(month))(body.user_id as number, {
+        joined: whoH?.joined_on, left: whoH?.left_on, rejoined: whoH?.rejoined_on, orpBase: 0, hourly: true,
+      }).cents;
+      const netH = Math.max(0, basicH + phH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents));
       try {
         await env.DB.prepare(
           `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, hourly_minutes, hourly_rate_cents, note, created_by)
