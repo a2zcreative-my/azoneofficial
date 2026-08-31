@@ -19,6 +19,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
    so its letterhead names the CURRENT operator (lib/issuers.ts). */
 import { DOCUMENT_ISSUER } from "@/lib/issuers";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
@@ -46,6 +47,7 @@ export function HrAdminPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [holDraft, setHolDraft] = useState({ holiday_date: "", name: "", kind: "public" });
 
   const [entUser, setEntUser] = useState(0);
@@ -64,6 +66,7 @@ export function HrAdminPanel() {
       setStaff(list.filter((x) => x.role !== "customer"));
     }
     if (h.data) setHolidays(h.data.holidays ?? []);
+    setLoaded(true);
   }, [entYear]);
   useEffect(() => {
     void load();
@@ -113,6 +116,15 @@ export function HrAdminPanel() {
             }}>{L("Add", "Tambah")}</button>
         </div>
         <ul className="mt-3 grid grid-cols-1 max-h-64 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+          {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+              holiday rows (date · name left, Remove right) in the same 1/2/3
+              column grid. */}
+          {!loaded && Array.from({ length: 6 }, (_, i) => (
+            <li key={`skel-${i}`} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5" aria-busy="true">
+              <Skel className="h-4 w-40 max-w-full" />
+              <Skel className="h-5 w-14" />
+            </li>
+          ))}
           {holidays.map((h) => (
             <li key={h.id} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm">
               <span>{dmy(h.holiday_date)} · {h.name}</span>
@@ -128,7 +140,7 @@ export function HrAdminPanel() {
               </button>
             </li>
           ))}
-          {holidays.length === 0 && <li className="text-muted-foreground text-sm">{L("No holidays yet.", "Belum ada cuti lagi.")}</li>}
+          {loaded && holidays.length === 0 && <li className="text-muted-foreground text-sm">{L("No holidays yet.", "Belum ada cuti lagi.")}</li>}
         </ul>
       </div>
 

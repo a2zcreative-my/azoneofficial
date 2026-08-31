@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
 import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel, SkelTable } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -22,6 +23,22 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 /** BM display names for PO statuses — display only, never compared. */
 const poStatusMs: Record<string, string> = { draft: "draf", sent: "dihantar", received: "diterima", cancelled: "dibatalkan" };
 const dmy2 = (iso: string | null) => (iso && iso.length >= 10 ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : "—");
+
+/* v1.77.0 — the KPI strip's skeleton: four tiles inside the real StatStrip,
+   so the grid geometry is the strip's own and nothing jumps when the numbers
+   land. */
+function SkelTileStrip() {
+  return (
+    <StatStrip>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="bg-secondary rounded-xl p-3" aria-hidden>
+          <Skel className="h-2.5 w-24" />
+          <Skel className="mt-2 h-7 w-28" />
+        </div>
+      ))}
+    </StatStrip>
+  );
+}
 
 /* ============================ Purchasing ============================ */
 
@@ -46,11 +63,17 @@ export function PurchasingPanel() {
     supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "", inventory_item_id: "" }],
   });
 
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the table are skeletons, never "0 POs" and "No purchase
+     orders yet". */
+  const [loaded, setLoaded] = useState(false);
+
   const load = useCallback(async () => {
     const s = await api<{ suppliers: Supplier[] }>(`/suppliers`); setSuppliers(s.data?.suppliers ?? []);
     const st = await api<{ items: StockItem[] }>(`/stock-items`); setStockItems(st.data?.items ?? []);
     const p = await api<{ pos: Po[]; pending_migration?: boolean }>(`/purchase-orders`);
     setPos(p.data?.pos ?? []); setPending(p.data?.pending_migration === true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -106,12 +129,16 @@ export function PurchasingPanel() {
       </div>
 
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="info" label={L("Purchase orders", "Pesanan pembelian")} value={pos.length} icon="≡" />
-          <StatTile tone="brand" label={L("Open POs", "PO terbuka")} value={open.length} icon="◷" />
-          <StatTile tone="gold" label={L("Open value", "Nilai terbuka")} value={fmtRM(openValue)} icon="$" />
-          <StatTile tone="muted" label={L("Suppliers", "Pembekal")} value={suppliers.filter((s) => s.active).length} icon="⌂" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands: four tiles in the
+            same strip, so the figures never read 0 while loading. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="info" label={L("Purchase orders", "Pesanan pembelian")} value={pos.length} icon="≡" />
+            <StatTile tone="brand" label={L("Open POs", "PO terbuka")} value={open.length} icon="◷" />
+            <StatTile tone="gold" label={L("Open value", "Nilai terbuka")} value={fmtRM(openValue)} icon="$" />
+            <StatTile tone="muted" label={L("Suppliers", "Pembekal")} value={suppliers.filter((s) => s.active).length} icon="⌂" />
+          </StatStrip>
+        )}
       </div>
 
       {showSuppliers && (
@@ -176,6 +203,9 @@ export function PurchasingPanel() {
         </div>
       </div>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={5} /> : (
       <DataTable
         rows={pos}
         searchText={(p) => `${p.po_no} ${p.supplier_name}`}
@@ -199,6 +229,7 @@ export function PurchasingPanel() {
         ]}
         empty={L("No purchase orders yet.", "Tiada pesanan pembelian lagi.")}
       />
+      )}
     </div>
   );
 }
@@ -217,12 +248,18 @@ export function AccountingPanel() {
     entry_date: "", memo: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }],
   });
 
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the trial balance are skeletons, never "0 accounts" and
+     "No journal entries yet". */
+  const [loaded, setLoaded] = useState(false);
+
   const load = useCallback(async () => {
     const a = await api<{ accounts: GlAccount[]; pending_migration?: boolean }>(`/gl/accounts`);
     setAccounts(a.data?.accounts ?? []);
     setPending(a.data?.pending_migration === true);
     const t = await api<{ accounts: GlAccount[] }>(`/gl/trial-balance`);
     setTrial(t.data?.accounts ?? []);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -260,14 +297,17 @@ export function AccountingPanel() {
       <p className="text-sm font-semibold">{L("Accounting", "Perakaunan")}</p>
 
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="brand" label={L("Accounts", "Akaun")} value={accounts.length} icon="≡" />
-          <StatTile tone="info" label={L("Total debits", "Jumlah debit")} value={fmtRM(trialDebit)} icon="◧" />
-          <StatTile tone="info" label={L("Total credits", "Jumlah kredit")} value={fmtRM(trialCredit)} icon="◨" />
-          <StatTile tone={trialDebit === trialCredit ? "success" : "danger"}
-            label={trialDebit === trialCredit ? L("Balanced", "Seimbang") : L("OUT OF BALANCE", "TIDAK SEIMBANG")}
-            value={trialDebit === trialCredit ? "✓" : fmtRM(Math.abs(trialDebit - trialCredit))} icon="⚖" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="brand" label={L("Accounts", "Akaun")} value={accounts.length} icon="≡" />
+            <StatTile tone="info" label={L("Total debits", "Jumlah debit")} value={fmtRM(trialDebit)} icon="◧" />
+            <StatTile tone="info" label={L("Total credits", "Jumlah kredit")} value={fmtRM(trialCredit)} icon="◨" />
+            <StatTile tone={trialDebit === trialCredit ? "success" : "danger"}
+              label={trialDebit === trialCredit ? L("Balanced", "Seimbang") : L("OUT OF BALANCE", "TIDAK SEIMBANG")}
+              value={trialDebit === trialCredit ? "✓" : fmtRM(Math.abs(trialDebit - trialCredit))} icon="⚖" />
+          </StatStrip>
+        )}
       </div>
 
       <p className="text-muted-foreground mb-3 text-[11.5px]">
@@ -314,7 +354,18 @@ export function AccountingPanel() {
             <th className={thR2}>Debit</th><th className={thR2}>{L("Credit", "Kredit")}</th>
           </tr></thead>
           <tbody>
-            {trial.filter((t) => (t.debit_cents ?? 0) !== 0 || (t.credit_cents ?? 0) !== 0).map((t) => (
+            {/* v1.77.0 — skeleton until the first fetch lands: shimmering
+                cells under the real header, same five columns. */}
+            {!loaded && Array.from({ length: 5 }, (_, i) => (
+              <tr key={`skel-${i}`} className="border-border border-t" aria-hidden>
+                <td className={td}><Skel className="h-4 w-10" /></td>
+                <td className={td}><Skel className="h-4 w-36" /></td>
+                <td className={td}><Skel className="h-5 w-16 rounded-full" /></td>
+                <td className={tdR2}><Skel className="ml-auto h-4 w-20" /></td>
+                <td className={tdR2}><Skel className="ml-auto h-4 w-20" /></td>
+              </tr>
+            ))}
+            {loaded && trial.filter((t) => (t.debit_cents ?? 0) !== 0 || (t.credit_cents ?? 0) !== 0).map((t) => (
               <tr key={t.id} className="border-border border-t">
                 <td className={`${td} tabular-nums`}>{t.code}</td>
                 <td className={td}>{t.name}</td>
@@ -323,7 +374,7 @@ export function AccountingPanel() {
                 <td className={tdR2}>{(t.credit_cents ?? 0) > 0 ? fmtRM(t.credit_cents ?? 0) : ""}</td>
               </tr>
             ))}
-            {trial.every((t) => (t.debit_cents ?? 0) === 0 && (t.credit_cents ?? 0) === 0) && (
+            {loaded && trial.every((t) => (t.debit_cents ?? 0) === 0 && (t.credit_cents ?? 0) === 0) && (
               <tr><td colSpan={5} className="text-muted-foreground px-3 py-6 text-center text-sm">{L(`No journal entries yet — the ${accounts.length}-account chart is seeded and ready.`, `Tiada catatan jurnal lagi — carta ${accounts.length} akaun sudah dibenih dan sedia.`)}</td></tr>
             )}
           </tbody>

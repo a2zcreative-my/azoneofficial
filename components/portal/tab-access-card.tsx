@@ -13,6 +13,7 @@ import { csrfFetch } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card } from "@/lib/ui-styles";
+import { Skel } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { getLang, t } from "@/lib/i18n";
 
@@ -126,12 +127,17 @@ export function TabAccessCard() {
   /* v1.4.221 (CEO: "there is no save popup notification"): the standard
      v1.4.87 save toast — same popup as every other Save in the portal. */
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.77.0 — skeleton until the first fetch lands. Overrides start `{}`, so
+     every tab read "default" until the server answered — an empty state
+     shown while loading. */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
     void fetch("/api/v1/staff/tabs/access", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setOverrides((d as { overrides: Record<string, string[]> }).overrides ?? {}))
-      .catch(() => setMsg(L("Tab access needs the latest server — deploy the worker first.", "Akses tab memerlukan pelayan terkini — deploy worker dahulu.")));
+      .catch(() => setMsg(L("Tab access needs the latest server — deploy the worker first.", "Akses tab memerlukan pelayan terkini — deploy worker dahulu.")))
+      .finally(() => setLoaded(true));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -162,7 +168,17 @@ export function TabAccessCard() {
           "Pilih peranan yang boleh melihat setiap tab. Semua orang sentiasa mengekalkan Papan Pemuka dan Profil (daftar masuk dan slip gaji), dan super_admin sentiasa melihat semua tab — jaring keselamatan jika penetapan tersilap. Perubahan berkuat kuasa pada muat semula halaman seterusnya setiap orang.")}
       </p>
       <div className="mt-3 space-y-1.5">
-        {TABS.map(({ name, label, hint }) => {
+        {/* v1.77.0 — skeleton until the first fetch lands: one bordered row
+            per tab (same count, same padding) with a text line and the Edit
+            button's slot, so the card is already its full height. */}
+        {!loaded ? TABS.map(({ name }) => (
+          <div key={name} className="border-border rounded-lg border px-2.5 py-1.5" aria-hidden>
+            <div className="flex items-center justify-between gap-2">
+              <Skel className="h-3 w-2/3 max-w-xs" />
+              <Skel className="h-6 w-12 shrink-0 rounded-lg" />
+            </div>
+          </div>
+        )) : TABS.map(({ name, label, hint }) => {
           const eff = effective(name);
           const overridden = Object.prototype.hasOwnProperty.call(overrides, name);
           const isOpen = openTab === name;

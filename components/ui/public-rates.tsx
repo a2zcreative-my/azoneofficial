@@ -8,18 +8,47 @@
    never shows placeholders (house rule). */
 
 import { useEffect, useState } from "react";
+import { Skel } from "@/components/ui/skeleton";
 
 interface Tier { name: string; price_label: string; points: string[] }
 
 export function PublicRates({ whatsapp }: { whatsapp: string }) {
   const [tiers, setTiers] = useState<Tier[] | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. `tiers` is null while
+     /packages is out AND when nothing is published (or the request failed),
+     so a flag separates "loading" from "no rate card". */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     void fetch("/api/v1/packages")
       .then(async (r) => { if (r.ok) setTiers(((await r.json()) as { packages: Tier[] | null }).packages); })
-      .catch(() => { /* section simply doesn't render */ });
+      .catch(() => { /* section simply doesn't render */ })
+      .finally(() => setLoaded(true));
   }, []);
 
+  if (tiers === null && !loaded) {
+    /* Heading, the one-line intro and three tiles in the real 3-column grid. */
+    return (
+      <section aria-hidden>
+        <Skel className="h-8 w-56" />
+        <Skel className="mt-3 mb-6 h-4 w-3/4 max-w-xl" />
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="border-border flex flex-col rounded-2xl border p-5">
+              <Skel className="h-3.5 w-24" />
+              <Skel className="mt-2 h-6 w-32" />
+              <div className="mt-3 space-y-1.5">
+                <Skel className="h-3 w-full" />
+                <Skel className="h-3 w-5/6" />
+                <Skel className="h-3 w-2/3" />
+              </div>
+              <Skel className="mt-6 h-9 w-full rounded-lg" />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
   if (!tiers || tiers.length === 0) return null;
 
   return (

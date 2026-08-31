@@ -40,6 +40,7 @@ import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -140,6 +141,9 @@ export function HrPanel() {
     content: "",
   });
   const [birthdays, setBirthdays] = useState<{ name: string; birthday: string }[]>([]);
+  /* v1.77.0 — skeleton until the first fetch lands (lists start [] so an
+     empty month cannot be told from one still loading). */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [a, r, b] = await Promise.all([
@@ -153,9 +157,10 @@ export function HrPanel() {
     }
     if (r.data) setReports(r.data.reports);
     if (b.data) setBirthdays(b.data.birthdays);
+    setLoaded(true);
   }, [month]);
   useEffect(() => {
-    void load();
+    void load().finally(() => setLoaded(true)); // a failed request clears the skeleton too
   }, [load]);
 
   const submitReport = async () => {
@@ -211,7 +216,17 @@ export function HrPanel() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
+              {/* v1.77.0 — skeleton until the first fetch lands: five columns, like the real rows. */}
+              {!loaded && Array.from({ length: 5 }, (_, i) => (
+                <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
+                  <td className={td}><Skel className="h-4 w-28" /></td>
+                  <td className={td}><Skel className="h-4 w-40" /></td>
+                  <td className={td}><Skel className="h-4 w-16" /></td>
+                  <td className={td}><Skel className="h-4 w-32" /></td>
+                  <td className={td}><Skel className="h-5 w-16 rounded-full" /></td>
+                </tr>
+              ))}
+              {loaded && rows.length === 0 && (
                 <tr>
                   <td className={`${td} text-muted-foreground`} colSpan={5}>
                     {L("No attendance records for this month yet.", "Tiada rekod kehadiran untuk bulan ini lagi.")}
@@ -267,6 +282,13 @@ export function HrPanel() {
             {L("Submit report", "Hantar laporan")}
           </button>
           <ul className="mt-4 space-y-2">
+            {/* v1.77.0 — skeleton until the first fetch lands: three report cards. */}
+            {!loaded && Array.from({ length: 3 }, (_, i) => (
+              <li key={`skel-${i}`} className="border-border rounded-lg border px-3 py-2" aria-hidden>
+                <Skel className="h-4 w-48 max-w-full" />
+                <SkelText lines={2} className="mt-2" />
+              </li>
+            ))}
             {reports.slice(0, 5).map((r) => (
               <li key={r.id} className="border-border rounded-lg border px-3 py-2 text-sm">
                 <span className="font-medium capitalize">{r.period === "daily" ? L("daily", "harian") : r.period === "weekly" ? L("weekly", "mingguan") : r.period === "monthly" ? L("monthly", "bulanan") : r.period}</span>{" "}
@@ -283,7 +305,14 @@ export function HrPanel() {
             {L("Maintained in the staff directory (birthday field). Sorted by month and day.", "Diselenggara dalam direktori kakitangan (medan hari lahir). Disusun mengikut bulan dan hari.")}
           </p>
           <ul className="mt-3 space-y-1.5">
-            {birthdays.length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands: name left, date right. */}
+            {!loaded && Array.from({ length: 4 }, (_, i) => (
+              <li key={`skel-${i}`} className="flex justify-between py-0.5" aria-hidden>
+                <Skel className="h-4 w-32" />
+                <Skel className="h-4 w-20" />
+              </li>
+            ))}
+            {loaded && birthdays.length === 0 && (
               <li className="text-muted-foreground text-sm">
                 {L("No birthdays recorded yet — add them via the staff directory.", "Tiada hari lahir direkodkan lagi — tambah melalui direktori kakitangan.")}
               </li>
@@ -413,14 +442,19 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
     }
   }, []);
 
+  /* v1.77.0 — skeleton until the first fetch lands. `ttStatus` starts null
+     but a failed /status also leaves it null, and `ttOrders` starts [] —
+     so one flag, set once both requests have settled. */
+  const [loaded, setLoaded] = useState(false);
   const loadTikTok = useCallback(async () => {
     const st = await tiktokApi<TtStatus>(`/status`);
     if (st.ok) setTtStatus(st.data);
     const pr = await api<{ records: TtOrder[] }>(`/postage`);
     setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 100));
+    setLoaded(true);
   }, [tiktokApi]);
 
-  useEffect(() => { void loadTikTok(); }, [loadTikTok]);
+  useEffect(() => { void loadTikTok().finally(() => setLoaded(true)); }, [loadTikTok]);
 
   const syncTikTok = async () => {
     setTtMsg(L("Syncing from TikTok…", "Menyegerak dari TikTok…"));
@@ -446,6 +480,9 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{L("TikTok Orders", "Pesanan TikTok")}</p>
+          {/* v1.77.0 — skeleton until the first fetch lands: the status line
+              would otherwise read "Not configured" while /status is in flight. */}
+          {!loaded ? <Skel className="mt-1 h-3 w-64 max-w-full" /> : (
           <p className="text-muted-foreground mt-0.5 text-xs">
             {!ttStatus?.configured
               ? L("Not configured — set the app secret and deploy the worker.", "Belum dikonfigurasi — tetapkan app secret dan deploy worker.")
@@ -455,6 +492,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
                   ? `${L("Connected · last webhook", "Bersambung · webhook terakhir")} ${dmyMYT(ttStatus.last_event_at)} MYT${ttStatus.last_event_verified === false ? L(" (signature FAILED — check app secret)", " (tandatangan GAGAL — semak app secret)") : ""}`
                   : L("Connected · auto-sync runs every 30 minutes; Sync pulls now.", "Bersambung · auto-segerak berjalan setiap 30 minit; Segerak menarik sekarang.")}
           </p>
+          )}
         </div>
         {canSync && (
           <button
@@ -487,7 +525,9 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
       {/* v1.4.196 (CEO): order rows hide behind one click — minimalist view */}
       <DetailsToggle label={L("Show orders", "Tunjuk pesanan")}>
       <div className="mt-1 max-h-72 overflow-y-auto">
-        {ttOrders.length === 0 && <p className="text-muted-foreground text-sm">{L("No TikTok orders yet.", "Tiada pesanan TikTok lagi.")}</p>}
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded && <SkelRows rows={3} />}
+        {loaded && ttOrders.length === 0 && <p className="text-muted-foreground text-sm">{L("No TikTok orders yet.", "Tiada pesanan TikTok lagi.")}</p>}
         {ttOrders.length > 0 && ttOrders.every((o) => ttFilter !== "all" && o.status !== ttFilter) && (
           <p className="text-muted-foreground text-sm">{L("No orders with this status.", "Tiada pesanan dengan status ini.")}</p>
         )}
@@ -594,6 +634,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   const [openRet, setOpenRet] = useState<number | null>(null);
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
+  /* v1.77.0 — skeleton until the first fetch lands. Every list above starts
+     [] so "no items yet" cannot be told from "still loading"; this flag can. */
+  const [loaded, setLoaded] = useState(false);
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
   // traceability, optional Sold @ that records it as a SALE in the totals.
@@ -705,9 +748,10 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         ? (bh.data as BridgeHealth)
         : { unavailable: true, key_configured: false, applied_24h: 0, unknown_24h: 0, unknown: [] },
     );
+    setLoaded(true);
   }, []);
   useEffect(() => {
-    void load();
+    void load().finally(() => setLoaded(true)); // v1.77.0 — a failed request clears the skeleton too
   }, [load]);
 
   return (
@@ -718,6 +762,18 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           it last report a sale, and (the part a human must act on) SKUs it
           sent that the portal does not hold. Compact strip, reads before the
           table like the status strip above it. */}
+      {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
+          card so the table below does not jump up when the pulse arrives. */}
+      {!loaded && (
+        <div className={card} aria-hidden>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Skel className="h-4 w-24" />
+            <Skel className="h-3 w-40" />
+            <Skel className="h-3 w-24" />
+            <Skel className="h-3 w-36" />
+          </div>
+        </div>
+      )}
       {bridgeHealth && (
         <div className={card}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -946,7 +1002,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             {L("Add item", "Tambah barang")}
           </button>
         </div>
-        {items.length === 0 && (
+        {/* v1.77.0 — skeleton until the first fetch lands: the stock table's
+            ten columns, so "No items yet" is never shown for a list still loading. */}
+        {!loaded && (
+          <div className="mt-3 overflow-x-auto pr-1">
+            <SkelTable rows={6} cols={10} className="min-w-[920px]" />
+          </div>
+        )}
+        {loaded && items.length === 0 && (
           <p className="text-muted-foreground mt-3 text-sm">{L("No items yet — add your first above; TikTok orders will start moving its stock automatically.", "Tiada barang lagi — tambah yang pertama di atas; pesanan TikTok akan mula menggerakkan stoknya secara automatik.")}</p>
         )}
         {items.length > 0 && (
@@ -1206,7 +1269,12 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
         </p>
-        {ttOut.length === 0 ? (
+        {/* v1.77.0 — skeleton until the first fetch lands (nine columns, like the real table). */}
+        {!loaded ? (
+          <div className="mt-3 overflow-x-auto pr-1">
+            <SkelTable rows={4} cols={9} className="min-w-[560px]" />
+          </div>
+        ) : ttOut.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">
             {L("No TikTok stock movements yet — they appear here as soon as an order deducts stock (SKU or item-name match).", "Tiada pergerakan stok TikTok lagi — ia muncul di sini sebaik sahaja pesanan menolak stok (padanan SKU atau nama barang).")}
           </p>
@@ -1307,7 +1375,11 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
           <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
         </p>
-        {manualOuts.length === 0 ? (
+        {/* v1.77.0 — skeleton until the first fetch lands: the collapsed
+            toggle line the real card opens with. */}
+        {!loaded ? (
+          <Skel className="mt-3 h-4 w-40" />
+        ) : manualOuts.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
         ) : (
           /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
@@ -1473,7 +1545,9 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         {/* v1.4.196 (CEO): the history list hides behind one click — minimalist view */}
         <DetailsToggle label={L("Returns history", "Sejarah pemulangan")}>
         <div className="mt-1 max-h-72 space-y-1.5 overflow-y-auto pr-1">
-          {returns.length === 0 && <p className="text-muted-foreground text-sm">{L("No supplier returns recorded.", "Tiada pemulangan pembekal direkodkan.")}</p>}
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!loaded && <SkelRows rows={2} />}
+          {loaded && returns.length === 0 && <p className="text-muted-foreground text-sm">{L("No supplier returns recorded.", "Tiada pemulangan pembekal direkodkan.")}</p>}
           {returns.map((r) => (
             <div key={r.id} className="border-border border-b py-1.5 text-sm last:border-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1736,7 +1810,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </button>
           </div>
           <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-            {postage.filter((r) => !r.order_ref?.startsWith("TT-")).length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands: bordered rows, ref left, status right. */}
+            {!loaded && Array.from({ length: 3 }, (_, i) => (
+              <li key={`skel-${i}`} className="border-border flex items-center justify-between gap-2 rounded-lg border px-3 py-2" aria-hidden>
+                <Skel className="h-4 w-48 max-w-full" />
+                <Skel className="h-6 w-24" />
+              </li>
+            ))}
+            {loaded && postage.filter((r) => !r.order_ref?.startsWith("TT-")).length === 0 && (
               <li className="text-muted-foreground text-sm">{L("No non-TikTok postage records yet.", "Tiada rekod pos bukan TikTok lagi.")}</li>
             )}
             {postage.filter((r) => !r.order_ref?.startsWith("TT-")).map((r) => (
@@ -1793,6 +1874,13 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             </button>
           </div>
           <ul className="mt-4 space-y-2">
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && Array.from({ length: 2 }, (_, i) => (
+              <li key={`skel-${i}`} className="border-border flex items-center justify-between gap-2 rounded-lg border px-3 py-2" aria-hidden>
+                <Skel className="h-4 w-40 max-w-full" />
+                <Skel className="h-6 w-24" />
+              </li>
+            ))}
             {materials.map((m) => (
               <li key={m.id} className="border-border flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span className="font-medium">{m.title}</span>
@@ -1839,6 +1927,8 @@ export function BirthdaysPanel() {
   const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[]>([]);
   const [draft, setDraft] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<number | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands (`staff` starts []). */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<{ users?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[], staff?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[] }>(`/users`);
@@ -1846,9 +1936,10 @@ export function BirthdaysPanel() {
       const list = r.data.users ?? r.data.staff ?? [];
       setStaff(list.filter((u) => u.role !== "customer"));
     }
+    setLoaded(true);
   }, []);
   useEffect(() => {
-    void load();
+    void load().finally(() => setLoaded(true)); // a failed request clears the skeleton too
   }, [load]);
 
   const [birthdayMsg, setBirthdayMsg] = useState("");
@@ -1879,6 +1970,16 @@ export function BirthdaysPanel() {
       </p>
       {birthdayMsg && <p className="text-destructive mt-2 text-xs font-medium">{birthdayMsg}</p>}
       <ul className="mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+        {/* v1.77.0 — skeleton until the first fetch lands: name left, date box + Save right. */}
+        {!loaded && Array.from({ length: 6 }, (_, i) => (
+          <li key={`skel-${i}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2" aria-hidden>
+            <Skel className="h-4 w-44 max-w-full" />
+            <span className="flex items-center gap-2">
+              <Skel className="h-7 w-32" />
+              <Skel className="h-7 w-12" />
+            </span>
+          </li>
+        ))}
         {sorted.map((u) => (
           <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <span className="text-sm font-medium">
@@ -2034,6 +2135,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   // flip. Default = the API's chronological order.
   const [sortKey, setSortKey] = useState<"name" | "type" | "time" | "mark" | null>(null);
   const [sortDir, setSortDir] = useState<1 | -1>(1);
+  /* v1.77.0 — skeleton until the first fetch lands. `rows` starts [] so
+     "No records this month" cannot be told from a month still loading. */
+  const [loaded, setLoaded] = useState(false);
   /* v1.72.2 (CEO: "I want to have the search box for me to find the staff and
      to filter based on what I want to view either in or out or anything") —
      the v1.4.78 single-staff dropdown becomes a filter bar: typed search on
@@ -2103,9 +2207,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     if (r.data) setRows(r.data.records ?? []);
     const list = u.data?.users ?? u.data?.staff ?? [];
     setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
+    setLoaded(true);
   }, [month, loadUnpaid, loadShifts]);
   useEffect(() => {
-    void load();
+    void load().finally(() => setLoaded(true)); // v1.77.0 — a failed request clears the skeleton too
   }, [load]);
 
   const act = async (path: string, init: RequestInit, okMsg: string) => {
@@ -2526,7 +2631,18 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands: five columns
+                (staff, type, time box, mark, actions), like the real rows. */}
+            {!loaded && Array.from({ length: 6 }, (_, i) => (
+              <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
+                <td className={td}><Skel className="h-4 w-28" /></td>
+                <td className={td}><Skel className="h-4 w-10" /></td>
+                <td className={td}><Skel className="h-7 w-44" /></td>
+                <td className={td}><Skel className="h-3 w-14" /></td>
+                <td className={td}><Skel className="h-7 w-24" /></td>
+              </tr>
+            ))}
+            {loaded && rows.length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records this month.", "Tiada rekod bulan ini.")}</td></tr>
             )}
             {rows.length > 0 && filtersOn && rows.filter(matches).length === 0 && (
@@ -2859,11 +2975,14 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   // v1.4.176: inline payee editor on an existing claim (set/change/clear).
   const [payeeEdit, setPayeeEdit] = useState<{ claimId: number; value: number } | null>(null);
 
+  /* v1.77.0 — skeleton until the first fetch lands (`claims` starts []). */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
     if (res.ok && res.data) { setClaims(res.data.claims); setCanDecide(res.data.can_decide); }
+    setLoaded(true);
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]);
   useEffect(() => {
     if (!canPayee) return;
     void api<{ users: { id: number; name: string; full_name?: string | null; role: string; is_active?: number }[] }>(`/users`).then((r) => {
@@ -3374,7 +3493,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             )}
           </p>
           <div className="mt-3 space-y-2">
-            {pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={2} />}
+            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
             {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
           </div>
         </div>
@@ -3407,7 +3528,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           );
         })()}
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {(canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!loaded && <SkelRows rows={4} />}
+          {loaded && (canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
           {(canDecide ? decided : mainList).map((c) => claimRow(c, false))}
         </div>
       </div>
@@ -3419,7 +3542,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             {L("Read-only: every CEO-approved claim, for printing the claim form and the payment receipt (payout proof) for HR records.", "Baca sahaja: setiap tuntutan yang diluluskan CEO, untuk mencetak borang tuntutan dan resit bayaran (bukti bayaran) untuk rekod HR.")}
           </p>
           <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-            {hrHistory.length === 0 && <p className="text-muted-foreground text-sm">{L("No approved claims yet.", "Tiada tuntutan diluluskan lagi.")}</p>}
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={3} />}
+            {loaded && hrHistory.length === 0 && <p className="text-muted-foreground text-sm">{L("No approved claims yet.", "Tiada tuntutan diluluskan lagi.")}</p>}
             {hrHistory.map((c) => (
               <div key={`hrh-${c.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span className="min-w-0">
@@ -3559,6 +3684,10 @@ export function ExpensesPanel() {
   const [editId, setEditId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ expense_date: "", category: "other", amount: "", vendor: "", description: "" });
   const [pieCat, setPieCat] = useState<string | null>(null); // v1.4.228 pie drill-down
+  /* v1.77.0 — skeleton until the first fetch lands. `rows` starts [] so
+     "No expenses recorded" and "Total RM 0.00" cannot be told from a month
+     still loading; this flag flips once the expenses request settles. */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const res = await api<{ expenses: ExpenseRec[]; upcoming?: ExpenseRec[]; staff_payroll?: { month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null; staff_claims?: { in_month: ClaimExp[]; paid: ClaimExp[]; due: ClaimExp[] } }>(`/expenses?month=${month}`);
@@ -3571,6 +3700,7 @@ export function ExpensesPanel() {
       setStaffPayroll(res.data.staff_payroll ?? null);
       setStaffClaims(res.data.staff_claims ?? { in_month: [], paid: [], due: [] });
     }
+    setLoaded(true); // the list is drawn from THIS response; the payroll due-date below is a side card
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
     const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y || 0, (m || 0) - 2, 1)); return d.toISOString().slice(0, 7); })();
@@ -3579,7 +3709,7 @@ export function ExpensesPanel() {
       setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
     }
   }, [month]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]); // v1.77.0 — a failed request clears the skeleton too
 
   const rmc = fmtRM; // v1.4.272: global
   const total = rows.reduce((a, r) => a + r.amount_cents, 0);
@@ -3826,6 +3956,22 @@ export function ExpensesPanel() {
       )}
 
       <div className={card}>
+        {/* v1.77.0 — skeleton until the first fetch lands: the month heading
+            with its total on the right, then the expense rows — so neither
+            "Total RM 0.00" nor "No expenses recorded" shows while loading. */}
+        {!loaded ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2" aria-hidden>
+              <Skel className="h-4 w-40" />
+              <div className="space-y-1.5">
+                <Skel className="ml-auto h-4 w-32" />
+                <Skel className="ml-auto h-3 w-48 max-w-full" />
+              </div>
+            </div>
+            <SkelRows rows={5} className="mt-3" />
+          </>
+        ) : (
+          <>
         {(() => {
           // v1.4.101: payments COMPLETED this month — what was actually
           // released: paid expenses + the payroll run once marked paid.
@@ -4040,6 +4186,8 @@ export function ExpensesPanel() {
             </div>
           ))}
         </div>
+          </>
+        )}
       </div>
     </div>
   );

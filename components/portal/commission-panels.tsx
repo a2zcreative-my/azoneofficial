@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
 import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel, SkelTable } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -22,6 +23,22 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 /** BM display names for commission/claim statuses — display only, never compared. */
 const statusMs: Record<string, string> = { pending: "menunggu", approved: "diluluskan", paid: "dibayar", rejected: "ditolak" };
 const MYT_MONTH = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+
+/* v1.77.0 — the KPI strip's skeleton: four tiles inside the real StatStrip,
+   so the grid geometry is the strip's own and nothing jumps when the numbers
+   land. */
+function SkelTileStrip() {
+  return (
+    <StatStrip>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="bg-secondary rounded-xl p-3" aria-hidden>
+          <Skel className="h-2.5 w-24" />
+          <Skel className="mt-2 h-7 w-28" />
+        </div>
+      ))}
+    </StatStrip>
+  );
+}
 
 /* ============================ Commission ============================ */
 
@@ -41,12 +58,16 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
   const [showRates, setShowRates] = useState(false);
   const [rateDraft, setRateDraft] = useState({ host_id: "", percent: "", per_hour: "", effective_from: "" });
   const [draft, setDraft] = useState({ host_id: "", period: MYT_MONTH(), basis: "", hours: "", note: "" });
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the table are skeletons, never "RM 0.00" and "No entries". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const h = await api<{ hosts: Host[] }>(`/hosts`); setHosts(h.data?.hosts ?? []);
     const r = await api<{ rates: Rate[] }>(`/commission/rates`); setRates(r.data?.rates ?? []);
     const e = await api<{ entries: CommEntry[]; pending_migration?: boolean }>(`/commission`);
     setEntries(e.data?.entries ?? []); setPending(e.data?.pending_migration === true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -103,12 +124,16 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
       </div>
 
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="info" label={L("Entries · this month", "Catatan · bulan ini")} value={thisMonth.length} icon="≡" />
-          <StatTile tone="gold" label={L("This month", "Bulan ini")} value={fmtRM(thisMonth.reduce((a, e) => a + e.amount_cents, 0))} icon="%" />
-          <StatTile tone="brand" label={L("Approved, unpaid", "Diluluskan, belum dibayar")} value={fmtRM(owed)} icon="◷" />
-          <StatTile tone="success" label={L("Paid out", "Telah dibayar")} value={fmtRM(paid)} icon="✓" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands: four tiles in the
+            same strip, so the figures never read RM 0.00 while loading. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="info" label={L("Entries · this month", "Catatan · bulan ini")} value={thisMonth.length} icon="≡" />
+            <StatTile tone="gold" label={L("This month", "Bulan ini")} value={fmtRM(thisMonth.reduce((a, e) => a + e.amount_cents, 0))} icon="%" />
+            <StatTile tone="brand" label={L("Approved, unpaid", "Diluluskan, belum dibayar")} value={fmtRM(owed)} icon="◷" />
+            <StatTile tone="success" label={L("Paid out", "Telah dibayar")} value={fmtRM(paid)} icon="✓" />
+          </StatStrip>
+        )}
       </div>
 
       {showRates && (
@@ -155,6 +180,9 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
       </div>
       <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={5} /> : (
       <DataTable
         rows={entries}
         searchText={(e) => `${e.host_name} ${e.period} ${e.note}`}
@@ -181,6 +209,7 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
         ]}
         empty={L("No commission entries yet.", "Tiada catatan komisen lagi.")}
       />
+      )}
     </div>
   );
 }
@@ -203,12 +232,16 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
   const [pending, setPending] = useState(false);
   const [allocDraft, setAllocDraft] = useState({ period: MYT_MONTH(), channel: "tiktok", amount: "", notes: "" });
   const [claimDraft, setClaimDraft] = useState({ allocation_id: "", amount: "", description: "" });
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the table are skeletons, never "RM 0.00" and "No spend". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<{ allocations: Allocation[]; claims: Claim[]; pending_migration?: boolean }>(`/adsfund`);
     setAllocations(r.data?.allocations ?? []);
     setClaims(r.data?.claims ?? []);
     setPending(r.data?.pending_migration === true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -243,12 +276,15 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
       <p className="text-sm font-semibold">{L("Ads Fund", "Dana Iklan")}</p>
 
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="brand" label={L("Allocated", "Diperuntukkan")} value={fmtRM(allocated)} icon="◎" />
-          <StatTile tone="success" label={L("Approved spend", "Perbelanjaan diluluskan")} value={fmtRM(approved)} icon="✓" />
-          <StatTile tone="gold" label={L("Remaining", "Baki")} value={fmtRM(allocated - approved)} icon="~" />
-          <StatTile tone="muted" label={L("Spend entries", "Catatan perbelanjaan")} value={claims.length} icon="≡" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="brand" label={L("Allocated", "Diperuntukkan")} value={fmtRM(allocated)} icon="◎" />
+            <StatTile tone="success" label={L("Approved spend", "Perbelanjaan diluluskan")} value={fmtRM(approved)} icon="✓" />
+            <StatTile tone="gold" label={L("Remaining", "Baki")} value={fmtRM(allocated - approved)} icon="~" />
+            <StatTile tone="muted" label={L("Spend entries", "Catatan perbelanjaan")} value={claims.length} icon="≡" />
+          </StatStrip>
+        )}
       </div>
 
       {canManage && (
@@ -287,6 +323,9 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         {L("Paid for ads out of pocket? Submit it on the", "Bayar iklan dari poket sendiri? Hantarkannya pada tab")} <b>{L("Claims", "Tuntutan")}</b> {L("tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.", "(resit + rantaian kelulusan) — kad ini ialah buku bajet, bukan barisan bayaran balik.")}
       </p>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: four columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={4} /> : (
       <DataTable
         rows={claims}
         searchText={(c) => `${c.claimant} ${c.description}`}
@@ -304,6 +343,7 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         ]}
         empty={L("No spend recorded yet — allocate a budget, then record spend against it.", "Tiada perbelanjaan direkodkan lagi — peruntukkan bajet, kemudian rekod perbelanjaan terhadapnya.")}
       />
+      )}
     </div>
   );
 }

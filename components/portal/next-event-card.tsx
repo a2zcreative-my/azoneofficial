@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
+import { Skel } from "@/components/ui/skeleton";
 import { t as tr, type Lang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
@@ -26,12 +27,18 @@ function mytTodayISO(): string {
 
 export function NextEventCard({ lang }: { lang: Lang }) {
   const [hero, setHero] = useState<Hero | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. `hero` is null BOTH while
+     the requests are in flight and when there is genuinely nothing coming up
+     (the card hides rather than sit empty), so a flag tells the two apart:
+     band-shaped skeleton while loading, nothing once loaded with no hero. */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     // md:hidden hides the card on desktop — skip the fetches there too
     // (1–3 calls per Dashboard visit for a card that can never be seen).
-    if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) return;
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) { setLoaded(true); return; }
     void (async () => {
+      try {
       const today = mytTodayISO();
       const ev = await api<{ events: { title: string; event_date: string; location?: string | null }[] }>(`/events`);
       const next = (ev.data?.events ?? [])
@@ -69,10 +76,27 @@ export function NextEventCard({ lang }: { lang: Lang }) {
       } else if (nb) {
         setHero({ eyebrow: "birthday", title: `🎂 ${nb.name}`, date: nb.iso });
       }
+      } finally {
+        setLoaded(true);
+      }
     })();
   }, []);
 
-  if (!hero) return null;
+  if (!hero && !loaded) {
+    /* v1.77.0 — skeleton until the first fetch lands: the navy band in the
+       real card's shape (eyebrow · title · date line), mobile only like it. */
+    return (
+      <div className="bg-brand/95 relative block w-full overflow-hidden rounded-2xl p-5 shadow-sm md:hidden" aria-hidden>
+        <div className="flex items-baseline justify-between gap-2">
+          <Skel className="h-2.5 w-24 rounded bg-white/20" />
+          <Skel className="h-2.5 w-16 rounded bg-white/15" />
+        </div>
+        <Skel className="mt-2.5 h-7 w-48 max-w-full rounded bg-white/25" />
+        <Skel className="mt-3 h-3 w-56 max-w-full rounded bg-white/15" />
+      </div>
+    );
+  }
+  if (!hero) return null; // loaded, nothing upcoming — the card hides rather than sit empty
 
   const days = Math.round((Date.parse(hero.date) - Date.parse(mytTodayISO())) / 86400000);
   const when = days <= 0 ? tr("Today", lang) : days === 1 ? (lang === "ms" ? "Esok" : "Tomorrow") : lang === "ms" ? `${days} hari lagi` : `in ${days} days`;

@@ -18,6 +18,7 @@ import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
+import { Skel, SkelCard, SkelText } from "@/components/ui/skeleton";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -54,10 +55,14 @@ export function ElfiaTrafficPanel() {
   const [marketing, setMarketing] = useState<MarketingData | null>(null);
   const [showList, setShowList] = useState(false);
   const [copied, setCopied] = useState(false);
+  /* v1.77.0 — true once the first summary request settles (ok or not), so
+     the skeleton ends even when the request fails. */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
     void api<TrafficSummary>(`/web-traffic?days=${span}`)
-      .then((r) => setData(r.ok && r.data ? r.data : null));
+      .then((r) => setData(r.ok && r.data ? r.data : null))
+      .finally(() => setLoaded(true));
   }, [span]);
   useEffect(() => { setSel(null); setDetail(null); load(); }, [load]);
 
@@ -147,7 +152,74 @@ export function ElfiaTrafficPanel() {
     } catch { /* clipboard blocked — the list is still on screen */ }
   };
 
-  if (!data) return null;
+  /* The card heading and the Today / 7 / 30 range buttons do not load — they
+     render at once, over the skeleton and over the real map alike. */
+  const header = (
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <p className="text-sm font-semibold">{L("ELFIA Traffic — visitors by state", "Trafik ELFIA — pelawat mengikut negeri")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("Where the ELFIA store's visitors browse from and what they look at — anonymous by design: locations and counts only, never identities.",
+             "Dari mana pelawat kedai ELFIA melayari dan apa yang mereka lihat — tanpa nama secara reka bentuk: lokasi dan bilangan sahaja, bukan identiti.")}
+        </p>
+      </div>
+      <div className="flex gap-1">
+        {SPANS.map((s) => (
+          <button key={s.days} type="button" onClick={() => setSpan(s.days)}
+            className={`${btnSm} ${span === s.days ? "!bg-primary !text-primary-foreground" : ""}`}>
+            {L(s.en, s.ms)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (!data) {
+    /* v1.77.0 — skeleton until the first fetch lands. Same shape as the
+       loaded panel: three stat tiles, the map beside its 240px detail
+       column on md+, stacked on phones, then the marketing-reach card. */
+    return (
+      <div className="flex flex-col gap-4 md:gap-6">
+        <div className={card}>
+          {header}
+          {loaded ? (
+            <p className="text-muted-foreground mt-3 text-xs">
+              {L("Could not load the traffic summary —", "Ringkasan trafik tidak dapat dimuatkan —")}{" "}
+              <button type="button" className="underline" onClick={() => load()}>{L("try again", "cuba lagi")}</button>.
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 grid grid-cols-3 gap-2" aria-hidden>
+                {Array.from({ length: 3 }, (_, i) => (
+                  <div key={i} className="bg-secondary rounded-lg px-2.5 py-2">
+                    <Skel className="h-2.5 w-20" />
+                    <Skel className="mt-1.5 h-4 w-12" />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]" aria-hidden>
+                <Skel className="aspect-[860/380] w-full" />
+                <div className="border-border rounded-xl border p-3">
+                  <Skel className="h-4 w-36" />
+                  <Skel className="mt-3 h-2.5 w-20" />
+                  <div className="mt-2 space-y-2">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <Skel className="h-3 w-24" />
+                        <Skel className="h-3 w-16" />
+                      </div>
+                    ))}
+                  </div>
+                  <SkelText lines={2} className="mt-3" />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <SkelCard lines={3} sub />
+      </div>
+    );
+  }
 
   const notConfigured = !data.pending_migration && data.last_poll_at === null && data.states.length === 0;
   const maxVisits = Math.max(1, ...[...byState.values()].filter((s) => s.state !== "Outside Malaysia").map((s) => s.visits));
@@ -168,23 +240,7 @@ export function ElfiaTrafficPanel() {
   return (
     <div className="flex flex-col gap-4 md:gap-6">
     <div className={card}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{L("ELFIA Traffic — visitors by state", "Trafik ELFIA — pelawat mengikut negeri")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Where the ELFIA store's visitors browse from and what they look at — anonymous by design: locations and counts only, never identities.",
-               "Dari mana pelawat kedai ELFIA melayari dan apa yang mereka lihat — tanpa nama secara reka bentuk: lokasi dan bilangan sahaja, bukan identiti.")}
-          </p>
-        </div>
-        <div className="flex gap-1">
-          {SPANS.map((s) => (
-            <button key={s.days} type="button" onClick={() => setSpan(s.days)}
-              className={`${btnSm} ${span === s.days ? "!bg-primary !text-primary-foreground" : ""}`}>
-              {L(s.en, s.ms)}
-            </button>
-          ))}
-        </div>
-      </div>
+      {header}
 
       {data.pending_migration ? (
         <p className="text-warning mt-3 text-xs">

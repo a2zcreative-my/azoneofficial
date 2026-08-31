@@ -12,6 +12,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { MiniBar } from "@/components/ui/stat-card";
+import { Skel } from "@/components/ui/skeleton";
 import { card, inputClass, btnClass, btnSm, fieldRow, fieldLabel, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -39,11 +40,15 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   const [orders, setOrders] = useState<Record<number, Order[]>>({});
   const [orderDraft, setOrderDraft] = useState({ amount: "", qty: "", note: "", paid: false });
   const [notReady, setNotReady] = useState(false);
+  /* v1.77.0 — true once the first list request settles (ok or not); until
+     then the summary line and the list are skeletons, never "0 active". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<{ stokis: Stokis[]; month: string; error?: { message?: string } }>(`/stokis`);
     if (r.ok && r.data?.stokis) { setRows(r.data.stokis); setMonth(r.data.month); }
     else if (r.data?.error?.message?.includes("0069") || /route not found/i.test(r.data?.error?.message ?? "")) setNotReady(true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -81,9 +86,13 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
     <div className={card}>
       {toastNode}{confirmNode}
       <p className="text-sm font-semibold">{L("🏪 Stokis — reseller network", "🏪 Stokis — rangkaian pengedar")}</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {activeCount} {L("active", "aktif")} · {L("this month", "bulan ini")} {fmtRM(monthTotal)} · {L("outstanding balance", "baki tertunggak")} {fmtRM(balanceTotal)}{month ? ` · ${ym(month)}` : ""}.
-      </p>
+      {/* v1.77.0 — skeleton until the first fetch lands (the summary line
+          would otherwise read "0 active · RM 0.00" while loading). */}
+      {!loaded ? <Skel className="mt-1.5 h-3 w-72 max-w-full" /> : (
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {activeCount} {L("active", "aktif")} · {L("this month", "bulan ini")} {fmtRM(monthTotal)} · {L("outstanding balance", "baki tertunggak")} {fmtRM(balanceTotal)}{month ? ` · ${ym(month)}` : ""}.
+        </p>
+      )}
 
       {canManage && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -124,7 +133,21 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
       )}
 
       <div className="mt-3 space-y-1.5">
-        {rows.length === 0 && <p className="text-muted-foreground text-xs">{L("No stokis registered yet.", "Belum ada stokis didaftarkan.")}</p>}
+        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+            rows, name + chip on the left, amount on the right, detail line under. */}
+        {!loaded && Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="border-border rounded-lg border px-3 py-2" aria-hidden>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <Skel className="h-4 w-32" />
+                <Skel className="h-4 w-12 rounded-full" />
+              </span>
+              <Skel className="h-4 w-20" />
+            </div>
+            <Skel className="mt-1.5 h-3 w-2/3" />
+          </div>
+        ))}
+        {loaded && rows.length === 0 && <p className="text-muted-foreground text-xs">{L("No stokis registered yet.", "Belum ada stokis didaftarkan.")}</p>}
         {rows.map((s) => {
           const pct = s.target_cents && s.target_cents > 0 ? Math.round((s.month_cents / s.target_cents) * 100) : null;
           return (

@@ -28,7 +28,15 @@ export function PortalSkeleton() {
        "Portal" is the word in both languages, the company name is a proper
        noun, and aria-busy carries the "loading" half for screen readers. */
     <div className="md:bg-shell-backdrop md:h-dvh md:overflow-hidden md:p-5" aria-busy="true" aria-label="Portal A2Z CREATIVE MARKETING">
-      <div className="md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:max-w-[1440px] md:overflow-hidden">
+      {/* v1.77.0 (CEO: "skeleton loading react doesnt accurately follow the
+          width of my interface"): this canvas was still capped at 1440px
+          after v1.74.0 removed that cap from AppShell. On a 1920 monitor the
+          skeleton painted narrower than the app that replaced it, so the
+          whole page jumped sideways the moment data arrived - the one thing
+          a skeleton exists to prevent. These classes now MIRROR AppShell's
+          exactly, and tests/skeleton-loading.mjs fails the build if the two
+          ever differ again. */}
+      <div className="md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:overflow-hidden md:max-w-none">
         {/* navy icon rail (desktop) — real chrome, not a placeholder, so it
             never flickers when the app takes over */}
         <div className="bg-brand rounded-l-shell hidden w-14 shrink-0 flex-col items-center gap-1 py-3 md:flex">
@@ -37,6 +45,25 @@ export function PortalSkeleton() {
             <div key={i} className="h-10 w-10 shrink-0 rounded-xl bg-white/10" />
           ))}
         </div>
+
+        {/* v1.77.0 - the Dashboard, which is the tab everyone lands on, has
+            a 264px context column (mini calendar + today) on the left and a
+            292px right rail (queues) on the right. Without them here the
+            skeleton's content area was ~560px wider than the real one, so the
+            cards it drew had nothing to do with where the real cards landed.
+            Same classes as AppShell's two <aside>s. */}
+        <aside className="border-border bg-secondary hidden w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r p-4 md:flex md:h-full" aria-hidden>
+          <div className={card}>
+            <Skel className="h-3.5 w-28" />
+            <div className="mt-3 grid grid-cols-7 gap-1">
+              {Array.from({ length: 35 }, (_, i) => <Skel key={i} className="h-6 rounded-md" />)}
+            </div>
+          </div>
+          <div className={card}>
+            <Skel className="h-3.5 w-24" />
+            <SkelRows rows={3} className="mt-2" />
+          </div>
+        </aside>
 
         <div className="min-w-0 max-md:overflow-x-clip md:h-full md:flex-1 md:overflow-y-auto">
           <div className="w-full px-4 py-3 pb-28 md:mx-0 md:max-w-none md:px-5 md:py-4 md:pb-6">
@@ -103,6 +130,12 @@ export function PortalSkeleton() {
             </div>
           </div>
         </div>
+
+        <aside className="border-border bg-secondary rounded-r-shell hidden w-[292px] shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 md:flex md:h-full" aria-hidden>
+          <SkelCard lines={2} sub={false} />
+          <SkelCard lines={3} sub={false} />
+          <SkelCard lines={2} sub={false} />
+        </aside>
       </div>
 
       {/* bottom navigation (phones) — five real-sized slots */}

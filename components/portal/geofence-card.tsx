@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { SITE_CONFIG } from "@/constants/site";
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -40,9 +41,13 @@ export function GeofenceCard() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const { confirm, node: confirmNode } = useConfirm();
+  /* v1.77.0 — skeleton until the first fetch lands. `info` stays null on a
+     failed load too, so a separate flag clears the skeleton either way. */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
     void api<FenceInfo>(`/attendance/geofence`).then((r) => {
+      setLoaded(true);
       if (!r.ok || !r.data) return;
       setInfo(r.data);
       if (r.data.configured) {
@@ -145,16 +150,43 @@ export function GeofenceCard() {
       {confirmNode}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">{L("📍 Office check-in (geofence)", "📍 Daftar kehadiran pejabat (geofence)")}</p>
+        {/* v1.77.0 — skeleton until the first fetch lands: the badge used to
+            read "OFF" while the request was still out. */}
+        {!loaded ? (
+          <Skel className="h-5 w-10 rounded-full" />
+        ) : (
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${info?.configured
           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
           : "bg-secondary text-muted-foreground"}`}>
           {info?.configured ? "ON" : "OFF"}
         </span>
+        )}
       </div>
       <p className="text-muted-foreground mt-1 text-xs">
         {L("When on, staff can only clock in/out — and record OT in/out — within the radius below. Positions come from the phone's GPS: good enough to stop clocking in from home, but not tamper-proof; the IP address stored on every punch is the cross-check. 100–200 m is a realistic radius (GPS inside a building drifts).",
           "Apabila diaktifkan, kakitangan hanya boleh daftar masuk/keluar — dan rekod OT masuk/keluar — dalam radius di bawah. Kedudukan diambil daripada GPS telefon: cukup untuk menghalang daftar masuk dari rumah, tetapi tidak kalis pengubahan; alamat IP yang disimpan pada setiap rekod ialah semakan silang. 100–200 m ialah radius yang realistik (GPS di dalam bangunan boleh melencong).")}
       </p>
+      {!loaded ? (
+        /* v1.77.0 — skeleton until the first fetch lands: the same 2/4-column
+           field grid (label + 36px input) and the button row, so the card
+           keeps its height while the saved fence is read. */
+        <div aria-hidden>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i}>
+                <Skel className="mb-1 h-2.5 w-16" />
+                <Skel className="h-9 w-full rounded-lg" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Skel className="h-9 w-32 rounded-lg" />
+            <Skel className="h-9 w-40 rounded-lg" />
+            <Skel className="h-9 w-16 rounded-lg" />
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <label className="block">
           <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Latitude", "Latitud")}</span>
@@ -198,6 +230,8 @@ export function GeofenceCard() {
           </button>
         )}
       </div>
+      </>
+      )}
       {msg && (
         <p className={`mt-2 text-xs font-medium ${msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{msg.text}</p>
       )}

@@ -22,6 +22,7 @@ import { buildDocHtml, type DocFull } from "@/lib/doc-template";
    support line names the CURRENT operator (DOCUMENT_ISSUER), whoever the
    document's issuer was — support is who answers the phone today. */
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
+import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
 
 // A4 at 96dpi — the width the template is designed against.
 const PAGE_W = 794;
@@ -109,7 +110,51 @@ export default function PublicDocPage() {
       </header>
 
       <div className="mx-auto max-w-[850px] px-3 pt-4">
-        {state === "loading" && <p className="py-16 text-center text-sm text-[#8a93a6]">Loading the document…</p>}
+        {/* v1.77.0 — skeleton until the first fetch lands. It used to say
+            "Loading the document…" in words; now an A4 page in the document's
+            own shape — letterhead, addressee block, line-item table, totals —
+            at the EXACT size the iframe below will take (ref={box} here too,
+            so `scale` is already right when the page swaps in). Same white
+            card, same #e8ebf1 border family as the rest of this page. */}
+        {state === "loading" && (
+          <div ref={box} className="overflow-hidden" aria-busy="true">
+            <div
+              className="rounded-xl border border-[#e8ebf1] bg-white p-6 shadow-sm sm:p-10"
+              style={{ width: PAGE_W * scale, height: PAGE_H * scale }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <Skel className="h-6 w-44" />
+                  <Skel className="h-3 w-56" />
+                  <Skel className="h-3 w-40" />
+                </div>
+                <div className="space-y-2 text-right">
+                  <Skel className="ml-auto h-6 w-32" />
+                  <Skel className="ml-auto h-3 w-24" />
+                </div>
+              </div>
+              <div className="mt-8 grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Skel className="h-2.5 w-16" />
+                  <Skel className="h-3.5 w-40" />
+                  <Skel className="h-3 w-48" />
+                  <Skel className="h-3 w-36" />
+                </div>
+                <div className="space-y-2">
+                  <Skel className="h-2.5 w-16" />
+                  <Skel className="h-3 w-32" />
+                  <Skel className="h-3 w-28" />
+                </div>
+              </div>
+              <SkelTable rows={5} cols={4} className="mt-8" />
+              <div className="mt-6 ml-auto w-1/2 space-y-2 sm:w-1/3">
+                <Skel className="h-3 w-full" />
+                <Skel className="h-3 w-full" />
+                <Skel className="h-5 w-full" />
+              </div>
+            </div>
+          </div>
+        )}
         {state === "gone" && (
           <div className="rounded-2xl border border-[#e8ebf1] bg-white p-8 text-center">
             <p className="text-base font-semibold text-[#1a2946]">This link is no longer valid</p>

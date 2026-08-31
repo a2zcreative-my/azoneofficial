@@ -9,6 +9,7 @@
    the TikTok sync), grouped into states client-side. */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Skel, SkelHead } from "@/components/ui/skeleton";
 // v1.65.0 — live cards.
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { makeApi } from "@/lib/api";
@@ -67,7 +68,36 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
     return { byState, unknown, totalOrders, totalCents };
   }, [cities]);
 
-  if (!cities) return null;
+  /* v1.77.0 — skeleton until the first fetch lands. `cities === null` is
+     "still loading" (/orders/geo always resolves it to an array); the card
+     keeps its real wrapper, heading and the two-column map + detail grid so
+     nothing jumps when the geometry draws. The leaderboard passed in as
+     `aside` (v1.64.3) draws its own skeleton, so it is mounted here too
+     rather than appearing a beat after the map. */
+  if (cities === null) {
+    return (
+      <div className={card} aria-hidden>
+        <SkelHead sub />
+        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+          <Skel className="aspect-[860/380] w-full rounded-xl" />
+          <div className="space-y-3">
+            <div className="border-border rounded-xl border p-3">
+              <Skel className="h-4 w-36" />
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
+                <Skel className="h-12 rounded-lg" />
+                <Skel className="h-12 rounded-lg" />
+              </div>
+              <Skel className="mt-3 h-2.5 w-20" />
+              <div className="mt-2 space-y-2">
+                {Array.from({ length: 5 }, (_, i) => <Skel key={i} className="h-3 w-full" />)}
+              </div>
+            </div>
+            {aside}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (cities.length === 0) return null; // no located orders yet — render nothing
 
   const { byState, unknown, totalOrders, totalCents } = agg;

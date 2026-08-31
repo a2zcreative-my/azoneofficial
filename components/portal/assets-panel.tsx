@@ -11,6 +11,7 @@ import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF head
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
+import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -57,12 +58,17 @@ export function AssetsPanel() {
   const [openForm, setOpenForm] = useState(false);
   const [msg, setMsg] = useState("");
   const { show: showToast, node: toastNode } = useSaveToast(); // v1.4.221 standard save popup
+  /* v1.77.0 — true once the first register request settles (ok or not);
+     until then the count chips and the table are skeletons, never
+     "No assets yet". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
     void fetch("/api/v1/staff/assets", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setAssets((d as { assets: Asset[] }).assets ?? []))
-      .catch(() => setMsg(L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")));
+      .catch(() => setMsg(L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")))
+      .finally(() => setLoaded(true));
     /* v1.21.0: assignment picker reads /staff-list — the one picker source
        (active staff only, full names) instead of the raw account list. */
     void fetch("/api/v1/staff/staff-list", { credentials: "include" })
@@ -119,7 +125,10 @@ export function AssetsPanel() {
           {L("Every piece of equipment the company owns — who holds it, where it lives, what it's worth. Assets are never deleted: mark them lost or disposed so the history stays.", "Setiap peralatan milik syarikat — siapa yang memegangnya, di mana ia berada, berapa nilainya. Aset tidak pernah dipadam: tandakan sebagai hilang atau dilupuskan supaya sejarahnya kekal.")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {counts.map(([label, n]) => n > 0 && <span key={label} className="border-border rounded-full border px-2 py-0.5">{label} <span className="font-semibold">{n}</span></span>)}
+          {/* v1.77.0 — skeleton until the first fetch lands: three count
+              chips and the value chip, same height as the real pills. */}
+          {!loaded && Array.from({ length: 4 }, (_, i) => <Skel key={i} className="h-5 w-20 rounded-full" />)}
+          {loaded && counts.map(([label, n]) => n > 0 && <span key={label} className="border-border rounded-full border px-2 py-0.5">{label} <span className="font-semibold">{n}</span></span>)}
           {totalValue > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">{L("Value", "Nilai")} {rm(totalValue)}</span>}
         </div>
       </div>
@@ -180,7 +189,38 @@ export function AssetsPanel() {
 
       <div className={card}>
         <p className="text-sm font-semibold">{L("Register", "Daftar")}</p>
-        {assets.length === 0 ? (
+        {/* v1.77.0 — skeleton until the first fetch lands: the real header
+            row over shimmering cells, same seven columns as the register. */}
+        {!loaded ? (
+          <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1" aria-hidden>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-border text-left">
+                  <th className={th}>{L("TAG", "TAG")}</th>
+                  <th className={th}>{L("ITEM", "BARANG")}</th>
+                  <th className={th}>{L("ASSIGNED", "DIBERIKAN")}</th>
+                  <th className={th}>{L("LOCATION", "LOKASI")}</th>
+                  <th className={th}>{L("STATUS", "STATUS")}</th>
+                  <th className={thR2}>{L("VALUE", "NILAI")}</th>
+                  <th className={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 5 }, (_, i) => (
+                  <tr key={i} className="border-border border-t">
+                    <td className={td}><Skel className="h-3.5 w-16" /></td>
+                    <td className={td}><Skel className="h-3.5 w-36" /></td>
+                    <td className={td}><Skel className="h-3.5 w-20" /></td>
+                    <td className={td}><Skel className="h-3.5 w-20" /></td>
+                    <td className={td}><Skel className="h-4 w-14 rounded-full" /></td>
+                    <td className={tdR2}><Skel className="ml-auto h-3.5 w-16" /></td>
+                    <td className={td}><Skel className="h-6 w-10" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : assets.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">{L("No assets yet — add the first one above.", "Belum ada aset — tambah yang pertama di atas.")}</p>
         ) : (
           <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1">

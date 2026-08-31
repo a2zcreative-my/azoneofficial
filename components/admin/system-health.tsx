@@ -12,6 +12,7 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
+import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
@@ -29,6 +30,9 @@ function myt(iso: string): string {
 export function SystemHealthCard() {
   const { show: showToast, node: toastNode } = useSaveToast();
   const [health, setHealth] = useState<Health | null>(null);
+  /* v1.77.0 — first fetch settled (ok or not). `health` stays null on a failed
+     request, so the skeleton keys off this flag rather than the data. */
+  const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   type ErrCol = "date" | "source" | "message";
@@ -38,6 +42,7 @@ export function SystemHealthCard() {
   const load = useCallback(async () => {
     const res = await api<Health>(`/system/health`);
     if (res.ok && res.data) setHealth(res.data);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -102,11 +107,16 @@ export function SystemHealthCard() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{L("System health", "Kesihatan sistem")}</p>
+          {/* v1.77.0 — skeleton until the first fetch lands: the backup line,
+              the off-site line and the error list must not read "No backup
+              yet" / "never downloaded" / "No recorded errors" while loading. */}
+          {!loaded ? <Skel className="mt-1.5 h-3 w-72 max-w-full" /> : (
           <p className="text-muted-foreground mt-0.5 text-xs">
             {health?.last_backup
               ? <>{L("Last backup", "Sandaran terakhir")} <span className={backupAge !== null && backupAge > 2 ? "font-semibold text-amber-700" : "font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? ` — ${L("older than 2 days, check the nightly cron", "melebihi 2 hari, semak cron malam")}` : ""}</>
               : L("No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now.", "Belum ada sandaran — sandaran malam berjalan pada 03:20 MYT selepas deploy seterusnya, atau jalankan satu sekarang.")}
           </p>
+          )}
         </div>
         <span className="flex flex-wrap items-center gap-2">
           <button
@@ -129,7 +139,7 @@ export function SystemHealthCard() {
           </a>
         </span>
       </div>
-      {(() => {
+      {!loaded ? <Skel className="mt-2 h-3 w-80 max-w-full" /> : (() => {
         const off = health?.last_offsite ? new Date(health.last_offsite + "Z") : null;
         const days = off ? Math.floor((Date.now() - off.getTime()) / 86400000) : null;
         return (
@@ -145,7 +155,9 @@ export function SystemHealthCard() {
       {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
       <div className="mt-3">
         <p className="text-xs font-semibold tracking-wide uppercase">{L("Recent errors", "Ralat terkini")}</p>
-        {(health?.errors ?? []).length === 0 ? (
+        {!loaded ? (
+          <SkelTable rows={3} cols={3} className="mt-2" />
+        ) : (health?.errors ?? []).length === 0 ? (
           <p className="text-muted-foreground mt-1 text-sm">{L("No recorded errors. 🎉", "Tiada ralat direkodkan. 🎉")}</p>
         ) : (
           <div className="border-border mt-2 max-h-60 overflow-x-auto overflow-y-auto rounded-lg border">

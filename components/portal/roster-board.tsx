@@ -14,6 +14,7 @@ import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
 import { MiniCalendar } from "@/components/portal/mini-calendar";
+import { Skel, SkelRows } from "@/components/ui/skeleton";
 // v1.66.0 Track R — the board is live, and it now carries two kinds of block.
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
@@ -516,7 +517,51 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     return <div className={card}><p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
       {failed
         ? <p className="text-muted-foreground mt-2 text-sm">{L("Could not load the week —", "Minggu tidak dapat dimuatkan —")} <button type="button" className="underline" onClick={() => void load(week)}>{L("try again", "cuba lagi")}</button>.</p>
-        : <p className="text-muted-foreground mt-2 text-sm">{L("Loading the week…", "Memuatkan minggu…")}</p>}
+        : (
+          /* v1.77.0 — skeleton until the first fetch lands. Same geometry as
+             the loaded board: stat chips, the 240/1fr/230 rails on xl, a
+             7-column week grid on desktop and the agenda list on phones. */
+          <>
+            <div className="mt-3 flex flex-wrap gap-2" aria-hidden>
+              <Skel className="h-7 w-20" />
+              <Skel className="h-7 w-24" />
+              <Skel className="h-7 w-32" />
+              <Skel className="h-7 w-28" />
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[240px_1fr_230px]" aria-hidden>
+              <div className="hidden xl:block">
+                <Skel className="h-56 w-full" />
+                <Skel className="mt-3 h-24 w-full" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Skel className="h-7 w-16" />
+                    <Skel className="h-7 w-8" />
+                    <Skel className="h-7 w-8" />
+                    <Skel className="h-7 w-28" />
+                  </div>
+                  <Skel className="h-4 w-44" />
+                </div>
+                <div className="mt-2 hidden grid-cols-7 gap-2 md:grid">
+                  {Array.from({ length: 7 }, (_, i) => (
+                    <div key={i} className="space-y-2">
+                      <Skel className="h-3 w-full" />
+                      <Skel className="h-16 w-full" />
+                      <Skel className={`w-full ${i % 2 === 0 ? "h-24" : "h-12"}`} />
+                      <Skel className="h-16 w-full" />
+                    </div>
+                  ))}
+                </div>
+                <SkelRows rows={7} className="mt-2 md:hidden" />
+              </div>
+              <div className="hidden xl:block">
+                <Skel className="h-40 w-full" />
+                <Skel className="mt-3 h-32 w-full" />
+              </div>
+            </div>
+          </>
+        )}
     </div>;
   }
 

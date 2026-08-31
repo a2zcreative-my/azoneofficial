@@ -12,6 +12,7 @@ import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file co
 import { useCallback, useEffect, useState } from "react";
 import { card, btnGhost, btnClass as btn } from "@/lib/ui-styles"; // v1.5.0: shared button styles
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel, SkelHead, SkelText } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -31,14 +32,35 @@ export function TwoFactorPanel() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  /* v1.77.0 — skeleton until the first fetch lands. `status` is null both
+     while /auth/2fa/status is out and when the answer had no data, so a
+     flag tells "still loading" from "nothing to show". */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const res = await api<{ enabled: boolean; eligible: boolean; backup_codes_left: number }>("/auth/2fa/status");
-    if (res.data) setStatus(res.data);
+    try {
+      const res = await api<{ enabled: boolean; eligible: boolean; backup_codes_left: number }>("/auth/2fa/status");
+      if (res.data) setStatus(res.data);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
   useEffect(() => {
     void load();
   }, [load]);
 
+  if (status === null && !loaded) {
+    /* The real card: title with its ON/OFF pill, two lines of copy, one button. */
+    return (
+      <div className={card} aria-hidden>
+        <div className="flex items-center gap-2">
+          <SkelHead sub={false} />
+          <Skel className="h-4 w-10 rounded-full" />
+        </div>
+        <SkelText lines={2} className="mt-2" />
+        <Skel className="mt-3 h-9 w-40 rounded-lg" />
+      </div>
+    );
+  }
   if (!status?.eligible) return null;
 
   const startSetup = async () => {

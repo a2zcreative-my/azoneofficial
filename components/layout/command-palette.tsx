@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeApi } from "@/lib/api";
+import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -56,16 +57,25 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
   const [clients, setClients] = useState<{ id: number; company: string }[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const loadedRef = useRef(false);
+  /* v1.77.0 — skeleton until the first fetch lands. The directory (staff +
+     clients) only shows once a query is typed; someone who types before it
+     arrives used to see "No matches." for names that were still in flight.
+     `dirLoaded` is false while the directory requests are out. */
+  const [dirLoaded, setDirLoaded] = useState(false);
 
   // Directory data loads once, on first open (cheap, both routes exist).
   useEffect(() => {
     if (!open || loadedRef.current) return;
-    void api<{ staff: { id: number; name: string; role: string }[] }>(`/staff-list`)
-      .then((r) => { if (r.ok && r.data?.staff) { setStaff(r.data.staff); loadedRef.current = true; } });
+    setDirLoaded(false);
+    const reqs: Promise<unknown>[] = [
+      api<{ staff: { id: number; name: string; role: string }[] }>(`/staff-list`)
+        .then((r) => { if (r.ok && r.data?.staff) { setStaff(r.data.staff); loadedRef.current = true; } }),
+    ];
     if (canSeeClients) {
-      void api<{ clients?: { id: number; company: string }[] }>(`/clients/summary`)
-        .then((r) => { if (r.ok && r.data?.clients) setClients(r.data.clients); });
+      reqs.push(api<{ clients?: { id: number; company: string }[] }>(`/clients/summary`)
+        .then((r) => { if (r.ok && r.data?.clients) setClients(r.data.clients); }));
     }
+    void Promise.allSettled(reqs).then(() => setDirLoaded(true));
   }, [open, canSeeClients]);
 
   useEffect(() => {
@@ -121,7 +131,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
           onKeyDown={onKey}
         />
         <div className="max-h-72 overflow-y-auto p-1.5">
-          {ranked.length === 0 && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
+          {ranked.length === 0 && (dirLoaded || !query) && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
           {ranked.map((r, i) => {
             const header = r.group !== lastGroup ? r.group : null;
             lastGroup = r.group;
@@ -140,6 +150,20 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
               </div>
             );
           })}
+          {/* v1.77.0 — skeleton until the first fetch lands: the Staff group
+              (header + three result rows in the real row's padding) while the
+              directory is still in flight and a query is waiting on it. */}
+          {query && !dirLoaded && (
+            <div aria-hidden>
+              <p className="px-3 pt-2 pb-0.5"><Skel className="h-2.5 w-12" /></p>
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg px-3 py-2">
+                  <Skel className="h-4 w-40" />
+                  <Skel className="ml-2 h-3 w-16 shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

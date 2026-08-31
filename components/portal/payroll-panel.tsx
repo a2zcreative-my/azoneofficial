@@ -28,6 +28,7 @@ import { incompleteCents } from "@/lib/payroll-days";
 import { btnSm, card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -397,6 +398,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
   const [month, setMonth] = useState(payrollCycleMonth());
   const [staff, setStaff] = useState<StaffRow[]>([]);
+  /* v1.77.0 — skeleton until the first fetch lands. `staff` starts [] so an
+     empty list cannot be told from a list still loading; this flag can. It
+     flips once, after the FIRST load settles (ok or failed), so the table
+     never reads "TOTAL — 0 staff" while the four requests are in flight. */
+  const [loaded, setLoaded] = useState(false);
   const [entries, setEntries] = useState<Record<number, Entry>>({});
   const [msg, setMsg] = useState("");
   // v1.4.82: incomplete months are an explicit DEDUCTION, never a shrunken
@@ -673,9 +679,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       snap[u.id] = JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, d ?? null, (e as Entry & { month_working_days?: number | null }).month_working_days ?? null, e.note ?? null]);
     }
     pristineRef.current = snap;
+    setLoaded(true);
   }, [month]);
   useEffect(() => {
-    void load();
+    /* v1.77.0 — `.finally` is the safety net: should one of the four
+       requests reject, the skeleton still clears instead of shimmering
+       forever (a skeleton that never ends is worse than a message). */
+    void load().finally(() => setLoaded(true));
   }, [load]);
 
   // No saved entry for the month yet → Basic pre-fills from the fixed base
@@ -1094,7 +1104,21 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             </tr>
           </thead>
           <tbody>
-            {[...staff].sort((a, b) => {
+            {/* v1.77.0 — skeleton until the first fetch lands: six rows in the
+                real column shape (staff, basic, commission, allowance, OT,
+                deduction, net, actions) so nothing jumps when the figures land. */}
+            {!loaded ? Array.from({ length: 6 }, (_, i) => (
+              <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
+                <td className="px-2 py-1.5"><Skel className="h-4 w-40 max-w-full" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-16" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-1.5"><Skel className="h-7 w-40" /></td>
+              </tr>
+            )) : [...staff].sort((a, b) => {
               const dir = prSort.asc ? 1 : -1;
               const ea = entry(a.id);
               const eb = entry(b.id);
@@ -1293,7 +1317,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           {/* v1.4.75: month totals — the final amount at a glance. Live: they
               update as figures are typed, before saving. */}
           <tfoot>
-            {(() => {
+            {/* v1.77.0 — the TOTAL row is the line the CEO saw read "0 staff"
+                while loading; until the first fetch lands it is a skeleton too. */}
+            {!loaded ? (
+              <tr className="border-border border-t-2" aria-hidden>
+                <td className="px-2 py-2"><Skel className="h-4 w-32" /></td>
+                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
+                <td className="px-2 py-2"><Skel className="h-5 w-24" /></td>
+                <td className="px-2 py-2"></td>
+              </tr>
+            ) : (() => {
               const tot = staff.reduce(
                 (a, u) => {
                   const e = entry(u.id);
@@ -1368,6 +1405,10 @@ export function MyPayslip() {
   // 10:00 MYT (next working day if that's a weekend/holiday), unless payroll
   // released it early.
   const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. `entry === null` is also
+     the honest "no payslip yet" state, so it cannot double as "loading";
+     this flag flips once the first request settles, ok or not. */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null; locked?: boolean; available_from?: string; release_issuer_code?: string | null }>(
@@ -1378,7 +1419,7 @@ export function MyPayslip() {
       setJoinedOn(r.data?.joined_on ?? null);
       setReleaseIssuer(r.data?.release_issuer_code ?? null); // v1.28.0
       setLockedUntil(r.data?.locked ? (r.data.available_from ?? null) : null);
-    });
+    }).finally(() => setLoaded(true));
   }, [month]);
 
   // Months before the person joined the company have no payslip — the
@@ -1420,7 +1461,17 @@ export function MyPayslip() {
           }}
         />
       </div>
-      {lockedUntil ? (
+      {/* v1.77.0 — skeleton until the first fetch lands: the amounts line and
+          its two buttons, in the row's real layout, so nothing jumps. */}
+      {!loaded ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm" aria-hidden>
+          <Skel className="h-4 w-full max-w-md" />
+          <span className={rowActions}>
+            <Skel className="h-7 w-24" />
+            <Skel className="h-7 w-20" />
+          </span>
+        </div>
+      ) : lockedUntil ? (
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
             {L("🔒 Your payslip for", "🔒 Slip gaji anda untuk")} <span className="font-medium">{monthDMY(month)}</span> {L("will be available on", "akan tersedia pada")}{" "}

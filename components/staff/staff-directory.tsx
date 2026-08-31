@@ -32,6 +32,7 @@ import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { card } from "@/lib/ui-styles";
+import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
    and it now asks for a date, which the prompt dialog does. The friction is
@@ -445,8 +446,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [existing, setExisting] = useState<Staff | null>(null);
 
   const [loadError, setLoadError] = useState("");
+  /* v1.77.0 — skeleton until the first fetch lands. `staff` starts [], so the
+     directory drew an empty list (and "Select all" over nothing) until /users
+     answered. Set right after the await so a failed load clears it too. */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const res = await api<{ users?: Staff[]; staff?: Staff[] }>(`/users`);
+    setLoaded(true);
     /* v1.4.218: a failed load previously rendered a silently EMPTY
        directory — which read as "all staff details was gone!". Say why. */
     if (!res.ok) {
@@ -738,6 +744,21 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       {loadError && (
         <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900">⚠ {loadError}</p>
       )}
+      {/* v1.77.0 — skeleton until the first fetch lands: five collapsed
+          record cards (checkbox · name · role, chevron on the right), the
+          exact row each staff member renders as below. */}
+      {!loaded && Array.from({ length: 5 }, (_, i) => (
+        <div key={`skel-${i}`} className={card} aria-hidden>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <Skel className="h-4 w-4 rounded" />
+              <Skel className="h-4 w-36" />
+              <Skel className="h-3 w-20" />
+            </span>
+            <Skel className="h-7 w-7 rounded-lg" />
+          </div>
+        </div>
+      ))}
       {(sortBy === "rank"
         ? staff
         : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
@@ -1031,7 +1052,41 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
     setOnb(next);
     await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
   };
-  if (!loaded) return null;
+  if (!loaded) {
+    /* v1.77.0 — skeleton until the first fetch lands, in the vault's own
+       shape: heading, the kind-select + upload row, two document rows and
+       the 2/3-column onboarding checklist. It used to be a blank gap that
+       filled in a beat after the record opened. */
+    return (
+      <div className="border-border mt-3 rounded-lg border p-3" aria-hidden>
+        <Skel className="h-3 w-56 max-w-full" />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Skel className="h-6 w-24 rounded" />
+          <Skel className="h-6 w-32 rounded" />
+        </div>
+        <div className="mt-2">
+          {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="border-border flex items-center justify-between gap-2 border-b py-1.5 last:border-0">
+              <span className="flex items-center gap-1.5">
+                <Skel className="h-4 w-14 rounded-full" />
+                <Skel className="h-3 w-40" />
+              </span>
+              <Skel className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+        <Skel className="mt-3 h-2.5 w-32" />
+        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+          {ONBOARDING_ITEMS.map(([k]) => (
+            <span key={k} className="flex items-center gap-1.5">
+              <Skel className="h-3.5 w-3.5 rounded" />
+              <Skel className="h-3 w-3/4" />
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const KIND_LABEL: Record<string, string> = { contract: L("Contract", "Kontrak"), offer_letter: L("Offer letter", "Surat tawaran"), resignation: L("Resignation", "Peletakan jawatan"), other: L("Other", "Lain-lain") };
   return (
     <div className="border-border mt-3 rounded-lg border p-3">

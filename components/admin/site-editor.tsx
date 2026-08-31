@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { inputClass, btnClass } from "@/lib/ui-styles";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
@@ -152,6 +153,7 @@ export function SiteEditor() {
   const [saving, setSaving] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
 
   const load = useCallback(async () => {
     const res = await api<{ content: { key: string; value: string }[] }>("/content");
@@ -169,6 +171,7 @@ export function SiteEditor() {
       setValues(map);
       setInitial(map);
     }
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -235,7 +238,13 @@ export function SiteEditor() {
                       <span className="text-xs font-medium text-green-700">{L("Saved ✓", "Disimpan ✓")}</span>
                     )}
                   </span>
-                  {field.multiline ? (
+                  {/* v1.77.0 — skeleton until the first fetch lands: the group
+                      headings and field labels are real; each field is a block
+                      the size of the input it becomes, so nothing can be typed
+                      into a box the arriving value would then overwrite. */}
+                  {!loaded ? (
+                    <Skel className={field.multiline ? "h-20 w-full" : "h-[38px] w-full"} />
+                  ) : field.multiline ? (
                     <textarea
                       className={`${inputClass} min-h-20`}
                       value={values[field.key] ?? ""}

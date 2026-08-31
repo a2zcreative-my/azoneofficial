@@ -70,7 +70,7 @@ const DASH_ATT = "dash:attendance";
 const DASH_LEAVE = "dash:leave";
 const DASH_TASKS = "dash:tasks";
 const DASH_ANNS = "dash:announcements";
-import { StaleHint, Skel, SkelText, SkelStat } from "@/components/ui/skeleton";
+import { StaleHint, Skel, SkelText, SkelStat, SkelRows, SkelTable, SkelCard } from "@/components/ui/skeleton";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import {
   TabIcon,
@@ -2091,6 +2091,8 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   const [data, setData] = useState<
     { id: number; name: string; status: string; month_cents: number }[]
   >([]);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{
       stokis: {
@@ -2099,12 +2101,11 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
         status: string;
         month_cents: number;
       }[];
-    }>("/staff/stokis").then(
-      (r) =>
-        r.ok &&
-        r.data &&
-        setData(r.data.stokis.filter((s) => s.status === "active"))
-    );
+    }>("/staff/stokis").then((r) => {
+      if (r.ok && r.data)
+        setData(r.data.stokis.filter((s) => s.status === "active"));
+      setLoaded(true);
+    });
   }, []);
   const wrap = (node: ReactNode) =>
     inModal ? (
@@ -2116,6 +2117,10 @@ function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
         </p>
         {node}
       </div>
+    );
+  if (!loaded)
+    return wrap(
+      <SkelRows rows={4} className={inModal ? "px-4 sm:px-5" : "max-h-80 pr-1"} />
     );
   if (data.length === 0)
     return wrap(
@@ -2238,6 +2243,8 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
      null → show the red deployment warning) from "old worker, field absent"
      (undefined → say nothing rather than guess). */
   const [fenceMissing, setFenceMissing] = useState(false);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{
       staff: MonRow[];
@@ -2253,6 +2260,7 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
         setFence(r.data.geofence ?? null);
         setFenceMissing("geofence" in r.data && r.data.geofence === null);
       }
+      setLoaded(true);
     });
   }, []);
   /* v1.21.4: when the deployed worker explicitly reports NO fence, tell the
@@ -2281,6 +2289,10 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
         {fenceWarning}
         {node}
       </div>
+    );
+  if (!loaded)
+    return wrap(
+      <SkelRows rows={4} className={inModal ? "px-4 sm:px-5" : "max-h-80 pr-1"} />
     );
   if (data.length === 0)
     return wrap(
@@ -2351,18 +2363,20 @@ function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
 
 function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
   const [data, setData] = useState<SalesDoc[]>([]);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    void api<{ docs: SalesDoc[] }>("/staff/docs").then(
-      (r) =>
-        r.ok &&
-        r.data &&
+    void api<{ docs: SalesDoc[] }>("/staff/docs").then((r) => {
+      if (r.ok && r.data)
         setData(
           r.data.docs.filter(
             (d) => d.doc_type === kind && d.payment_status !== "paid"
           )
-        )
-    );
+        );
+      setLoaded(true);
+    });
   }, [kind]);
+  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
   if (data.length === 0)
     return (
       <p className="text-muted-foreground py-8 text-center text-sm">
@@ -2398,14 +2412,16 @@ function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
 
 function PendingLeaveSummary() {
   const [data, setData] = useState<LeaveReq[]>([]);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    void api<{ leave: LeaveReq[] }>("/staff/leave?all=1").then(
-      (r) =>
-        r.ok &&
-        r.data &&
-        setData(r.data.leave.filter((l) => l.status === "pending"))
-    );
+    void api<{ leave: LeaveReq[] }>("/staff/leave?all=1").then((r) => {
+      if (r.ok && r.data)
+        setData(r.data.leave.filter((l) => l.status === "pending"));
+      setLoaded(true);
+    });
   }, []);
+  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
   if (data.length === 0)
     return (
       <p className="text-muted-foreground py-8 text-center text-sm">
@@ -2444,6 +2460,8 @@ function PendingClaimsSummary() {
       status: string;
     }[]
   >([]);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{
       claims: {
@@ -2453,13 +2471,13 @@ function PendingClaimsSummary() {
         amount_cents: number;
         status: string;
       }[];
-    }>("/staff/claims").then(
-      (r) =>
-        r.ok &&
-        r.data &&
-        setData(r.data.claims.filter((c) => c.status === "pending"))
-    );
+    }>("/staff/claims").then((r) => {
+      if (r.ok && r.data)
+        setData(r.data.claims.filter((c) => c.status === "pending"));
+      setLoaded(true);
+    });
   }, []);
+  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
   if (data.length === 0)
     return (
       <p className="text-muted-foreground py-8 text-center text-sm">
@@ -2492,17 +2510,18 @@ function LowStockSummary() {
   const [data, setData] = useState<
     { id: number; name: string; sku: string; stock: number }[]
   >([]);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{
       items: { id: number; name: string; sku: string; stock: number }[];
-    }>("/staff/inventory").then(
-      (r) =>
-        r.ok &&
-        r.data &&
-        r.data.items &&
-        setData(r.data.items.filter((i) => (i.stock || 0) <= 5))
-    );
+    }>("/staff/inventory").then((r) => {
+      if (r.ok && r.data && r.data.items)
+        setData(r.data.items.filter((i) => (i.stock || 0) <= 5));
+      setLoaded(true);
+    });
   }, []);
+  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
   if (data.length === 0)
     return (
       <p className="text-muted-foreground py-8 text-center text-sm">
@@ -2910,6 +2929,21 @@ function TradingDesk({
     }
   }
 
+  /* v1.77.0 — skeleton until the first fetch lands. While the revenue and
+     summary requests are still in flight, the ticker holds stat-shaped
+     placeholders in the same slots (today · month · all-time · attention)
+     so the row does not jump when the figures arrive. */
+  const revLoading = canRevenue && rev === null;
+  const sumLoading = canStatus && sum === null;
+  if (revLoading) {
+    ticker.push(
+      <SkelStat key="skel-today" />,
+      <SkelStat key="skel-month" />,
+      <SkelStat key="skel-overall" />
+    );
+  }
+  if (sumLoading) ticker.push(<SkelStat key="skel-attention" />);
+
   if (ticker.length === 0 && !canStatus) return null;
 
   // v1.8.0: peak selling hour (reference "Peak activity time") from the
@@ -2940,6 +2974,20 @@ function TradingDesk({
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
       )}
 
+      {/* v1.77.0 — skeleton until the first fetch lands (pulse strip, six tiles). */}
+      {sumLoading && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" aria-hidden>
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              key={i}
+              className="border-border bg-card flex flex-col items-center justify-center rounded-lg border p-2.5"
+            >
+              <Skel className="h-5 w-10" />
+              <Skel className="mt-1.5 h-2 w-14" />
+            </div>
+          ))}
+        </div>
+      )}
       {/* v1.7.0 company pulse — one compact strip of live counters. */}
       {canStatus &&
         sum &&
@@ -3035,6 +3083,9 @@ function TradingDesk({
             </div>
           );
         })()}
+
+      {/* v1.77.0 — skeleton until the first fetch lands (sales floor card). */}
+      {revLoading && <SkelCard lines={4} />}
 
       {/* Zone 2+3 — KPI + markets, one desk card */}
       {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
@@ -3355,15 +3406,36 @@ function TradingDesk({
 
 function SalesRevenueCard() {
   const [rev, setRev] = useState<RevenueData | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   const loadRev = useCallback(() => {
     void api<RevenueData>(`/staff/revenue`).then((r) => {
       if (r.ok && r.data) setRev(r.data);
+      setLoaded(true);
     });
   }, []);
   useEffect(() => {
     loadRev();
   }, [loadRev]);
-  if (!rev) return null;
+  if (!rev) {
+    if (!loaded)
+      return (
+        <div className={card} aria-hidden>
+          <Skel className="h-4 w-48" />
+          <SkelText lines={2} className="mt-2" />
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="border-border rounded-lg border p-3">
+                <Skel className="h-2.5 w-20" />
+                <Skel className="mt-2 h-6 w-28" />
+                <Skel className="mt-2 h-2.5 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    return null; // the request failed — there is no month to draw (unchanged)
+  }
   const rm = fmtRM; // v1.4.272: the global — a money figure must never render two ways
   // v1.4.169 (CEO: "everything count correctly and accurately"): total sales
   // = TikTok + paid invoices + non-TikTok shipments + manual sales. The KPI
@@ -3559,9 +3631,12 @@ function UpcomingEventsCard({ role }: { role: string }) {
   const bdayOn = (iso: string) =>
     bdays.filter((b) => b.birthday?.slice(5) === iso.slice(5));
 
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   const loadEvents = useCallback(async () => {
     const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
     if (res.ok && res.data) setEvents(res.data.events);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void loadEvents();
@@ -3837,7 +3912,37 @@ function UpcomingEventsCard({ role }: { role: string }) {
           {L("time to plan the celebration!", "masa untuk merancang sambutan!")}
         </p>
       )}
-      {view === "calendar" && (
+      {/* v1.77.0 — skeleton until the first fetch lands: the month grid's
+          exact geometry (7 columns, 5 rows, the same cell heights) so the
+          card does not jump when the events arrive. */}
+      {!loaded && view === "calendar" && (
+        <div className="mt-3" aria-hidden>
+          <div className="flex items-center justify-between">
+            <Skel className="h-8 w-8" />
+            <Skel className="h-4 w-32" />
+            <Skel className="h-8 w-8" />
+          </div>
+          <div className="mt-2 grid grid-cols-7 gap-2 px-2 py-1">
+            {Array.from({ length: 7 }, (_, i) => (
+              <Skel key={i} className="mx-auto h-2.5 w-6" />
+            ))}
+          </div>
+          <div className="border-border grid grid-cols-7 overflow-hidden rounded-lg border [&>*:nth-child(7n)]:border-r-0 [&>*:nth-last-child(-n+7)]:border-b-0">
+            {Array.from({ length: 35 }, (_, i) => (
+              <div
+                key={i}
+                className="border-border min-h-12 border-r border-b p-1 md:min-h-20 md:p-1.5"
+              >
+                <Skel className="h-5 w-5 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {!loaded && view === "list" && (
+        <SkelRows rows={3} className="mt-3 max-h-80 pr-1" />
+      )}
+      {loaded && view === "calendar" && (
         <EventsCalendar
           birthdays={bdays}
           events={events}
@@ -3875,7 +3980,7 @@ function UpcomingEventsCard({ role }: { role: string }) {
           }
         />
       )}
-      {view === "list" && (
+      {loaded && view === "list" && (
         <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
           {upcoming.length === 0 && (
             <p className="text-muted-foreground text-sm">
@@ -4336,15 +4441,18 @@ function Attendance({ user }: { user: User }) {
       out_at?: string | null;
     }[];
   } | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const path =
       reportMode && canReport
         ? `/staff/attendance/report?month=${month}`
         : `/staff/attendance?month=${month}`;
-    void api<{ records: typeof records }>(path).then((r) =>
-      setRecords(r.data?.records ?? [])
-    );
+    void api<{ records: typeof records }>(path).then((r) => {
+      setRecords(r.data?.records ?? []);
+      setLoaded(true);
+    });
   }, [month, reportMode, canReport]);
   useEffect(() => {
     if (!canReport) return;
@@ -4365,6 +4473,8 @@ function Attendance({ user }: { user: User }) {
       {/* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or
           clock out for me to aware"): today's snapshot, refreshed every two
           minutes — missing punches called out on top, then a compact list. */}
+      {/* v1.77.0 — skeleton until the first fetch lands (monitor card). */}
+      {canReport && monitor === null && <SkelCard lines={2} />}
       {canReport &&
         monitor &&
         (() => {
@@ -4542,14 +4652,21 @@ function Attendance({ user }: { user: User }) {
           </div>
         </div>
 
-        {records.length === 0 && (
+        {/* v1.77.0 — skeleton until the first fetch lands: the table's
+            column count (4 personal, 3 report) so nothing jumps. */}
+        {!loaded && (
+          <SkelTable rows={6} cols={reportMode && canReport ? 3 : 4} className="mt-3" />
+        )}
+
+        {loaded && records.length === 0 && (
           <p className="text-muted-foreground mt-3 text-sm">
             {L("No records for this month.", "Tiada rekod untuk bulan ini.")}
           </p>
         )}
 
         {/* Personal view (v1.4.77): grouped by day — Date | In | Out | Hours. */}
-        {!reportMode &&
+        {loaded &&
+          !reportMode &&
           records.length > 0 &&
           (() => {
             const byDay = new Map<string, { ins: string[]; outs: string[] }>();
@@ -4668,7 +4785,7 @@ function Attendance({ user }: { user: User }) {
           })()}
 
         {/* Team report: every punch, sortable, with clear In/Out chips. */}
-        {reportMode && canReport && records.length > 0 && (
+        {loaded && reportMode && canReport && records.length > 0 && (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
@@ -5108,8 +5225,36 @@ function TikTokAnalyticsCard() {
         </div>
       )}
 
+      {/* v1.77.0 — skeleton until the first fetch lands: the four shop
+          tiles, the day bars and the five-column table, in their real grid. */}
       {busy && !data && (
-        <p className="text-muted-foreground mt-3 text-xs">{L("Reading from TikTok…", "Membaca daripada TikTok…")}</p>
+        <div aria-hidden>
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="bg-secondary rounded-lg px-2.5 py-2">
+                <Skel className="h-2.5 w-14" />
+                <Skel className="mt-1.5 h-4 w-20" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4">
+            <Skel className="h-2.5 w-20" />
+            <div className="mt-2 flex items-end gap-1" style={{ height: 72 }}>
+              {[34, 52, 28, 58, 40, 46, 22].map((h, i) => (
+                <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1">
+                  <div className="skel w-full rounded-t" style={{ height: `${h}px` }} />
+                  <Skel className="h-2 w-4" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-1">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skel key={i} className="h-7 w-20" />
+            ))}
+          </div>
+          <SkelTable rows={5} cols={5} className="mt-2" />
+        </div>
       )}
 
       {data && (
@@ -5575,13 +5720,16 @@ function LeaveEntitlement() {
         ))}
       </div>
 
+      {/* v1.77.0 — skeleton until the first fetch lands. */}
+      {!loaded && <SkelTable rows={6} cols={ENT_TYPES.length + 2} className="mt-3" />}
+
       {loaded && rows.length === 0 && (
         <p className="text-muted-foreground mt-4 text-sm">
           {L("No active staff to show.", "Tiada kakitangan aktif untuk dipaparkan.")}
         </p>
       )}
 
-      {rows.length > 0 && (
+      {loaded && rows.length > 0 && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[520px]">
             <thead>
@@ -5775,12 +5923,15 @@ function Leave({ user }: { user: User }) {
   ].includes(user.role);
   const { confirm: askOverride, node: overrideConfirmNode } = useConfirm();
   const { show: showLeaveToast, node: leaveToastNode } = useSaveToast();
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const b = await api<{ balances: typeof balances }>(`/staff/leave/balance`);
     setBalances(b.data?.balances ?? {});
     const m = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setMine(m.data?.leave ?? []);
+    if (!canApprove) setLoaded(true);
     if (canApprove) {
       /* v1.21.0 (CEO: "I still cant see any list applied… who is the person
          that apply leave and waiting for their Head approval"): keep the
@@ -5790,6 +5941,7 @@ function Leave({ user }: { user: User }) {
          so COO/CEO saw an empty board while requests sat at HR). */
       const a = await api<{ leave: LeaveReq[] }>(`/staff/leave?all=1`);
       setAll(a.data?.leave ?? []);
+      setLoaded(true);
     }
   }, [canApprove, user.role, user.id]);
   useEffect(() => {
@@ -5887,6 +6039,20 @@ function Leave({ user }: { user: User }) {
       {overrideConfirmNode}
       {leaveToastNode}
       {canSetEntitlement && <LeaveEntitlement />}
+      {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
+          type in the same grid, so the row is the same height either way. */}
+      {!loaded && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-hidden>
+          {LEAVE_TYPES.map((t) => (
+            <div key={t} className={card}>
+              <Skel className="h-3 w-20" />
+              <Skel className="mt-2 h-6 w-24" />
+              <Skel className="mt-1.5 h-2.5 w-28 max-w-full" />
+            </div>
+          ))}
+        </div>
+      )}
+      {loaded && (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
           const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
@@ -5914,6 +6080,7 @@ function Leave({ user }: { user: User }) {
           );
         })}
       </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
@@ -5998,13 +6165,15 @@ function Leave({ user }: { user: User }) {
           <p className="text-sm font-semibold">
             {L("My leave history", "Sejarah cuti saya")}
           </p>
-          {mine.length === 0 && (
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!loaded && <SkelRows rows={4} className="max-h-72" />}
+          {loaded && mine.length === 0 && (
             <p className="text-muted-foreground mt-2 text-sm">
               {L("No requests yet.", "Tiada permohonan lagi.")}
             </p>
           )}
           <div className="max-h-72 overflow-y-auto">
-            {mine.map((l) => (
+            {loaded && mine.map((l) => (
               <div
                 key={l.id}
                 className="border-border border-b py-2 text-sm last:border-0"
@@ -6123,13 +6292,15 @@ function Leave({ user }: { user: User }) {
                   "Setiap permohonan yang sedang diproses, dan kelulusan siapa yang ditunggu. Butang tindakan muncul pada yang menunggu anda."
                 )}
               </p>
-              {pending.length === 0 && (
+              {/* v1.77.0 — skeleton until the first fetch lands. */}
+              {!loaded && <SkelRows rows={4} className="max-h-80" />}
+              {loaded && pending.length === 0 && (
                 <p className="text-muted-foreground mt-2 text-sm">
                   {L("Nothing in progress.", "Tiada yang sedang diproses.")}
                 </p>
               )}
               <div className="max-h-80 overflow-y-auto">
-                {pending.map((l) => {
+                {loaded && pending.map((l) => {
                   const mine =
                     canActOnStage(
                       user.role,
@@ -6242,11 +6413,14 @@ function Tasks({ user }: { user: User }) {
   const canManage = MANAGE_ROLES.includes(user.role);
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const r = await api<{ tasks: Task[] }>(
       `/staff/tasks${canManage ? "?all=1" : ""}`
     );
     setTasks(r.data?.tasks ?? []);
+    setLoaded(true);
     if (canManage) {
       /* v1.21.0 (CEO: "populate list of users instead of staff list data…
          staff name list should be populate full staff name"): the assignee
@@ -6476,13 +6650,15 @@ function Tasks({ user }: { user: User }) {
             ? L("All tasks", "Semua tugasan")
             : L("My tasks", "Tugasan saya")}
         </p>
-        {tasks.length === 0 && (
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded && <SkelRows rows={5} className="max-h-96" />}
+        {loaded && tasks.length === 0 && (
           <p className="text-muted-foreground mt-2 text-sm">
             {L("No tasks.", "Tiada tugasan.")}
           </p>
         )}
         <div className="max-h-96 overflow-y-auto">
-          {tasks.map((t) => {
+          {loaded && tasks.map((t) => {
             /* v1.42.0: the list is a monitoring surface — an overdue task is
                RED before anyone reads a date, an unacknowledged assignment
                wears an amber badge, and the scope tally shows how far along
@@ -6587,8 +6763,17 @@ function Tasks({ user }: { user: User }) {
               </div>
               {openTask === t.id && (
                 <div className="border-border mt-2 rounded-lg border p-2">
+                  {/* v1.77.0 — skeleton until the first fetch lands: two
+                      checklist lines, the shape of the scope items. */}
                   {!items && (
-                    <p className="text-muted-foreground text-xs">{L("Loading…", "Memuatkan…")}</p>
+                    <div className="space-y-2 py-1" aria-hidden>
+                      {[0, 1].map((i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Skel className="h-4 w-4 shrink-0" />
+                          <Skel className={`h-3.5 ${i === 0 ? "w-2/3" : "w-1/2"}`} />
+                        </div>
+                      ))}
+                    </div>
                   )}
                   {items && items.length === 0 && (
                     <p className="text-muted-foreground text-xs">{L("No scope items on this task.", "Tiada item skop pada tugasan ini.")}</p>
@@ -6706,11 +6891,14 @@ function Announcements({ user }: { user: User }) {
   const [memo, setMemo] = useState({ tarikh: todayMalay() });
   const canPost = MANAGE_ROLES.includes(user.role);
 
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const r = await api<{ announcements: Announcement[] }>(
       `/staff/announcements`
     );
     setAnns(r.data?.announcements ?? []);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -6878,7 +7066,10 @@ function Announcements({ user }: { user: User }) {
         </div>
       )}
       <div className="max-h-[28rem] space-y-6 overflow-y-auto pr-1">
-        {anns.map((a) => (
+        {/* v1.77.0 — skeleton until the first fetch lands: two article
+            cards (title row + body lines), the shape of a post. */}
+        {!loaded && [0, 1].map((i) => <SkelCard key={i} lines={3} sub={false} />)}
+        {loaded && anns.map((a) => (
           <article
             key={a.id}
             className={
@@ -6917,7 +7108,7 @@ function Announcements({ user }: { user: User }) {
           </article>
         ))}
       </div>
-      {anns.length === 0 && (
+      {loaded && anns.length === 0 && (
         <p className="text-muted-foreground text-sm">
           {L("No announcements yet.", "Tiada pengumuman lagi.")}
         </p>
@@ -7155,7 +7346,6 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     );
     void load();
   };
-  if (!loaded || pending.length === 0) return <>{otConfirmNode}{otToastNode}</>;
   const dur = (p: Pend) => {
     if (!p.ot_in || !p.ot_out) return "";
     const [h1, m1] = p.ot_in.split(":").map(Number);
@@ -7183,6 +7373,18 @@ function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
         <div className="mt-3 space-y-0">{node}</div>
       </div>
     );
+
+  /* v1.77.0 — skeleton until the first fetch lands; the card still hides
+     itself once the list is known to be empty (unchanged). */
+  if (!loaded)
+    return (
+      <>
+        {otConfirmNode}
+        {otToastNode}
+        {wrapCard(<SkelRows rows={2} className={inModal ? "px-4 sm:px-5" : ""} />)}
+      </>
+    );
+  if (pending.length === 0) return <>{otConfirmNode}{otToastNode}</>;
 
   return (
     <>
@@ -7404,14 +7606,10 @@ function LiveScheduleCard({
       </div>
     );
 
+  /* v1.77.0 — skeleton until the first fetch lands (the shared primitive,
+     in place of the hand-rolled pulse: session rows, the shape of the list). */
   if (!loaded) {
-    return wrapCard(
-      <div className="mt-2 animate-pulse space-y-3 px-4 sm:px-0">
-        <div className="bg-secondary h-4 w-3/4 rounded"></div>
-        <div className="bg-secondary h-4 w-1/2 rounded"></div>
-        <div className="bg-secondary h-4 w-2/3 rounded"></div>
-      </div>
-    );
+    return wrapCard(<SkelRows rows={3} className="mt-2" />);
   }
   if (!manager && sessions.length === 0) {
     return wrapCard(
@@ -7621,11 +7819,24 @@ function LiveEconomicsCard() {
     hosts: { id: number; name: string; minutes: number; gmv_cents: number }[];
   }
   const [econ, setEcon] = useState<Econ | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<Econ>(`/staff/clients/live-economics`).then((r) => {
       if (r.ok && r.data) setEcon(r.data);
+      setLoaded(true);
     });
   }, []);
+  if (!loaded)
+    return (
+      <div className={card} aria-hidden>
+        <Skel className="h-4 w-56 max-w-full" />
+        <SkelText lines={2} className="mt-2" />
+        <SkelTable rows={3} cols={4} className="mt-3" />
+      </div>
+    );
+  /* Nothing to show (no route yet, or no live economics this month) — the
+     card stays hidden, as before. */
   if (!econ || (econ.clients.length === 0 && econ.hosts.length === 0))
     return null;
   const hm = (mins: number) =>
@@ -7721,7 +7932,30 @@ function PackagesEditorCard({ role }: { role: string }) {
       setLoaded(true);
     });
   }, []);
-  if (!["ceo", "super_admin"].includes(role) || !loaded) return null;
+  // Authorisation, not loading: only these two roles ever see the editor.
+  if (!["ceo", "super_admin"].includes(role)) return null;
+  /* v1.77.0 — skeleton until the first fetch lands: heading, description,
+     one tier box (two fields + a text area) and the button row. */
+  if (!loaded)
+    return (
+      <div className={card} aria-hidden>
+        <Skel className="h-4 w-56 max-w-full" />
+        <SkelText lines={2} className="mt-2" />
+        <div className="mt-2 space-y-3">
+          <div className="border-border rounded-lg border p-3">
+            <div className={fieldRow}>
+              <Skel className="h-9 w-full" />
+              <Skel className="h-9 w-full" />
+            </div>
+            <Skel className="mt-2 h-20 w-full" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Skel className="h-9 w-28" />
+            <Skel className="h-9 w-36" />
+          </div>
+        </div>
+      </div>
+    );
   const upd = (i: number, patch: Partial<Tier>) =>
     setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   return (
@@ -7862,11 +8096,32 @@ function BusinessLinesCard({ bare }: { bare?: boolean } = {}) {
     months: { month: string; cents: number }[];
   }
   const [lines, setLines] = useState<RevLine[] | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{ lines: RevLine[] }>(`/staff/revenue/lines`).then((r) => {
       if (r.ok && r.data) setLines(r.data.lines);
+      setLoaded(true);
     });
   }, []);
+  if (!loaded)
+    return (
+      <div className={bare ? "" : card} aria-hidden>
+        {!bare && <Skel className="h-4 w-64 max-w-full" />}
+        <SkelText lines={2} className="mt-2" />
+        <div className="mt-2 space-y-1.5">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Skel className="h-3.5 w-32 shrink-0" />
+              <Skel className="h-2 flex-1 rounded-full" />
+              <Skel className="h-3.5 w-20 shrink-0" />
+              <Skel className="h-3 w-10 shrink-0" />
+            </div>
+          ))}
+        </div>
+        <SkelTable rows={4} cols={4} className="mt-3" />
+      </div>
+    );
   /* v1.64.3: inside the combined card an empty section must SAY it is empty
      — a tab that opens onto nothing reads as a bug. Standalone it still
      disappears, which is what a card with no data should do. */
@@ -7979,12 +8234,23 @@ function BusinessLinesCard({ bare }: { bare?: boolean } = {}) {
    the best. Frontend-only — the arithmetic already lives server-side. */
 function SalesHistoryCard({ bare }: { bare?: boolean } = {}) {
   const [rev, setRev] = useState<RevenueData | null>(null);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<RevenueData>(`/staff/revenue`).then((r) => {
       if (r.ok && r.data) setRev(r.data);
+      setLoaded(true);
     });
   }, []);
   const months = rev?.overall?.months ?? [];
+  if (!loaded)
+    return (
+      <div className={bare ? "" : card} aria-hidden>
+        {!bare && <Skel className="h-4 w-64 max-w-full" />}
+        <SkelText lines={1} className="mt-2" />
+        <SkelTable rows={5} cols={4} className="mt-2" />
+      </div>
+    );
   if (months.length === 0)
     return bare ? (
       <p className="text-muted-foreground text-sm">
@@ -8084,7 +8350,9 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
   const [months, setMonths] = useState<PnlMonth[] | null>(null);
   useEffect(() => {
     void api<{ months: PnlMonth[] }>(`/staff/finance/pnl`).then((r) => {
-      if (r.ok && r.data) setMonths(r.data.months);
+      /* v1.77.0 — a refused request settles to "no data" so the skeleton
+         ends (a skeleton that never ends is worse than a message). */
+      setMonths(r.ok && r.data ? r.data.months : []);
     });
   }, []);
   const wrapCard = (node: ReactNode) =>
@@ -8111,12 +8379,11 @@ function PnlCard({ inModal }: { inModal?: boolean } = {}) {
       </div>
     );
 
+  /* v1.77.0 — skeleton until the first fetch lands: six columns, like the
+     real table, in place of the hand-rolled pulse. */
   if (!months) {
     return wrapCard(
-      <div className="mt-2 animate-pulse space-y-3 px-4 sm:px-0">
-        <div className="bg-secondary h-4 w-full rounded"></div>
-        <div className="bg-secondary h-4 w-full rounded"></div>
-      </div>
+      <SkelTable rows={4} cols={6} className={inModal ? "px-4 pt-3 sm:px-5" : "mt-2"} />
     );
   }
   if (months.length === 0) {
@@ -8210,13 +8477,14 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
       </div>
     );
 
+  /* v1.77.0 — skeleton until the first fetch lands: client rows, the shape
+     of the list, in place of the hand-rolled pulse. */
   if (!loaded) {
     return wrapCard(
-      <div className="mt-2 animate-pulse space-y-3 px-4 sm:px-0">
-        <div className="bg-secondary h-4 w-3/4 rounded"></div>
-        <div className="bg-secondary h-4 w-1/2 rounded"></div>
-        <div className="bg-secondary h-4 w-2/3 rounded"></div>
-      </div>
+      <>
+        {!inModal && <SkelText lines={2} className="mt-0.5" />}
+        <SkelRows rows={4} className={inModal ? "px-4 sm:px-5" : "mt-3 max-h-80 pr-1"} />
+      </>
     );
   }
   if (clients.length === 0) {
@@ -8400,7 +8668,23 @@ function CustomerEnquiriesCard() {
     setReplyDraft((d) => ({ ...d, [id]: "" }));
     void load();
   };
-  if (!loaded) return null;
+  /* v1.77.0 — skeleton until the first fetch lands: the same card, heading
+     and description, with enquiry rows where the list will be. */
+  if (!loaded)
+    return (
+      <div className={card}>
+        <p className="text-sm font-semibold">
+          {L("Customer enquiries", "Pertanyaan pelanggan")}
+        </p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L(
+            "Questions from /account customers — you are bell-notified when one lands. Answer directly on WhatsApp or email, then set the status.",
+            "Soalan daripada pelanggan /account — anda dimaklumkan melalui loceng apabila satu diterima. Jawab terus melalui WhatsApp atau e-mel, kemudian tetapkan status."
+          )}
+        </p>
+        <SkelRows rows={3} className="mt-3 max-h-96 pr-1" />
+      </div>
+    );
   return (
     <div className={card}>
       <p className="text-sm font-semibold">
@@ -8717,6 +9001,8 @@ function Sales({ user }: { user: User }) {
     "sales_marketing",
   ].includes(user.role);
 
+  /* v1.77.0 — skeleton until the first fetch lands (customers, then docs). */
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
@@ -8724,6 +9010,7 @@ function Sales({ user }: { user: User }) {
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
+    setLoaded(true);
     setDocsError(
       d.ok
         ? null
@@ -9286,12 +9573,14 @@ function Sales({ user }: { user: User }) {
             </button>
           </div>
           <div className="mt-3 max-h-56 overflow-y-auto">
-            {customers.length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={3} />}
+            {loaded && customers.length === 0 && (
               <p className="text-muted-foreground text-sm">
                 {L("No customers yet.", "Tiada pelanggan lagi.")}
               </p>
             )}
-            {customers.map((c) => (
+            {loaded && customers.map((c) => (
               <div
                 key={c.id}
                 className="border-border border-b py-1.5 text-sm last:border-0"
@@ -10224,13 +10513,15 @@ function Sales({ user }: { user: User }) {
         {docsError && (
           <p className="mt-2 text-sm font-medium text-amber-700">{docsError}</p>
         )}
-        {!docsError && docs.length === 0 && (
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded && <SkelRows rows={5} className="max-h-96" />}
+        {loaded && !docsError && docs.length === 0 && (
           <p className="text-muted-foreground mt-2 text-sm">
             {L("No documents yet.", "Tiada dokumen lagi.")}
           </p>
         )}
         <div className="max-h-96 overflow-y-auto">
-          {docs.map((d) => (
+          {loaded && docs.map((d) => (
             <div
               key={d.id}
               className="border-border border-b py-2 text-sm last:border-0"
@@ -10726,6 +11017,9 @@ function Profile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.77.0 — skeleton until the first fetch lands: a "—" for every field
+     while loading read as a blank profile. */
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void api<{ profile: Record<string, string | null> }>(`/staff/profile`).then(
       (r) => {
@@ -10733,6 +11027,7 @@ function Profile() {
           setProfile(r.data.profile);
           setPhone(r.data.profile.phone ?? "");
         }
+        setLoaded(true);
       }
     );
   }, []);
@@ -10795,7 +11090,13 @@ function Profile() {
                     )[k] ?? k.replace("_", " "))
                   : k.replace("_", " ")}
               </dt>
-              <dd className="font-medium break-words">{profile[k] ?? "—"}</dd>
+              {loaded ? (
+                <dd className="font-medium break-words">{profile[k] ?? "—"}</dd>
+              ) : (
+                <dd>
+                  <Skel className="mt-0.5 h-4 w-3/4" />
+                </dd>
+              )}
             </div>
           ))}
         </dl>
@@ -10807,12 +11108,16 @@ function Profile() {
               "Telefon (anda boleh kemas kini)"
             )}
           </span>
-          <input
-            className={inputClass}
-            placeholder="+60 12-345 6789"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
+          {loaded ? (
+            <input
+              className={inputClass}
+              placeholder="+60 12-345 6789"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          ) : (
+            <Skel className="h-10 w-full" />
+          )}
         </label>
         <button
           type="button"
@@ -10904,6 +11209,10 @@ function UsersPanel({ role }: { role: string }) {
     employment_status: string;
   }>({ role: "live_host", employment_status: "part_time" });
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.77.0 — skeleton until the first fetch lands (accounts and activity
+     are two requests; each region clears its own skeleton). */
+  const [loaded, setLoaded] = useState(false);
+  const [eventsLoaded, setEventsLoaded] = useState(false);
   const load = useCallback(() => {
     void api<{ users?: typeof rows; staff?: typeof rows }>(`/staff/users`).then(
       (r) => {
@@ -10920,10 +11229,12 @@ function UsersPanel({ role }: { role: string }) {
               "Tidak dapat memuatkan akaun pengguna — semak akses."
             )
           );
+        setLoaded(true);
       }
     );
     void api<{ events: typeof events }>(`/staff/users/activity`).then((r) => {
       if (r.ok && r.data) setEvents(r.data.events);
+      setEventsLoaded(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -11075,7 +11386,9 @@ function UsersPanel({ role }: { role: string }) {
           status, disabled, 2FA missing) — role always shows. Everything
           truncates so a phone row stays one line. */}
           <div className="border-border divide-border mt-2 max-h-80 divide-y overflow-y-auto rounded-lg border">
-            {staffRows.map((u) => (
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={6} className="px-3" />}
+            {loaded && staffRows.map((u) => (
               <div
                 key={u.id}
                 className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm"
@@ -11189,12 +11502,14 @@ function UsersPanel({ role }: { role: string }) {
                 )}
           </p>
           <div className="border-border divide-border mt-2 max-h-80 divide-y overflow-y-auto rounded-lg border">
-            {customerRows.length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={4} className="px-3" />}
+            {loaded && customerRows.length === 0 && (
               <p className="text-muted-foreground px-3 py-2 text-sm">
                 {L("No customer accounts yet.", "Tiada akaun pelanggan lagi.")}
               </p>
             )}
-            {customerRows.map((u) => (
+            {loaded && customerRows.map((u) => (
               <div
                 key={u.id}
                 className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-sm"
@@ -11251,12 +11566,14 @@ function UsersPanel({ role }: { role: string }) {
           )}
         </p>
         <div className="mt-2 max-h-56 space-y-0 overflow-y-auto pr-1">
-          {events.length === 0 && (
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!eventsLoaded && <SkelTable rows={5} cols={3} />}
+          {eventsLoaded && events.length === 0 && (
             <p className="text-muted-foreground text-sm">
               {L("No events recorded yet.", "Tiada peristiwa direkodkan lagi.")}
             </p>
           )}
-          {events.map((e, i) => (
+          {eventsLoaded && events.map((e, i) => (
             <div
               key={i}
               className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1 text-[11px] last:border-0"
@@ -11620,6 +11937,10 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
     applies_to: "all",
   });
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.77.0 — skeleton until the first fetch lands (targets and rules are
+     two requests; each region clears its own skeleton). */
+  const [loaded, setLoaded] = useState(false);
+  const [rulesLoaded, setRulesLoaded] = useState(false);
 
   const loadTargets = useCallback(() => {
     void api<{
@@ -11640,11 +11961,13 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
           )
         );
       }
+      setLoaded(true);
     });
   }, [month]);
   const loadRules = useCallback(() => {
     void api<{ rules: CommRule[] }>(`/staff/commission/rules`).then((r) => {
       if (r.ok && r.data) setRules(r.data.rules);
+      setRulesLoaded(true);
     });
   }, []);
   useEffect(() => {
@@ -11709,7 +12032,16 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
             grid — the whole floor fits in two or three short rows instead
             of one full-width input per person. */}
         <div className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {staff.map((s) => (
+          {/* v1.77.0 — skeleton until the first fetch lands: label + input
+              per person, in the same grid. */}
+          {!loaded &&
+            Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="min-w-0" aria-hidden>
+                <Skel className="mb-1 h-2.5 w-2/3" />
+                <Skel className="h-8 w-full" />
+              </div>
+            ))}
+          {loaded && staff.map((s) => (
             <label key={s.id} className="block min-w-0">
               <span
                 className="text-muted-foreground mb-0.5 block truncate text-[11px] font-medium"
@@ -11738,7 +12070,7 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
               />
             </label>
           ))}
-          {staff.length === 0 && (
+          {loaded && staff.length === 0 && (
             <p className="text-muted-foreground text-xs">
               {L(
                 "No staff to target yet.",
@@ -11759,6 +12091,11 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
               <span className="capitalize">
                 {team === "sales" ? L("sales", "jualan") : team}
               </span>
+              {/* v1.77.0 — the input is uncontrolled (defaultValue), so it
+                  must not mount before the stored target is known. */}
+              {!loaded ? (
+                <Skel className="h-8 w-32" />
+              ) : (
               <input
                 type="number"
                 min={0}
@@ -11775,6 +12112,7 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
                     void saveTarget("team", team, e.target.value);
                 }}
               />
+              )}
             </label>
           ))}
         </div>
@@ -11785,7 +12123,9 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
           {L("Commission rules", "Peraturan komisen")}
         </p>
         <div className="mt-1.5 space-y-1">
-          {(rules ?? []).map((r) => (
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!rulesLoaded && <SkelRows rows={2} />}
+          {rulesLoaded && (rules ?? []).map((r) => (
             <div
               key={r.id}
               className="flex flex-wrap items-center gap-2 text-sm"
@@ -11843,7 +12183,7 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
               </button>
             </div>
           ))}
-          {rules && rules.length === 0 && (
+          {rulesLoaded && rules && rules.length === 0 && (
             <p className="text-muted-foreground text-xs">
               {L(
                 "No rules yet — add one below (e.g. 1.5% base + 3% over target).",

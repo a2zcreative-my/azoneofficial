@@ -101,10 +101,30 @@ Two separate faults, both introduced with the shift schedules in v1.76.0.
 
 Guard #24 gained the invariant, stated as something checkable rather than as advice: **no shift lookup may sit inside a loop** (brace-tracked, because a line window cannot tell where a loop ends), and the payroll table must not await the scan.
 
+### Nothing loads in words, and nothing loads blank
+
+**CEO:** *"I saw skeleton loading react doesnt accurately follow the width of my interface and also I want no loading without skeleton loading react. Additionally, audit all the files to ensure that no loading leak without skeleton loading react either in web or mobile view apps for both my web."*
+
+**The width.** `PortalSkeleton` — the first thing painted, baked into `portal.html` — still capped its canvas at 1440px after v1.74.0 removed that cap from the real shell, and it drew no side columns although the Dashboard has two (264px and 292px). So the skeleton painted a different shape from the app that replaced it and the page jumped, which is the one thing a skeleton exists to prevent. It now carries AppShell's classes verbatim, side columns included; guard #28 fails the build if the two ever differ.
+
+**The audit.** Every `.tsx` in both repositories, every component that fetches when it mounts:
+
+| | portal | shop |
+|---|---|---|
+| components that fetch on mount | 89 | 12 |
+| …with a skeleton, before | 6 | 3 |
+| "Loading…" in words | 5 | 10 |
+| spinners | 0 | 1 |
+| blank (`return null`) while loading | 4 | 2 |
+
+That is how the Payroll tab read **"TOTAL — 0 staff"** this morning: not a wrong number, an empty state drawn while the data was still on its way. Eighty portal components and nine shop pages now show a skeleton **in the shape of what is coming** — same card, same heading, same grid and table columns, same phone/desktop breakpoints — until their first request settles, and every "No records yet" message is gated on that so it can no longer flash. One exemption, printed by the guard so it stays countable: the login form, whose only fetch is a redirect for someone already signed in.
+
+**Guard #28 `skeleton-loading`** (and the same guard in the shop's DEPLOY.bat): no loading state in words, no spinner, the first paint mirrors the shell, and — detected rather than declared — every component with a mount-time fetch references a skeleton primitive and never returns `null` on a loading flag.
+
 ### Notes
 
 - No migration. Nothing to apply.
-- 27 guards.
+- 28 guards.
 
 ## [1.76.0] — 2026-08-30 — working hours become a schedule
 

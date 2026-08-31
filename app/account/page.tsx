@@ -3,7 +3,8 @@
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
-import { SkelText } from "@/components/ui/skeleton";
+import Link from "next/link"; // v1.77.0 — an in-app route is a <Link>, not an <a> (build rule no-html-link-for-pages)
+import { Skel, SkelText, SkelCard } from "@/components/ui/skeleton"; // v1.77.0: + Skel, SkelCard for the auth-check shell
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
@@ -51,10 +52,72 @@ const LIVE_STATUS_MS: Record<string, string> = { scheduled: "dijadualkan", compl
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
 
+/* v1.77.0 — the client area's first paint while /auth/me answers (and while
+   a redirect to /login, /admin or /portal is on its way). Pure presentational:
+   the SAME shell (md:max-w-4xl canvas, navy rail, header row, the Account
+   tab's two-column card grid, bottom nav on phones), so nothing jumps when
+   the real page takes over. No hooks, no fetch. */
+function AccountPageSkeleton() {
+  return (
+    <AppShell
+      maxWidth="md:max-w-4xl"
+      rail={
+        <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
+          <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="h-10 w-10 shrink-0 rounded-xl bg-white/10" />
+          ))}
+        </div>
+      }
+    >
+    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+        <div className="space-y-1.5">
+          <Skel className="hidden h-3 w-64 md:block" />
+          <Skel className="h-6 w-40" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Skel className="h-9 w-10 rounded-lg" />
+          <Skel className="h-9 w-9 rounded-lg" />
+        </div>
+      </header>
+
+      {/* bottom navigation (phones) — three real-sized slots */}
+      <nav className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }} aria-hidden>
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
+            <Skel className="h-9 w-9 rounded-xl" />
+            <Skel className="h-2 w-12" />
+          </div>
+        ))}
+      </nav>
+
+      {/* the Account tab (the one everyone lands on): details card, then the
+          full-width password card */}
+      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <SkelCard lines={2} sub={false} />
+        <div className={`${card} sm:col-span-2`}>
+          <Skel className="h-4 w-36" />
+          <Skel className="mt-2 h-3 w-72 max-w-full" />
+          <div className="mt-3 space-y-2">
+            <Skel className="h-9 w-full sm:max-w-72" />
+            <Skel className="h-9 w-full sm:max-w-72" />
+            <Skel className="h-9 w-32" />
+          </div>
+        </div>
+      </div>
+      <Skel className="mx-auto mt-6 mb-2 h-3 w-40" />
+    </div>
+    </AppShell>
+  );
+}
+
 export default function AccountPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  /* v1.77.0: null = the thread has not arrived yet (skeleton), [] = arrived
+     and empty (the "No enquiries yet" line). */
+  const [enquiries, setEnquiries] = useState<Enquiry[] | null>(null);
   const [ask, setAsk] = useState("");
   const [askCat, setAskCat] = useState("general"); // v1.4.181
   const [tab, setTab] = useState<"Account" | "Orders" | "Enquiries">("Account");
@@ -104,7 +167,10 @@ export default function AccountPage() {
     });
   }, []);
 
-  if (!checked || !user) return null;
+  /* v1.77.0 — skeleton until the first fetch lands. This used to return null
+     (a blank screen with a name); the page-shaped shell paints instead, and
+     stays up while any redirect in the effect above is on its way. */
+  if (!checked || !user) return <AccountPageSkeleton />;
 
   /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
      /portal"): the customer area now sits on the SAME shell as the portal —
@@ -458,7 +524,18 @@ export default function AccountPage() {
 
       <div className={`${card} mt-4 md:mt-6`}>
         <p className="text-sm font-semibold">{L("My enquiries", "Pertanyaan saya")}</p>
-        {enquiries.length === 0 ? (
+        {/* v1.77.0 — skeleton until the first fetch lands: message line,
+            then the status line, bordered like the real thread rows. */}
+        {enquiries === null ? (
+          <div aria-busy="true">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="border-border border-b py-2 last:border-0">
+                <Skel className="h-4 w-3/4" />
+                <Skel className="mt-1.5 h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : enquiries.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">
             {L("No enquiries yet — send your first question above.", "Belum ada pertanyaan — hantar soalan pertama anda di atas.")}
           </p>
@@ -484,7 +561,7 @@ export default function AccountPage() {
       )}
       {/* v1.4.191: PDPA notice one tap away for customers */}
       <p className="text-muted-foreground mt-6 pb-2 text-center text-xs">
-        <a className="underline" href="/privacy">{L("Privacy Notice (PDPA)", "Notis Privasi (PDPA)")}</a>
+        <Link className="underline" href="/privacy">{L("Privacy Notice (PDPA)", "Notis Privasi (PDPA)")}</Link>
       </p>
     </div>
     </AppShell>

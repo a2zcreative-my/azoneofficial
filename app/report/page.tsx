@@ -10,6 +10,7 @@ import { fmtRM, ym, dmy } from "@/lib/format";
 /* v1.28.0 — the monthly report is prepared TODAY by the current operator,
    so every identity string on it comes from DOCUMENT_ISSUER (lib/issuers.ts). */
 import { DOCUMENT_ISSUER } from "@/lib/issuers";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 
 interface Report {
   company: string;
@@ -36,7 +37,37 @@ export default function ClientReportPage() {
   }, []);
 
   if (state === "loading") {
-    return <main className="mx-auto max-w-2xl px-4 py-16 text-center text-sm text-neutral-500">Loading your report…</main>;
+    /* v1.77.0 — skeleton until the first fetch lands. It used to say
+       "Loading your report…" in words; now the report's own shape in the
+       SAME max-w-2xl wrapper — gold-ruled header, the two-across stat grid
+       (navy tile first, like the real one), footer line — so nothing jumps
+       when the figures arrive. The eyebrow line is real: it never loads. */
+    return (
+      <main className="mx-auto max-w-2xl px-4 py-10" aria-busy="true">
+        <header className="border-b-2 border-[#C9A227] pb-4">
+          <p className="text-xs font-semibold tracking-widest text-[#C9A227] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
+          <Skel className="mt-2 h-7 w-56 max-w-full" />
+          <Skel className="mt-2 h-3.5 w-48" />
+        </header>
+        <section className="mt-6 grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-[#1A2946] p-4">
+            <div className="h-2.5 w-28 rounded bg-white/20" />
+            <div className="mt-2 h-9 w-16 rounded bg-white/25" />
+            <div className="mt-2 h-3 w-32 rounded bg-white/15" />
+          </div>
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="rounded-xl border border-t-2 border-neutral-200 border-t-[#C9A227] p-4">
+              <Skel className="h-2.5 w-28" />
+              <Skel className="mt-2 h-8 w-24" />
+            </div>
+          ))}
+        </section>
+        <footer className="mt-8 border-t border-neutral-200 pt-4">
+          <Skel className="h-3 w-64 max-w-full" />
+          <Skel className="mt-2 h-3.5 w-52 max-w-full" />
+        </footer>
+      </main>
+    );
   }
   if (state === "bad" || !rep) {
     return (

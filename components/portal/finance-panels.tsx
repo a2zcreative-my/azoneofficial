@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
 import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel, SkelTable } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -30,6 +31,22 @@ const MigrationNote = ({ show }: { show: boolean }) => !show ? null : (
   </p>
 );
 
+/* v1.77.0 — the KPI strip's skeleton: four tiles inside the real StatStrip,
+   so the grid geometry is the strip's own and nothing jumps when the numbers
+   land. */
+function SkelTileStrip() {
+  return (
+    <StatStrip>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="bg-secondary rounded-xl p-3" aria-hidden>
+          <Skel className="h-2.5 w-24" />
+          <Skel className="mt-2 h-7 w-28" />
+        </div>
+      ))}
+    </StatStrip>
+  );
+}
+
 /* ============================ Cash Flow ============================ */
 
 interface Bank { id: number; name: string; bank: string; number_masked: string; active: number }
@@ -47,6 +64,9 @@ export function CashFlowPanel() {
   const [showBanks, setShowBanks] = useState(false);
   const [draft, setDraft] = useState({ entry_date: "", type: "out", category: "", bank_id: "", amount: "", description: "", ref: "" });
   const [bankDraft, setBankDraft] = useState({ name: "", bank: "", number_masked: "" });
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the table are skeletons, never "RM 0.00" and "No entries". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<{ entries: CashEntry[]; pending_migration?: boolean }>(`/cashflow`);
@@ -54,6 +74,7 @@ export function CashFlowPanel() {
     setPending(r.data?.pending_migration === true);
     const b = await api<{ banks: Bank[] }>(`/banks`);
     setBanks(b.data?.banks ?? []);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -135,12 +156,16 @@ export function CashFlowPanel() {
       </p>
 
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="success" label={L("Money in", "Tunai masuk")} value={fmtRM(moneyIn)} icon="↓" />
-          <StatTile tone="danger" label={L("Money out", "Tunai keluar")} value={fmtRM(moneyOut)} icon="↑" />
-          <StatTile tone="brand" label={L("Balance", "Baki")} value={fmtRM(moneyIn - moneyOut)} icon="◎" />
-          <StatTile tone="muted" label={L("Entries", "Catatan")} value={entries.length} hint={L("last 1,000 shown", "1,000 terakhir ditunjukkan")} icon="≡" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands: four tiles in the
+            same strip, so the figures never read RM 0.00 while loading. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="success" label={L("Money in", "Tunai masuk")} value={fmtRM(moneyIn)} icon="↓" />
+            <StatTile tone="danger" label={L("Money out", "Tunai keluar")} value={fmtRM(moneyOut)} icon="↑" />
+            <StatTile tone="brand" label={L("Balance", "Baki")} value={fmtRM(moneyIn - moneyOut)} icon="◎" />
+            <StatTile tone="muted" label={L("Entries", "Catatan")} value={entries.length} hint={L("last 1,000 shown", "1,000 terakhir ditunjukkan")} icon="≡" />
+          </StatStrip>
+        )}
       </div>
 
       {showBanks && (
@@ -188,6 +213,9 @@ export function CashFlowPanel() {
         </button>
       </div>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: six columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={6} /> : (
       <DataTable
         rows={entries}
         searchText={(e) => `${e.category} ${e.description} ${e.ref} ${e.bank_name ?? ""}`}
@@ -210,6 +238,7 @@ export function CashFlowPanel() {
         ]}
         empty={L("No cash flow entries yet — paid expenses, payroll, claims and invoices will appear here automatically.", "Tiada catatan aliran tunai lagi — perbelanjaan dibayar, gaji, tuntutan dan invois akan muncul di sini secara automatik.")}
       />
+      )}
     </div>
   );
 }
@@ -231,10 +260,16 @@ export function ReconciliationPanel() {
   const thisMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
   const [draft, setDraft] = useState({ period: thisMonth, channel: "tiktok", order_no: "", customer: "", est_sales: "", actual_sales: "", actual_cost: "", fees: "", shipping: "" });
 
+  /* v1.77.0 — true once the first load settles (ok or not); until then the
+     KPI strip and the table are skeletons, never "0 rows" and "Nothing to
+     reconcile". */
+  const [loaded, setLoaded] = useState(false);
+
   const load = useCallback(async () => {
     const r = await api<{ rows: ReconRow[]; pending_migration?: boolean }>(`/reconciliation`);
     setRows(r.data?.rows ?? []);
     setPending(r.data?.pending_migration === true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -292,12 +327,15 @@ export function ReconciliationPanel() {
         </button>
       </div>
       <div className="mt-3">
-        <StatStrip>
-          <StatTile tone="info" label={L("Rows", "Baris")} value={rows.length} icon="≡" />
-          <StatTile tone="success" label={L("Reconciled", "Diselaraskan")} value={reconciled} icon="✓" />
-          <StatTile tone="muted" label={L("Estimated sales", "Anggaran jualan")} value={fmtRM(est)} icon="~" />
-          <StatTile tone="gold" label={L("Actual (reconciled)", "Sebenar (diselaraskan)")} value={fmtRM(actual)} icon="$" />
-        </StatStrip>
+        {/* v1.77.0 — skeleton until the first fetch lands. */}
+        {!loaded ? <SkelTileStrip /> : (
+          <StatStrip>
+            <StatTile tone="info" label={L("Rows", "Baris")} value={rows.length} icon="≡" />
+            <StatTile tone="success" label={L("Reconciled", "Diselaraskan")} value={reconciled} icon="✓" />
+            <StatTile tone="muted" label={L("Estimated sales", "Anggaran jualan")} value={fmtRM(est)} icon="~" />
+            <StatTile tone="gold" label={L("Actual (reconciled)", "Sebenar (diselaraskan)")} value={fmtRM(actual)} icon="$" />
+          </StatStrip>
+        )}
       </div>
 
       <div className={`${fieldRow} mb-4`}>
@@ -324,6 +362,9 @@ export function ReconciliationPanel() {
         <button type="button" className={btnClass} disabled={busy} onClick={() => void save()}>{L("+ Add row", "+ Tambah baris")}</button>
       </div>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: nine columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={9} /> : (
       <DataTable
         rows={rows}
         searchText={(r) => `${r.order_no} ${r.customer} ${r.channel} ${r.period}`}
@@ -354,6 +395,7 @@ export function ReconciliationPanel() {
         ]}
         empty={L("Nothing to reconcile yet — add the first row above.", "Tiada apa untuk diselaraskan lagi — tambah baris pertama di atas.")}
       />
+      )}
     </div>
   );
 }

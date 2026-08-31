@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { card } from "@/lib/ui-styles";
+import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -74,7 +75,16 @@ export function ConnectionStatusCard() {
     <div className={card}>
       <p className="text-sm font-semibold">{L("🔌 TikTok connection", "🔌 Sambungan TikTok")}</p>
       {!st ? (
-        <p className="text-muted-foreground mt-1 text-sm">{L("Checking…", "Menyemak…")}</p>
+        /* v1.77.0 — skeleton until the first fetch lands: four status lines
+           in the same 1/2-column grid, instead of the word "Checking…". */
+        <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-hidden>
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <Skel className="h-2.5 w-2.5 shrink-0 rounded-full" />
+              <Skel className="h-3 w-3/4" />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
           <p>{dot(st.configured && st.authorized)} <span className="font-medium">{L("Shop authorization", "Kebenaran kedai")}</span>{" "}

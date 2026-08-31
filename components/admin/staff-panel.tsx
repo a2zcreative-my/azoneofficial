@@ -14,12 +14,14 @@
  */
 
 import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import Link from "next/link"; // v1.77.0 — an in-app route is a <Link>, not an <a> (build rule no-html-link-for-pages)
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState } from "react";
 import { card } from "@/lib/ui-styles";
 import { dmy as dmyD } from "@/lib/format";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
@@ -76,12 +78,14 @@ function StatusBadge({ value }: { value: string }) {
 export function StaffPanel() {
   const { node: toastNode } = useSaveToast(); // v1.19.0: show() went with the approve buttons
   const [rows, setRows] = useState<LeaveRow[]>([]);
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [comment, setComment] = useState<Record<number, string>>({});
   const [error] = useState(""); // v1.19.0: setter went with the approve buttons
 
   const load = useCallback(async () => {
     const res = await api<{ leave: LeaveRow[] }>(`/leave?all=1`);
     if (res.ok && res.data) setRows(res.data.leave);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -126,9 +130,9 @@ export function StaffPanel() {
               surface — they PATCHed the same endpoint as the portal Leave tab but
               WITHOUT the stage filtering, letting an admin skip the HR → COO/CCO →
               CEO chain. Approvals happen in the portal Leave tab only. */}
-          <a className="text-gold-deep text-xs font-semibold underline-offset-2 hover:underline" href="/portal">
+          <Link className="text-gold-deep text-xs font-semibold underline-offset-2 hover:underline" href="/portal">
             {L("Decide in the portal Leave tab →", "Buat keputusan di tab Cuti portal →")}
-          </a>
+          </Link>
         </div>
       )}
     </li>
@@ -154,7 +158,22 @@ export function StaffPanel() {
         </p>
         {error && <p className="text-destructive mt-2 text-sm">{error}</p>}
         <ul className="mt-4 space-y-2">
-          {pending.length === 0 && (
+          {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+              leave cards (name · type · dates left, stage right, comment box
+              below) so "No pending requests" never shows while loading. */}
+          {!loaded && Array.from({ length: 3 }, (_, i) => (
+            <li key={`skel-${i}`} className="border-border rounded-lg border px-4 py-3" aria-busy="true">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Skel className="h-4 w-72 max-w-full" />
+                <Skel className="h-3 w-24" />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Skel className="h-8 w-64 max-w-full" />
+                <Skel className="h-3 w-40" />
+              </div>
+            </li>
+          ))}
+          {loaded && pending.length === 0 && (
             <li className="text-muted-foreground text-sm">{L("No pending requests.", "Tiada permohonan menunggu.")}</li>
           )}
           {pending.map((r) => leaveCard(r, true))}
@@ -190,7 +209,7 @@ export function StaffPanel() {
             [L("Overview", "Ringkasan"), L("Company-wide read-only monitor", "Pemantau baca sahaja seluruh syarikat")],
           ].map(([title, desc]) => (
             <li key={title}>
-              <a
+              <Link
                 href="/portal"
                 className="border-border hover:border-foreground/40 block rounded-lg border px-3 py-2.5 transition-colors"
               >
@@ -198,7 +217,7 @@ export function StaffPanel() {
                 <span className="text-muted-foreground mt-0.5 block text-xs">
                   {desc}
                 </span>
-              </a>
+              </Link>
             </li>
           ))}
         </ul>

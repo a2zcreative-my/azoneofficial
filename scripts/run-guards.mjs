@@ -51,6 +51,7 @@ const GUARDS = [
   ["shift-schedule", "hours come from each person's schedule, and an unapproved punch counts for nothing"],
   ["action-feedback", "nothing destructive happens in silence — a delete says so, either way"],
   ["api-routes", "every path the portal calls is one the worker answers at (the Offboard 404)"],
+  ["skeleton-loading", "nothing loads without a skeleton in its own shape — no words, no spinners, no blank cards"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

@@ -163,6 +163,7 @@ export default function LoginPage() {
     }
   };
 
+  /* skeleton: none — the mount-time /auth/me probe only redirects a user who is already signed in; the sign-in form draws nothing from it and renders in full from the first frame (v1.77.0) */
   return (
     /* v1.29.2 (CEO, from his phone: "Sign in page I want to fit well for
        mobile apps view"): the page was a fixed mt-24 block, which on a phone

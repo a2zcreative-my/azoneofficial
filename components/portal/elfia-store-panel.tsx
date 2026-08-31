@@ -33,6 +33,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel } from "@/components/ui/skeleton";
 import { compressImage } from "@/lib/compress-image";
 import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
@@ -1059,6 +1060,15 @@ export function ElfiaStorePanel() {
             onClick={() => void syncShopNow()}>
             {syncing ? L("Updating the shop…", "Mengemas kini kedai…") : L("Update the shop now", "Kemas kini kedai sekarang")}
           </button>
+          {/* v1.77.0 — skeleton until the first fetch lands: the status chip
+              and its two figures, so the header never reads blank. */}
+          {health === null && (
+            <>
+              <Skel className="h-5 w-24 rounded-full" />
+              <Skel className="h-4 w-28" />
+              <Skel className="h-4 w-44" />
+            </>
+          )}
           {health?.unavailable && (
             <span className="text-muted-foreground">
               {L("Bridge status unavailable — deploy azoneofficial-api, then reload.",
@@ -1251,6 +1261,14 @@ export function ElfiaStorePanel() {
           </div>
         </div>
 
+        {/* v1.77.0 — skeleton until the first fetch lands: the Choose-a-PDF
+            button row, where the real controls will sit. */}
+        {cat === null && (
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-hidden>
+            <Skel className="h-7 w-28" />
+            <Skel className="h-3 w-40" />
+          </div>
+        )}
         {cat?.unavailable && (
           <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             {L("This api worker does not have the catalog routes yet — deploy azoneofficial-api, then reload.",
@@ -1375,6 +1393,14 @@ export function ElfiaStorePanel() {
           </label>
         </div>
 
+        {/* v1.77.0 — skeleton until the first fetch lands: the circular
+            preview the shop's tiles crop to, beside its remove link. */}
+        {backdrop === null && (
+          <div className="mt-3 flex items-center gap-3" aria-hidden>
+            <Skel className="h-20 w-20 shrink-0 rounded-full" />
+            <Skel className="h-3 w-56 max-w-full" />
+          </div>
+        )}
         {backdrop?.unavailable && loaded && (
           <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             {L("The api worker is older than v1.61.0 — deploy it (PUSH.bat) before this card can save.",
@@ -1419,6 +1445,21 @@ export function ElfiaStorePanel() {
           </label>
         </div>
 
+        {/* v1.77.0 — skeleton until the first fetch lands: three slide
+            cards in the carousel's own grid, each the shop's 21:9 banner. */}
+        {slides === null && !loaded && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="border-border rounded-xl border p-2">
+                <Skel className="aspect-[21/9] w-full" />
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <Skel className="h-3 w-24" />
+                  <Skel className="h-5 w-16 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {slides === null && loaded && (
           <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             {L("Migration 0087 has not reached the database yet — the carousel cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
@@ -1606,6 +1647,46 @@ export function ElfiaStorePanel() {
              "Tanda untuk terbitkan. Foto, koleksi dan penerangan ialah apa yang pelanggan lihat di halaman produk. Harga disimpan selepas blur; rebat live TikTok tidak sekali-kali terpakai dalam talian.")}
         </p>
 
+        {/* v1.77.0 — skeleton until the first fetch lands: the Show/Select
+            rows, then product cards in the list's own shape — tick, 16×20
+            photo, SKU + name, the price boxes — so nothing jumps. */}
+        {!loaded && (
+          <div aria-hidden>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <Skel className="h-3 w-10" />
+              <Skel className="h-5 w-16 rounded-full" />
+              <Skel className="h-5 w-20 rounded-full" />
+              <Skel className="h-5 w-24 rounded-full" />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3">
+              <Skel className="h-3 w-12" />
+              <Skel className="h-3 w-32" />
+              <Skel className="h-3 w-28" />
+            </div>
+            <div className="mt-3 space-y-2">
+              {Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="border-border bg-card rounded-xl border p-3">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <Skel className="mt-7 h-4 w-4 shrink-0" />
+                    <Skel className="h-20 w-16 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Skel className="h-3 w-16" />
+                        <Skel className="h-4 w-40" />
+                        <Skel className="h-5 w-20 rounded-full" />
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-end gap-3">
+                        <Skel className="h-9 w-28" />
+                        <Skel className="h-9 w-28" />
+                        <Skel className="h-9 w-36" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {loaded && items.length === 0 && (
           <p className="text-muted-foreground mt-4 text-sm">
             {L("No inventory items yet — add them on the Inventory tab first.",

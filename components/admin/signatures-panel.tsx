@@ -16,6 +16,7 @@ import { csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -29,7 +30,9 @@ const ROLES: { file: string; label: string }[] = [
 
 export function SignaturesPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
-  const [status, setStatus] = useState<Record<string, boolean>>({});
+  /* v1.77.0: null = the presence check has not answered yet (skeleton), so a
+     role is never shown "Missing" merely because the request is in flight. */
+  const [status, setStatus] = useState<Record<string, boolean> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   /* Presence check: a HEAD-ish GET per role. 404 = not uploaded yet. */
@@ -77,14 +80,25 @@ export function SignaturesPanel() {
         {ROLES.map((r) => (
           <li key={r.file} className="flex flex-wrap items-center gap-3 text-sm">
             <span className="w-40 font-medium">{r.label}</span>
-            {status[r.file]
-              ? <span className="text-green-700 dark:text-green-400">{L("In the vault", "Dalam bilik kebal")}</span>
-              : <span className="font-medium text-amber-700 dark:text-amber-400">{L("Missing — documents print a blank zone", "Tiada — dokumen mencetak ruang kosong")}</span>}
-            <label className="cursor-pointer rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary">
-              {busy === r.file ? L("Uploading…", "Memuat naik…") : status[r.file] ? L("Replace", "Ganti") : L("Upload PNG", "Muat naik PNG")}
-              <input type="file" accept="image/png" className="hidden" disabled={busy !== null}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(r.file, f); e.target.value = ""; }} />
-            </label>
+            {/* v1.77.0 — skeleton until the first fetch lands: the role label
+                is real, the status word and the upload button are not yet. */}
+            {status === null ? (
+              <>
+                <Skel className="h-4 w-28" />
+                <Skel className="h-5 w-24" />
+              </>
+            ) : (
+              <>
+                {status[r.file]
+                  ? <span className="text-green-700 dark:text-green-400">{L("In the vault", "Dalam bilik kebal")}</span>
+                  : <span className="font-medium text-amber-700 dark:text-amber-400">{L("Missing — documents print a blank zone", "Tiada — dokumen mencetak ruang kosong")}</span>}
+                <label className="cursor-pointer rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary">
+                  {busy === r.file ? L("Uploading…", "Memuat naik…") : status[r.file] ? L("Replace", "Ganti") : L("Upload PNG", "Muat naik PNG")}
+                  <input type="file" accept="image/png" className="hidden" disabled={busy !== null}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(r.file, f); e.target.value = ""; }} />
+                </label>
+              </>
+            )}
           </li>
         ))}
       </ul>

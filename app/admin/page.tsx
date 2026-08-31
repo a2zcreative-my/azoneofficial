@@ -29,6 +29,7 @@ import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
+import { Skel, SkelCard, SkelText } from "@/components/ui/skeleton"; // v1.77.0
 
 const API = "/api/v1";
 
@@ -83,9 +84,11 @@ function Enquiries() {
   const [openEnq, setOpenEnq] = useState<number | null>(null);
   const { show: showToast, node: toastNode } = useSaveToast();
   const [items, setItems] = useState<Enquiry[]>([]);
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const load = useCallback(async () => {
     const res = await api<{ enquiries: Enquiry[] }>("/enquiries");
     if (res.ok && res.data) setItems(res.data.enquiries);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -98,6 +101,22 @@ function Enquiries() {
       r.ok ? undefined : "notice");
     void load();
   };
+
+  /* v1.77.0 — skeleton until the first fetch lands. Same article cards as the
+     real list: name on the left, the status select on the right. */
+  if (!loaded)
+    return (
+      <div className="space-y-4" aria-busy="true">
+        {Array.from({ length: 3 }, (_, i) => (
+          <article key={i} className="rounded-xl border border-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Skel className="h-4 w-48 max-w-full" />
+              <Skel className="h-6 w-24" />
+            </div>
+          </article>
+        ))}
+      </div>
+    );
 
   if (items.length === 0)
     return <p className="text-muted-foreground text-sm">{L("No enquiries yet.", "Belum ada pertanyaan.")}</p>;
@@ -169,10 +188,12 @@ function CrudPanel({
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
 
   const load = useCallback(async () => {
     const res = await api<{ items: CrudItem[] }>(`/${resource}`);
     if (res.ok && res.data) setItems(res.data.items);
+    setLoaded(true);
   }, [resource]);
   useEffect(() => {
     void load();
@@ -266,7 +287,20 @@ function CrudPanel({
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold tracking-tight">{L("Existing", "Sedia ada")}</h3>
-        {items.length === 0 && (
+        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+            rows as the real list (title · #id on the left, Edit/Delete right). */}
+        {!loaded && Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="rounded-lg border border-border px-3 py-2" aria-busy="true">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Skel className="h-4 w-40 max-w-full" />
+              <span className="flex shrink-0 gap-2">
+                <Skel className="h-6 w-12" />
+                <Skel className="h-6 w-14" />
+              </span>
+            </div>
+          </div>
+        ))}
+        {loaded && items.length === 0 && (
           <p className="text-muted-foreground text-sm">{L("Nothing here yet.", "Belum ada apa-apa di sini.")}</p>
         )}
         {items.map((item) => (
@@ -339,9 +373,13 @@ function Dashboard() {
   } | null>(null);
   useEffect(() => {
     void api<typeof summary>("/dashboard/summary").then((r) => {
-      if (r.ok) setSummary(r.data);
+      /* v1.77.0 — `null` means "still loading"; a failed request settles to
+         {} so the skeleton ends and the tiles show "—" exactly as before. */
+      setSummary(r.ok && r.data ? r.data : {});
     });
   }, []);
+  /* v1.77.0 — skeleton until the first fetch lands. */
+  const loading = summary === null;
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -353,13 +391,17 @@ function Dashboard() {
           { label: L("Testimonials", "Testimoni"), value: summary?.testimonials?.total },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border p-5">
-            <p className="text-3xl font-semibold">{s.value ?? "—"}</p>
+            {/* the tile and its label are real; only the figure is loading */}
+            {loading ? <Skel className="h-9 w-16" /> : <p className="text-3xl font-semibold">{s.value ?? "—"}</p>}
             <p className="text-muted-foreground mt-1 text-sm">{s.label}</p>
           </div>
         ))}
       </div>
       <div>
         <h3 className="text-sm font-semibold tracking-tight">{L("Recent activity", "Aktiviti terkini")}</h3>
+        {loading ? (
+          <SkelText lines={4} className="mt-3" />
+        ) : (
         <ul className="mt-3 space-y-1.5">
           {(summary?.activity ?? []).map((a, i) => (
             <li key={i} className="text-muted-foreground text-sm">
@@ -372,6 +414,7 @@ function Dashboard() {
             <li className="text-muted-foreground text-sm">{L("No activity yet.", "Belum ada aktiviti.")}</li>
           )}
         </ul>
+        )}
       </div>
     </div>
   );
@@ -392,10 +435,12 @@ function MediaPanel() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
 
   const load = useCallback(async () => {
     const res = await api<{ media: MediaItem[] }>("/media");
     if (res.ok && res.data) setItems(res.data.media);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -449,6 +494,18 @@ function MediaPanel() {
       {busy && <p className="text-muted-foreground text-sm">{L("Uploading…", "Sedang dimuat naik…")}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {/* v1.77.0 — skeleton until the first fetch lands: the same tiles as
+            the real grid (h-32 preview, file name, two row buttons). */}
+        {!loaded && Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="rounded-lg border border-border p-3" aria-busy="true">
+            <Skel className="h-32 w-full rounded-md" />
+            <Skel className="mt-2 h-3 w-3/4" />
+            <div className="mt-1 flex justify-between">
+              <Skel className="h-6 w-16" />
+              <Skel className="h-6 w-14" />
+            </div>
+          </div>
+        ))}
         {items.map((m) => (
           <div key={m.id} className="rounded-lg border border-border p-3">
             {m.kind === "image" ? (
@@ -483,7 +540,7 @@ function MediaPanel() {
             </div>
           </div>
         ))}
-        {items.length === 0 && <p className="text-muted-foreground text-sm">{L("No media yet.", "Belum ada media.")}</p>}
+        {loaded && items.length === 0 && <p className="text-muted-foreground text-sm">{L("No media yet.", "Belum ada media.")}</p>}
       </div>
     </div>
   );
@@ -503,10 +560,12 @@ function ContentPanel() {
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
 
   const load = useCallback(async () => {
     const res = await api<{ content: ContentRow[] }>("/content");
     if (res.ok && res.data) setRows(res.data.content);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -564,7 +623,15 @@ function ContentPanel() {
       </div>
       <div className="space-y-2">
         <h3 className="text-sm font-semibold tracking-tight">{L("Existing keys", "Kunci sedia ada")}</h3>
-        {rows.length === 0 && <p className="text-muted-foreground text-sm">{L("No content keys yet.", "Belum ada kunci kandungan.")}</p>}
+        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+            key rows (key line over a value line) as the real list. */}
+        {!loaded && Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="w-full rounded-lg border border-border px-3 py-2" aria-busy="true">
+            <Skel className="h-4 w-40 max-w-full" />
+            <Skel className="mt-1.5 h-3 w-2/3" />
+          </div>
+        ))}
+        {loaded && rows.length === 0 && <p className="text-muted-foreground text-sm">{L("No content keys yet.", "Belum ada kunci kandungan.")}</p>}
         {rows.map((r) => (
           <button
             key={r.key}
@@ -628,10 +695,12 @@ function UsersPanel({ me }: { me: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
 
   const load = useCallback(async () => {
     const res = await api<{ users: AdminUser[] }>("/users");
     if (res.ok && res.data) setUsers(res.data.users);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     void load();
@@ -739,6 +808,21 @@ function UsersPanel({ me }: { me: User }) {
       </div>
       <div className="space-y-2">
         <h3 className="text-sm font-semibold tracking-tight">{L("Team", "Pasukan")}</h3>
+        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+            rows as the real team list (name · email left, role select and
+            row actions right). */}
+        {!loaded && Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="rounded-lg border border-border px-3 py-2" aria-busy="true">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Skel className="h-4 w-56 max-w-full" />
+              <span className="flex flex-wrap items-center gap-2">
+                <Skel className="h-6 w-24" />
+                <Skel className="h-5 w-20" />
+                <Skel className="h-5 w-24" />
+              </span>
+            </div>
+          </div>
+        ))}
         {users.map((u) => {
           // An admin can see a super admin but cannot act on them
           const locked = u.role === "super_admin" && me.role !== "super_admin";
@@ -942,6 +1026,74 @@ const TAB_HELP_MS: Record<Tab, string> = {
   Advanced: "Kunci kandungan mentah — untuk apa-apa yang tab Laman Web tidak liputi.",
 };
 
+/* v1.77.0 — the console's first paint while /auth/me answers (and while a
+   redirect to /login, /portal or /account is on its way). Pure presentational:
+   the SAME shell (md:max-w-6xl canvas, navy rail, header row, house cards in
+   the Dashboard's own layout, bottom nav on phones), so nothing jumps when the
+   real console takes over. No hooks, no fetch. */
+function AdminPageSkeleton() {
+  return (
+    <AppShell
+      maxWidth="md:max-w-6xl"
+      rail={
+        <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
+          <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
+          {Array.from({ length: 10 }, (_, i) => (
+            <div key={i} className="h-10 w-10 shrink-0 rounded-xl bg-white/10" />
+          ))}
+        </div>
+      }
+    >
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+        <div className="space-y-1.5">
+          <Skel className="hidden h-3 w-64 md:block" />
+          <Skel className="h-6 w-36" />
+        </div>
+        <div className="flex items-center gap-3">
+          <Skel className="h-4 w-32" />
+          <Skel className="h-9 w-10 rounded-lg" />
+          <Skel className="h-9 w-9 rounded-lg" />
+        </div>
+      </header>
+
+      {/* bottom navigation (phones) — four tab slots + More, like the real one */}
+      <nav className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }} aria-hidden>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
+            <Skel className="h-9 w-9 rounded-xl" />
+            <Skel className="h-2 w-12" />
+          </div>
+        ))}
+      </nav>
+
+      <main className="mt-4 md:mt-8">
+        <Skel className="-mt-2 mb-4 h-3 w-72 max-w-full" />
+        {/* the Dashboard card — the tab everyone lands on: five stat tiles,
+            then the activity list */}
+        <div className={card}>
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {Array.from({ length: 5 }, (_, i) => (
+                <div key={i} className="rounded-xl border border-border p-5">
+                  <Skel className="h-9 w-16" />
+                  <Skel className="mt-2 h-3.5 w-28" />
+                </div>
+              ))}
+            </div>
+            <div>
+              <Skel className="h-4 w-32" />
+              <SkelText lines={4} className="mt-3" />
+            </div>
+          </div>
+        </div>
+        <SkelCard lines={2} className="mt-4 md:mt-6" />
+      </main>
+    </div>
+    </AppShell>
+  );
+}
+
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
@@ -966,21 +1118,24 @@ export default function AdminPage() {
     });
   }, []);
 
-  if (!checked) return null;
+  /* v1.77.0 — skeleton until the first fetch lands. The auth check used to
+     return null (a blank screen with a name); the page-shaped shell paints
+     instead, and stays up while any redirect below is on its way. */
+  if (!checked) return <AdminPageSkeleton />;
   if (!user) {
     if (typeof window !== "undefined") window.location.replace("/login");
-    return null;
+    return <AdminPageSkeleton />;
   }
   // Data-integrity boundary: /admin is the content-management interface for
   // admin/editor/marketing only. Staff roles work in /portal — even though
   // the API also enforces this, they should never see this surface at all.
   if (PORTAL_ROLES.includes(user.role)) {
     window.location.replace("/portal");
-    return null;
+    return <AdminPageSkeleton />;
   }
   if (user.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
-    return null;
+    return <AdminPageSkeleton />;
   }
 
   if (user.requires_2fa) {

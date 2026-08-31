@@ -13,6 +13,7 @@ import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { card, inputClass, btnClass, fieldRow, fieldLabel } from "@/lib/ui-styles";
 import { MiniBar } from "@/components/ui/stat-card";
+import { Skel } from "@/components/ui/skeleton";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 
@@ -59,11 +60,15 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
   const [open, setOpen] = useState<number | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [notReady, setNotReady] = useState(false);
+  /* v1.77.0 — true once the first list request settles (ok or not); until
+     then the stage counts and the list are skeletons, never "No content yet". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const r = await api<{ content: ContentItem[]; error?: { message?: string } }>(`/content`);
     if (r.ok && r.data?.content) setRows(r.data.content);
     else if (r.data?.error?.message?.includes("0069") || /route not found/i.test(r.data?.error?.message ?? "")) setNotReady(true);
+    setLoaded(true);
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -106,7 +111,7 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
           <button key={s} type="button"
             className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STAGE_CHIP[s]} ${stageFilter === s ? "ring-2 ring-ring" : ""}`}
             onClick={() => setStageFilter(stageFilter === s ? null : s)}>
-            {stageLabel(s)} {counts[s] ?? 0}
+            {stageLabel(s)} {loaded ? counts[s] ?? 0 : <Skel className="inline-block h-3 w-3 align-middle" />}
           </button>
         ))}
       </div>
@@ -169,7 +174,24 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
       )}
 
       <div className="mt-3 space-y-1.5">
-        {shown.length === 0 && <p className="text-muted-foreground text-xs">{stageFilter ? L(`Nothing in ${stageFilter}.`, `Tiada dalam ${STAGE_MS[stageFilter] ?? stageFilter}.`) : L("No content yet — plan the first piece above.", "Belum ada kandungan — rancang yang pertama di atas.")}</p>}
+        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
+            rows — title + stage chip, actions on the right, a detail line under. */}
+        {!loaded && Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="border-border rounded-lg border px-3 py-2" aria-hidden>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <Skel className="h-4 w-40" />
+                <Skel className="h-4 w-14 rounded-full" />
+              </span>
+              <Skel className="h-6 w-24" />
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <Skel className="h-1.5 w-12 shrink-0 rounded-full" />
+              <Skel className="h-3 w-1/2" />
+            </div>
+          </div>
+        ))}
+        {loaded && shown.length === 0 && <p className="text-muted-foreground text-xs">{stageFilter ? L(`Nothing in ${stageFilter}.`, `Tiada dalam ${STAGE_MS[stageFilter] ?? stageFilter}.`) : L("No content yet — plan the first piece above.", "Belum ada kandungan — rancang yang pertama di atas.")}</p>}
         {shown.map((c) => (
           <div key={c.id} className="border-border rounded-lg border px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">

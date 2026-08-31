@@ -11,6 +11,7 @@
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
 import { getLang } from "@/lib/i18n";
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
@@ -53,6 +54,7 @@ function myt(iso: string): string {
 
 export function AuditPanel() {
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [filter, setFilter] = useState("");
   type AuditCol = "date" | "who" | "action" | "target";
   const [auditSort, setAuditSort] = useState<{ col: AuditCol; asc: boolean }>({ col: "date", asc: false });
@@ -62,6 +64,7 @@ export function AuditPanel() {
     const q = filter ? `?action=${filter}` : "";
     const res = await api<{ entries: Entry[] }>(`/audit${q}`);
     if (res.ok && res.data) setEntries(res.data.entries);
+    setLoaded(true);
   }, [filter]);
   useEffect(() => {
     void load();
@@ -104,7 +107,17 @@ export function AuditPanel() {
             </tr>
           </thead>
           <tbody>
-            {entries.length === 0 && (
+            {/* v1.77.0 — skeleton until the first fetch lands: real thead,
+                six placeholder rows in the same four columns. */}
+            {!loaded && Array.from({ length: 6 }, (_, i) => (
+              <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-busy="true">
+                <td className="px-3 py-1.5"><Skel className="h-4 w-28" /></td>
+                <td className="px-3 py-1.5"><Skel className="h-4 w-24" /></td>
+                <td className="px-3 py-1.5"><Skel className="h-4 w-32" /></td>
+                <td className="px-3 py-1.5"><Skel className="h-4 w-20" /></td>
+              </tr>
+            ))}
+            {loaded && entries.length === 0 && (
               <tr>
                 <td className="text-muted-foreground px-3 py-3" colSpan={4}>
                   {L("No matching activity.", "Tiada aktiviti sepadan.")}

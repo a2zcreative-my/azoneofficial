@@ -20,6 +20,7 @@ import { getLang } from "@/lib/i18n";
    the reason it does is that a domain written in twelve files is a domain
    that cannot be changed. */
 import { brandByCode } from "@/constants/brands";
+import { Skel, SkelText } from "@/components/ui/skeleton";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -144,6 +145,9 @@ export function WebOrdersPanel() {
   };
   const [detail, setDetail] = useState<{ lines: WebOrderLine[]; movements: Movement[] } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  /* v1.77.0 — true once the first list request settles (ok or not); until
+     then the table body is a skeleton, never "No web orders yet". */
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -154,6 +158,7 @@ export function WebOrdersPanel() {
       setOrders(res.data.orders ?? []);
       setPending(!!res.data.pending_migration);
     }
+    setLoaded(true);
   }, [statusF, q]);
   useEffect(() => { void load(); }, [load]);
 
@@ -204,7 +209,37 @@ export function WebOrdersPanel() {
         <input className={`${inputClass} sm:max-w-56`} placeholder={L("Order no / phone / name", "No pesanan / telefon / nama")}
           value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {orders.length === 0 && !pending && (
+      {/* v1.77.0 — skeleton until the first fetch lands: the real table
+          header over six shimmering columns, same min width as the table. */}
+      {!loaded && (
+        <div className="mt-3 overflow-x-auto" aria-hidden>
+          <table className="w-full min-w-[720px] border-collapse">
+            <thead>
+              <tr className="border-border border-b">
+                <th className={th}>{L("Order", "Pesanan")}</th>
+                <th className={th}>Status</th>
+                <th className={th}>{L("Customer", "Pelanggan")}</th>
+                <th className={`${th} text-right`}>{L("Total", "Jumlah")}</th>
+                <th className={th}>{L("Placed", "Dibuat")}</th>
+                <th className={th}>{L("Tracking", "Penjejakan")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }, (_, i) => (
+                <tr key={i} className="border-border border-b last:border-0">
+                  <td className={td}><Skel className="h-4 w-24" /></td>
+                  <td className={td}><Skel className="h-5 w-20 rounded-full" /></td>
+                  <td className={td}><Skel className="h-4 w-32" /></td>
+                  <td className={td}><Skel className="ml-auto h-4 w-16" /></td>
+                  <td className={td}><Skel className="h-4 w-24" /></td>
+                  <td className={td}><Skel className="h-4 w-28" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {loaded && orders.length === 0 && !pending && (
         <p className="text-muted-foreground mt-3 text-sm">
           {L("No web orders yet — they appear here within 5 minutes of being placed in the store.", "Tiada pesanan web lagi — ia muncul di sini dalam 5 minit selepas dibuat di kedai.")}
         </p>
@@ -250,7 +285,24 @@ export function WebOrdersPanel() {
                   {open === o.id && (
                     <tr className="border-border border-b last:border-0">
                       <td className={td} colSpan={6}>
-                        {!detail && <p className="text-muted-foreground text-xs">{L("Loading…", "Memuatkan…")}</p>}
+                        {/* v1.77.0 — skeleton until the detail lands, in the
+                            detail's own two-column grid. */}
+                        {!detail && (
+                          <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2" aria-hidden>
+                            <div>
+                              <Skel className="h-3 w-44" />
+                              <SkelText lines={3} className="mt-2" />
+                            </div>
+                            <div>
+                              <Skel className="h-3 w-40" />
+                              <SkelText lines={2} className="mt-2" />
+                            </div>
+                            <div className="md:col-span-2 border-border border-t pt-3">
+                              <Skel className="h-3 w-32" />
+                              <Skel className="mt-2 h-7 w-36" />
+                            </div>
+                          </div>
+                        )}
                         {detail && (
                           <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2">
                             <div>
