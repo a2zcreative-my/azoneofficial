@@ -24,6 +24,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
    stored on payslip_releases.issuer_code; the letterhead resolves it here. */
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { incompleteCents } from "@/lib/payroll-days";
 import { btnSm, card } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { getLang } from "@/lib/i18n";
@@ -106,19 +107,11 @@ function otPay(basicCents: number, hours: number | null | undefined): number {
   return Math.round((basicCents / 26 / 8) * 1.5 * hours);
 }
 
-/** v1.4.82 incomplete-month adjustment — the ONE formula used by the table,
-    the payslip and the staff self-view so they can never disagree:
-      missing = max(0, workingDays − workedDays)
-      adjustable = max(0, missing − approvedUnpaidLeaveDays)   ← unpaid leave
-        already deducts separately at basic ÷ 26 (v1.4.79); excluding it here
-        prevents the same day being deducted twice
-      adjustment = round(FULL basic × adjustable ÷ workingDays)
-    workedDays null/undefined = full month = no adjustment. */
-function incompleteMonthAdj(basicCents: number, workedDays: number | null | undefined, workingDays: number | null | undefined, unpaidLeaveDays: number): number {
-  if (workedDays === null || workedDays === undefined || !workingDays || workingDays <= 0) return 0;
-  const missing = Math.max(0, workingDays - workedDays);
-  const adjustable = Math.max(0, missing - unpaidLeaveDays);
-  return Math.round((basicCents * adjustable) / workingDays);
+/* v1.75.0 — the arithmetic moved to lib/payroll-days.ts so a test can run it
+   with real numbers instead of a regex reading its source. Re-exported here
+   under the old name so every call site in this file reads the same. */
+function incompleteMonthAdj(basicCents: number, payableDays: number | null | undefined, workingDays: number | null | undefined): number {
+  return incompleteCents(basicCents, workingDays, payableDays);
 }
 
 // v1.4.272: the local formatter became an alias of the global — payroll's
@@ -138,7 +131,11 @@ function monthDMY(m: string): string {
    slip and the PDF. Payroll is the one place where two implementations
    drifting apart is not a cosmetic bug — it is two different answers to
    "what was I paid". So the layout may exist twice; the arithmetic does not. */
-export type SlipExtras = { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number } | null;
+export type SlipExtras = { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number;
+  /* v1.75.0 — the employment-date figures. The server computes the
+     incomplete-month deduction once and the slip prints THAT number. */
+  month_working_days?: number; payable_days?: number; incomplete_deduction_cents?: number;
+  joined_on?: string | null; left_on?: string | null } | null;
 
 /* v1.28.0: issuerCode is the month's payslip_releases.issuer_code — NULL or
    absent (legacy / not yet stamped) renders AZ ONE OFFICIAL, 'a2z' renders
@@ -155,7 +152,7 @@ export function payslipData(
   const otCents = hourlySlip ? 0 : (e.ot_cents ?? otPay(e.basic_cents, e.ot_hours));
   const gross = e.basic_cents + e.commission_cents + e.allowance_cents + otCents;
   const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
-  const incompAdj = hourlySlip ? 0 : incompleteMonthAdj(e.basic_cents, e.worked_days, e.month_working_days, x?.unpaid_leave ?? 0);
+  const incompAdj = hourlySlip ? 0 : (x?.incomplete_deduction_cents ?? 0);
   const totalDed = e.deduction_cents + unpaidDed + incompAdj;
   const n2v = (v: number) => rmBare(Math.round(v * 100)); // v1.4.272: routed through the global
   const hrs = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
@@ -170,10 +167,19 @@ export function payslipData(
   const deductions: [string, number][] = [];
   if (e.deduction_cents > 0) deductions.push(["LATE / OTHER DEDUCTION", e.deduction_cents]);
   if (unpaidDed > 0) {
+    /* v1.75.0: fractions are real now — half a day, or the hours somebody
+       was short of eight. n2v already prints two decimals. */
     const d = x?.unpaid_leave ?? 0;
     deductions.push([`UNPAID LEAVE (${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE)`, unpaidDed]);
   }
-  if (incompAdj > 0) deductions.push([`INCOMPLETE MONTH (WORKED ${e.worked_days} OF ${e.month_working_days} PAYABLE DAYS)`, incompAdj]);
+  /* v1.75.0: this line now only ever appears for a mid-month joiner or
+     leaver, and says why — "EMPLOYED 12 OF 19", not "WORKED 15 OF 19", which
+     read like an accusation about attendance and was arithmetically wrong. */
+  if (incompAdj > 0) {
+    const when = x?.joined_on && x.joined_on.slice(0, 7) === month ? `JOINED ${x.joined_on}`
+      : x?.left_on && x.left_on.slice(0, 7) === month ? `LEFT ${x.left_on}` : "PART MONTH";
+    deductions.push([`INCOMPLETE MONTH (${when} — EMPLOYED ${x?.payable_days ?? 0} OF ${x?.month_working_days ?? 0} WORKING DAYS)`, incompAdj]);
+  }
 
   const others: [string, number][] = [];
   if (x) {
@@ -333,7 +339,11 @@ export function printPayslip(
   w.document.close();
 }
 
-export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
+/* v1.75.0 — a working day with no clock-in, or one clocked well short of
+   eight hours. Proposed, never deducted on its own. */
+type AbsenceRow = { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] };
+
+export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
   const [month, setMonth] = useState(payrollCycleMonth());
   const [staff, setStaff] = useState<StaffRow[]>([]);
@@ -436,8 +446,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     }
     const ul = unpaidDays[id] ?? 0;
     const ulDed = ul > 0 ? Math.round(((base[id] || e.basic_cents) / 26) * ul) : 0;
-    const d = workedDays[id];
-    const adj = incompleteMonthAdj(e.basic_cents, typeof d === "number" && !Number.isNaN(d) ? d : null, monthDays, ul);
+    const adj = incompleteMonthAdj(e.basic_cents, payableDays[id] ?? monthDays, monthDays);
     const ot = otPay(e.basic_cents, e.ot_hours);
     return Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
   };
@@ -471,6 +480,40 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [attDays, setAttDays] = useState<Record<number, number>>({});
   // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
   const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
+  /* v1.75.0 — how many of the month's working days each person was EMPLOYED
+     for, from the server (joined_on / left_on). This, not the attendance
+     clock, is what prorates a basic. Absent = the same for everyone except a
+     mid-month joiner or leaver. */
+  const [payableDays, setPayableDays] = useState<Record<number, number>>({});
+  /* CEO: "Unpaid will be count based on their no data in." The scan finds
+     them; a person decides. Marking is CEO-only on the server (unpaid_leave),
+     so the card is too — a button that 403s is worse than no button. */
+  const [absences, setAbsences] = useState<AbsenceRow[]>([]);
+  const [marking, setMarking] = useState("");
+  /* One click = one recorded unpaid day. `hours` present means a short day:
+     the server turns hours-short into a quarter-day fraction, so the rule
+     lives in exactly one place rather than being computed here as well. */
+  const markUnpaid = async (userId: number, date: string, hours?: number) => {
+    setMarking(`${userId}|${date}`);
+    const r = await api<{ days?: number; error?: { message?: string } }>(`/attendance/unpaid`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: userId, date,
+        ...(hours !== undefined ? { hours_worked: hours } : {}),
+        reason: hours !== undefined ? `Short day - clocked ${hours}h of 8h` : "No clock-in",
+      }),
+    });
+    setMarking("");
+    if (!r.ok) {
+      showToast(L("Not recorded", "Tidak direkod"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showToast(L("Recorded", "Direkod"),
+      L(`${date} — ${r.data?.days ?? 1} day unpaid. The staff member has been notified.`,
+        `${date} — ${r.data?.days ?? 1} hari tanpa gaji. Kakitangan telah dimaklumkan.`));
+    void load();
+  };
+  const canMarkUnpaid = ["ceo", "super_admin"].includes(role);
   // v1.4.80: staff payslip release state for this month.
   // v1.28.0: released also carries issuer_code — the employer stamped at
   // release time, which every payslip printed for this month must show.
@@ -495,7 +538,18 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
     if (typeof a.data?.working_days === "number" && a.data.working_days > 0) setMonthDays(a.data.working_days);
     const umap: Record<number, number> = {};
     for (const r of (a.data as { unpaid?: { user_id: number; days: number }[] } | null)?.unpaid ?? []) umap[r.user_id] = r.days;
+    const emap: Record<number, number> = {};
+    for (const r of (a.data as { employed?: { user_id: number; payable_days: number }[] } | null)?.employed ?? []) {
+      emap[r.user_id] = r.payable_days;
+    }
+    setPayableDays(emap);
     setUnpaidDays(umap);
+    /* The proposal list. Read-only viewers and non-CEOs never see it, so it
+       is not fetched for them either. */
+    if (canMarkUnpaid && !readOnly) {
+      const ab = await api<{ staff: AbsenceRow[] }>(`/payroll/absences?month=${month}`);
+      setAbsences(ab.data?.staff ?? []);
+    }
     const bmap: Record<number, number> = {};
     for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;
     setBase(bmap);
@@ -763,6 +817,48 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </>)}
 
+      {/* v1.75.0 (CEO: "Unpaid will be count based on their no data in") —
+          days that look unpaid, offered one click at a time. Nothing here
+          deducts anything until it is pressed: a missing punch is a client
+          visit, a shoot, or a phone that died at least as often as it is an
+          absence, and taking pay off somebody for a flat battery is how a
+          payroll system loses the room. */}
+      {canMarkUnpaid && !readOnly && absences.length > 0 && (
+        <div className="border-warning/40 bg-warning-soft/40 mt-3 rounded-xl border p-3">
+          <p className="text-sm font-semibold">
+            {L("Days with no clock-in — not deducted unless you say so", "Hari tanpa daftar masuk — tidak dipotong melainkan anda tetapkan")}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L("Working days in this month with no clock-in and no approved leave, and days clocked short of 8 hours (break included). Marking one records it as unpaid leave at 1/26 of the monthly wage per day — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada 8 jam (termasuk rehat). Menandakannya merekodkannya sebagai cuti tanpa gaji pada 1/26 gaji bulanan sehari — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
+          </p>
+          <div className="mt-2 space-y-2">
+            {absences.map((a) => (
+              <div key={a.user_id} className="text-xs">
+                <span className="font-medium">{a.name}</span>
+                <span className="mt-1 flex flex-wrap gap-1.5">
+                  {a.missing.map((d) => (
+                    <button key={d} type="button" disabled={marking === `${a.user_id}|${d}`}
+                      className="border-border hover:bg-secondary rounded-full border bg-white/60 px-2 py-0.5 disabled:opacity-50 dark:bg-transparent"
+                      title={L(`Mark ${d} as a full unpaid day`, `Tanda ${d} sebagai hari tanpa gaji penuh`)}
+                      onClick={() => void markUnpaid(a.user_id, d)}>
+                      {d.slice(8)}/{d.slice(5, 7)} · {L("no clock-in", "tiada masuk")}
+                    </button>
+                  ))}
+                  {a.short.map((sh) => (
+                    <button key={sh.d} type="button" disabled={marking === `${a.user_id}|${sh.d}`}
+                      className="border-border hover:bg-secondary rounded-full border bg-white/60 px-2 py-0.5 disabled:opacity-50 dark:bg-transparent"
+                      title={L(`Clocked ${sh.hours}h of 8 — mark the missing hours unpaid`, `Direkod ${sh.hours}j daripada 8 — tanda jam yang kurang sebagai tanpa gaji`)}
+                      onClick={() => void markUnpaid(a.user_id, sh.d, sh.hours)}>
+                      {sh.d.slice(8)}/{sh.d.slice(5, 7)} · {sh.hours}h/8h
+                    </button>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {release && (
         <p className="mt-2 text-xs">
           {release.released ? (
@@ -949,7 +1045,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
               // hourly rows: no unpaid-leave maths, no proration, no OT.
               const ul = hourlyRow ? 0 : (unpaidDays[u.id] ?? 0);
               const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
-              const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
+              const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
               const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
               const net = netFor(u.id);
               return (
@@ -1096,7 +1192,7 @@ export function PayrollPanel({ readOnly = false }: { readOnly?: boolean }) {
                   }
                   const ul = unpaidDays[u.id] ?? 0;
                   const ulDed = ul > 0 ? Math.round(((base[u.id] || e.basic_cents) / 26) * ul) : 0;
-                  const adj = incompleteMonthAdj(e.basic_cents, workedDays[u.id] ?? e.worked_days ?? null, monthDays, ul);
+                  const adj = incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
                   const ot = otPay(e.basic_cents, e.ot_hours);
                   a.basic += e.basic_cents; a.comm += e.commission_cents;
                   a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj;
@@ -1167,8 +1263,7 @@ export function MyPayslip() {
   const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
 
   const autoDed = entry
-    ? (extras?.unpaid_deduction_cents ?? 0) +
-      incompleteMonthAdj(entry.basic_cents, entry.worked_days, entry.month_working_days, extras?.unpaid_leave ?? 0)
+    ? (extras?.unpaid_deduction_cents ?? 0) + (extras?.incomplete_deduction_cents ?? 0)
     : 0;
   const otC = entry ? (entry.ot_cents ?? otPay(entry.basic_cents, entry.ot_hours)) : 0;
   const net = entry

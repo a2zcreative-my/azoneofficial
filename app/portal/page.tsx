@@ -630,6 +630,9 @@ function Dashboard({
     variant?: "success" | "notice";
   } | null>(null);
   const [punchError, setPunchError] = useState("");
+  /* v1.76.0 — the second tap. Armed by the first one, which explained what
+     it will do; cleared as soon as any punch completes. */
+  const [forgotArmed, setForgotArmed] = useState(false);
   /* v1.9.1 — office geofence replaces the selfie step. When a fence is set
      (management, Users tab), the punch grabs the phone's position first and
      the server refuses punches outside the radius. No fence → old behaviour. */
@@ -844,19 +847,26 @@ function Dashboard({
     });
   }, [user.id]);
 
-  const punch = async (type: string) => {
+  const punch = async (type: string, forgot = false) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
     // clocking in gets an instant popup (and the server refuses it too).
-    if (type === "clock_out" && !today.some((r) => r.type === "clock_in")) {
+    /* v1.76.0 (CEO: "if they forget to clock in or clock out, they will be
+       able to clock in and out but system will require them to get the
+       approval"). Refusing outright meant a worked day could not be recorded
+       at all and simply vanished from payroll. Now the first tap explains,
+       and a second tap sends it to the CEO — recorded, but counting for
+       nothing until it is approved and the real time set. */
+    if (type === "clock_out" && !today.some((r) => r.type === "clock_in") && !forgot) {
       setPunchToast({
-        title: L("Clock in first", "Daftar masuk dahulu"),
+        title: L("You have not clocked in today", "Anda belum daftar masuk hari ini"),
         sub: L(
-          "You haven't clocked in today — clock in first, then clock out at the end of your shift.",
-          "Anda belum daftar masuk hari ini — daftar masuk dahulu, kemudian daftar keluar pada hujung syif anda."
+          "Tap Clock out again to send it to the CEO to approve — it will not count until then.",
+          "Tekan Daftar keluar sekali lagi untuk hantar kepada CEO untuk kelulusan — ia tidak dikira sehingga itu."
         ),
         variant: "notice",
       });
-      window.setTimeout(() => setPunchToast(null), 3600);
+      setForgotArmed(true);
+      window.setTimeout(() => setPunchToast(null), 5200);
       return;
     }
     setBusy(type);
@@ -932,14 +942,28 @@ function Dashboard({
       window.setTimeout(() => setPunchToast(null), 4800);
       return;
     }
-    const res = await api<{ flag?: string; error?: { message?: string } }>(
+    const res = await api<{ flag?: string; pending?: boolean; error?: { message?: string } }>(
       `/staff/attendance`,
       {
         method: "POST",
-        body: JSON.stringify({ type, ...(gps ? { gps } : {}) }),
+        body: JSON.stringify({ type, ...(gps ? { gps } : {}), ...(forgot ? { forgot: true } : {}) }),
       }
     );
     setBusy("");
+    setForgotArmed(false);
+    if (res.ok && res.data?.pending) {
+      setPunchToast({
+        title: L("Sent to the CEO", "Dihantar kepada CEO"),
+        sub: L(
+          "Recorded and waiting for approval. It does not count towards your hours until the CEO approves it and sets the real time.",
+          "Direkod dan menunggu kelulusan. Ia tidak dikira dalam jam kerja anda sehingga CEO meluluskannya dan menetapkan masa sebenar."
+        ),
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 5200);
+      void load();
+      return;
+    }
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
       // Already punched today — confirm it with the recorded time rather than
       // leaving the person unsure whether the tap registered.
@@ -1347,7 +1371,7 @@ function Dashboard({
               type="button"
               className={qaGhost}
               disabled={!!busy}
-              onClick={() => void punch("clock_out")}
+              onClick={() => void punch("clock_out", forgotArmed)}
             >
               {hasOut ? tr("Clocked out ✓", lang) : tr("Clock out", lang)}
             </button>
@@ -13337,7 +13361,7 @@ export default function PortalPage() {
               )}
             </div>
           )}
-          {activeTab === "Payroll" && <PayrollPanel />}
+          {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
             <div className="space-y-4 md:space-y-6">
               <StaffDirectory

@@ -2,6 +2,86 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.76.0] — 2026-08-30 — working hours become a schedule
+
+**CEO:** *"clock in/out should capture their clock working hour which is 10am to 6pm for Monday to Thursday, Friday 10am to 5:30pm... if they forget to clock in or clock out, they will be able to clock in and out but system will require them to get the approval... The approval will be require CEO... then CEO will update the clock in/out time during the approval... on weekend the system should be able to capture it is out of working day... I want to have the working hour schedule for me to setup their working hours so that system able to capture their working hours without everything dump into 1 working hour."*
+
+### It was already wrong
+
+Working hours were a single constant in the worker — `10:00–18:00, Monday–Friday` — and **the company had already moved its Friday finishing time.** There is an announcement about it on the dashboard, *PERUBAHAN WAKTU BALIK BEKERJA UNTUK HARI JUMAAT*. Every Friday since has been flagged against 18:00, in the register, the payroll export and the short-day scan.
+
+### Patterns, assigned, effective-dated
+
+`0099` adds **named shift patterns** with a start and finish per weekday, and assignments that carry the date they begin. The office pattern is seeded with the Friday finish the company actually uses.
+
+- **A pattern is shared**, so the next company-wide change is one edit rather than nine.
+- **Assignments are effective-dated** — fixing somebody's hours today does not re-flag a month that has already been paid.
+- **A day left blank is a rest day.** That is what makes "weekend" answerable *per person*: somebody whose pattern works Saturday is not on a weekend, and a punch on their rest day is flagged `rest_day` rather than as an early-out against hours that do not apply.
+
+Everything that judged a punch now resolves the person's own schedule: the classifier, the register (`day_kind`, the hours it judged against, and whether the punch is waiting), the payroll export (which now carries `day_kind`, `pattern`, `shift_start`, `shift_end` so a late flag can be traced to a set of hours), and the short-day scan — somebody on 11:00–19:00 is not short at 18:00.
+
+### A forgotten punch is recorded, then approved
+
+Clocking out with no clock-in used to be **refused**. That was worse than it looked: the person had worked the day, could not record it, and the day vanished from payroll entirely.
+
+Now the first tap explains and the second sends it. The punch is stored `pending_approval = 1` (`0100`) and **counts for nothing** — not hours, not days worked, not the payroll scan — until the CEO approves it. Approving is where the time is set, because the claimed time is the one thing nobody can verify. Rejecting deletes the punch: a rejected claim is not a record of anything, and a zombie row is what gets counted by something later.
+
+Five queries count attendance — hourly pay, the payslip's working days, the payroll day-fill, the absence scan and the export — and all five exclude pending punches through one shared clause resolved once per request.
+
+### Guard #24 `shift-schedule` (37 checks, five ways negative-tested)
+
+The two rules that are silent when broken: **every counting query excludes a pending punch**, and **nothing reads the old constant** — a stray `SHIFT.startMinutes` is that Friday bug growing back, so the guard scans line by line and allows it only inside `shiftOn()`'s own fallback.
+
+### After deploying
+
+Migrations **0099 and 0100**. Then open Attendance → Working hours: the seeded office pattern is 10:00–18:00 with Friday 17:30 — check it, add a pattern for anyone on different hours, and assign it from the date it should start.
+
+## [1.75.0] — 2026-08-30 — a payslip was deducting approved medical leave
+
+**CEO:** *"on payslip, I want to count for the Public Holiday that set to the staff, then incomplete month only for the new staff which is new joiner in that month. Unpaid will be count based on their no data in, then on unpaid I should able to deduct for half day or based on their time in... the working hours is 8 hours include their break time."*
+
+Auditing this found a live over-deduction, so that goes first.
+
+### The bug
+
+Nur Nasuha, August 2026: 19 working days, 15 clocked, 1 recorded unpaid, **1 approved medical leave**. Her payslip printed:
+
+    UNPAID LEAVE (1.00 DAY × 1/26 MONTHLY WAGE)      76.92
+    INCOMPLETE MONTH (WORKED 15 OF 19 PAYABLE DAYS)  315.79
+
+The second line is `basic × (19 − 15 − 1) ÷ 19` — three days at RM 105.26. **One of those three was her approved medical leave, which the Employment Act pays.** The proration read the attendance clock, and a day on approved paid leave has no clock-in, so it looked like absence. Nothing threw. The slip added up.
+
+### The model now
+
+Two deductions, from two sources that cannot overlap:
+
+| Deduction | Reads |
+|---|---|
+| Incomplete month | **employment dates only** — `joined_on`, `left_on` |
+| Unpaid leave | **days somebody explicitly recorded as unpaid** |
+
+**Attendance no longer moves money by itself.** A day is payable if the person was employed on it, so proration applies to a mid-month joiner or leaver and mathematically cannot apply to anyone else — no flag, no special case, the formula is the rule. The payslip line now reads `INCOMPLETE MONTH (JOINED 2026-08-08 — EMPLOYED 12 OF 19 WORKING DAYS)` instead of `WORKED 15 OF 19`, which read like an accusation and was arithmetically wrong.
+
+**Public holidays** are counted inside a person's employment — "the Public Holiday that set to the staff". A joiner is credited the ones after they started, not the whole month's. They were already outside the working-day count, so they never reduced pay, and under this model they structurally cannot.
+
+### Days with no clock-in
+
+`GET /payroll/absences` scans the month for working days with **no clock-in and no approved leave of any kind**, and for days clocked more than two hours short of eight. The payroll panel lists them per person as one-click chips.
+
+They are **proposals, never deductions**. A missing punch is a client visit, a shoot or a flat battery at least as often as it is an absence, and taking pay off somebody automatically for silence in a database is the one thing a payroll system must not do. Future days and hourly part-timers are excluded; a day covered by any approved leave is never offered.
+
+### Part of a day
+
+`POST /attendance/unpaid` accepts `hours_worked` or `days`. Clocked 2h of 8 → 6h short → **0.75 day**, rounded to a quarter day: `0.708333 DAYS` on a payslip is a line nobody can check, and an argument about seven minutes costs more trust than it saves. Capped at one day per row — `leave_requests.days` has been REAL since 0003, so the payslip, the recompute and the panel all multiplied fractions correctly the moment they were allowed to exist. **No migration.**
+
+### Guard #23 `payroll-days` (34 checks, five ways negative-tested)
+
+The arithmetic moved to `lib/payroll-days.ts` so a test can **run** it rather than read it. It reproduces the old formula's 315.79 exactly — confirming that *is* the arithmetic that ran — then asserts the new figures: her incomplete-month deduction is zero, her unpaid day still costs RM 76.92, and her August net is **RM 1,923.08**. Plus the worker held to the same formula text, the 8-hour day, the quarter-day rounding, and the rule that the absence scan proposes and never writes.
+
+### After deploying
+
+**Press Recompute nets for any month you have already saved** — August's stored figures were computed the old way. Nasuha's August net moves from RM 1,607.29 to RM 1,923.08: the medical day was never chargeable, and the other two no-clock-in days are only money if you mark them unpaid from the new list.
+
 ## [1.74.0] — 2026-08-30 — export what you filtered to, and fill the window
 
 ### CSV that follows the filters

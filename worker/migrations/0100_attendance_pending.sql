@@ -1,0 +1,26 @@
+-- 0100 - v1.76.0: a punch somebody forgot, waiting for the CEO.
+--
+-- The CEO, 30-08-2026:
+--   "if they forget to clock in or clock out, they will be able to clock in
+--    and out but system will require them to get the approval of their clock
+--    in and out due to their forgottenness. The approval will be require CEO
+--    for approval then CEO will update the clock in/out time during the
+--    approval."
+--
+-- Both halves of that matter. The staff member is NOT blocked - the punch is
+-- recorded, because a forgotten clock-in that cannot be entered at all is how
+-- a day disappears from payroll entirely. But it does not COUNT until a
+-- person approves it, and the approver can correct the time first, because
+-- the time being claimed is the one thing nobody can verify.
+--
+-- NULL - an ordinary punch, made at the moment it says. Counts immediately.
+--    1 - claimed after the fact, waiting. Counted by nothing until approved.
+--    0 - approved. Counts, and amended_by records who allowed it.
+--
+-- NULL rather than 0 as the default is deliberate: every punch already in the
+-- table was made in real time, and a default of 0 would silently claim they
+-- had all been through an approval that did not exist yet.
+--
+-- Single ALTER, nothing else in this file (audit B4 rule).
+
+ALTER TABLE attendance_records ADD COLUMN pending_approval INTEGER;

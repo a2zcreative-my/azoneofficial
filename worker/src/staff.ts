@@ -62,6 +62,12 @@ function stockStatus(stock: number): string {
 }
 
 /** Company working shift (Malaysia time). Used to flag attendance events. */
+/* v1.76.0 — the last resort, not the rule.
+   Working hours are a SCHEDULE now (migration 0099): named patterns with a
+   start and end per weekday, assigned to people with an effective date.
+   These numbers survive only as the fallback for a database that has not
+   applied 0099 yet, and as the shape the seeded Office pattern was built
+   from. Nothing should read them directly - call shiftOn(). */
 const SHIFT = {
   label: "10:00–18:00 MYT, Monday–Friday",
   startMinutes: 10 * 60,
@@ -69,6 +75,96 @@ const SHIFT = {
   halfDayMinutes: 12 * 60,
   endMinutes: 18 * 60,
 } as const;
+
+/** One person's hours on one date: NULL start = not a working day for them. */
+export interface DayShift {
+  start: number | null;
+  end: number | null;
+  halfDay: number;
+  /** workday | rest_day — the person's OWN week, not an assumption about Sat/Sun. */
+  kind: "workday" | "rest_day";
+  pattern: string;
+}
+
+const DOW_COL = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+/** The pattern in force for a person on a date, and what it says about that
+    weekday. Falls back: their assignment -> the default pattern -> SHIFT. */
+export async function shiftOn(env: Env, userId: number, iso: string): Promise<DayShift> {
+  const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  const col = DOW_COL[dow]!;
+  const fallback = (): DayShift => {
+    const weekday = dow >= 1 && dow <= 5;
+    return {
+      start: weekday ? SHIFT.startMinutes : null,
+      end: weekday ? SHIFT.endMinutes : null,
+      halfDay: SHIFT.halfDayMinutes,
+      kind: weekday ? "workday" : "rest_day",
+      pattern: SHIFT.label,
+    };
+  };
+  try {
+    /* The assignment that had started by this date, newest first. A change
+       made in March cannot alter what January was flagged against. */
+    const row = await env.DB.prepare(
+      `SELECT p.name, p.half_day_minutes, p.${col}_start AS s, p.${col}_end AS e
+         FROM staff_shifts a JOIN shift_patterns p ON p.id = a.pattern_id
+        WHERE a.user_id = ?1 AND a.effective_from <= ?2
+        ORDER BY a.effective_from DESC, a.id DESC LIMIT 1`,
+    ).bind(userId, iso).first<{ name: string; half_day_minutes: number; s: number | null; e: number | null }>();
+    const use = row ?? await env.DB.prepare(
+      `SELECT name, half_day_minutes, ${col}_start AS s, ${col}_end AS e
+         FROM shift_patterns WHERE is_default = 1 LIMIT 1`,
+    ).first<{ name: string; half_day_minutes: number; s: number | null; e: number | null }>();
+    if (!use) return fallback();
+    return {
+      start: use.s ?? null,
+      end: use.e ?? null,
+      halfDay: use.half_day_minutes ?? SHIFT.halfDayMinutes,
+      kind: use.s === null || use.s === undefined ? "rest_day" : "workday",
+      pattern: use.name,
+    };
+  } catch {
+    return fallback(); // pre-0099
+  }
+}
+
+/** Every person's shift for one date, in one pass - for the register, the
+    monitor and any report that would otherwise ask per row. */
+export async function shiftsOn(env: Env, iso: string): Promise<Map<number, DayShift>> {
+  const out = new Map<number, DayShift>();
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1`,
+    ).all<{ id: number }>();
+    for (const u of results) out.set(u.id, await shiftOn(env, u.id, iso));
+  } catch { /* fallback handled per call */ }
+  return out;
+}
+
+/** v1.76.0 — "AND this punch is not waiting for approval", or nothing at all
+    on a database that has not applied 0100 yet.
+
+    A pending punch is a CLAIM. It is stored so the day is not lost, and it is
+    counted by nothing - not hours, not days worked, not the payroll scan -
+    until the CEO approves it. Five queries need that condition, so it is
+    resolved once per request rather than wrapped in five fallbacks. */
+let pendingColKnown: boolean | null = null;
+export async function notPendingSql(env: Env, alias = ""): Promise<string> {
+  if (pendingColKnown === null) {
+    try {
+      await env.DB.prepare(`SELECT pending_approval FROM attendance_records LIMIT 1`).first();
+      pendingColKnown = true;
+    } catch { pendingColKnown = false; }
+  }
+  return pendingColKnown ? ` AND COALESCE(${alias}pending_approval, 0) != 1` : "";
+}
+
+/** hh:mm from minutes-since-midnight, for a message a human reads. */
+export function hhmm(mins: number | null | undefined): string {
+  if (mins === null || mins === undefined) return "-";
+  return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+}
 
 
 
@@ -1193,10 +1289,21 @@ export async function handleStaff(
          WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
       ).bind(user.id, todayMYT).first<{ id: number }>();
       if (!inRow) {
-        return json(
-          { error: { code: "no_clock_in", message: "You haven't clocked in today — clock in first, then clock out at the end of your shift." } },
-          400,
-        );
+        /* v1.76.0 (CEO: "if they forget to clock in or clock out, they will
+           be able to clock in and out but system will require them to get the
+           approval"). Refusing was worse than it looked: the person had
+           worked the day, could not record it, and the day then vanished
+           from payroll entirely. So the clock-out IS taken - and marked
+           pending, because a shift with no start time is exactly the claim
+           nobody can verify. It counts for nothing until the CEO approves it
+           and sets the real times. */
+        if (body.forgot !== true) {
+          return json(
+            { error: { code: "no_clock_in", message: "You haven't clocked in today. If you forgot, press Clock out again and confirm — it will be sent to the CEO to approve." },
+              can_flag_forgot: true },
+            400,
+          );
+        }
       }
     }
     if (dup) {
@@ -1218,17 +1325,22 @@ export async function handleStaff(
         409,
       );
     }
-    // Classify against the shift in Malaysia time, so the record already carries
-    // the payroll meaning (v1.4.38 thresholds):
-    //   clock_in : <=10:00 ok · 10:01–12:00 late · after 12:00 half_day
-    //   clock_out: before 18:00 early_out · >=18:00 completed
+    /* v1.76.0 — classified against THIS PERSON'S hours on THIS date, not
+       against one constant. Somebody on 11:00-19:00 is not late at 10:30,
+       and a Friday finish is 17:30 for the office pattern. A day their
+       pattern gives no hours to is a rest day: worked, but outside the
+       working week, and flagged as such rather than as an early-out against
+       hours that do not apply. */
     const myt = new Date(Date.now() + 8 * 3600 * 1000);
     const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
+    const sh = await shiftOn(env, user.id, todayMYT);
     let flag: string;
-    if (body.type === "clock_in") {
-      flag = mins <= 10 * 60 ? "ok" : mins <= 12 * 60 ? "late" : "half_day";
+    if (sh.kind === "rest_day") {
+      flag = "rest_day";
+    } else if (body.type === "clock_in") {
+      flag = mins <= (sh.start ?? SHIFT.startMinutes) ? "ok" : mins <= sh.halfDay ? "late" : "half_day";
     } else {
-      flag = mins < 18 * 60 ? "early_out" : "completed";
+      flag = mins < (sh.end ?? SHIFT.endMinutes) ? "early_out" : "completed";
     }
     /* v1.9.1 — OFFICE GEOFENCE (replaces the selfie step). Placed AFTER the
        dup/no_clock_in checks (an "already punched" answer never needs
@@ -1241,15 +1353,54 @@ export async function handleStaff(
        column ("no_location:denied"), so the register, the monitor and any
        later report can all see it without a schema change. */
     const gpsVal = gate.gps ?? `no_location:${gate.noLocation}`;
-    await env.DB.prepare(
-      `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
-    ).bind(
-      user.id, body.type,
-      request.headers.get("CF-Connecting-IP"),
-      (request.headers.get("User-Agent") ?? "").slice(0, 300),
-      gpsVal,
-    ).run();
+    /* A punch is pending when the person says they forgot - either flagged
+       explicitly, or a clock-out with no clock-in behind it. It is stored
+       either way; it simply counts for nothing until the CEO approves it. */
+    const pending = body.forgot === true ? 1 : null;
+    let storedPending = false;
+    try {
+      await env.DB.prepare(
+        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(
+        user.id, body.type,
+        request.headers.get("CF-Connecting-IP"),
+        (request.headers.get("User-Agent") ?? "").slice(0, 300),
+        gpsVal, pending,
+      ).run();
+      storedPending = pending === 1;
+    } catch (ePend) {
+      if (!String(ePend).includes("no such column")) throw ePend;
+      /* pre-0100: the column is not there yet, so the punch is recorded as an
+         ordinary one. Better a counted punch than a lost day. */
+      await env.DB.prepare(
+        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      ).bind(
+        user.id, body.type,
+        request.headers.get("CF-Connecting-IP"),
+        (request.headers.get("User-Agent") ?? "").slice(0, 300),
+        gpsVal,
+      ).run();
+    }
+    if (storedPending) {
+      /* The CEO approves these and sets the real time, so the CEO is who
+         hears about it. Same shape as the no-location alert below. */
+      const whoP = await env.DB.prepare(
+        `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
+      ).bind(user.id).first<{ n: string }>();
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','super_admin')`,
+        ).all<{ id: number }>();
+        for (const r of results) {
+          await notify(env, r.id, "attendance",
+            `Forgotten ${body.type === "clock_in" ? "clock-in" : "clock-out"} to approve - ${whoP?.n ?? "staff"}, ${todayMYT}. Set the real time when you approve it.`,
+            `punch:${user.id}:${todayMYT}:${body.type}`);
+        }
+      } catch { /* alerting never breaks a punch */ }
+      await audit(env, user.id, "attendance.forgot", "attendance_records", todayMYT, { type: body.type });
+    }
     if (gate.noLocation) {
       // Tell the people who own attendance, once per punch, with the person's
       // name and the reason — this is the "flag it loudly" half of the rule.
@@ -1269,7 +1420,12 @@ export async function handleStaff(
       } catch { /* notification must never fail the punch */ }
       await audit(env, user.id, "attendance.no_location", "users", String(user.id), { type: body.type, reason: gate.noLocation });
     }
-    return json({ ok: true, flag, no_location: gate.noLocation ?? null }, 201);
+    return json({
+      ok: true, flag, no_location: gate.noLocation ?? null,
+      /* v1.76.0 — the client says so plainly: recorded, but not counted yet. */
+      pending: storedPending,
+      shift: { start: hhmm(sh.start), end: hhmm(sh.end), kind: sh.kind, pattern: sh.pattern },
+    }, 201);
   }
 
   /* ---- overtime punches (v1.4.155) ----
@@ -2063,33 +2219,43 @@ export async function handleStaff(
     }
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    /* The pending flag only exists after 0100; ask for it only then. */
+    const pendingCol = (await notPendingSql(env)) ? ", a.pending_approval" : "";
     const { results } = await env.DB.prepare(
-      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps
+      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps${pendingCol}
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
-    // Working shift: 10:00–18:00 Malaysia time, Monday–Friday. Timestamps are
-    // stored UTC; annotate each event against the shift so HR verifies at a
-    // glance instead of doing timezone arithmetic per row.
-    const annotated = (results as { created_at: string; type: string }[]).map((r) => {
+    /* v1.76.0 — annotated against EACH PERSON'S schedule on that date, not
+       one company shift. `day_kind` is what makes weekend answerable per
+       staff member: a pattern with no hours on Saturday makes Saturday a rest
+       day for them, and somebody whose pattern works Saturday is not "on the
+       weekend" at all. `pending` marks a punch that is a claim, not a record.
+       Resolved once per (person, date) rather than per row. */
+    const shiftCache = new Map<string, DayShift>();
+    const annotated: Record<string, unknown>[] = [];
+    for (const r of results as { user_id: number; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
-      const dayIdx = myt.getUTCDay(); // after +8h shift this is the MYT weekday
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
-      const workday = dayIdx >= 1 && dayIdx <= 5;
-      return {
+      const dateIso = myt.toISOString().slice(0, 10);
+      const key = `${r.user_id}|${dateIso}`;
+      let shR = shiftCache.get(key);
+      if (!shR) { shR = await shiftOn(env, r.user_id, dateIso); shiftCache.set(key, shR); }
+      annotated.push({
         ...r,
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
-        workday,
-        // Same thresholds as the punch classifier (v1.4.38) so HR's table and
-        // the staff member's confirmation never disagree.
+        workday: shR.kind === "workday",
+        day_kind: shR.kind,
+        shift_label: shR.start === null ? shR.pattern : `${hhmm(shR.start)}-${hhmm(shR.end)}`,
+        pending: r.pending_approval === 1,
         flag:
-          !workday ? "weekend"
+          shR.kind === "rest_day" ? "rest_day"
           : r.type === "clock_in"
-            ? (minutes <= SHIFT.startMinutes ? "ok" : minutes <= SHIFT.halfDayMinutes ? "late" : "half_day")
-            : (minutes < SHIFT.endMinutes ? "early_out" : "ok"),
-      };
-    });
-    return json({ month, shift: SHIFT.label, records: annotated });
+            ? (minutes <= (shR.start ?? SHIFT.startMinutes) ? "ok" : minutes <= shR.halfDay ? "late" : "half_day")
+            : (minutes < (shR.end ?? SHIFT.endMinutes) ? "early_out" : "ok"),
+      });
+    }
+    return json({ month, shift: "per staff schedule (v1.76.0)", records: annotated });
   }
 
   /* ---- leave ---- */
@@ -5563,6 +5729,191 @@ export async function handleStaff(
     return json({ ok: true }, 201);
   }
 
+  /* ---- v1.76.0: forgotten punches, and the hours they are judged against ----
+
+     CEO: "The approval will be require CEO for approval then CEO will update
+     the clock in/out time during the approval."
+
+     Approving is the moment the claimed time becomes a real one, so the
+     approver can rewrite it in the same action. Rejecting DELETES the punch:
+     a rejected claim is not a record of anything, and leaving it in the table
+     as a zombie row is how a day gets counted twice later. */
+  if (path === "/attendance/pending" && method === "GET") {
+    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT a.id, a.user_id, a.type, a.created_at,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM attendance_records a JOIN users u ON u.id = a.user_id
+          WHERE a.pending_approval = 1
+          ORDER BY a.created_at DESC LIMIT 100`,
+      ).all();
+      return json({ pending: results });
+    } catch {
+      return json({ pending: [], pending_migration: true }); // pre-0100
+    }
+  }
+
+  if (path === "/attendance/pending/decide" && method === "POST") {
+    /* Narrower than the rest of this panel, and narrower than OT approvals:
+       the CEO asked for this one by name. Approving a punch creates paid
+       time out of a claim nobody can check. */
+    if (!can(user.role, "unpaid_leave")) {
+      return err("forbidden", "Only the CEO can approve a forgotten punch", 403);
+    }
+    const idP = Number(body?.id);
+    const action = String(body?.action ?? "");
+    if (!Number.isFinite(idP) || !["approve", "reject"].includes(action)) {
+      return err("invalid_input", "id and action (approve|reject) are required", 400);
+    }
+    const rowP = await env.DB.prepare(
+      `SELECT user_id, type, created_at FROM attendance_records
+        WHERE id = ?1 AND pending_approval = 1`,
+    ).bind(idP).first<{ user_id: number; type: string; created_at: string }>().catch(() => null);
+    if (!rowP) return err("not_found", "No punch waiting for approval with that id", 404);
+
+    if (action === "reject") {
+      await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1 AND pending_approval = 1`)
+        .bind(idP).run();
+      await notify(env, rowP.user_id, "attendance",
+        `Your forgotten ${rowP.type === "clock_in" ? "clock-in" : "clock-out"} was not approved. Speak to the CEO if that is wrong.`,
+        `punch:decide:${idP}`);
+      await audit(env, user.id, "attendance.forgot_reject", "attendance_records", String(idP), rowP);
+      return json({ ok: true, removed: true });
+    }
+
+    /* The whole point of the approval step: the time. `myt` is optional -
+       omitting it accepts the claimed time as it stands. */
+    const mytP = str(body?.myt, 16) ? (body!.myt as string) : "";
+    let setTime = "";
+    if (mytP) {
+      if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(mytP)) {
+        return err("invalid_input", "myt must be YYYY-MM-DD HH:MM (Malaysia time)", 400);
+      }
+      setTime = new Date(new Date(mytP.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000)
+        .toISOString().slice(0, 19).replace("T", " ");
+    }
+    await env.DB.prepare(
+      setTime
+        ? `UPDATE attendance_records SET pending_approval = 0, created_at = ?2,
+             amended_by = ?3, amended_at = datetime('now') WHERE id = ?1`
+        : `UPDATE attendance_records SET pending_approval = 0,
+             amended_by = ?2, amended_at = datetime('now') WHERE id = ?1`,
+    ).bind(...(setTime ? [idP, setTime, user.id] : [idP, user.id])).run();
+    await notify(env, rowP.user_id, "attendance",
+      `Your forgotten ${rowP.type === "clock_in" ? "clock-in" : "clock-out"} was approved${mytP ? ` at ${mytP.slice(11)}` : ""}. It now counts.`,
+      `punch:decide:${idP}`);
+    await audit(env, user.id, "attendance.forgot_approve", "attendance_records", String(idP), {
+      user_id: rowP.user_id, claimed: rowP.created_at, set_to: setTime || null,
+    });
+    return json({ ok: true });
+  }
+
+  /* ---- the schedules themselves ---- */
+  if (path === "/shift-patterns" && method === "GET") {
+    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT * FROM shift_patterns ORDER BY is_default DESC, name`,
+      ).all();
+      const { results: asg } = await env.DB.prepare(
+        `SELECT s.id, s.user_id, s.pattern_id, s.effective_from, p.name AS pattern_name,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM staff_shifts s
+           JOIN shift_patterns p ON p.id = s.pattern_id
+           JOIN users u ON u.id = s.user_id
+          ORDER BY name, s.effective_from DESC`,
+      ).all();
+      return json({ patterns: results, assignments: asg });
+    } catch {
+      return json({ patterns: [], assignments: [], pending_migration: true }); // pre-0099
+    }
+  }
+
+  if (path === "/shift-patterns" && (method === "POST" || method === "PATCH")) {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const nameS = str(body?.name, 60);
+    if (!nameS) return err("invalid_input", "A name is required", 400);
+    /* Minutes since midnight, or null for a day this pattern does not work.
+       Validated rather than trusted: a start after its own end would silently
+       make every punch that day an early-out. */
+    const cols = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const vals: (number | null)[] = [];
+    for (const c of cols) {
+      const dayV = (body?.[c] ?? null) as { start?: unknown; end?: unknown } | null;
+      const st = typeof dayV?.start === "number" ? Math.round(dayV.start) : null;
+      const en = typeof dayV?.end === "number" ? Math.round(dayV.end) : null;
+      if (st !== null && (st < 0 || st > 1439)) return err("invalid_input", `${c}: start is not a time of day`, 400);
+      if (en !== null && (en < 1 || en > 1440)) return err("invalid_input", `${c}: end is not a time of day`, 400);
+      if (st !== null && en !== null && en <= st) {
+        return err("invalid_input", `${c}: the finish time is not after the start time`, 400);
+      }
+      /* One without the other is a half-defined day - it would flag every
+         punch against a boundary that does not exist. */
+      if ((st === null) !== (en === null)) {
+        return err("invalid_input", `${c}: give both a start and a finish, or neither for a rest day`, 400);
+      }
+      vals.push(st, en);
+    }
+    const halfV = typeof body?.half_day_minutes === "number" ? Math.round(body.half_day_minutes) : 720;
+    try {
+      if (method === "PATCH") {
+        const idS = Number(body?.id);
+        if (!Number.isFinite(idS)) return err("invalid_input", "id is required", 400);
+        await env.DB.prepare(
+          `UPDATE shift_patterns SET name = ?1,
+             mon_start = ?2, mon_end = ?3, tue_start = ?4, tue_end = ?5,
+             wed_start = ?6, wed_end = ?7, thu_start = ?8, thu_end = ?9,
+             fri_start = ?10, fri_end = ?11, sat_start = ?12, sat_end = ?13,
+             sun_start = ?14, sun_end = ?15, half_day_minutes = ?16
+           WHERE id = ?17`,
+        ).bind(nameS, ...vals, halfV, idS).run();
+        await audit(env, user.id, "shift_pattern.update", "shift_patterns", String(idS), { name: nameS });
+        return json({ ok: true, id: idS });
+      }
+      const res = await env.DB.prepare(
+        `INSERT INTO shift_patterns
+           (name, mon_start, mon_end, tue_start, tue_end, wed_start, wed_end,
+            thu_start, thu_end, fri_start, fri_end, sat_start, sat_end,
+            sun_start, sun_end, half_day_minutes, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         RETURNING id`,
+      ).bind(nameS, ...vals, halfV, user.id).first<{ id: number }>();
+      await audit(env, user.id, "shift_pattern.create", "shift_patterns", String(res?.id), { name: nameS });
+      return json({ ok: true, id: res?.id }, 201);
+    } catch (eS) {
+      if (!String(eS).includes("no such table")) throw eS;
+      return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
+    }
+  }
+
+  if (path === "/staff-shifts" && method === "POST") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const uidS = Number(body?.user_id);
+    const pidS = Number(body?.pattern_id);
+    const fromS = str(body?.effective_from, 10) ? (body!.effective_from as string) : "";
+    if (!Number.isFinite(uidS) || !Number.isFinite(pidS) || !/^\d{4}-\d{2}-\d{2}$/.test(fromS)) {
+      return err("invalid_input", "user_id, pattern_id and effective_from (YYYY-MM-DD) are required", 400);
+    }
+    try {
+      await env.DB.prepare(
+        `INSERT INTO staff_shifts (user_id, pattern_id, effective_from, created_by)
+         VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(uidS, pidS, fromS, user.id).run();
+    } catch (eA) {
+      if (!String(eA).includes("no such table")) throw eA;
+      return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
+    }
+    /* The person is told their hours changed, and from when. Hours are the
+       thing every late flag on their record is measured against. */
+    const pat = await env.DB.prepare(`SELECT name FROM shift_patterns WHERE id = ?1`)
+      .bind(pidS).first<{ name: string }>().catch(() => null);
+    await notify(env, uidS, "attendance",
+      `Your working hours change from ${fromS}: ${pat?.name ?? "a new schedule"}.`, `shift:${uidS}:${fromS}`);
+    await audit(env, user.id, "staff_shift.assign", "users", String(uidS), { pattern_id: pidS, from: fromS });
+    return json({ ok: true }, 201);
+  }
+
   const attMatch = path.match(/^\/attendance\/(\d+)$/);
   if (attMatch && method === "PATCH") {
     if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
@@ -5671,6 +6022,32 @@ export async function handleStaff(
          AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
     ).bind(body.user_id, dateU).first<{ id: number }>();
     if (clashU) return err("invalid_input", "That day is already unpaid leave", 400);
+    /* v1.75.0 (CEO: "on unpaid I should able to deduct for half day or based
+       on their time in like example work for 2 hours the remaining hours will
+       be deducted. the working hours is 8 hours include their break time").
+
+       Three ways to say how much of the day is unpaid, in order of
+       precedence, all landing on the same REAL `days` value that payroll
+       already knew how to multiply:
+
+         hours_worked: 2   ->  6 hours short of 8  ->  0.75 day
+         days: 0.5         ->  half a day
+         neither           ->  1 day
+
+       Rounded to a quarter day: a payslip line reading "0.708333 DAYS" is a
+       line nobody can check, and an argument about seven minutes is not
+       worth the trust it costs. */
+    let daysU = 1;
+    if (typeof body?.hours_worked === "number" && Number.isFinite(body.hours_worked)) {
+      const worked = Math.max(0, Math.min(8, body.hours_worked));
+      const shortMins = WORK_DAY_MINUTES - Math.round(worked * 60);
+      daysU = Math.round((shortMins / WORK_DAY_MINUTES) * 4) / 4;
+    } else if (typeof body?.days === "number" && Number.isFinite(body.days)) {
+      daysU = Math.round(body.days * 4) / 4;
+    }
+    if (!(daysU > 0) || daysU > 1) {
+      return err("invalid_input", "A day can be unpaid for a quarter of it up to all of it - use one row per day", 400);
+    }
     const reasonU = str(body?.reason, 500) ? (body!.reason as string) : null;
     let idU: number | undefined;
     try {
@@ -5678,9 +6055,9 @@ export async function handleStaff(
         `INSERT INTO leave_requests
            (user_id, type, start_date, end_date, days, reason, stage, status,
             final_by, final_at, recorded_direct)
-         VALUES (?1, 'unpaid', ?2, ?2, 1, ?3, 'approved', 'approved', ?4, datetime('now'), 1)
+         VALUES (?1, 'unpaid', ?2, ?2, ?5, ?3, 'approved', 'approved', ?4, datetime('now'), 1)
          RETURNING id`,
-      ).bind(body.user_id, dateU, reasonU, user.id).first<{ id: number }>())?.id;
+      ).bind(body.user_id, dateU, reasonU, user.id, daysU).first<{ id: number }>())?.id;
     } catch (eU) {
       if (!String(eU).includes("no such column")) throw eU;
       return err("migration_missing", "Migration 0097 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
@@ -5689,12 +6066,12 @@ export async function handleStaff(
     /* Told, not discovered on the payslip. A deduction a person first hears
        about on pay day is how trust in a payroll system ends. */
     await notify(env, body.user_id, "leave",
-      `${dateU} has been recorded as UNPAID LEAVE. It will be deducted from that month pay at one day rate.`,
+      `${dateU} has been recorded as UNPAID LEAVE (${daysU === 1 ? "full day" : `${daysU} of a day`}). It will be deducted from that month pay.`,
       `unpaid:${dateU}`);
     await audit(env, user.id, "leave.unpaid_record", "leave_requests", String(idU), {
-      user_id: body.user_id, date: dateU, reason: reasonU,
+      user_id: body.user_id, date: dateU, days: daysU, reason: reasonU,
     });
-    return json({ ok: true, id: idU }, 201);
+    return json({ ok: true, id: idU, days: daysU }, 201);
   }
 
   if (path === "/attendance/unpaid" && method === "DELETE") {
@@ -5729,6 +6106,91 @@ export async function handleStaff(
 
   const PAYROLL_PROC = ["super_admin", "admin", "ceo", "coo"];
 
+  /* ================= v1.75.0 — the payable-days model =================
+
+     CEO, 30-08-2026: "I want to count for the Public Holiday that set to the
+     staff, then incomplete month only for the new staff which is new joiner
+     in that month. Unpaid will be count based on their no data in, then on
+     unpaid I should able to deduct for half day or based on their time in...
+     the working hours is 8 hours include their break time."
+
+     WHAT WAS WRONG. Pay was reduced by two different things that both read
+     the attendance clock: an "incomplete month" proration on any day not
+     clocked, and the unpaid-leave deduction. Approved PAID leave was in
+     neither exclusion, so a person on approved MEDICAL leave - paid by law -
+     was docked for it. Nur Nasuha August 2026: 19 working days, 15 clocked,
+     1 unpaid, 1 approved medical. The medical day was deducted. RM 105.26,
+     silently, on a payslip that looked arithmetically tidy.
+
+     THE MODEL NOW. Two deductions, from two sources that cannot overlap:
+
+       incomplete month  <- EMPLOYMENT DATES only (joined_on / left_on)
+       unpaid leave      <- explicitly recorded unpaid days only
+
+     A day is payable if the person was employed on it. Attendance no longer
+     reduces pay by itself: a missing punch is a question for a human, not a
+     deduction (see /payroll/absences, which proposes them for one click).
+     That is deliberate - the previous behaviour took money off somebody for
+     a phone that died.
+
+     Because proration keys on employment dates, an existing staff member can
+     never be prorated: their employed days ARE the month's working days and
+     the difference is zero. No special case, no flag - the formula is the
+     rule. */
+
+  /** 8 hours, break included (CEO). The unit a partial unpaid day is measured against. */
+  const WORK_DAY_MINUTES = 8 * 60;
+
+  /** Every working day in a month: Mon-Fri minus the company calendar. */
+  const workingDayList = async (month: string): Promise<string[]> => {
+    const y = Number(month.slice(0, 4));
+    const mo = Number(month.slice(5, 7));
+    const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    let hol = new Set<string>();
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(month).all<{ holiday_date: string }>();
+      hol = new Set(results.map((h) => h.holiday_date));
+    } catch { /* holidays has existed since 0011 */ }
+    const out: string[] = [];
+    for (let d = 1; d <= last; d++) {
+      const dt = new Date(Date.UTC(y, mo - 1, d));
+      const dow = dt.getUTCDay();
+      const iso = dt.toISOString().slice(0, 10);
+      if (dow >= 1 && dow <= 5 && !hol.has(iso)) out.push(iso);
+    }
+    return out;
+  };
+
+  /** The subset of those days the person was actually employed for. Equal to
+      the whole list for anybody who did not join or leave inside the month -
+      which is why nobody else is ever prorated. */
+  const employedDays = (days: string[], joined?: string | null, left?: string | null): string[] =>
+    days.filter((d) => (!joined || d >= joined.slice(0, 10)) && (!left || d <= left.slice(0, 10)));
+
+  /** The incomplete-month deduction, in sen. Zero unless they joined or left
+      inside this month. */
+  const incompleteCents = (basicCents: number, monthDays: number, payableDays: number): number =>
+    monthDays > 0 && payableDays < monthDays
+      ? Math.round((basicCents * (monthDays - payableDays)) / monthDays)
+      : 0;
+
+  /** Public holidays inside a person's employment - "the Public Holiday that
+      set to the staff". A joiner is credited the ones that fall after they
+      started, not the whole month's. */
+  const holidaysInSpan = async (month: string, joined?: string | null, left?: string | null): Promise<number> => {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(month).all<{ holiday_date: string }>();
+      return results.filter((h) =>
+        (!joined || h.holiday_date >= joined.slice(0, 10)) &&
+        (!left || h.holiday_date <= left.slice(0, 10)),
+      ).length;
+    } catch { return 0; }
+  };
+
   /** Payslip side-data (v1.4.41): the month's working days, public holidays,
       approved leave, and remaining annual/medical balances — the OTHERS and
       BALANCE sections of the Malaysian payslip layout. */
@@ -5753,13 +6215,19 @@ export async function handleStaff(
   };
 
   const payslipExtras = async (uid: number, month: string) => {
+    const notPendingX = await notPendingSql(env);
     const wd = await env.DB.prepare(
       `SELECT COUNT(DISTINCT date(created_at, '+8 hours')) AS n FROM attendance_records
-       WHERE user_id = ?1 AND type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?2`,
+       WHERE user_id = ?1 AND type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?2${notPendingX}`,
     ).bind(uid, month).first<{ n: number }>();
-    const ph = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
-    ).bind(month).first<{ n: number }>();
+    /* v1.75.0 — the person's employment dates decide their payable days and
+       which public holidays are theirs. */
+    const who = await env.DB.prepare(
+      `SELECT joined_on, left_on, base_salary_cents FROM users WHERE id = ?1`,
+    ).bind(uid).first<{ joined_on: string | null; left_on: string | null; base_salary_cents: number }>();
+    const monthDays = await workingDayList(month);
+    const mine = employedDays(monthDays, who?.joined_on, who?.left_on);
+    const phCount = await holidaysInSpan(month, who?.joined_on, who?.left_on);
     const leaveDays = async (t: string) =>
       (await env.DB.prepare(
         `SELECT COALESCE(SUM(days), 0) AS n FROM leave_requests
@@ -5803,9 +6271,25 @@ export async function handleStaff(
       ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
     }
     const unpaidDeduction = unpaidDays > 0 ? Math.round((orpBase / 26) * unpaidDays) : 0;
+    /* The incomplete-month figure is computed HERE, once, and the payslip
+       and the payroll panel both print this number rather than each deriving
+       their own. Three copies of one sum is how they drift. */
+    let incBase = who?.base_salary_cents ?? 0;
+    if (!incBase) {
+      incBase = (await env.DB.prepare(
+        `SELECT basic_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`,
+      ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
+    }
     return {
       working_day: wd?.n ?? 0,
-      public_holiday: ph?.n ?? 0,
+      /* v1.75.0: what the month owed them, and what it owes a mid-month
+         joiner or leaver. Equal for everybody else. */
+      month_working_days: monthDays.length,
+      payable_days: mine.length,
+      joined_on: who?.joined_on ?? null,
+      left_on: who?.left_on ?? null,
+      incomplete_deduction_cents: incompleteCents(incBase, monthDays.length, mine.length),
+      public_holiday: phCount,
       annual_leave: await leaveDays("annual"),
       medical_leave: await leaveDays("medical"),
       emergency_leave: emergencyDays,
@@ -5879,12 +6363,14 @@ export async function handleStaff(
   const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
     role === "live_host" && emp === "part_time";
   const clockedMinutes = async (userId: number, month: string): Promise<number> => {
+    /* An unapproved punch pays nobody - this is an hourly host's wage. */
+    const notPending = await notPendingSql(env);
     const { results } = await env.DB.prepare(
       `SELECT date(created_at, '+8 hours') AS d,
               MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
               MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
        FROM attendance_records
-       WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
+       WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2${notPending}
        GROUP BY d`,
     ).bind(userId, month).all<{ d: string; i: string | null; o: string | null }>();
     let mins = 0;
@@ -6050,10 +6536,11 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const urlA = new URL(request.url);
     const mA = urlA.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const notPendingA = await notPendingSql(env);
     const { results } = await env.DB.prepare(
       `SELECT user_id, COUNT(DISTINCT date(created_at, '+8 hours')) AS days
        FROM attendance_records
-       WHERE type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?1
+       WHERE type = 'clock_in' AND strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingA}
        GROUP BY user_id`,
     ).bind(mA).all<{ user_id: number; days: number }>();
     // v1.4.79: approved unpaid-leave days too — the panel flags them so the
@@ -6081,8 +6568,106 @@ export async function handleStaff(
       const dow = dt.getUTCDay();
       if (dow >= 1 && dow <= 5 && !holSet.has(dt.toISOString().slice(0, 10))) workingDays++;
     }
-    return json({ month: mA, days: results, unpaid, working_days: workingDays });
+    /* v1.75.0 — how many of the month's working days each person was
+       EMPLOYED for. Equal to working_days for everybody except a mid-month
+       joiner or leaver, and it is what the panel prorates on: the browser no
+       longer derives proration from the attendance clock, because that is
+       what was deducting approved paid leave. */
+    const dayListA = await workingDayList(mA);
+    const { results: peopleA } = await env.DB.prepare(
+      `SELECT id, joined_on, left_on FROM users WHERE role != 'customer' AND is_active = 1`,
+    ).all<{ id: number; joined_on: string | null; left_on: string | null }>();
+    const employed = peopleA.map((u) => ({
+      user_id: u.id,
+      payable_days: employedDays(dayListA, u.joined_on, u.left_on).length,
+      partial: Boolean(
+        (u.joined_on && u.joined_on.slice(0, 7) === mA) || (u.left_on && u.left_on.slice(0, 7) === mA),
+      ),
+    }));
+    return json({ month: mA, days: results, unpaid, working_days: workingDays, employed });
   }
+
+  /* v1.75.0 (CEO: "Unpaid will be count based on their no data in") — the
+     days that LOOK unpaid, offered for one click.
+
+     Deliberately a proposal and not a deduction. A working day with no
+     clock-in is a question: a client visit, a shoot, a phone that died, a
+     leave form still in somebody bag. Turning that silence into money off a
+     payslip automatically is the one thing this system must not do - so the
+     scan finds them, and a person decides. */
+  if (path === "/payroll/absences" && method === "GET") {
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const urlA2 = new URL(request.url);
+    const mA2 = urlA2.searchParams.get("month") ??
+      new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mA2)) return err("invalid_input", "month must be YYYY-MM", 400);
+    const dayList = await workingDayList(mA2);
+    const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const { results: staffA } = await env.DB.prepare(
+      `SELECT id, name, full_name, joined_on, left_on, role, employment_status
+       FROM users WHERE role != 'customer' AND is_active = 1`,
+    ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; role: string; employment_status: string | null }>();
+
+    /* One row per person per day, with the minutes actually clocked. */
+    /* A punch waiting for approval is not evidence that somebody was here -
+       if it were, a forgotten-punch claim would quietly cancel the very
+       absence it is claiming about. */
+    const notPendingS = await notPendingSql(env);
+    const { results: att } = await env.DB.prepare(
+      `SELECT user_id, date(created_at, '+8 hours') AS d,
+              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
+              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
+       FROM attendance_records
+       WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingS}
+       GROUP BY user_id, d`,
+    ).bind(mA2).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
+    const clocked = new Map<string, { i: string | null; o: string | null }>();
+    for (const a of att) clocked.set(`${a.user_id}|${a.d}`, { i: a.i, o: a.o });
+
+    /* Any approved leave covers the day - paid or unpaid. A day already
+       covered is not a question. */
+    const { results: lv } = await env.DB.prepare(
+      `SELECT user_id, type, start_date, end_date FROM leave_requests
+       WHERE status = 'approved' AND start_date <= ?1 || '-31' AND end_date >= ?1 || '-01'`,
+    ).bind(mA2).all<{ user_id: number; type: string; start_date: string; end_date: string }>();
+
+    const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] }[] = [];
+    for (const u of staffA) {
+      /* Hourly part-timers are paid by the clock already - a day they did not
+         work is simply a day they are not paid for, not a deduction. */
+      if (isHourlyUser(u.role, u.employment_status)) continue;
+      const mineDays = employedDays(dayList, u.joined_on, u.left_on).filter((d) => d <= todayMyt);
+      const missing: string[] = [];
+      const short: { d: string; hours: number; of: number }[] = [];
+      for (const d of mineDays) {
+        if (lv.some((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d)) continue;
+        /* v1.76.0 — THEIR hours, not one company constant. A person on a
+           pattern that does not work this day is not absent from it, and
+           somebody on 11:00-19:00 is measured against eight of their own
+           hours, not against a day that ended at 18:00. */
+        const shD = await shiftOn(env, u.id, d);
+        if (shD.kind === "rest_day") continue;
+        const scheduled = shD.start !== null && shD.end !== null
+          ? shD.end - shD.start : WORK_DAY_MINUTES;
+        const c = clocked.get(`${u.id}|${d}`);
+        if (!c || !c.i) { missing.push(d); continue; }
+        if (!c.o) continue; // still open or never clocked out - not a pay question
+        const mins = Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000);
+        /* A quarter of the scheduled day is the smallest thing worth raising -
+           below that this becomes a list of people who left ten minutes
+           early, which is a conversation, not a payroll line. */
+        if (mins > 0 && scheduled - mins >= scheduled / 4) {
+          short.push({ d, hours: Math.round((mins / 60) * 100) / 100, of: Math.round((scheduled / 60) * 100) / 100 });
+        }
+      }
+      if (missing.length || short.length) {
+        out.push({ user_id: u.id, name: u.full_name || u.name, missing, short });
+      }
+    }
+    return json({ month: mA2, work_day_hours: WORK_DAY_MINUTES / 60, staff: out });
+  }
+
   if (path === "/payroll/detail" && method === "GET") {
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const urlD = new URL(request.url);
@@ -6318,9 +6903,12 @@ export async function handleStaff(
     const { results: ents } = await env.DB.prepare(
       `SELECT p.user_id, p.basic_cents, p.commission_cents, p.allowance_cents,
               COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents,
-              p.worked_days, u.base_salary_cents, u.role AS user_role, u.employment_status
+              p.worked_days, u.base_salary_cents, u.role AS user_role, u.employment_status,
+              u.joined_on, u.left_on
        FROM payroll_entries p JOIN users u ON u.id = p.user_id WHERE p.month = ?1`,
-    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number; user_role: string; employment_status: string | null }>();
+    ).bind(monthR).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; worked_days: number | null; base_salary_cents: number; user_role: string; employment_status: string | null; joined_on: string | null; left_on: string | null }>();
+    /* v1.75.0 — the same day list every other payroll surface uses. */
+    const monthDayList = await workingDayList(monthR);
     const { results: ulsR } = await env.DB.prepare(
       `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
        WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
@@ -6350,17 +6938,18 @@ export async function handleStaff(
       }
       const ul = ulMapR.get(e.user_id) ?? 0;
       const ulDed = ul > 0 ? Math.round(((e.base_salary_cents || e.basic_cents) / 26) * ul) : 0;
-      const hasDaysR = e.worked_days !== null && e.worked_days !== undefined;
-      let adj = 0;
-      if (hasDaysR && workD > 0) {
-        const adjustable = Math.max(0, Math.max(0, workD - (e.worked_days as number)) - ul);
-        adj = Math.round((e.basic_cents * adjustable) / workD);
-      }
+      /* v1.75.0 — proration comes from EMPLOYMENT DATES, not from the clock.
+         An existing staff member has payable === workD, so this is zero for
+         everyone except a mid-month joiner or leaver. `worked_days` stays on
+         the row as information; it no longer moves money, which is what
+         stopped approved paid leave being deducted as if it were absence. */
+      const payable = employedDays(monthDayList, e.joined_on, e.left_on).length;
+      const adj = incompleteCents(e.basic_cents, monthDayList.length, payable);
       const net = Math.max(0, e.basic_cents + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
       try {
         await env.DB.prepare(
           `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
-        ).bind(hasDaysR ? workD : null, net, e.user_id, monthR).run();
+        ).bind(workD, net, e.user_id, monthR).run();
         fixed++;
       } catch (err2) {
         // net_cents arrives with migration 0041 — surface it instead of half-fixing
@@ -6445,27 +7034,31 @@ export async function handleStaff(
     if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll export access required", 403);
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const notPendingE = await notPendingSql(env, "a.");
     const { results } = await env.DB.prepare(
-      `SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
+      `SELECT a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
        FROM attendance_records a JOIN users u ON u.id = a.user_id
-       WHERE a.created_at LIKE ?1 || '%' ORDER BY u.name, a.created_at`,
+       WHERE a.created_at LIKE ?1 || '%'${notPendingE} ORDER BY u.name, a.created_at`,
     ).bind(month).all();
     // Convert each event to Malaysia time and flag against the shift, so the
     // CSV that goes to payroll already reflects local working hours.
-    const rows = (results as { name: string; email: string; employee_id: string | null; type: string; created_at: string }[]).map((r) => {
+    /* v1.76.0 — flagged against the person's OWN schedule on that date, and
+       the export says which schedule, so a payroll query about a late flag
+       can be answered without guessing which hours were in force. */
+    const rows: (string | number)[][] = [];
+    for (const r of results as { user_id: number; name: string; email: string; employee_id: string | null; type: string; created_at: string }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
-      const dayIdx = myt.getUTCDay();
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
-      const workday = dayIdx >= 1 && dayIdx <= 5;
-      const flag = !workday ? "weekend"
-        : r.type === "clock_in" && minutes > SHIFT.startMinutes ? "late"
-        : r.type === "clock_out" && minutes < SHIFT.endMinutes ? "early_out"
-        : "ok";
       const date = myt.toISOString().slice(0, 10);
-      const time = myt.toISOString().slice(11, 16);
-      return [r.employee_id ?? "", r.name, r.email, date, time, r.type, flag];
-    });
-    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag"];
+      const shE = await shiftOn(env, r.user_id, date);
+      const flag = shE.kind === "rest_day" ? "rest_day"
+        : r.type === "clock_in" && shE.start !== null && minutes > shE.start ? "late"
+        : r.type === "clock_out" && shE.end !== null && minutes < shE.end ? "early_out"
+        : "ok";
+      rows.push([r.employee_id ?? "", r.name, r.email, date, myt.toISOString().slice(11, 16),
+                 r.type, flag, shE.kind, shE.pattern, hhmm(shE.start), hhmm(shE.end)]);
+    }
+    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag", "day_kind", "pattern", "shift_start", "shift_end"];
     const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     const csv = [header, ...rows].map((row) => row.map((c) => esc(String(c))).join(",")).join("\r\n");
     await audit(env, user.id, "attendance.export", "attendance_records", month);

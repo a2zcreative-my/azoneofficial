@@ -1905,6 +1905,11 @@ interface AttRecord {
   manual_by?: number | null;
   amended_by?: number | null;
   gps?: string | null;
+  /* v1.76.0 — resolved per person per date on the server. `rest_day` is what
+     makes weekend answerable for somebody whose pattern works Saturday. */
+  day_kind?: "workday" | "rest_day";
+  shift_label?: string;
+  pending?: boolean;
 }
 
 /* v1.21.0 (allow-but-flag geofence): where the punch happened, against HQ.
@@ -1949,6 +1954,28 @@ function utcToMytLocal(utc: string): string {
  * add clock in/out for days worked before this system existed. Every change
  * is marked (manual/amended) and audit-logged with the actor.
  */
+/* v1.76.0 — working hours, and the punches waiting on the CEO. */
+type ShiftPattern = {
+  id: number; name: string; half_day_minutes: number; is_default: number;
+  [k: string]: number | string | null;
+};
+type ShiftAssignment = {
+  id: number; user_id: number; name: string; pattern_id: number;
+  pattern_name: string; effective_from: string;
+};
+type PendingPunch = { id: number; user_id: number; name: string; type: string; created_at: string };
+
+const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"],
+              ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]] as const;
+
+/** "10:00" <-> minutes since midnight. NULL/"" = a rest day. */
+const toMins = (v: string): number | null => {
+  if (!/^\d{2}:\d{2}$/.test(v)) return null;
+  return Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
+};
+const toTime = (m: number | null | undefined): string =>
+  m === null || m === undefined ? "" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
 /* v1.72.0 — an unpaid day, as the payroll sees it. */
 type UnpaidDay = {
   id: number;
@@ -1977,6 +2004,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const canUnpaid = ["ceo", "super_admin"].includes(role);
   const [unpaid, setUnpaid] = useState<UnpaidDay[]>([]);
   const [ul, setUl] = useState({ user_id: 0, date: "", reason: "" });
+  /* v1.76.0 — schedules, and the forgotten punches waiting on the CEO. */
+  const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
+  const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
+  const [pending, setPending] = useState<PendingPunch[]>([]);
+  const [fixTime, setFixTime] = useState<Record<number, string>>({});
+  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; days: Record<string, { start: string; end: string }> } | null>(null);
+  const [assign, setAssign] = useState({ user_id: 0, pattern_id: 0, effective_from: "" });
   // v1.4.80: click a column HEADER to sort (▲ asc / ▼ desc); click again to
   // flip. Default = the API's chronological order.
   const [sortKey, setSortKey] = useState<"name" | "type" | "time" | "mark" | null>(null);
@@ -1989,7 +2023,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      already loaded, so it is instant and costs no request. */
   const [q, setQ] = useState("");
   const [typeF, setTypeF] = useState<"all" | "clock_in" | "clock_out">("all");
-  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite">("all");
+  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite" | "rest_day" | "pending">("all");
   const [dayF, setDayF] = useState("");
   const filtersOn = q.trim() !== "" || typeF !== "all" || markF !== "all" || dayF !== "";
   /* ONE definition of "the rows on screen", used by the table AND by the CSV
@@ -2012,6 +2046,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     if (q.trim() && !properName(r.name).toLowerCase().includes(q.trim().toLowerCase())) return false;
     if (typeF !== "all" && r.type !== typeF) return false;
     if (markF === "offsite") { if (attLoc(r)?.tone !== "flag") return false; }
+    else if (markF === "rest_day") { if (r.day_kind !== "rest_day") return false; }
+    else if (markF === "pending") { if (!r.pending) return false; }
     else if (markF !== "all" && markOf(r) !== markF) return false;
     if (dayF && utcToMytLocal(r.created_at).slice(0, 10) !== dayF) return false;
     return true;
@@ -2023,6 +2059,16 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   };
   const markOf = (r: AttRecord) => (r.manual_by ? "manual" : r.amended_by ? "amended" : "punch");
 
+  const loadShifts = useCallback(async () => {
+    const [sp, pp] = await Promise.all([
+      api<{ patterns: ShiftPattern[]; assignments: ShiftAssignment[] }>(`/shift-patterns`),
+      api<{ pending: PendingPunch[] }>(`/attendance/pending`),
+    ]);
+    setPatterns(sp.data?.patterns ?? []);
+    setAssignments(sp.data?.assignments ?? []);
+    setPending(pp.data?.pending ?? []);
+  }, []);
+
   const loadUnpaid = useCallback(async () => {
     const r = await api<{ unpaid: UnpaidDay[] }>(`/attendance/unpaid?month=${month}`);
     setUnpaid(r.data?.unpaid ?? []);
@@ -2030,6 +2076,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
   const load = useCallback(async () => {
     void loadUnpaid();
+    void loadShifts();
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
       api<{ users?: { id: number; name: string; full_name?: string | null; role: string }[]; staff?: { id: number; name: string; full_name?: string | null; role: string }[] }>(`/users`),
@@ -2037,7 +2084,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     if (r.data) setRows(r.data.records ?? []);
     const list = u.data?.users ?? u.data?.staff ?? [];
     setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
-  }, [month, loadUnpaid]);
+  }, [month, loadUnpaid, loadShifts]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -2093,6 +2140,52 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </button>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+
+      {/* v1.76.0 (CEO: "if they forget to clock in or clock out... The
+          approval will be require CEO for approval then CEO will update the
+          clock in/out time during the approval"). The punch is already
+          recorded — it just counts for nothing until this. Correct the time
+          in the box before approving; leaving it blank accepts the time
+          claimed. */}
+      {canUnpaid && pending.length > 0 && (
+        <>
+          <span className="text-warning mt-4 block text-[11px] font-semibold tracking-wide uppercase">
+            {L(`Forgotten punches waiting for you (${pending.length})`, `Ketukan terlupa menunggu anda (${pending.length})`)}
+          </span>
+          <div className="border-warning/40 bg-warning-soft/40 mt-1 space-y-2 rounded-xl border p-3">
+            {pending.map((pp) => (
+              <div key={pp.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium">{properName(pp.name)}</span>
+                <span className="text-muted-foreground">
+                  {pp.type === "clock_in" ? L("clock in", "daftar masuk") : L("clock out", "daftar keluar")} ·
+                  {" "}{L("claimed", "didakwa")} {utcToMytLocal(pp.created_at).replace("T", " ")}
+                </span>
+                <input type="datetime-local" className="border-input bg-background rounded border px-1.5 py-1"
+                  value={fixTime[pp.id] ?? utcToMytLocal(pp.created_at)}
+                  title={L("The real time — this is what gets recorded", "Masa sebenar — ini yang akan direkodkan")}
+                  onChange={(e) => setFixTime((f) => ({ ...f, [pp.id]: e.target.value }))} />
+                <button type="button" className={rowBtnGood}
+                  onClick={() => void act(`/attendance/pending/decide`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      id: pp.id, action: "approve",
+                      myt: (fixTime[pp.id] ?? utcToMytLocal(pp.created_at)).replace("T", " "),
+                    }),
+                  }, L("Approved — it counts now.", "Diluluskan — ia dikira sekarang."))}>
+                  {L("Approve", "Luluskan")}
+                </button>
+                <button type="button" className={rowBtnDanger}
+                  title={L("The punch is deleted — a rejected claim is not a record of anything", "Ketukan akan dipadam — dakwaan yang ditolak bukan rekod apa-apa")}
+                  onClick={() => void act(`/attendance/pending/decide`, {
+                    method: "POST", body: JSON.stringify({ id: pp.id, action: "reject" }),
+                  }, L("Rejected and removed.", "Ditolak dan dikeluarkan."))}>
+                  {L("Reject", "Tolak")}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {canUnpaid && (
         <>
@@ -2160,6 +2253,143 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </>
       )}
 
+      {/* v1.76.0 (CEO: "I want to have the working hour schedule for me to
+          setup their working hours so that system able to capture their
+          working hours without everything dump into 1 working hour"). A
+          PATTERN is named and shared, so moving the whole company's Friday
+          finish is one edit rather than one per person — which is exactly the
+          change that had already happened by announcement and that the code
+          never knew about. Assignments carry the date they start, so fixing
+          somebody's hours today does not re-flag a month already paid. */}
+      {canUnpaid && (
+        <>
+          <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
+            {L("Working hours", "Waktu bekerja")}
+          </span>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L("Every late and early-out flag, the payroll export and the short-day scan are measured against these. A day left blank is a rest day for that pattern — that is how the system tells a weekend from a working day per person, rather than assuming Saturday and Sunday.", "Setiap penanda lewat dan balik awal, eksport gaji dan imbasan hari pendek diukur berdasarkan ini. Hari yang dibiarkan kosong ialah hari rehat bagi corak itu — begitulah sistem membezakan hujung minggu daripada hari bekerja bagi setiap orang.")}
+          </p>
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {patterns.map((pt) => (
+              <button key={pt.id} type="button"
+                className="border-border hover:bg-secondary rounded-full border px-2.5 py-1 text-xs"
+                title={L("Edit this pattern", "Sunting corak ini")}
+                onClick={() => setEditP({
+                  id: pt.id, name: pt.name, half: toTime(pt.half_day_minutes as number),
+                  days: Object.fromEntries(DAYS.map(([k]) => [k, {
+                    start: toTime(pt[`${k}_start`] as number | null),
+                    end: toTime(pt[`${k}_end`] as number | null),
+                  }])),
+                })}>
+                {pt.name}{pt.is_default ? ` · ${L("default", "lalai")}` : ""}
+              </button>
+            ))}
+            <button type="button"
+              className="border-border hover:bg-secondary rounded-full border border-dashed px-2.5 py-1 text-xs"
+              onClick={() => setEditP({
+                name: "", half: "12:00",
+                days: Object.fromEntries(DAYS.map(([k]) => [k, { start: "", end: "" }])),
+              })}>
+              {L("+ New pattern", "+ Corak baharu")}
+            </button>
+          </div>
+
+          {editP && (
+            <div className="border-border mt-2 rounded-xl border p-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-muted-foreground">{L("Pattern name", "Nama corak")}</span>
+                  <input className={`${inputClass} sm:max-w-64`} value={editP.name} maxLength={60}
+                    placeholder={L("e.g. Late shift (11:00-19:00)", "cth. Syif lewat (11:00-19:00)")}
+                    onChange={(e) => setEditP({ ...editP, name: e.target.value })} />
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-muted-foreground">{L("Half day after", "Separuh hari selepas")}</span>
+                  <input type="time" className={`${inputClass} sm:max-w-28`} value={editP.half}
+                    title={L("Arriving after this counts the day as a half day", "Tiba selepas ini dikira sebagai separuh hari")}
+                    onChange={(e) => setEditP({ ...editP, half: e.target.value })} />
+                </label>
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+                {DAYS.map(([k, label]) => (
+                  <div key={k} className="flex items-center gap-1.5 text-xs">
+                    <span className="text-muted-foreground w-9">{label}</span>
+                    <input type="time" className="border-input bg-background w-full min-w-0 rounded border px-1.5 py-1"
+                      value={editP.days[k]?.start ?? ""}
+                      onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: e.target.value, end: editP.days[k]?.end ?? "" } } })} />
+                    <span className="text-muted-foreground">-</span>
+                    <input type="time" className="border-input bg-background w-full min-w-0 rounded border px-1.5 py-1"
+                      value={editP.days[k]?.end ?? ""}
+                      onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: editP.days[k]?.start ?? "", end: e.target.value } } })} />
+                  </div>
+                ))}
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-[11px]">
+                {L("Leave both boxes empty for a rest day.", "Biarkan kedua-dua kotak kosong untuk hari rehat.")}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button type="button" className={rowBtnPrimary} disabled={!editP.name.trim()}
+                  onClick={() => {
+                    const payload: Record<string, unknown> = {
+                      ...(editP.id ? { id: editP.id } : {}),
+                      name: editP.name.trim(),
+                      half_day_minutes: toMins(editP.half) ?? 720,
+                    };
+                    for (const [k] of DAYS) {
+                      payload[k] = { start: toMins(editP.days[k]?.start ?? ""), end: toMins(editP.days[k]?.end ?? "") };
+                    }
+                    void act(`/shift-patterns`, { method: editP.id ? "PATCH" : "POST", body: JSON.stringify(payload) },
+                      L("Working hours saved.", "Waktu bekerja disimpan."));
+                    setEditP(null);
+                  }}>
+                  {L("Save pattern", "Simpan corak")}
+                </button>
+                <button type="button" className={rowBtn} onClick={() => setEditP(null)}>
+                  {L("Cancel", "Batal")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+            <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={assign.user_id}
+              onChange={(e) => setAssign((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+              <option value={0}>{L("Assign to staff…", "Tetapkan kepada kakitangan…")}</option>
+              {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
+            </select>
+            <select className={`${inputClass} w-full sm:max-w-56`} value={assign.pattern_id}
+              onChange={(e) => setAssign((d) => ({ ...d, pattern_id: Number(e.target.value) }))}>
+              <option value={0}>{L("Pattern…", "Corak…")}</option>
+              {patterns.map((pt) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
+            </select>
+            <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={assign.effective_from}
+              title={L("From this date onwards — earlier months keep the hours they were flagged against", "Dari tarikh ini — bulan terdahulu kekal dengan waktu asalnya")}
+              onChange={(e) => setAssign((d) => ({ ...d, effective_from: e.target.value }))} />
+            <button type="button"
+              className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
+              disabled={!assign.user_id || !assign.pattern_id || !assign.effective_from}
+              onClick={() => {
+                void act(`/staff-shifts`, { method: "POST", body: JSON.stringify(assign) },
+                  L("Hours assigned — the staff member has been told.", "Waktu ditetapkan — kakitangan telah dimaklumkan."));
+                setAssign({ user_id: 0, pattern_id: 0, effective_from: "" });
+              }}>
+              {L("Assign", "Tetapkan")}
+            </button>
+          </div>
+          {assignments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {assignments.map((a) => (
+                <span key={a.id} className="border-border rounded-full border px-2 py-0.5 text-[11px]">
+                  <span className="font-medium">{properName(a.name)}</span>
+                  <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
         {L("Find & filter", "Cari & tapis")}
       </span>
@@ -2183,6 +2413,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           <option value="manual">{L("Added manually", "Ditambah manual")}</option>
           <option value="amended">{L("Time amended", "Masa dipinda")}</option>
           <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
+          <option value="rest_day">{L("Weekend / rest day", "Hujung minggu / hari rehat")}</option>
+          <option value="pending">{L("Waiting for approval", "Menunggu kelulusan")}</option>
         </select>
         <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={dayF}
           aria-label={L("One day only", "Satu hari sahaja")}
@@ -2222,7 +2454,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 [`# ${rows.length} ${L("records", "rekod")}`],
                 [],
                 [L("Staff", "Kakitangan"), L("Type", "Jenis"), L("Date (MYT)", "Tarikh (MYT)"),
-                 L("Time (MYT)", "Masa (MYT)"), L("Mark", "Tanda"), L("Location", "Lokasi"), "Record ID"],
+                 L("Time (MYT)", "Masa (MYT)"), L("Mark", "Tanda"), L("Day", "Hari"),
+                 L("Scheduled hours", "Waktu berjadual"), L("Approval", "Kelulusan"),
+                 L("Location", "Lokasi"), "Record ID"],
                 ...rows.map((r) => {
                   const local = utcToMytLocal(r.created_at); // YYYY-MM-DDTHH:MM
                   return [
@@ -2231,6 +2465,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     local.slice(0, 10),
                     local.slice(11, 16),
                     markOf(r),
+                    r.day_kind === "rest_day" ? L("rest day", "hari rehat") : L("working day", "hari bekerja"),
+                    r.shift_label ?? "",
+                    r.pending ? L("waiting CEO", "menunggu CEO") : L("counted", "dikira"),
                     attLoc(r)?.text ?? L("no location", "tiada lokasi"),
                     r.id,
                   ];
@@ -2290,6 +2527,21 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 </td>
                 <td className={`${td} text-xs`}>
                   <span className="text-muted-foreground">{r.manual_by ? L("manual", "manual") : r.amended_by ? L("amended", "dipinda") : L("punch", "ketuk")}</span>
+                  {/* v1.76.0 — a rest-day punch is not an early-out against
+                      hours that do not apply, and a pending one is a claim,
+                      not a record. Both say so where the eye already is. */}
+                  {r.day_kind === "rest_day" && (
+                    <span className="text-info ml-1.5 whitespace-nowrap font-medium"
+                      title={L("Outside this person's working days", "Di luar hari bekerja orang ini")}>
+                      · {L("rest day", "hari rehat")}
+                    </span>
+                  )}
+                  {r.pending && (
+                    <span className="text-warning ml-1.5 whitespace-nowrap font-semibold"
+                      title={L("Forgotten punch — counts for nothing until the CEO approves it", "Ketukan terlupa — tidak dikira sehingga CEO meluluskannya")}>
+                      · {L("waiting CEO", "menunggu CEO")}
+                    </span>
+                  )}
                   {(() => {
                     const loc = attLoc(r);
                     if (!loc) return null;

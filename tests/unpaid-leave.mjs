@@ -114,12 +114,17 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
   const i = staff.indexOf('if (path === "/attendance/unpaid" && method === "POST")');
   const body = staff.slice(i, staff.indexOf('if (path === "/attendance/unpaid" && method === "DELETE")'));
   ok("the day is stored as an APPROVED unpaid leave request",
-     /type[\s\S]{0,10}?'unpaid'[\s\S]{0,200}?'approved', 'approved'/.test(body) ||
-     /VALUES \(\?1, 'unpaid', \?2, \?2, 1, \?3, 'approved', 'approved'/.test(body),
+     /VALUES \(\?1, 'unpaid', \?2, \?2, \?5, \?3, 'approved', 'approved'/.test(body),
      "payroll counts approved unpaid leave — anything else is a day that deducts nothing");
   ok("it is marked as recorded by management", /recorded_direct\)[\s\S]{0,200}?, 1\)/.test(body));
-  ok("one row is one day", /\?2, \?2, 1,/.test(body),
-     "start = end = the date, days = 1; a range here would deduct more than a day");
+  /* v1.75.0: `days` is a fraction now (half a day, or the hours somebody was
+     short of eight), but ONE ROW IS STILL ONE DAY — start = end = the date,
+     and the amount is capped at a whole day. A range in one row would deduct
+     more than the day it names. */
+  ok("one row is one day", /VALUES \(\?1, 'unpaid', \?2, \?2, \?5,/.test(body),
+     "start = end = the date; a range here would deduct more than a day");
+  ok("the fraction cannot exceed a whole day", /!\(daysU > 0\) \|\| daysU > 1/.test(body),
+     "a typo in hours could otherwise deduct a week from one row");
   ok("a day that is already unpaid is refused",
      /start_date <= \?2 AND end_date >= \?2[\s\S]{0,200}?already unpaid leave/.test(body),
      "two rows over one day is two deductions");
@@ -163,11 +168,19 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
   }
   ok("the recompute subtracts the unpaid deduction from net",
      /- e\.deduction_cents - ulDed - adj/.test(staff));
-  ok("unpaid days are excluded from the incomplete-month proration (server)",
-     /Math\.max\(0, workD - \(e\.worked_days as number\)\) - ul/.test(staff),
-     "without this the same absence is deducted twice");
-  ok("unpaid days are excluded from the proration (browser)",
-     /Math\.max\(0, missing - unpaidLeaveDays\)/.test(payroll));
+  /* v1.75.0 replaced the old "exclude unpaid days from the proration" rule
+     with something stronger: the proration does not read attendance AT ALL.
+     One absence cannot be deducted twice because the two deductions now read
+     different things — employment dates, and recorded unpaid days. Asserting
+     the absence of the old coupling is the tripwire on that. */
+  ok("proration never reads the attendance clock (server)",
+     !/workD - \(e\.worked_days as number\)/.test(staff),
+     "prorating on days clocked is what deducted approved paid leave as absence");
+  ok("proration is computed from employment dates (server)",
+     /const payable = employedDays\(monthDayList, e\.joined_on, e\.left_on\)\.length;/.test(staff));
+  ok("proration never reads the attendance clock (browser)",
+     !/incompleteMonthAdj\([^)]*worked_days/.test(payroll),
+     "the panel POSTs the net it computed — if it still prorates on attendance the saved net is wrong");
   ok("the payslip shows the deduction as its own line",
      /UNPAID LEAVE \(\$\{n2v\(d\)\} DAY/.test(payroll),
      "a smaller number with no line explaining it is what makes staff distrust a payslip");

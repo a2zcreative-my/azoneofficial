@@ -47,6 +47,8 @@ const GUARDS = [
   ["unpaid-leave", "the CEO-only powers stay CEO-only, and one unpaid day is deducted exactly once"],
   ["web-order-tracking", "the shop owns the courier map — this repo never builds a tracking URL"],
   ["csv-export", "an export Excel reads correctly, holding exactly the rows on screen"],
+  ["payroll-days", "only a joiner or a leaver is prorated, and approved paid leave never costs a ringgit"],
+  ["shift-schedule", "hours come from each person's schedule, and an unapproved punch counts for nothing"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
