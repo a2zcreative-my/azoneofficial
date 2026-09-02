@@ -13,6 +13,7 @@
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { bySeniority } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with the Staff tab
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
@@ -413,8 +414,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
-  type PrCol = "staff" | "basic" | "comm" | "allow" | "ot" | "deduct" | "net";
-  const [prSort, setPrSort] = useState<{ col: PrCol; asc: boolean }>({ col: "staff", asc: true });
+  type PrCol = "rank" | "staff" | "basic" | "comm" | "allow" | "ot" | "deduct" | "net";
+  /* v1.78.0 (CEO: "payroll should ascending with position which is CEO, COO,
+     CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer and
+     lastly Live host and Part time last host") - the run opens in company
+     order, not alphabetical. Every column header still sorts, and the STAFF
+     header still gives A-Z; this is the resting state a salary run is read
+     in. The order itself is lib/staff-order.ts, shared with the Staff tab
+     and mirrored in the worker so the M2E file comes out the same way. */
+  const [prSort, setPrSort] = useState<{ col: PrCol; asc: boolean }>({ col: "rank", asc: true });
   const cyclePr = (col: PrCol) => setPrSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
 
   /* v1.4.203 — M2E: filled-.xlsm download + one-time setup (template upload,
@@ -1123,6 +1131,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const ea = entry(a.id);
               const eb = entry(b.id);
               switch (prSort.col) {
+                case "rank": return dir * bySeniority(a, b);
                 case "staff": return dir * displayName(a).localeCompare(displayName(b));
                 case "basic": return dir * (ea.basic_cents - eb.basic_cents);
                 case "comm": return dir * (ea.commission_cents - eb.commission_cents);

@@ -96,6 +96,66 @@ export const WORK_DAY_MINUTES = 8 * 60;
     (worker-compile-gate, TS2448) would have refused the build. */
 export const PART_TIME_LH_RATE_CENTS = 1500;
 
+/** A part-time live host is paid by the clock, not by the month.
+    MODULE SCOPE (v1.78.0) for the same reason as the constant above:
+    /rest-day-work and /replacement-credit both ask this question, and both
+    routes are dispatched hundreds of lines ABOVE where it used to be
+    declared. A `const` read before its declaration line has run throws
+    ReferenceError - the exact 500 the CEO hit twice on 31-08 - and
+    worker-compile-gate now refuses the build for it (TS2448). */
+export const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
+  role === "live_host" && emp === "part_time";
+
+/** WHO COUNTS AS STAFF — v1.78.0.
+ *
+ * CEO, 31-08-2026: *"Take note, super_Admin is not a staff. Super_admin is
+ * system controller which is handling everything about the system."*
+ *
+ * He was reading the payroll screen, where "Days with no clock-in" opened
+ * with a SUPER ADMIN block listing nineteen absent days. The system account
+ * had been quietly acquiring an attendance record, an absence history and a
+ * place in every staff list, because those queries asked for
+ * `role != 'customer'` - everyone who is not a shopper - rather than for
+ * employees. The payroll and M2E queries already knew better and said
+ * `NOT IN ('customer', 'super_admin')`; the attendance ones did not, so the
+ * two halves of the same screen disagreed about who works here.
+ *
+ * One predicate now, for every list of PEOPLE THE COMPANY EMPLOYS. It does
+ * not change who can DO anything - super_admin keeps every permission,
+ * because controlling the system is the job. It changes who the system
+ * counts, pays, rosters and chases for a missing punch. */
+export const staffRolesSql = (alias = "") =>
+  `${alias}role NOT IN ('customer', 'super_admin')`;
+
+/** THE SAME STAFF ORDER AS THE SCREEN, in SQL — v1.78.0.
+ *
+ * CEO, 31-08-2026: *"payroll should ascending with position which is CEO,
+ * COO, CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer
+ * and lastly Live host and Part time last host."*
+ *
+ * The browser sorts with `bySeniority` from lib/staff-order.ts. The worker
+ * cannot import that module (separate bundle, separate tsconfig), so the
+ * ranks are written out once here and tests/staff-order.mjs holds the two to
+ * the same numbers. Getting this wrong is not cosmetic: the M2E salary file
+ * pays people in the order its rows appear, so a file whose order disagrees
+ * with the screen is a file nobody can check against the screen.
+ *
+ * Assumes the users table is aliased `u` - every payroll query joins it that
+ * way, and the guard checks each call site.
+ */
+export const STAFF_ORDER_SQL = `
+  (CASE u.role
+     WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30
+     WHEN 'hr_admin' THEN 40 WHEN 'sales_marketing' THEN 50
+     WHEN 'admin' THEN 55 WHEN 'marketing' THEN 60
+     WHEN 'editor' THEN 70 WHEN 'live_host' THEN 80 ELSE 90 END
+   + CASE WHEN u.employment_status = 'part_time' THEN 5 ELSE 0 END) * 10
+  + CASE
+      WHEN LOWER(COALESCE(u.position, '')) LIKE '%sales%'  THEN 1
+      WHEN LOWER(COALESCE(u.position, '')) LIKE '%design%' THEN 3
+      ELSE 2 END,
+  COALESCE(NULLIF(TRIM(u.full_name), ''), u.name)`;
+
 /** One person's hours on one date: NULL start = not a working day for them. */
 export interface DayShift {
   start: number | null;
@@ -236,7 +296,7 @@ export async function shiftsOn(env: Env, iso: string): Promise<Map<number, DaySh
   try {
     const at = await shiftResolver(env);
     const { results } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
     ).all<{ id: number }>();
     for (const u of results) out.set(u.id, at(u.id, iso));
   } catch { /* fallback handled per call */ }
@@ -2570,7 +2630,7 @@ export async function handleStaff(
     // Ring the bell: every active staff member gets a notification (and the
     // off-platform relay, when configured). The poster already knows.
     const { results: recipients } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1 AND id != ?1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND id != ?1`,
     ).bind(user.id).all();
     for (const r of recipients as { id: number }[]) {
       await notify(env, r.id, "announcement", `New announcement: ${body.title as string}`, `announcement:${res?.id}`);
@@ -2691,7 +2751,7 @@ export async function handleStaff(
     const d = String(body.event_date);
     const dmy = `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
     const { results: recipients } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role != 'customer' AND is_active = 1 AND id != ?1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND id != ?1`,
     ).bind(user.id).all();
     for (const r of recipients as { id: number }[]) {
       await notify(env, r.id, "event", `Upcoming ${category}: ${body.title as string} on ${dmy}`, `event:${res?.id}`);
@@ -5470,7 +5530,7 @@ export async function handleStaff(
   const entitlementStaff = async (): Promise<{ id: number; name: string; role: string }[]> => {
     const { results } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
-       WHERE is_active = 1 AND role != 'customer'
+       WHERE is_active = 1 AND ${staffRolesSql()}
        ORDER BY 2`,
     ).all<{ id: number; name: string; role: string }>();
     return results;
@@ -6201,6 +6261,217 @@ export async function handleStaff(
     return json({ ok: true });
   }
 
+  /* ============ v1.78.0 — a rest day worked, credited back as leave ============
+   *
+   * CEO, 31-08-2026: *"in Staff table should appear a list of replacement
+   * leave for the staff that working on weekend which is for me to credit
+   * the replacement leave either half day or full day depend on their in and
+   * out time."*
+   *
+   * Replacement leave already existed as a leave TYPE and could only ever be
+   * TAKEN - the entitlement editor refuses it in as many words. So a person
+   * who worked a Saturday was owed a day that the system had no way to grant,
+   * and the balance lived in somebody's memory.
+   *
+   * WHAT COUNTS AS A REST DAY is the person's OWN schedule (migration 0099),
+   * not Saturday and Sunday: somebody whose pattern works Saturday is not on
+   * a rest day, and somebody whose pattern rests on Wednesday is.
+   *
+   * HOURLY PART-TIMERS ARE SKIPPED. They are paid for every minute clocked,
+   * including that Saturday - they have already been compensated for it, and
+   * crediting leave on top would pay for the same hours twice.
+   *
+   * The credit itself lands in leave_balances.adjust, the CEO-only lever that
+   * already exists and is already audited, so the day shows in their balance
+   * and can be applied for through the normal chain. replacement_credits
+   * (0101) is the receipt, and its UNIQUE index is what stops a double tap
+   * costing the company a day.
+   */
+  if (path === "/rest-day-work" && method === "GET") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can credit replacement leave", 403);
+    }
+    const urlR = new URL(request.url);
+    const mR = urlR.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mR)) return err("invalid_input", "month must be YYYY-MM", 400);
+
+    /* A punch waiting for approval is a claim, not evidence that anybody was
+       anywhere - the same rule the payroll counting queries use. */
+    const notPendingR = await notPendingSql(env, "a.");
+    const { results: punches } = await env.DB.prepare(
+      `SELECT a.user_id, date(a.created_at, '+8 hours') AS d,
+              MIN(CASE WHEN a.type = 'clock_in'  THEN a.created_at END) AS i,
+              MAX(CASE WHEN a.type = 'clock_out' THEN a.created_at END) AS o
+       FROM attendance_records a
+       WHERE strftime('%Y-%m', a.created_at, '+8 hours') = ?1${notPendingR}
+       GROUP BY a.user_id, d`,
+    ).bind(mR).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
+    if (punches.length === 0) return json({ month: mR, staff: [] });
+
+    const { results: peopleR } = await env.DB.prepare(
+      `SELECT id, name, full_name, role, employment_status, position FROM users
+       WHERE ${staffRolesSql()} AND is_active = 1`,
+    ).all<{ id: number; name: string; full_name: string | null; role: string; employment_status: string | null; position: string | null }>();
+    const byId = new Map(peopleR.map((u) => [u.id, u]));
+
+    /* Already credited - so a day disappears from this list the moment it is
+       dealt with, rather than sitting there inviting a second credit. */
+    let done = new Set<string>();
+    try {
+      const { results: cr } = await env.DB.prepare(
+        `SELECT user_id, work_date FROM replacement_credits WHERE work_date LIKE ?1 || '%'`,
+      ).bind(mR).all<{ user_id: number; work_date: string }>();
+      done = new Set(cr.map((c) => `${c.user_id}|${c.work_date}`));
+    } catch { /* pre-0101 - nothing has been credited yet */ }
+
+    const shiftAtW = await shiftResolver(env);
+    const out: {
+      user_id: number; name: string; position: string | null; date: string;
+      in_myt: string | null; out_myt: string | null; minutes: number | null;
+      pattern: string; suggest: number;
+    }[] = [];
+    for (const p of punches) {
+      const who = byId.get(p.user_id);
+      if (!who) continue;
+      if (isHourlyUser(who.role, who.employment_status)) continue; // paid by the clock already
+      if (done.has(`${p.user_id}|${p.d}`)) continue;
+      const sh = shiftAtW(p.user_id, p.d);
+      if (sh.kind !== "rest_day") continue;
+      const mins = p.i && p.o
+        ? Math.max(0, Math.round((new Date(p.o + "Z").getTime() - new Date(p.i + "Z").getTime()) / 60000))
+        : null;
+      const myt = (iso: string | null) =>
+        iso ? new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16) : null;
+      out.push({
+        user_id: p.user_id,
+        name: who.full_name || who.name,
+        position: who.position,
+        date: p.d,
+        in_myt: myt(p.i),
+        out_myt: myt(p.o),
+        minutes: mins,
+        pattern: sh.pattern,
+        /* A suggestion, never a decision. A full scheduled day worked reads
+           as a full day back; anything less starts at a half. The CEO sees
+           the in and out time and both buttons regardless - which is what he
+           asked for. */
+        suggest: mins !== null && mins >= WORK_DAY_MINUTES ? 1 : 0.5,
+      });
+    }
+    out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+    return json({ month: mR, work_day_hours: WORK_DAY_MINUTES / 60, staff: out });
+  }
+
+  if (path === "/replacement-credit" && method === "POST") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can credit replacement leave", 403);
+    }
+    const uidC = Number(body?.user_id);
+    const dateC = typeof body?.date === "string" ? body.date.slice(0, 10) : "";
+    const daysC = Number(body?.days);
+    if (!Number.isFinite(uidC) || uidC <= 0) return err("invalid_input", "user_id is required", 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateC)) return err("invalid_input", "date must be YYYY-MM-DD", 400);
+    /* Half a day or a whole one - the CEO's two options. Anything else is a
+       typo, and a typo here silently grants leave nobody earned. */
+    if (daysC !== 0.5 && daysC !== 1) {
+      return err("invalid_input", "days must be 0.5 (half day) or 1 (full day)", 400);
+    }
+    const whoC = await env.DB.prepare(
+      `SELECT name, full_name, role, employment_status FROM users WHERE id = ?1`,
+    ).bind(uidC).first<{ name: string; full_name: string | null; role: string; employment_status: string | null }>();
+    if (!whoC) return err("not_found", "No such staff member", 404);
+    if (isHourlyUser(whoC.role, whoC.employment_status)) {
+      return err("invalid_input", "An hourly part-timer is paid for the hours they clocked that day, so there is nothing to replace", 400);
+    }
+    /* It has to actually BE a rest day for them. Without this the route is a
+       way to grant leave for any date at all, which is not what it is. */
+    const shC = (await shiftResolver(env))(uidC, dateC);
+    if (shC.kind !== "rest_day") {
+      return err("invalid_input", `${dateC} is a working day on ${shC.pattern}, not a rest day`, 400);
+    }
+    const notPendingC = await notPendingSql(env, "a.");
+    const dayC = await env.DB.prepare(
+      `SELECT MIN(CASE WHEN a.type = 'clock_in'  THEN a.created_at END) AS i,
+              MAX(CASE WHEN a.type = 'clock_out' THEN a.created_at END) AS o
+       FROM attendance_records a
+       WHERE a.user_id = ?1 AND date(a.created_at, '+8 hours') = ?2${notPendingC}`,
+    ).bind(uidC, dateC).first<{ i: string | null; o: string | null }>();
+    if (!dayC?.i) return err("invalid_input", "There is no approved clock-in for that day", 400);
+    const minsC = dayC.o
+      ? Math.max(0, Math.round((new Date(dayC.o + "Z").getTime() - new Date(dayC.i + "Z").getTime()) / 60000))
+      : null;
+
+    const yearC = Number(dateC.slice(0, 4));
+    try {
+      await env.DB.prepare(
+        `INSERT INTO replacement_credits (user_id, work_date, days, minutes, credited_by)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      ).bind(uidC, dateC, daysC, minsC, user.id).run();
+    } catch (eC) {
+      /* The UNIQUE index doing its job. Not an error worth a 500: the day is
+         already credited, which is the state the caller wanted. */
+      const msgC = eC instanceof Error ? eC.message : String(eC);
+      if (/UNIQUE|constraint/i.test(msgC)) {
+        return err("already_credited", `${dateC} has already been credited for this staff member`, 409);
+      }
+      await logError(env, "replacement_credit", msgC);
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0101_replacement_credits)", 500);
+    }
+
+    /* The balance itself. `adjust` is the CEO-only lever the entitlement
+       editor already uses, so a credited day shows up wherever replacement
+       leave is counted without a second mechanism to keep in step. Read and
+       add rather than set, so two credits in the same year accumulate. */
+    const balC = await leaveBalanceRow(env, uidC, yearC, "replacement");
+    const nextAdj = Math.round(((balC.adjust ?? 0) + daysC) * 100) / 100;
+    await env.DB.prepare(
+      `INSERT INTO leave_balances (user_id, year, type, entitled, adjust)
+       VALUES (?1, ?2, 'replacement', ?3, ?4)
+       ON CONFLICT(user_id, year, type) DO UPDATE SET adjust = ?4`,
+    ).bind(uidC, yearC, balC.entitled ?? 0, nextAdj).run();
+
+    const labelC = daysC === 1 ? "a full day" : "half a day";
+    await notify(env, uidC, "leave",
+      `You have been credited ${labelC} of replacement leave for working ${dateC}.`,
+      `replacement:${dateC}`);
+    await audit(env, user.id, "leave.replacement_credit", "leave_balances", String(uidC), {
+      date: dateC, days: daysC, minutes: minsC, year: yearC, adjust_to: nextAdj,
+    });
+    return json({ ok: true, days: daysC, adjust: nextAdj });
+  }
+
+  if (path === "/replacement-credit" && method === "DELETE") {
+    if (!can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can credit replacement leave", 403);
+    }
+    const urlU = new URL(request.url);
+    const idU = Number(urlU.searchParams.get("id"));
+    if (!Number.isFinite(idU) || idU <= 0) return err("invalid_input", "id is required", 400);
+    const rowU = await env.DB.prepare(
+      `SELECT user_id, work_date, days FROM replacement_credits WHERE id = ?1`,
+    ).bind(idU).first<{ user_id: number; work_date: string; days: number }>().catch(() => null);
+    if (!rowU) return err("not_found", "No such credit", 404);
+    await env.DB.prepare(`DELETE FROM replacement_credits WHERE id = ?1`).bind(idU).run();
+    /* Take the same amount back off the balance. Floored at zero: if the
+       entitlement was edited by hand in between, a credit undo must not push
+       somebody's balance negative. */
+    const yearU = Number(rowU.work_date.slice(0, 4));
+    const balU = await leaveBalanceRow(env, rowU.user_id, yearU, "replacement");
+    const backU = Math.max(0, Math.round(((balU.adjust ?? 0) - rowU.days) * 100) / 100);
+    await env.DB.prepare(
+      `INSERT INTO leave_balances (user_id, year, type, entitled, adjust)
+       VALUES (?1, ?2, 'replacement', ?3, ?4)
+       ON CONFLICT(user_id, year, type) DO UPDATE SET adjust = ?4`,
+    ).bind(rowU.user_id, yearU, balU.entitled ?? 0, backU).run();
+    await notify(env, rowU.user_id, "leave",
+      `The replacement leave credited for ${rowU.work_date} has been withdrawn.`,
+      `replacement:undo:${rowU.work_date}`);
+    await audit(env, user.id, "leave.replacement_undo", "leave_balances", String(rowU.user_id), {
+      date: rowU.work_date, days: rowU.days, adjust_to: backU,
+    });
+    return json({ ok: true });
+  }
+
   /* ---- Payroll processing (v1.4.36) ----
      hr_manage (CEO now, hr_admin from next month, admin tier) writes;
      exec_view reads. Amounts stored in sen. */
@@ -6752,9 +7023,8 @@ export async function handleStaff(
      the month. Contract/permanent live hosts stay on the salary model (and
      keep OT eligibility; part-time never had it). One helper feeds the GET
      view, the save route and the recompute button — single source of truth. */
-  /* PART_TIME_LH_RATE_CENTS is at module scope (v1.77.0) - see the note beside it. */
-  const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
-    role === "live_host" && emp === "part_time";
+  /* PART_TIME_LH_RATE_CENTS and isHourlyUser are at module scope (v1.77.0,
+     v1.78.0) - see the notes beside them. */
   const clockedMinutes = async (userId: number, month: string): Promise<number> => {
     /* An unapproved punch pays nobody - this is an hourly host's wage. */
     const notPending = await notPendingSql(env);
@@ -6788,7 +7058,7 @@ export async function handleStaff(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
               u.employment_status, u.role AS user_role, u.bank_name, u.bank_account, u.ic_number
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
-       WHERE p.month = ?1 ORDER BY u.name`,
+       WHERE p.month = ?1 ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(month).all();
     // v1.4.183: hourly users get live clocked minutes so the panel shows the
     // CURRENT month figure even before the entry is saved/recomputed.
@@ -6968,7 +7238,7 @@ export async function handleStaff(
        what was deducting approved paid leave. */
     const dayListA = await workingDayList(mA);
     const { results: peopleA } = await env.DB.prepare(
-      `SELECT id, joined_on, left_on, rejoined_on FROM users WHERE role != 'customer' AND is_active = 1`,
+      `SELECT id, joined_on, left_on, rejoined_on FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
     ).all<{ id: number; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
     const employed = peopleA.map((u) => ({
       user_id: u.id,
@@ -6988,7 +7258,7 @@ export async function handleStaff(
     const unpaidAtA = await unpaidResolver(mA);
     const phAtA = await phWorkResolver(mA);
     const { results: basesA } = await env.DB.prepare(
-      `SELECT id, base_salary_cents, role, employment_status FROM users WHERE role != 'customer' AND is_active = 1`,
+      `SELECT id, base_salary_cents, role, employment_status FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
     ).all<{ id: number; base_salary_cents: number | null; role: string; employment_status: string | null }>();
     const baseMapA = new Map(basesA.map((b) => [b.id, b.base_salary_cents ?? 0]));
     const hourlyA = new Set(basesA.filter((b) => b.role === "live_host" && b.employment_status === "part_time").map((b) => b.id));
@@ -7044,7 +7314,7 @@ export async function handleStaff(
 
     const { results: staffA } = await env.DB.prepare(
       `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status
-       FROM users WHERE role != 'customer' AND is_active = 1`,
+       FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
     ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null }>();
 
     /* One row per person per day, with the minutes actually clocked. */
@@ -7187,7 +7457,7 @@ export async function handleStaff(
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 AND u.is_active = 1
          AND u.role NOT IN ('customer', 'super_admin')
-       ORDER BY u.name`,
+       ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(monthM).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
     const [yM, moM] = monthM.split("-");
     /* v1.4.205 (his real working batch, screenshots): Own Ref is UNIQUE per
@@ -7264,7 +7534,7 @@ export async function handleStaff(
        FROM payroll_entries p JOIN users u ON u.id = p.user_id
        WHERE p.month = ?1 AND u.is_active = 1
          AND u.role NOT IN ('customer', 'super_admin')
-       ORDER BY u.name`,
+       ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(monthPF).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
     const missing: string[] = [];
     const noCode: string[] = [];
@@ -7586,7 +7856,7 @@ export async function handleStaff(
     // PATCH /users/:id (birthday field).
     const { results } = await env.DB.prepare(
       `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
-       WHERE birthday IS NOT NULL AND is_active = 1 AND role != 'customer'
+       WHERE birthday IS NOT NULL AND is_active = 1 AND ${staffRolesSql()}
        ORDER BY substr(birthday, 6)`,
     ).all();
     return json({ birthdays: results });
@@ -10006,7 +10276,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
                 SUM(CASE WHEN t.status != 'completed' THEN 1 ELSE 0 END) AS open_tasks,
                 SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS done_tasks
          FROM users u LEFT JOIN tasks t ON t.assigned_to = u.id
-         WHERE u.role NOT IN ('customer')
+         WHERE ${staffRolesSql('u.')}
          GROUP BY u.id HAVING open_tasks > 0 OR done_tasks > 0
          ORDER BY open_tasks DESC LIMIT 30`,
       ).all(),

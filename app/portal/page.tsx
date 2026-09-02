@@ -141,6 +141,7 @@ import {
   TikTokOrdersCard,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
+import { LeaveReviewCard } from "@/components/staff/leave-review-card"; // v1.78.0
 import {
   card,
   rowHead,
@@ -13779,6 +13780,15 @@ export default function PortalPage() {
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
             <div className="space-y-4 md:space-y-6">
+              {/* v1.78.0 (CEO: "in Staff table should appear a list of
+                  replacement leave for the staff that working on weekend" and
+                  "Unpaid leave should not appear all the list of during that
+                  month ... the record should be recorded into staff table").
+                  Above the directory, because both lists are worked down once
+                  a month across everybody — expanding eight records to credit
+                  eight Saturdays is not a review. CEO-only; it renders
+                  nothing for anyone else, matching the server. */}
+              <LeaveReviewCard role={user.role} />
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}

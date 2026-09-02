@@ -14,6 +14,7 @@
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { bySeniority, isStaffRole } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with Payroll
 const api = makeApi("/staff");
 /* v1.77.0 — offboarding is NOT a staff-portal route. It is served at
    /api/v1/users/:id/offboard in the worker's own dispatcher, next to the
@@ -466,16 +467,16 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
     if (res.ok && res.data) {
       const list = res.data.users ?? res.data.staff ?? [];
       setAllStaff(list);
-          // Rank order: CEO, COO, CCO, Administrative (HR), Sales & Marketing,
-    // then the remaining staff roles; same-rank sorts by name.
-    const RANK: Record<string, number> = {
-      ceo: 1, coo: 2, cco: 3, hr_admin: 4, sales_marketing: 5,
-      admin: 6, editor: 7, marketing: 7, live_host: 7,
-    };
+    /* v1.78.0 - the rank order that used to be written out here now lives in
+       lib/staff-order.ts, because the Payroll tab needed the same one and two
+       copies of an order drift. It also gained the two levels the CEO named
+       on 31-08 that this version flattened: marketing and editor were one
+       bucket with live_host, and a part-time contract sorted with the
+       full-timers. */
     setStaff(
       list
-        .filter((u) => u.role !== "customer" && u.role !== "super_admin")
-        .sort((a, b) => (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9) || a.name.localeCompare(b.name)),
+        .filter((u) => isStaffRole(u.role))
+        .sort(bySeniority),
     );
     }
   }, []);

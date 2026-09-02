@@ -36,7 +36,9 @@ import { sharePdfFile } from "@/lib/doc-pdf";
    (resolveIssuer); operational artefacts issued today (the stock-count
    sheet) carry the current operator, DOCUMENT_ISSUER. */
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
-import { card, inputClass, btnClass, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+/* v1.78.0 — the attendance card's control rows were hand-rolled widths and
+   bare literals; they now use the same tokens as the rest of the portal. */
+import { card, inputClass, inputClassSm, btnClass, chipNeutral, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -2096,17 +2098,8 @@ const toMins = (v: string): number | null => {
 const toTime = (m: number | null | undefined): string =>
   m === null || m === undefined ? "" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-/* v1.72.0 — an unpaid day, as the payroll sees it. */
-type UnpaidDay = {
-  id: number;
-  user_id: number;
-  d: string;
-  days: number;
-  reason: string | null;
-  recorded_direct: number;
-  name: string;
-  full_name?: string | null;
-};
+/* v1.78.0 — the UnpaidDay row type left with the month's unpaid-day list: this
+   card records a day, the Staff tab is where the recorded days are reviewed. */
 
 export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
@@ -2122,7 +2115,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      and the 1/26 statutory rate were already there, waiting for a day to
      count. CEO only, matching the server. */
   const canUnpaid = ["ceo", "super_admin"].includes(role);
-  const [unpaid, setUnpaid] = useState<UnpaidDay[]>([]);
+  /* v1.78.0 — the month's recorded unpaid days moved to the Staff tab, so this
+     card no longer holds (or fetches) a list it does not show. */
   const [ul, setUl] = useState({ user_id: 0, date: "", reason: "" });
   /* v1.76.0 — schedules, and the forgotten punches waiting on the CEO. */
   const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
@@ -2192,13 +2186,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     setPending(pp.data?.pending ?? []);
   }, []);
 
-  const loadUnpaid = useCallback(async () => {
-    const r = await api<{ unpaid: UnpaidDay[] }>(`/attendance/unpaid?month=${month}`);
-    setUnpaid(r.data?.unpaid ?? []);
-  }, [month]);
-
   const load = useCallback(async () => {
-    void loadUnpaid();
     void loadShifts();
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
@@ -2208,7 +2196,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     const list = u.data?.users ?? u.data?.staff ?? [];
     setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
     setLoaded(true);
-  }, [month, loadUnpaid, loadShifts]);
+  }, [month, loadShifts]);
   useEffect(() => {
     void load().finally(() => setLoaded(true)); // v1.77.0 — a failed request clears the skeleton too
   }, [load]);
@@ -2232,36 +2220,49 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         {L("Amend a wrong punch or add clock in/out for days worked before this system existed. Times are Malaysia time. Manual and amended records are marked and audit-logged.", "Pinda ketukan yang salah atau tambah daftar masuk/keluar untuk hari bekerja sebelum sistem ini wujud. Masa ialah waktu Malaysia. Rekod manual dan pindaan ditanda dan dilog audit.")}
       </p>
 
-      {/* v1.4.186 mobile audit: this row predated the v1.4.154 width
-          standard (inline maxWidth styles escaped the class sweep) and
-          wrapped raggedly on phones. Phones now use the standard 2-up
-          full-width grid — staff select spanning, type|date, time|Add,
-          then the filter row; desktop keeps the capped inline row. */}
+      {/* v1.78.0 (CEO: "Working hour pattern seem like not so professional
+          with that interface which is to me ugly! use globally format
+          coding!") — every control row on this card was a hand-rolled flex
+          with per-input sm:max-w-* guesses and no labels, so on a wide screen
+          the date blew out to full width while the selects stayed tiny and
+          the row read as a broken ladder. All four rows are now the portal's
+          own labelled field grid: a SubR label per control, the shared
+          inputClass, and the COLUMN deciding the width. */}
       <span className="text-muted-foreground mt-3 block text-[11px] font-semibold tracking-wide uppercase">{L("Add record", "Tambah rekod")}</span>
-      <div className="mt-1 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-        <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={add.user_id}
-          onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
-          <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
-        </select>
-        <select className={`${inputClass} w-full sm:max-w-32`} value={add.type}
-          onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
-          <option value="clock_in">{L("Clock in", "Daftar masuk")}</option>
-          <option value="clock_out">{L("Clock out", "Daftar keluar")}</option>
-        </select>
-        <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={add.date}
-          onChange={(e) => setAdd((d) => ({ ...d, date: e.target.value }))} />
-        <input type="time" className={`${inputClass} w-full min-w-0 sm:max-w-28`} value={add.time}
-          onChange={(e) => setAdd((d) => ({ ...d, time: e.target.value }))} />
-        <button type="button"
-          className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
-          disabled={!add.user_id || !add.date || !add.time}
-          onClick={() => void act(`/attendance/manual`, {
-            method: "POST",
-            body: JSON.stringify({ user_id: add.user_id, type: add.type, myt: `${add.date} ${add.time}` }),
-          }, L("Record added.", "Rekod ditambah."))}>
-          {L("Add", "Tambah")}
-        </button>
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SubR t={L("Staff", "Kakitangan")}>
+          <select className={inputClass} value={add.user_id}
+            onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+            <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
+            {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
+          </select>
+        </SubR>
+        <SubR t={L("Type", "Jenis")}>
+          <select className={inputClass} value={add.type}
+            onChange={(e) => setAdd((d) => ({ ...d, type: e.target.value }))}>
+            <option value="clock_in">{L("Clock in", "Daftar masuk")}</option>
+            <option value="clock_out">{L("Clock out", "Daftar keluar")}</option>
+          </select>
+        </SubR>
+        <SubR t={L("Date", "Tarikh")}>
+          <input type="date" className={inputClass} value={add.date}
+            onChange={(e) => setAdd((d) => ({ ...d, date: e.target.value }))} />
+        </SubR>
+        <SubR t={L("Time (MYT)", "Masa (MYT)")}>
+          <input type="time" className={inputClass} value={add.time}
+            onChange={(e) => setAdd((d) => ({ ...d, time: e.target.value }))} />
+        </SubR>
+        <div className="flex items-end sm:col-span-2 lg:col-span-1">
+          <button type="button"
+            className={btnClass}
+            disabled={!add.user_id || !add.date || !add.time}
+            onClick={() => void act(`/attendance/manual`, {
+              method: "POST",
+              body: JSON.stringify({ user_id: add.user_id, type: add.type, myt: `${add.date} ${add.time}` }),
+            }, L("Record added.", "Rekod ditambah."))}>
+            {L("Add", "Tambah")}
+          </button>
+        </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
@@ -2322,58 +2323,46 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui. Slip gaji memotong satu hari pada kadar statutori (gaji bulanan ÷ 26, Akta Kerja 1955 s.60I), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
             )}
           </p>
-          <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-            <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={ul.user_id}
-              onChange={(e) => setUl((d) => ({ ...d, user_id: Number(e.target.value) }))}>
-              <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
-              {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
-            </select>
-            <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={ul.date}
-              onChange={(e) => setUl((d) => ({ ...d, date: e.target.value }))} />
-            <input className={`${inputClass} w-full min-w-0 sm:max-w-56`} value={ul.reason}
-              placeholder={L("Reason (optional)", "Sebab (pilihan)")}
-              onChange={(e) => setUl((d) => ({ ...d, reason: e.target.value }))} />
-            <button type="button"
-              className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
-              disabled={!ul.user_id || !ul.date}
-              onClick={() => {
-                void act(`/attendance/unpaid`, {
-                  method: "POST",
-                  body: JSON.stringify({ user_id: ul.user_id, date: ul.date, reason: ul.reason || undefined }),
-                }, L("Recorded as unpaid leave — payroll will deduct it.", "Direkod sebagai cuti tanpa gaji — gaji akan dipotong."));
-                setUl({ user_id: 0, date: "", reason: "" });
-              }}>
-              {L("Mark unpaid", "Tanda tanpa gaji")}
-            </button>
-          </div>
-          {unpaid.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {unpaid.map((u) => (
-                <span key={u.id}
-                  className="border-border inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs">
-                  <span className="font-medium">{properName(u.full_name || u.name)}</span>
-                  <span className="text-muted-foreground">{u.d}</span>
-                  {u.recorded_direct === 1 ? (
-                    <button type="button"
-                      className="text-muted-foreground hover:text-danger leading-none"
-                      title={L("Undo — this day stops being deducted", "Buat asal — hari ini tidak lagi dipotong")}
-                      aria-label={L("Undo unpaid leave", "Buat asal cuti tanpa gaji")}
-                      onClick={() => void act(`/attendance/unpaid?id=${u.id}`, { method: "DELETE" },
-                        L("Removed — that day is paid again.", "Dikeluarkan — hari itu dibayar semula."))}>
-                      ×
-                    </button>
-                  ) : (
-                    /* Applied for by the staff member and approved through the
-                       chain. It still deducts, but it is their record, not a
-                       management entry, so it is not undone from here. */
-                    <span className="text-muted-foreground" title={L("Applied for and approved through the leave chain — manage it on the Leave tab", "Dipohon dan diluluskan melalui rantaian cuti — uruskan pada tab Cuti")}>
-                      {L("applied", "dipohon")}
-                    </span>
-                  )}
-                </span>
-              ))}
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SubR t={L("Staff", "Kakitangan")}>
+              <select className={inputClass} value={ul.user_id}
+                onChange={(e) => setUl((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+                <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
+                {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
+              </select>
+            </SubR>
+            <SubR t={L("Date", "Tarikh")}>
+              <input type="date" className={inputClass} value={ul.date}
+                onChange={(e) => setUl((d) => ({ ...d, date: e.target.value }))} />
+            </SubR>
+            <SubR t={L("Reason (optional)", "Sebab (pilihan)")}>
+              <input className={inputClass} value={ul.reason}
+                placeholder={L("Reason (optional)", "Sebab (pilihan)")}
+                onChange={(e) => setUl((d) => ({ ...d, reason: e.target.value }))} />
+            </SubR>
+            <div className="flex items-end sm:col-span-2 lg:col-span-1">
+              <button type="button"
+                className={btnClass}
+                disabled={!ul.user_id || !ul.date}
+                onClick={() => {
+                  void act(`/attendance/unpaid`, {
+                    method: "POST",
+                    body: JSON.stringify({ user_id: ul.user_id, date: ul.date, reason: ul.reason || undefined }),
+                  }, L("Recorded as unpaid leave — payroll will deduct it.", "Direkod sebagai cuti tanpa gaji — gaji akan dipotong."));
+                  setUl({ user_id: 0, date: "", reason: "" });
+                }}>
+                {L("Mark unpaid", "Tanda tanpa gaji")}
+              </button>
             </div>
-          )}
+          </div>
+          {/* v1.78.0 (CEO: "Unpaid leave should not appear all the list of
+              during that month which is the record should be recorded into
+              staff table") — recording a day stays here, because this is the
+              attendance card; the month's recorded days, and undoing one, now
+              live with the staff member on the Staff tab. */}
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            {L("Recorded days are listed on the Staff tab, where they can be undone.", "Hari yang direkodkan disenaraikan pada tab Kakitangan, di mana ia boleh dibuat asal.")}
+          </p>
         </>
       )}
 
@@ -2397,7 +2386,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           <div className="mt-2 flex flex-wrap gap-2">
             {patterns.map((pt) => (
               <button key={pt.id} type="button"
-                className="border-border hover:bg-secondary rounded-full border px-2.5 py-1 text-xs"
+                className={`${chipNeutral} hover:bg-secondary/70`}
                 title={L("Edit this pattern", "Sunting corak ini")}
                 onClick={() => setEditP({
                   id: pt.id, name: pt.name, half: toTime(pt.half_day_minutes as number),
@@ -2410,7 +2399,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               </button>
             ))}
             <button type="button"
-              className="border-border hover:bg-secondary rounded-full border border-dashed px-2.5 py-1 text-xs"
+              className={`${chipNeutral} border-border hover:bg-secondary/70 border border-dashed bg-transparent`}
               onClick={() => setEditP({
                 name: "", half: "12:00",
                 days: Object.fromEntries(DAYS.map(([k]) => [k, { start: "", end: "" }])),
@@ -2421,29 +2410,27 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
           {editP && (
             <div className="border-border mt-2 rounded-xl border p-3">
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="text-muted-foreground">{L("Pattern name", "Nama corak")}</span>
-                  <input className={`${inputClass} sm:max-w-64`} value={editP.name} maxLength={60}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <SubR t={L("Pattern name", "Nama corak")} className="sm:col-span-2">
+                  <input className={inputClass} value={editP.name} maxLength={60}
                     placeholder={L("e.g. Late shift (11:00-19:00)", "cth. Syif lewat (11:00-19:00)")}
                     onChange={(e) => setEditP({ ...editP, name: e.target.value })} />
-                </label>
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="text-muted-foreground">{L("Half day after", "Separuh hari selepas")}</span>
-                  <input type="time" className={`${inputClass} sm:max-w-28`} value={editP.half}
+                </SubR>
+                <SubR t={L("Half day after", "Separuh hari selepas")}>
+                  <input type="time" className={inputClass} value={editP.half}
                     title={L("Arriving after this counts the day as a half day", "Tiba selepas ini dikira sebagai separuh hari")}
                     onChange={(e) => setEditP({ ...editP, half: e.target.value })} />
-                </label>
+                </SubR>
               </div>
               <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
                 {DAYS.map(([k, label]) => (
                   <div key={k} className="flex items-center gap-1.5 text-xs">
                     <span className="text-muted-foreground w-9">{label}</span>
-                    <input type="time" className="border-input bg-background w-full min-w-0 rounded border px-1.5 py-1"
+                    <input type="time" className={inputClassSm}
                       value={editP.days[k]?.start ?? ""}
                       onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: e.target.value, end: editP.days[k]?.end ?? "" } } })} />
                     <span className="text-muted-foreground">-</span>
-                    <input type="time" className="border-input bg-background w-full min-w-0 rounded border px-1.5 py-1"
+                    <input type="time" className={inputClassSm}
                       value={editP.days[k]?.end ?? ""}
                       onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: editP.days[k]?.start ?? "", end: e.target.value } } })} />
                   </div>
@@ -2476,35 +2463,43 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             </div>
           )}
 
-          <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-            <select className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={assign.user_id}
-              onChange={(e) => setAssign((d) => ({ ...d, user_id: Number(e.target.value) }))}>
-              <option value={0}>{L("Assign to staff…", "Tetapkan kepada kakitangan…")}</option>
-              {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
-            </select>
-            <select className={`${inputClass} w-full sm:max-w-56`} value={assign.pattern_id}
-              onChange={(e) => setAssign((d) => ({ ...d, pattern_id: Number(e.target.value) }))}>
-              <option value={0}>{L("Pattern…", "Corak…")}</option>
-              {patterns.map((pt) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
-            </select>
-            <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={assign.effective_from}
-              title={L("From this date onwards — earlier months keep the hours they were flagged against", "Dari tarikh ini — bulan terdahulu kekal dengan waktu asalnya")}
-              onChange={(e) => setAssign((d) => ({ ...d, effective_from: e.target.value }))} />
-            <button type="button"
-              className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium disabled:opacity-50 sm:h-8"
-              disabled={!assign.user_id || !assign.pattern_id || !assign.effective_from}
-              onClick={() => {
-                void act(`/staff-shifts`, { method: "POST", body: JSON.stringify(assign) },
-                  L("Hours assigned — the staff member has been told.", "Waktu ditetapkan — kakitangan telah dimaklumkan."));
-                setAssign({ user_id: 0, pattern_id: 0, effective_from: "" });
-              }}>
-              {L("Assign", "Tetapkan")}
-            </button>
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SubR t={L("Staff", "Kakitangan")}>
+              <select className={inputClass} value={assign.user_id}
+                onChange={(e) => setAssign((d) => ({ ...d, user_id: Number(e.target.value) }))}>
+                <option value={0}>{L("Assign to staff…", "Tetapkan kepada kakitangan…")}</option>
+                {staff.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)}</option>)}
+              </select>
+            </SubR>
+            <SubR t={L("Pattern", "Corak")}>
+              <select className={inputClass} value={assign.pattern_id}
+                onChange={(e) => setAssign((d) => ({ ...d, pattern_id: Number(e.target.value) }))}>
+                <option value={0}>{L("Pattern…", "Corak…")}</option>
+                {patterns.map((pt) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
+              </select>
+            </SubR>
+            <SubR t={L("Effective from", "Berkuat kuasa dari")}>
+              <input type="date" className={inputClass} value={assign.effective_from}
+                title={L("From this date onwards — earlier months keep the hours they were flagged against", "Dari tarikh ini — bulan terdahulu kekal dengan waktu asalnya")}
+                onChange={(e) => setAssign((d) => ({ ...d, effective_from: e.target.value }))} />
+            </SubR>
+            <div className="flex items-end sm:col-span-2 lg:col-span-1">
+              <button type="button"
+                className={btnClass}
+                disabled={!assign.user_id || !assign.pattern_id || !assign.effective_from}
+                onClick={() => {
+                  void act(`/staff-shifts`, { method: "POST", body: JSON.stringify(assign) },
+                    L("Hours assigned — the staff member has been told.", "Waktu ditetapkan — kakitangan telah dimaklumkan."));
+                  setAssign({ user_id: 0, pattern_id: 0, effective_from: "" });
+                }}>
+                {L("Assign", "Tetapkan")}
+              </button>
+            </div>
           </div>
           {assignments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {assignments.map((a) => (
-                <span key={a.id} className="border-border rounded-full border px-2 py-0.5 text-[11px]">
+                <span key={a.id} className={chipNeutral}>
                   <span className="font-medium">{properName(a.name)}</span>
                   <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}</span>
                 </span>
@@ -2517,36 +2512,46 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
       <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
         {L("Find & filter", "Cari & tapis")}
       </span>
-      <div className="mt-1 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
-        <input type="search" className={`${inputClass} col-span-2 w-full sm:max-w-56`} value={q}
-          placeholder={L("Search staff name…", "Cari nama kakitangan…")}
-          aria-label={L("Search staff", "Cari kakitangan")}
-          onChange={(e) => setQ(e.target.value)} />
-        <select className={`${inputClass} w-full sm:max-w-32`} value={typeF}
-          aria-label={L("In or out", "Masuk atau keluar")}
-          onChange={(e) => setTypeF(e.target.value as typeof typeF)}>
-          <option value="all">{L("In & out", "Masuk & keluar")}</option>
-          <option value="clock_in">{L("In only", "Masuk sahaja")}</option>
-          <option value="clock_out">{L("Out only", "Keluar sahaja")}</option>
-        </select>
-        <select className={`${inputClass} w-full sm:max-w-44`} value={markF}
-          aria-label={L("Record kind", "Jenis rekod")}
-          onChange={(e) => setMarkF(e.target.value as typeof markF)}>
-          <option value="all">{L("Any record", "Semua rekod")}</option>
-          <option value="punch">{L("Punched by staff", "Ketukan kakitangan")}</option>
-          <option value="manual">{L("Added manually", "Ditambah manual")}</option>
-          <option value="amended">{L("Time amended", "Masa dipinda")}</option>
-          <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
-          <option value="rest_day">{L("Weekend / rest day", "Hujung minggu / hari rehat")}</option>
-          <option value="pending">{L("Waiting for approval", "Menunggu kelulusan")}</option>
-        </select>
-        <input type="date" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={dayF}
-          aria-label={L("One day only", "Satu hari sahaja")}
-          title={L("Show one day only", "Tunjuk satu hari sahaja")}
-          onChange={(e) => setDayF(e.target.value)} />
-        <input type="month" className={`${inputClass} w-full min-w-0 sm:max-w-40`} value={month}
-          aria-label={L("Month", "Bulan")}
-          onChange={(e) => setMonth(e.target.value)} />
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SubR t={L("Search", "Cari")}>
+          <input type="search" className={inputClass} value={q}
+            placeholder={L("Search staff name…", "Cari nama kakitangan…")}
+            aria-label={L("Search staff", "Cari kakitangan")}
+            onChange={(e) => setQ(e.target.value)} />
+        </SubR>
+        <SubR t={L("Direction", "Arah")}>
+          <select className={inputClass} value={typeF}
+            aria-label={L("In or out", "Masuk atau keluar")}
+            onChange={(e) => setTypeF(e.target.value as typeof typeF)}>
+            <option value="all">{L("In & out", "Masuk & keluar")}</option>
+            <option value="clock_in">{L("In only", "Masuk sahaja")}</option>
+            <option value="clock_out">{L("Out only", "Keluar sahaja")}</option>
+          </select>
+        </SubR>
+        <SubR t={L("Record type", "Jenis rekod")}>
+          <select className={inputClass} value={markF}
+            aria-label={L("Record kind", "Jenis rekod")}
+            onChange={(e) => setMarkF(e.target.value as typeof markF)}>
+            <option value="all">{L("Any record", "Semua rekod")}</option>
+            <option value="punch">{L("Punched by staff", "Ketukan kakitangan")}</option>
+            <option value="manual">{L("Added manually", "Ditambah manual")}</option>
+            <option value="amended">{L("Time amended", "Masa dipinda")}</option>
+            <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
+            <option value="rest_day">{L("Weekend / rest day", "Hujung minggu / hari rehat")}</option>
+            <option value="pending">{L("Waiting for approval", "Menunggu kelulusan")}</option>
+          </select>
+        </SubR>
+        <SubR t={L("Day", "Hari")}>
+          <input type="date" className={inputClass} value={dayF}
+            aria-label={L("One day only", "Satu hari sahaja")}
+            title={L("Show one day only", "Tunjuk satu hari sahaja")}
+            onChange={(e) => setDayF(e.target.value)} />
+        </SubR>
+        <SubR t={L("Month", "Bulan")}>
+          <input type="month" className={inputClass} value={month}
+            aria-label={L("Month", "Bulan")}
+            onChange={(e) => setMonth(e.target.value)} />
+        </SubR>
         {/* v1.74.0 (CEO: "I want to generate in excel csv by follow to the
             filter that I want or a month that I want") — the export takes
             the rows this table is SHOWING, in the order it is showing them.
@@ -2555,7 +2560,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             surprises anyone. Built in the browser from data already loaded,
             so it is instant and needs no round trip. */}
         <button type="button"
-          className="border-border hover:bg-secondary col-span-2 inline-flex h-9 items-center justify-center rounded-lg border px-3 text-xs font-medium disabled:opacity-50 sm:h-8 sm:w-auto"
+          className="border-border hover:bg-secondary inline-flex h-9 items-center justify-center self-end rounded-lg border px-3 text-xs font-medium disabled:opacity-50 sm:col-span-2 lg:col-span-1"
           disabled={exportRows().length === 0}
           title={L("Download these rows as a CSV for Excel", "Muat turun baris ini sebagai CSV untuk Excel")}
           onClick={() => {
@@ -2601,7 +2606,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           }}>
           {L(`⬇ CSV — ${exportRows().length} rows`, `⬇ CSV — ${exportRows().length} baris`)}
         </button>
-        <span className="text-muted-foreground col-span-2 text-xs sm:ml-auto">
+        <span className="text-muted-foreground flex items-end text-xs sm:col-span-2 lg:col-span-3">
           {(() => {
             const n = rows.filter(matches).length;
             return filtersOn

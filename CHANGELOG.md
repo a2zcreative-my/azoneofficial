@@ -2,6 +2,55 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.78.0] — 2026-08-31 — company order, and the Saturday you worked comes back
+
+**CEO:** four things, in one message.
+
+### The salary run reads in company order
+
+*"payroll should ascending with position which is CEO, COO, CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer and lastly Live host and Part time last host."*
+
+Payroll sorted alphabetically, so the CEO appeared second and the part-time host fourth. A rank order **already existed** — inlined in the staff directory — and was nearly this one: it flattened marketing, editor and live_host into a single bucket and knew nothing about part-time contracts. Rather than add a second order that would drift from the first, that one moved to `lib/staff-order.ts`, gained the two levels named above, and is now what **both** the Staff tab and Payroll read.
+
+The worker mirrors it in SQL, because it cannot import from `lib/`. That matters more than it sounds: **the M2E salary file pays people in the order its rows come out**, so a file ordered differently from the screen is a file nobody can check against the screen. All three payroll listings — the table, the M2E file and its preview — now share it, and guard #29 compiles the module, runs it on a made-up company, and reads the same ranks back out of the SQL. Every column header still sorts; company order is the resting state, not a cage.
+
+### Working on a rest day earns a day back
+
+*"in Staff table should appear a list of replacement leave for the staff that working on weekend which is for me to credit the replacement leave either half day or full day depend on their in and out time."*
+
+`replacement` has been a leave type since the beginning and could only ever be **taken** — the entitlement editor refuses it in as many words, *"counted as taken, not granted"*. So somebody who worked a Saturday was owed a day the system had no way to give them, and the balance lived in somebody's memory.
+
+A **Leave to review** card now sits at the top of the Staff tab listing every rest day worked and not yet credited, with the clock-in and clock-out time beside it and both buttons — **Half day** and **Full day**. A chip suggests which, from the hours actually clocked; the decision stays the CEO's. Crediting adds to that person's replacement balance through the CEO-only entitlement lever, notifies them, and is audited; they then apply for it like any other leave.
+
+Four things make that safe, each checked by the guard: it must be a **rest day on that person's own schedule** (not Saturday and Sunday — somebody rostered to work Saturdays is not owed a day for it), there must be an **approved clock-in** behind it (a pending claim buys nothing), it can only ever be **half a day or a whole one**, and migration `0101`'s unique index means **a double tap costs the company nothing**. Hourly part-timers are skipped: they were already paid for those hours, and crediting leave on top pays for the same Saturday twice.
+
+### Unpaid days moved to where they are reviewed
+
+*"for Staff attendance — corrections & back-entry Unpaid leave should not appear all the list of during that month which is the record should be recorded into staff table."*
+
+The chip row listing every unpaid day of the month has left the Attendance card and joined the same review card, undo included. Recording a day still happens on Attendance, where the correction tools are; **reviewing** the month happens on the Staff tab, down one list, across everybody. The Attendance card now says where they went.
+
+### The attendance card stops looking hand-made
+
+*"Working hour pattern seem like not so professional with that interface which is to me ugly! use globally format coding!"*
+
+He was right, and it was worse than the working-hours row. All four control rows on that card — Add record, Unpaid leave, Working hours, Find & filter — were hand-rolled flex with per-input `max-w-56` / `max-w-40` guesses and **no labels at all**, just placeholders. On a wide screen the date and month inputs blew out to full width while the selects sat tiny at the left, so every row read as a broken ladder.
+
+All four are now the house pattern the rest of the portal already uses: a `SubR` label above every field, the shared `inputClass`, and a real 4-column responsive grid that decides the widths. The per-weekday time boxes in the pattern editor use `inputClassSm` instead of a pasted class string, and the pattern and assignment chips use `chipNeutral`. Every handler, condition, endpoint and toast is unchanged — this is presentation only.
+
+### The system account is not an employee
+
+**CEO, mid-build:** *"Take note, super_Admin is not a staff. Super_admin is system controller which is handling everything about the system."*
+
+He was reading the same payroll screen, where **Days with no clock-in** opened with a **Super Admin** block listing nineteen absent days. The system account had been quietly acquiring an attendance record, an absence history, a birthday in the company list and a place in every staff dropdown — because those queries asked for `role != 'customer'` (everyone who is not a shopper) while the payroll and M2E queries beside them asked for staff. Two halves of one screen disagreeing about who works here.
+
+One predicate now — `staffRolesSql` in the worker, `isStaffRole` in the browser — across ten staff lists: the shift resolver, the leave-entitlement editor, the rest-day scan, both attendance-days lists, the absence scan, birthdays, the company task board and the two announcement broadcasts (whose own comments already said *"every active staff member"*). **Nothing about permissions changed** — super_admin still holds every one of them, because controlling the system is the job. What changed is who the system counts, pays, rosters and chases for a missing punch. The guard fails the build on any staff list that drifts back to the loose predicate.
+
+### Notes
+
+- **Migration `0101_replacement_credits`** — apply it. One new table, replayable.
+- 29 guards.
+
 ## [1.77.0] — 2026-08-31 — buttons that answer
 
 **CEO:** *"on the Task, there is no popup box to show if there is any task successfully deleted. I also want to make sure that all this being done globally, you require to audit all the files in this project to ensure that all is globally!"* — then, an hour later, two things that were plainly broken: a "no clock-in" chip that answered *"Something went wrong"*, and **Offboard** that answered *"Staff route not found"*.
