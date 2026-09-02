@@ -25,6 +25,17 @@
  *      is gone rather than merely hidden.
  *   2. Anything worth a CONFIRM DIALOG must report. If the code stopped to
  *      ask "are you sure?", the answer to "did it happen?" cannot be silence.
+ *   3. A CONTROL that mutates must report — v1.79.0. The CEO: *"when I
+ *      clicked closed it doesnt popup which is not correct!"* He had changed
+ *      an enquiry's status to Closed on a `<select>`; the row saved and said
+ *      nothing. Rules 1 and 2 walked BUTTONS, and a dropdown or a checkbox
+ *      that writes to the database is as much a mutation as a button — more
+ *      dangerous, if anything, because a stray scroll can change one. This
+ *      rule resolves every `<select>` / checkbox / radio `onChange` to the
+ *      handler it calls and fails if that handler mutates in silence. Four
+ *      were found the day it was written: the enquiry status, the enquiry
+ *      reply (which also CLEARED THE DRAFT on a failed send), the task tick
+ *      and the onboarding checklist tick.
  *
  * A call that goes through a wrapper which itself reports counts as covered —
  * `act()` in role-panels.tsx is the pattern, and inlining a toast at every
@@ -136,6 +147,70 @@ ok("every DELETE tells the person it happened", silentDeletes.length === 0,
    `${silentDeletes.join(", ")} — a row disappearing is not a receipt, and the reaction to uncertainty is to press it again`);
 ok("every action worth confirming reports its outcome", silentConfirmed.length === 0,
    `${silentConfirmed.join(", ")} — the code stopped to ask "are you sure?", so "did it happen?" cannot be answered with silence`);
+
+/* ---- rule 3: a control that mutates must report (v1.79.0) ---- */
+{
+  /* A HANDLER MUST NOT COUNT ITS OWN NAME AS FEEDBACK. The first draft of
+     this scan reported zero, because the shared FEEDBACK pattern contains
+     `set\w*Status` and the very handler at issue is called `setStatus` — the
+     mutation matched the evidence that it was reported. So rule 3 uses a
+     pattern without the generic `set…` verbs, keeping only the things that
+     actually put something on the screen. */
+  const SHOWS = /show\w*Toast|\w*[Tt]oast\(|set\w*Msg|set\w*Message|set\w*Error|set\w*Notice|set\w*Banner|set\w*Feedback|alert\(|window\.location|router\.(push|replace)/;
+  const IGNORE = new Set(["void", "Number", "String", "Boolean", "parseInt", "parseFloat", "console", "if", "return", "map", "filter"]);
+
+  /* WHICH `setStatus`? page.tsx declares three, in three different panels.
+     Taking the first would clear the other two for free; taking all three
+     would blame every dropdown in the file for whichever one is silent —
+     and it did, on the first run: two false reports alongside the two real
+     ones. In a React component the handlers are declared above the JSX that
+     uses them, so the right answer is the NEAREST DECLARATION ABOVE the
+     control. (Falling back to the first if none is above covers a handler
+     passed down as a prop from later in the file.) */
+  const defsOf = (src, name) => {
+    const out = [];
+    const re = new RegExp(`const ${name} = (?:useCallback\\()?async[^{]*\\{`, "g");
+    for (const m of src.matchAll(re)) {
+      const start = m.index + m[0].length - 1;
+      let d = 0;
+      for (let j = start; j < src.length; j++) {
+        if (src[j] === "{") d++;
+        else if (src[j] === "}" && --d === 0) { out.push({ at: m.index, body: src.slice(start, j + 1) }); break; }
+      }
+    }
+    return out;
+  };
+  const bodyFor = (src, name, useAt) => {
+    const defs = defsOf(src, name);
+    if (defs.length === 0) return null;
+    const above = defs.filter((d) => d.at < useAt);
+    return (above.length ? above[above.length - 1] : defs[0]).body;
+  };
+
+  const silentControls = [];
+  for (const rel of files) {
+    const src = readFileSync(path.join(root, rel), "utf8");
+    const lineAt = (i) => src.slice(0, i).split("\n").length;
+    for (const m of src.matchAll(/<select\b|type="(?:checkbox|radio)"/g)) {
+      /* The onChange belongs to THIS tag: search only as far as the element
+         plausibly runs. (An early draft used a tag regex that stopped at the
+         `>` inside an arrow function and found nothing at all.) */
+      const win = src.slice(m.index, m.index + 900);
+      const oc = win.match(/onChange=\{([\s\S]{0,240}?)\}/);
+      if (!oc) continue;
+      for (const c of oc[1].matchAll(/\b([a-z]\w{2,})\(/g)) {
+        const name = c[1];
+        if (IGNORE.has(name)) continue;
+        const body = bodyFor(src, name, m.index);
+        if (!body || !MUTATION.test(body) || SHOWS.test(body)) continue;
+        silentControls.push(`${rel}:${lineAt(m.index)} → ${name}()`);
+      }
+    }
+  }
+  ok("every dropdown and checkbox that saves says so", silentControls.length === 0,
+     `${[...new Set(silentControls)].join(", ")} — a control that writes to the database and reports nothing ` +
+     "leaves the person unable to tell a saved change from a lost one, and there is no row disappearing to hint at it");
+}
 
 /* ---- the seven the audit found, named so they cannot regress quietly ---- */
 {

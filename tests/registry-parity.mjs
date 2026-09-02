@@ -9,8 +9,13 @@
    to an old version. A comment cannot fail a build. This guard can.
 
    Checks:
-   A. ALL_TABS ↔ TAB_ACCESS_TABS (± the always-visible set) ↔ tab-access-card
-      TABS/DEFAULTS ↔ nav-icons TAB_ICON ↔ i18n DICT.
+   A. lib/portal-tabs.ts ALL_TABS ↔ worker TAB_ACCESS_TABS (± the
+      always-visible set) ↔ nav-icons TAB_ICON ↔ i18n DICT, and neither
+      page.tsx nor tab-access-card.tsx keeps a private copy of the registry.
+      (v1.79.0: the card's copy of the list AND of the role defaults is gone
+      — it imports them. This check now guards that it stays gone, because a
+      name-only parity check is what let the Users default drift for 39
+      releases while every name matched.)
    B. worker/migrations/*.sql ↔ EXPECTED_MIGRATIONS ↔ LATEST_MIGRATION, and
       every migration from 0075 on is covered by a /system/health probe
       (data-only migrations — no CREATE/ALTER — are exempt: unprobeable).
@@ -31,12 +36,13 @@ const page = readFileSync("app/portal/page.tsx", "utf8");
 const staff = readFileSync("worker/src/staff.ts", "utf8");
 const index = readFileSync("worker/src/index.ts", "utf8");
 const card = readFileSync("components/portal/tab-access-card.tsx", "utf8");
+const registry = readFileSync("lib/portal-tabs.ts", "utf8");
 const icons = readFileSync("components/layout/nav-icons.tsx", "utf8");
 const dict = readFileSync("lib/i18n.ts", "utf8");
 
 /* ---- A. the tab registries ---- */
-const allTabsM = page.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/);
-if (!allTabsM) { fail("ALL_TABS not found"); process.exit(1); }
+const allTabsM = registry.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/);
+if (!allTabsM) { fail("ALL_TABS not found in lib/portal-tabs.ts"); process.exit(1); }
 const ALL_TABS = [...allTabsM[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 /* Dashboard and Profile are every role's home and identity — always visible,
    deliberately not overridable. Everything else must be governable. */
@@ -49,9 +55,37 @@ for (const t of setDiff(governable, accessTabs)) fail(`"${t}" is in ALL_TABS but
 for (const t of setDiff(accessTabs, governable)) fail(`"${t}" is in TAB_ACCESS_TABS but not a governable ALL_TABS entry`);
 if (accessTabs.size && setDiff(governable, accessTabs).length === 0 && setDiff(accessTabs, governable).length === 0) ok("worker TAB_ACCESS_TABS mirrors ALL_TABS");
 
-const cardTabs = new Set([...card.matchAll(/\{ name: "([^"]+)"/g)].map((m) => m[1]));
-for (const t of setDiff(governable, cardTabs)) fail(`"${t}" missing from tab-access-card TABS — the override UI cannot show it`);
-if (setDiff(governable, cardTabs).length === 0) ok("tab-access-card TABS covers every governable tab");
+/* v1.79.0 — the card and the portal must READ the registry, not restate it.
+   Any re-declaration here is the drift starting over. */
+for (const [file, src, name] of [["app/portal/page.tsx", page, "page"], ["components/portal/tab-access-card.tsx", card, "card"]]) {
+  if (!/from "@\/lib\/portal-tabs"/.test(src)) fail(`${file} does not import the tab registry from @/lib/portal-tabs`);
+  else ok(`${name} imports the tab registry`);
+  for (const decl of ["ALL_TABS", "TAB_ROLES", "TABS", "DEFAULTS"]) {
+    if (new RegExp(`^const ${decl}[:\\s=]`, "m").test(src)) {
+      fail(`${file} declares its own ${decl} — the tab registry is lib/portal-tabs.ts, and a second copy is what drifted (the Users default said "ceo, coo" while the portal allowed admin too)`);
+    }
+  }
+}
+
+/* Every governable tab needs a hint entry or it renders bare; and no hint may
+   name a tab that no longer exists. */
+const hintBlock = registry.match(/const TAB_HINTS[\s\S]*?^\};/m)?.[0] ?? "";
+for (const h of [...hintBlock.matchAll(/^\s*(?:"([^"]+)"|([A-Za-z][A-Za-z ]*?)):\s*\{/gm)].map((m) => m[1] ?? m[2])) {
+  if (!governable.has(h)) fail(`TAB_HINTS has an entry for "${h}", which is not a governable tab`);
+}
+ok("TAB_HINTS names only real tabs");
+
+/* Defaults must only name roles the card can actually toggle — a default
+   listing a role with no chip is a permission nobody can revoke from the UI. */
+const rolesM = registry.match(/const ASSIGNABLE_ROLES[\s\S]*?^\];/m)?.[0] ?? "";
+const chips = new Set([...rolesM.matchAll(/\["([a-z_]+)",/g)].map((m) => m[1]));
+const tabRolesM = registry.match(/const TAB_ROLES[\s\S]*?^\};/m)?.[0] ?? "";
+const namedRoles = new Set([...tabRolesM.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]));
+for (const r of namedRoles) {
+  if (r === "super_admin") continue; // the bypass, deliberately chip-less
+  if (!chips.has(r)) fail(`TAB_ROLES grants "${r}", but the 🔐 card has no chip for it — the CEO could never take it away`);
+}
+ok("every role named in TAB_ROLES has a chip in the 🔐 card");
 
 const iconsBlockM = icons.match(/const TAB_ICON[\s\S]*?^\};/m);
 const iconKeys = new Set([...(iconsBlockM?.[0] ?? "").matchAll(/^\s*(?:"([^"]+)"|([A-Za-z][A-Za-z ]*?)):/gm)].map((m) => m[1] ?? m[2]));
@@ -66,7 +100,7 @@ ok("every tab has an i18n DICT entry (or failures listed above)");
 
 /* bm-coverage must derive its list, never hardcode it again */
 const bm = readFileSync("tests/bm-coverage.mjs", "utf8");
-if (!bm.includes("derivedTabs")) fail("tests/bm-coverage.mjs no longer derives its tab list from ALL_TABS");
+if (!bm.includes("derivedTabs") || !bm.includes("lib/portal-tabs.ts")) fail("tests/bm-coverage.mjs no longer derives its tab list from the ALL_TABS registry");
 else ok("bm-coverage derives its tab list");
 
 /* ---- B. the migration registries ---- */

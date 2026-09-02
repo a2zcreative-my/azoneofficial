@@ -3893,12 +3893,19 @@ export async function handleStaff(
      not configurable (clock-in and payslips must never disappear), and
      super_admin ignores overrides entirely — the escape hatch if an
      assignment locks everyone (even the CEO) out of a tab. */
-  /* v1.21.4 — resynced with ALL_TABS (page.tsx). The old list still allowed
+  /* v1.79.0 — the registry this mirrors is lib/portal-tabs.ts now, not
+     page.tsx: the client's copy of the list, its defaults and its role chips
+     were consolidated there after the 🔐 card drifted out of sync a second
+     time. The worker keeps its OWN list on purpose — it is a separate
+     deployable and must validate input without trusting the client — and
+     tests/registry-parity.mjs fails the build if the two ever disagree.
+     Order below follows ALL_TABS so a diff between the two reads straight.
+     v1.21.4 — resynced with ALL_TABS. The old list still allowed
      Overview/Pipeline/Expenses/Birthdays (retired or folded) and REFUSED
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Announcements", "HR", "Staff Details", "Attendance", "Leave", "Tasks", "Content", "Claims", "Payroll", "Finance", "Sales", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Inventory", "Stokis", "Ecommerce", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic — tests/registry-parity.mjs now fails the build when this list and ALL_TABS drift
+  const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {

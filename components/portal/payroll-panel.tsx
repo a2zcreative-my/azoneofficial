@@ -1117,7 +1117,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 deduction, net, actions) so nothing jumps when the figures land. */}
             {!loaded ? Array.from({ length: 6 }, (_, i) => (
               <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
-                <td className="px-2 py-1.5"><Skel className="h-4 w-40 max-w-full" /></td>
+                <td className="w-[12rem] min-w-[12rem] px-2 py-1.5"><Skel className="h-4 w-32 max-w-full" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
@@ -1155,14 +1155,22 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const net = netFor(u.id);
               return (
                 <tr key={u.id} className="border-border border-b last:border-0">
-                  <td className="px-2 py-1.5">
+                  <td className="w-[12rem] min-w-[12rem] px-2 py-1.5 align-top">
                     {/* v1.4.260: the payroll row names the person the way the
                         payslip and the bank file do. Reading a nickname here
                         and a legal name on the slip is how a mismatch with the
                         bank account goes unnoticed until a transfer bounces. */}
-                    <span className="font-medium">{displayName(u)}</span>{" "}
-                    <span className="text-muted-foreground text-xs">{u.position ?? u.role}</span>
-                    {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT", "Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly", "⏱ ikut jam")}</span>}
+                    {/* v1.79.0 (CEO: "why it wrapped like this?") — the name
+                        and the job title were one run of inline text, so a
+                        squeezed column broke them anywhere a space fell:
+                        "Muhammad / Zul / Hisyam / bin / …", one word per
+                        line. Two lines, and the NAME never breaks — the
+                        title underneath may, and nobody minds if it does. */}
+                    <span className="block font-medium whitespace-nowrap">{displayName(u)}</span>
+                    <span className="text-muted-foreground block text-xs leading-snug">
+                      {u.position ?? u.role}
+                      {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-amber-900" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT", "Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly", "⏱ ikut jam")}</span>}
+                    </span>
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
                     <td key={k} className="px-2 py-1.5">
@@ -1225,8 +1233,18 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       onChange={(ev) => setField(u.id, "deduction_cents", ev.target.value)}
                     />
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap">
-                    <span className="font-medium">{rm(Math.max(0, net))}</span>
+                  {/* v1.78.0 (CEO: "why it wrapped like this? ... I want
+                      minimalist style to make it easy in order") — this cell
+                      was `whitespace-nowrap`, so each explanation line below
+                      was forced onto ONE line. Two of them run to eighty
+                      characters, so the column grew to fit, the table
+                      overflowed, and the STAFF column was squeezed until
+                      names broke one word per row. The figure still never
+                      wraps; the prose under it now does, inside a fixed
+                      width, and says the short version with the long one on
+                      hover. */}
+                  <td className="w-[13rem] px-2 py-1.5 align-top">
+                    <span className="block font-medium whitespace-nowrap">{rm(Math.max(0, net))}</span>
                     {/* v1.77.0 — THE REASON IS ON THE SCREEN NOW.
                         It used to be a hover tooltip reading "− RM X auto",
                         and two completely different deductions rendered
@@ -1236,22 +1254,23 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         being able to see what it was for. A number that
                         changes somebody's salary says what it is. */}
                     {(adj > 0 || ulDed > 0) && (
-                      <span className="block text-[10px] text-red-700">
-                        −{rm(adj + ulDed)}
+                      <span className="mt-0.5 block text-[10px] leading-snug text-red-700">
+                        <span className="whitespace-nowrap">−{rm(adj + ulDed)}</span>
                         {adj > 0 && (
-                          <span className="block">
-                            {L(`incomplete month — employed ${payableDays[u.id] ?? monthDays} of ${monthDays} working days`,
-                               `bulan tidak lengkap — bekerja ${payableDays[u.id] ?? monthDays} daripada ${monthDays} hari`)}
+                          <span className="block"
+                            title={L(`Incomplete month: employed for ${payableDays[u.id] ?? monthDays} of this month's ${monthDays} working days. Only a joiner, a leaver or a re-joiner is prorated.`,
+                                     `Bulan tidak lengkap: bekerja ${payableDays[u.id] ?? monthDays} daripada ${monthDays} hari bekerja bulan ini. Hanya pekerja baharu, berhenti atau kembali dikira prorata.`)}>
+                            {L(`incomplete month · ${payableDays[u.id] ?? monthDays}/${monthDays} days`,
+                               `bulan tidak lengkap · ${payableDays[u.id] ?? monthDays}/${monthDays} hari`)}
                           </span>
                         )}
                         {ulDed > 0 && (
-                          <span className="block">
-                            {L(`unpaid leave — ${ud?.days ?? ul} day${(ud?.days ?? ul) === 1 ? "" : "s"}`,
-                               `cuti tanpa gaji — ${ud?.days ?? ul} hari`)}
-                            {(ud?.rest_days ?? 0) > 0 &&
-                              L(` + ${ud?.rest_days} rest day${ud?.rest_days === 1 ? "" : "s"} (whole week unpaid)`,
-                                ` + ${ud?.rest_days} hari rehat (seminggu penuh tanpa gaji)`)}
-                            {ud?.capped && L(" · capped so public holidays stay paid", " · dihadkan supaya cuti umum kekal dibayar")}
+                          <span className="block"
+                            title={L(`Unpaid leave: ${ud?.days ?? ul} day(s) at 1/26 of the monthly wage${(ud?.rest_days ?? 0) > 0 ? `, plus ${ud?.rest_days} rest day(s) lost because every working day in those weeks was unpaid` : ""}${ud?.capped ? ". Capped so the month's public holidays stay paid." : "."}`,
+                                     `Cuti tanpa gaji: ${ud?.days ?? ul} hari pada 1/26 gaji bulanan${(ud?.rest_days ?? 0) > 0 ? `, campur ${ud?.rest_days} hari rehat yang hilang kerana semua hari bekerja minggu itu tanpa gaji` : ""}${ud?.capped ? ". Dihadkan supaya cuti umum bulan itu kekal dibayar." : "."}`)}>
+                            {L(`unpaid · ${ud?.days ?? ul}d`, `tanpa gaji · ${ud?.days ?? ul}h`)}
+                            {(ud?.rest_days ?? 0) > 0 && L(` + ${ud?.rest_days} rest`, ` + ${ud?.rest_days} rehat`)}
+                            {ud?.capped && L(" · capped", " · dihad")}
                           </span>
                         )}
                       </span>
@@ -1260,9 +1279,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         deduction question — it is a wrong date somewhere, and
                         it is money either way. */}
                     {ud?.clocked_beyond_employment && (
-                      <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">
-                        {L(`⚠ employed ${ud.payable_days} of ${monthDays} working days but clocked in on ${ud.clocked_days} — check Joined on / End date / Re-joined on`,
-                           `⚠ bekerja ${ud.payable_days} daripada ${monthDays} hari tetapi mendaftar masuk ${ud.clocked_days} hari — semak Tarikh masuk / Tarikh tamat / Tarikh kembali`)}
+                      <span className="mt-0.5 block text-[10px] leading-snug font-semibold text-amber-700"
+                        title={L(`Employed for ${ud.payable_days} of ${monthDays} working days but clocked in on ${ud.clocked_days}. Both cannot be true — check Joined on / End date / Re-joined on in the staff record.`,
+                                 `Bekerja ${ud.payable_days} daripada ${monthDays} hari tetapi mendaftar masuk ${ud.clocked_days} hari. Kedua-duanya tidak boleh benar — semak Tarikh masuk / Tarikh tamat / Tarikh kembali.`)}>
+                        {L(`⚠ ${ud.payable_days} employed / ${ud.clocked_days} clocked — check dates`,
+                           `⚠ ${ud.payable_days} bekerja / ${ud.clocked_days} daftar — semak tarikh`)}
                       </span>
                     )}
                   </td>

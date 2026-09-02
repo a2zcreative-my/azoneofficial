@@ -380,10 +380,37 @@ const AUG = (() => {
      /REST DAY\$\{rest === 1 \? "" : "S"\} IN FULLY UNPAID WEEKS/.test(panel) &&
      /CAPPED — \$\{x\.public_holiday\} PUBLIC HOLIDAY/.test(panel),
      "a payslip showing only a total leaves the person holding it unable to check the number that changed their pay");
-  ok("the reason is on the screen, not in a hover",
-     /incomplete month — employed \$\{payableDays\[u\.id\] \?\? monthDays\} of \$\{monthDays\} working days/.test(panel) &&
-     /unpaid leave — \$\{ud\?\.days \?\? ul\} day/.test(panel),
-     "two different deductions both rendered as '− RM X auto', which is how RM 1,052.63 sat on a row unexplained");
+  /* v1.79.0 — this check used to name the two sentences verbatim, so
+     shortening them to fit the column (the CEO: "why it wrapped like this?
+     … I want minimalist style") failed a guard about something else
+     entirely. It now asserts the PROPERTY it was written for: whatever the
+     wording, each deduction's own day counts must render as TEXT, not only
+     inside a title= the CEO would have to hover a phone to read. Title
+     attributes are stripped before the check, so moving an explanation into
+     a tooltip still fails — which is the regression that matters. */
+  {
+    const start = panel.indexOf("{(adj > 0 || ulDed > 0) && (");
+    const block = start >= 0 ? panel.slice(start, panel.indexOf("</span>\n                    )}", start)) : "";
+    /* Strip every title={...}, brace-balanced — a nested `${}` inside the
+       tooltip string must not end the attribute early. */
+    let visible = "", i = 0;
+    while (i < block.length) {
+      const t = block.indexOf("title={", i);
+      if (t < 0) { visible += block.slice(i); break; }
+      visible += block.slice(i, t);
+      let depth = 0, j = t + 6;
+      for (; j < block.length; j++) {
+        if (block[j] === "{") depth++;
+        else if (block[j] === "}") { depth--; if (depth === 0) { j++; break; } }
+      }
+      i = j;
+    }
+    ok("the reason is on the screen, not in a hover",
+       block.length > 0 &&
+       visible.includes("payableDays[u.id] ?? monthDays") &&
+       visible.includes("ud?.days ?? ul"),
+       "two different deductions both rendered as '− RM X auto', which is how RM 1,052.63 sat on a row unexplained");
+  }
   ok("a row whose clock and employment dates contradict each other is flagged",
      /clocked_beyond_employment: \(wd\?\.n \?\? 0\) > mine\.length/.test(staff) &&
      /ud\?\.clocked_beyond_employment && \(/.test(panel),

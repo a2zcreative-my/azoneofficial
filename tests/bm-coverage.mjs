@@ -34,9 +34,11 @@ await p.waitForTimeout(3500);
    here, before the browser even launches. */
 import { readFileSync } from 'node:fs';
 function derivedTabs() {
-  const page = readFileSync('app/portal/page.tsx', 'utf8');
+  /* v1.79.0: ALL_TABS moved to lib/portal-tabs.ts — one registry read by the
+     portal, the access card and this suite. */
+  const page = readFileSync('lib/portal-tabs.ts', 'utf8');
   const m = page.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/);
-  if (!m) { console.error('FAIL: ALL_TABS not found in app/portal/page.tsx'); process.exit(1); }
+  if (!m) { console.error('FAIL: ALL_TABS not found in lib/portal-tabs.ts'); process.exit(1); }
   const names = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   const dict = readFileSync('lib/i18n.ts', 'utf8');
   const ms = [];

@@ -25,6 +25,12 @@ import {
   type ReactNode,
 } from "react";
 import { properName, firstName } from "@/lib/names";
+import {
+  ALL_TABS,
+  SALES_ROLES,
+  canSeeTab,
+  type TabName,
+} from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
@@ -326,15 +332,6 @@ function mytTodayLine(lang: Lang): string {
 }
 
 const MANAGE_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"]; // v1.4.153: CEO posts news too
-const SALES_ROLES = [
-  "super_admin",
-  "admin",
-  "hr_admin",
-  "coo",
-  "cco",
-  "ceo",
-  "sales_marketing",
-];
 
 /* ================= Dashboard ================= */
 
@@ -6477,17 +6474,49 @@ function Tasks({ user }: { user: User }) {
       const rr = await api<{ items: TaskItem[] }>(`/staff/tasks/${taskId}/items`);
       if (rr.ok && rr.data) setItems(rr.data.items ?? []);
       void load();
+    } else {
+      /* v1.78.0 — a tick that does not save used to do nothing at all: the
+         box simply stayed as it was, which reads as "I mis-clicked" rather
+         than "the server refused". Success needs no toast — the tick moving
+         IS the receipt — but a refusal has no other tell. */
+      showTaskToast(
+        L("Not saved", "Tidak disimpan"),
+        L("That tick did not reach the server — try again", "Tanda itu tidak sampai ke pelayan — cuba lagi"),
+        "notice",
+      );
     }
   };
   const acknowledge = async (id: number) => {
     await api(`/staff/tasks/${id}/ack`, { method: "POST", body: JSON.stringify({}) });
     void load();
   };
+  /* v1.79.0 (CEO: "when I clicked closed it doesnt popup which is not
+     correct!") — THIS is the dropdown, the one whose third option is
+     literally "Closed". It PATCHed the task and said nothing either way, so
+     closing a task looked identical to a refused request, and the only tell
+     was the reload putting the old value back a second later. Guard #25's
+     new rule 3 walks controls, not just buttons, and found it. */
   const update = async (id: number, patch: Record<string, unknown>) => {
-    await api(`/staff/tasks/${id}`, {
+    const r = await api(`/staff/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+    const st = typeof patch.status === "string" ? patch.status : "";
+    if (r.ok) {
+      showTaskToast(
+        st === "completed" ? L("Task closed", "Tugasan ditutup")
+          : st === "in_progress" ? L("Marked pending", "Ditanda belum selesai")
+          : st === "open" ? L("Re-opened", "Dibuka semula")
+          : L("Task updated", "Tugasan dikemas kini"),
+        L("Saved", "Disimpan"),
+      );
+    } else {
+      showTaskToast(
+        L("Not saved", "Tidak disimpan"),
+        L("That change did not reach the server — try again", "Perubahan itu tidak sampai ke pelayan — cuba lagi"),
+        "notice",
+      );
+    }
     void load();
   };
   /* v1.72.0 (CEO: "I want to have an option for me to delete which is roles
@@ -8621,6 +8650,12 @@ function CustomerEnquiriesCard() {
   }
   const [enqs, setEnqs] = useState<Enq[]>([]);
   const [loaded, setLoaded] = useState(false);
+  /* v1.78.0 (CEO: "when I clicked closed it doesnt popup which is not
+     correct!") — changing a status and sending a reply both went to the
+     server in silence. A dropdown is worse than a button for this: the value
+     on screen changes whether or not the server agreed, so a failed PATCH
+     leaves you looking at "closed" while the record still says "new". */
+  const { show: enqToast, node: enqToastNode } = useSaveToast();
   const CAT: Record<string, string> = {
     general: L("General", "Umum"),
     package_pricing: L("Package & pricing", "Pakej & harga"),
@@ -8644,11 +8679,18 @@ function CustomerEnquiriesCard() {
     void load();
   }, []);
   const setStatus = async (id: number, status: string) => {
-    await csrfFetch(`/api/v1/enquiries/${id}`, {
+    const res = await csrfFetch(`/api/v1/enquiries/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    enqToast(
+      res.ok ? L("Status saved", "Status disimpan") : L("Not saved", "Tidak disimpan"),
+      res.ok
+        ? L(`Marked ${enqStatusL(status)}.`, `Ditanda ${enqStatusL(status)}.`)
+        : L("The dropdown moved but the record did not — try again", "Menu turun berubah tetapi rekod tidak — cuba lagi"),
+      res.ok ? undefined : "notice",
+    );
     void load();
   };
   /* v1.21.0: the "convert to lead" hop went with the retired Pipeline tab —
@@ -8660,11 +8702,22 @@ function CustomerEnquiriesCard() {
   const sendReply = async (id: number) => {
     const text = (replyDraft[id] ?? "").trim();
     if (!text) return;
-    await csrfFetch(`/api/v1/enquiries/${id}`, {
+    const res = await csrfFetch(`/api/v1/enquiries/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reply: text }),
     });
+    /* v1.78.0 — the reply went out with no word either way, and the draft
+       was cleared regardless. A reply the customer never received, with the
+       text gone from the box, is the worst of both. */
+    enqToast(
+      res.ok ? L("Reply sent", "Balasan dihantar") : L("Not sent", "Tidak dihantar"),
+      res.ok
+        ? L("The customer can read it on their account page.", "Pelanggan boleh membacanya di halaman akaun mereka.")
+        : L("Your text is still in the box — try again", "Teks anda masih dalam kotak — cuba lagi"),
+      res.ok ? undefined : "notice",
+    );
+    if (!res.ok) return;
     setReplyOpen(null);
     setReplyDraft((d) => ({ ...d, [id]: "" }));
     void load();
@@ -8688,6 +8741,7 @@ function CustomerEnquiriesCard() {
     );
   return (
     <div className={card}>
+      {enqToastNode}
       <p className="text-sm font-semibold">
         {L("Customer enquiries", "Pertanyaan pelanggan")}
       </p>
@@ -9361,10 +9415,30 @@ function Sales({ user }: { user: User }) {
             }
           : { payment_status: value }
         : { delivery_status: value };
-    await api(`/staff/docs/${d.id}`, {
+    /* v1.79.0 — marking an invoice PAID, or a delivery order DELIVERED, from
+       a dropdown that reported nothing. This is the money end of the
+       document list: "did that save?" was unanswerable, and pressing it
+       again is the natural response. Both outcomes now say so, and a
+       failure reloads so the dropdown stops showing a value the server
+       never accepted. */
+    const r = await api(`/staff/docs/${d.id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });
+    if (!r.ok) {
+      showToast(
+        L("Not saved", "Tidak disimpan"),
+        L(`${d.doc_number} is unchanged — try again`, `${d.doc_number} tidak berubah — cuba lagi`),
+        "notice",
+      );
+    } else {
+      showToast(
+        d.doc_type === "INV"
+          ? value === "paid" ? L("Marked paid", "Ditanda dibayar") : L("Payment status updated", "Status bayaran dikemas kini")
+          : value === "delivered" ? L("Marked delivered", "Ditanda dihantar") : L("Delivery status updated", "Status penghantaran dikemas kini"),
+        d.doc_number,
+      );
+    }
     void load();
   };
 
@@ -12263,189 +12337,19 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
   );
 }
 
-// v1.4.101: order set by the CEO — Dashboard > News > HR > Staff Details >
-// Attendance > Leave > (Tasks kept for task-only roles) > Claims > Payroll >
-// Expenses > Sales > Inventory > Birthdays > Profile > Users
-// (v1.4.143: CEO's revised order — Overview right after Dashboard).
-/* v1.19.0 (consolidation C1, CEO-approved): 28 tabs -> 22. Orders retired
-   (sales_documents is the one recorder); Overview folded into Dashboard/
-   Tasks/Inventory; Birthdays folded into Staff Details; Cash Flow merged
-   into the renamed Finance tab. Tables were NOT dropped. */
-/* v1.22.0 (CEO: "I want organized for my staff able to access their tabs
-   easily and correctly"): tab order = HIS list, verbatim. Order matters
-   beyond cosmetics — the phone bottom bar is the first FOUR tabs each role
-   can see, so this sequencing decides every role's thumb row: management
-   leads with Attendance/Ecommerce/Inventory, while a live host's first
-   four resolve to Dashboard/Attendance/News/Leave — their actual day. */
-const ALL_TABS = [
-  "Dashboard",
-  "Attendance",
-  "Ecommerce",
-  "Inventory",
-  "ELFIA Store",
-  "Web Orders",
-  "ELFIA Traffic",
-  "Sales",
-  "Announcements",
-  "HR",
-  "Staff Details",
-  "Leave",
-  "Claims",
-  "Payroll",
-  "Finance",
-  "Tasks",
-  "Content",
-  "Reconciliation",
-  "Commission",
-  "Ads Fund",
-  "Purchasing",
-  "Accounting",
-  "Stokis",
-  "Assets",
-  "Profile",
-  "Users",
-] as const;
-// v1.4.111: one label mapping for EVERY nav renderer (desktop pills leaked
-// the raw "Announcements" key — spotted on the CEO's screenshot).
-// const tabLabel = (t: string) => t === "Announcements" ? "News" : t === "Staff Details" ? "Staff" : t;
+/* v1.79.0 — ALL_TABS, TAB_ROLES and SALES_ROLES moved to lib/portal-tabs.ts.
+   They were duplicated in components/portal/tab-access-card.tsx, and the copy
+   had drifted: the 🔐 card listed the tabs in a different order and had the
+   Users default down as CEO + COO when this file has allowed `admin` since
+   v1.40.0. Both now read the one module. Tab ORDER is still the CEO's own
+   v1.22.0 sequence — the phone bottom bar is the first four tabs a role can
+   see, so the list decides every role's thumb row. */
 
-/** Which roles see each role-specific tab. The API enforces the same matrix. */
 // No staff role's home is /admin any more (only super_admin/admin live there,
 // and they deep-link into portal modules via the admin Staff bridge). Kept as
 // an empty guard so the redirect logic below stays explicit.
 const CONTENT_ONLY_ROLES: string[] = [];
 
-const TAB_ROLES: Partial<Record<(typeof ALL_TABS)[number], readonly string[]>> =
-  {
-    // HR pipeline: docs (QT/DO/INV), leave, attendance + payroll CSV.
-    HR: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
-    Payroll: ["ceo", "coo", "super_admin", "admin"],
-    // Expense claims (v1.4.75): CEO/COO/CCO/HR submit; the CEO decides.
-    Claims: [
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "editor",
-      "marketing",
-      "live_host",
-      "super_admin",
-      "admin",
-    ], // v1.4.106: every staff role claims
-    // Company expenses (v1.4.87): CEO and COO per spec.
-    Finance: ["ceo", "coo", "super_admin", "admin"],
-    // Inventory & tracking: sales_marketing only among staff (editor/marketing
-    // and everyone else are excluded).
-    Inventory: [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "sales_marketing",
-      "marketing",
-      "hr_admin",
-    ],
-    // Read-only company monitor. CEO + COO + CCO + admin tier.
-    // Employee records: IDs, position, department, staff list, birth dates.
-    "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
-    // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
-    Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
-    Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14): the server already allowed admin
-    /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
-     worker matrix is the one actually enforced. */
-    /* v1.22.0 (CEO: "without anyone populate or access tabs that not
-     authorize for them"): Ecommerce was open to EVERY staff role — the
-     one loose default left. Editors and live hosts are out; the tab is
-     the revenue/orders view, and its data routes were already gated to
-     this tier server-side. */
-    Ecommerce: [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "marketing",
-    ],
-    /* v1.45.0 (CEO: "a new tab for ELFIA … sync inventory, photo upload,
-     description and product"): runs the ELFIA store's catalogue. Same tier
-     as Inventory — its routes ARE the inventory routes. */
-    "ELFIA Store": [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "sales_marketing",
-      "marketing",
-      "hr_admin",
-    ],
-    /* v1.37.0: ELFIA web orders — the sales/inventory tier plus executives.
-     Mirrors the /staff/web-orders permission check (sales|inventory|exec). */
-    "Web Orders": [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "marketing",
-    ],
-    /* v1.43.0: the store's anonymous visitor map — mirrors the worker's
-     revenue_view tier on /staff/web-traffic. */
-    "ELFIA Traffic": [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "marketing",
-    ],
-    Reconciliation: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
-    Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
-    "Ads Fund": [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "sales_marketing",
-      "marketing",
-    ],
-    Purchasing: ["super_admin", "admin", "ceo", "coo"],
-    Accounting: ["super_admin", "admin", "ceo"],
-    // v1.7.0: Content is open to the team that makes it; Stokis to the
-    // sales/management tier. (v1.21.0: Pipeline retired.)
-    Content: [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "marketing",
-      "editor",
-      "live_host",
-    ],
-    Stokis: [
-      "super_admin",
-      "admin",
-      "ceo",
-      "coo",
-      "cco",
-      "hr_admin",
-      "sales_marketing",
-      "marketing",
-    ],
-  };
-type TabName = (typeof ALL_TABS)[number];
 
 export default function PortalPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -12781,17 +12685,7 @@ export default function PortalPage() {
      Rails: Dashboard + Profile always visible; super_admin ignores
      overrides entirely (the escape hatch); fetch failure (old worker) =
      defaults, so a split deploy can never blank the tab strip. */
-  const tabs = ALL_TABS.filter((t) => {
-    if (!user) return true;
-    if (t === "Dashboard" || t === "Profile") return true;
-    if (user.role === "super_admin") return true;
-    const ov = tabOverrides[t];
-    if (ov !== undefined) return ov.includes(user.role);
-    if (t === "Sales")
-      return SALES_ROLES.includes(user.role) || user.role === "ceo";
-    const allowed = TAB_ROLES[t];
-    return !allowed || allowed.includes(user.role);
-  });
+  const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides));
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
     if (!tabs.includes(tab)) setTab("Dashboard");

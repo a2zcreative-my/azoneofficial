@@ -1049,9 +1049,23 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
     void load();
   };
   const toggle = async (key: string) => {
+    const before = onb;
     const next = { ...onb, [key]: !onb[key] };
     setOnb(next);
-    await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
+    const res = await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
+    /* v1.78.0 — the tick was set on screen and the save was never checked.
+       A refused request left the box ticked and nothing saved: the one state
+       where the screen actively lies about a staff member's onboarding. Put
+       it back and say so. A successful tick needs no toast — the box moving
+       is the receipt — but a failed one has no other tell. */
+    if (!res.ok) {
+      setOnb(before);
+      vaultToast(
+        L("Not saved", "Tidak disimpan"),
+        L("That tick did not reach the server — try again", "Tanda itu tidak sampai ke pelayan — cuba lagi"),
+        "notice",
+      );
+    }
   };
   if (!loaded) {
     /* v1.77.0 — skeleton until the first fetch lands, in the vault's own

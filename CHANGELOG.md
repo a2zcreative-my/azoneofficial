@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.79.0] — 2026-09-02 — one tab registry, and a payroll row you can read
+
+**CEO:** *"why it wrapped like this? when I clicked closed it doesnt popup which is not correct! also I want minimalist style to make it easy in order and 🔐 Tab access control should update all the tabs available to make it up-to-date"*
+
+### The payroll row stopped shredding people's names
+
+The NET cell carried `whitespace-nowrap`, and underneath the figure sit two explanation lines that run to eighty characters. Forced onto one line each, they widened that column until the table overflowed its container — and the space had to come from somewhere, so the STAFF column was squeezed until names broke **one word per line**.
+
+The figure still never wraps. The prose beneath it now does, inside a fixed 13rem cell, and it is shorter: `incomplete month · 9/19 days` and `unpaid · 19d + 8 rest · capped`, with the full sentence on hover. The STAFF cell is two lines — the name, which never breaks, and the job title under it, which may. Both the ⚠ date-mismatch warning and the hourly badge were rewritten to match.
+
+Guard #20's *"the reason is on the screen, not in a hover"* check had the old sentences written out verbatim, so **shortening them failed a guard about something else entirely**. It now strips every `title={…}` from the deduction block and asserts the day counts survive as visible text — the property it was written for, indifferent to the wording. Moving an explanation back into a tooltip still fails it.
+
+### Closing an enquiry says so, and three other silent controls
+
+*"when I clicked closed it doesnt popup which is not correct!"*
+
+The v1.78.0 feedback audit walked buttons. **Dropdowns and checkboxes were never walked** — and a `<select>` that writes to the database is as much a mutation as a button. A scan that resolves each `onChange` to its handler body found four:
+
+- the enquiry status dropdown (**his**) — now reports both ways
+- the enquiry reply — reported nothing, and worse, **cleared the draft even when the send failed**; it now returns early and keeps what you typed
+- the task tick — silent on failure
+- the onboarding checklist tick — set the tick on screen and never checked the save, so a failed write left the box ticked and the record unticked; it now reverts and says so
+
+The scan is being folded into guard #25 as a standing rule.
+
+### 🔐 Tab access control now cannot go stale
+
+*"should update all the tabs available to make it up-to-date"*
+
+He asked this once before, at v1.21.4, and it was answered by re-copying the list into the card under a comment saying to keep the two in sync. **A comment is not a mechanism**, and by this release the copy had drifted again: the card listed the tabs in a different order from the portal, and had the Users tab down as *ceo, coo* when the portal has allowed `admin` since v1.40.0 — the card was confidently describing a permission the system does not apply.
+
+`tests/registry-parity.mjs` had been checking the tab NAMES across all four copies since v1.40.1, which is exactly why the names stayed right and the **roles** quietly went wrong: the guard checked the half that was easy to check.
+
+The list, the defaults, the role chips, the hints and the visibility rule now live in `lib/portal-tabs.ts`. The portal builds its tab strip from `canSeeTab()`; the card renders `GOVERNABLE_TABS` and asks the same function what a setting means. A tab added anywhere appears in the card on the same deploy, in the portal's own order, with the portal's own rules. Two hundred lines of duplicated table are gone from `page.tsx` and the card.
+
+One dead special case went with it: the Sales tab's default was computed outside the matrix as `SALES_ROLES.includes(role) || role === "ceo"`, and `SALES_ROLES` has contained `"ceo"` since it was written — the second half had never once changed an answer.
+
+The parity guard now fails the build if either file re-declares `ALL_TABS`, `TAB_ROLES`, `TABS` or `DEFAULTS`, if a hint names a tab that does not exist, or if a default grants a role the card has no chip for — a permission the CEO could see but never revoke.
+
+### Minimalist, as asked
+
+The card was 24 bordered boxes, each printing every allowed role inline, so the longest rows ran to a dozen comma-separated names and the tab's own name was lost in the middle of them. It is now one ruled list: name, one-line hint, and the audience as a count — *"7 of 9 roles"*, the full membership on hover. The names are read from the same dictionary the navigation uses, so they match the tabs on screen in both languages. **Reset to default** moved inside the editor, where the change it undoes is visible.
+
 ## [1.78.0] — 2026-08-31 — company order, and the Saturday you worked comes back
 
 **CEO:** four things, in one message.
