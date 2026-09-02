@@ -2,7 +2,7 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
-## [1.79.0] — 2026-09-02 — one tab registry, and a payroll row you can read
+## [1.79.0] — 2026-09-02 — one tab registry, a payroll row you can read, and two discounts told apart
 
 **CEO:** *"why it wrapped like this? when I clicked closed it doesnt popup which is not correct! also I want minimalist style to make it easy in order and 🔐 Tab access control should update all the tabs available to make it up-to-date"*
 
@@ -26,6 +26,26 @@ The v1.78.0 feedback audit walked buttons. **Dropdowns and checkboxes were never
 - the onboarding checklist tick — set the tick on screen and never checked the save, so a failed write left the box ticked and the record unticked; it now reverts and says so
 
 The scan is being folded into guard #25 as a standing rule.
+
+### The two discounts had the same name
+
+**CEO**, on invoice INV-AZOO280826-1: *"I see why discount not populated there?"*
+
+The invoice was right — RM 39.00 gross, RM 12.00 off, RM 27.00 total, and the words agreed. But the LUMI LUXE line printed at full price with a dash in its DISCOUNT column, because the RM 12 had gone into the **document-level** discount, which prints at the bottom as *Less: discount*.
+
+Easy to get wrong, and not his fault: the item-row field was labelled `Discount (RM)` and the document field `Discount (RM, optional)`. Two different figures, printing in two different places, under one name. They are now **Line discount (RM)** and **Whole-document discount (RM)**, and the second says underneath where it prints and points at the first for the other behaviour.
+
+Two more things came off the same thread. The document field now warns when the discount exceeds what the items come to — the Worker clamps the total at zero, so what the customer would otherwise receive is a document reading *Less: discount − RM 500* under a subtotal of RM 39 and a total of RM 0.00. And the item row's column headers are `hidden sm:grid`, so **on a phone the line was four unlabelled boxes, two of them reading "0.00"** — unit price and line discount, side by side, with only a tooltip to tell them apart. Each field now carries its label below that breakpoint and hides it above, where the header row does the job.
+
+### Guard #30: a component declared inside a component
+
+The label fix wrapped each line field in a small `Cell` component — declared inside `Sales`, which would have made the unit-price box **unusable**: a component declared inside a render is a new type on every render, so React unmounts and rebuilds the subtree, and the input loses focus after every keystroke.
+
+Caught before it shipped, but it had already shipped once. `RightRail` had been carrying a `Section` declared the same way for releases, throwing away and rebuilding all three of its panels on every render. Nothing in `Section` holds focus, which is exactly why nobody found it — that is the shape of this bug: harmless until somebody puts an input in it, then baffling.
+
+Both are at module scope now, and guard #30 fails the build on the pattern rather than waiting for the symptom. Helpers that merely return JSX are deliberately not caught: they are called, not mounted, so their identity changing costs nothing. The capital letter is the line, because it is the line React uses too.
+
+`SubR` — the portal's field label since v1.4.139 — was private to `role-panels.tsx`, which is why every other file either rewrote it or shipped bare placeholders. It and its grid-row sibling `RowCell` now live in `components/ui/sub-label.tsx`.
 
 ### 🔐 Tab access control now cannot go stale
 

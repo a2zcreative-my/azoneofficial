@@ -184,6 +184,26 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
 }
 
 /** Right column: the queues that actually need someone to act. */
+/* v1.79.0 — hoisted out of RightRail. Declared inside a component, `Section`
+   was a NEW component type on every render, so React threw away all three
+   sections and rebuilt them each time the rail re-rendered: any state inside
+   one would reset, and an input placed in one would lose focus mid-keystroke.
+   Nothing here holds focus today, which is exactly why it went unnoticed —
+   guard #30 now fails the build on the pattern rather than on its symptoms. */
+function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+  return (
+    <section className="border-border bg-card rounded-card border p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-[13px] font-semibold">{title}</h2>
+        {count !== undefined && count > 0 && (
+          <span className="bg-danger-soft text-danger rounded-full px-2 py-0.5 text-[11px] font-semibold">{count}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
   const [leave, setLeave] = useState<Leave[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -203,18 +223,6 @@ export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
         setAnns((r.data?.announcements ?? []).slice(0, 3))),
     ]).then(() => setLoaded(true));
   }, []);
-
-  const Section = ({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) => (
-    <section className="border-border bg-card rounded-card border p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-[13px] font-semibold">{title}</h2>
-        {count !== undefined && count > 0 && (
-          <span className="bg-danger-soft text-danger rounded-full px-2 py-0.5 text-[11px] font-semibold">{count}</span>
-        )}
-      </div>
-      {children}
-    </section>
-  );
 
   /* v1.77.0 — skeleton until the first fetch lands: one queue entry in the
      shape of the real rows (title line + detail line). */

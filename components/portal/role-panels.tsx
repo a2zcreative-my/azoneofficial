@@ -19,9 +19,10 @@
 
 import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
+import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
 import { properName, firstName, displayName } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { SITE_CONFIG } from "@/constants/site";
@@ -83,15 +84,11 @@ const reasonLabel = (r: string) => (getLang() === "ms" ? (REASON_MS[r] ?? r) : r
 
 
 
-/** v1.4.139: subhead label above placeholder fields (portal-wide pattern). */
-function SubR({ t, children, className = "" }: { t: string; children: ReactNode; className?: string }) {
-  return (
-    <label className={`block ${className}`}>
-      <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{t}</span>
-      {children}
-    </label>
-  );
-}
+/* v1.79.0 — SubR moved to components/ui/sub-label.tsx. It was private to
+   this file, so every other file that wanted a labelled field wrote its own
+   or shipped bare placeholders; the document form's unit-price and
+   line-discount boxes were two unlabelled "0.00"s side by side because of
+   it. Imported at the top of this file now. */
 
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */

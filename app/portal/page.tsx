@@ -48,6 +48,7 @@ import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
+import { RowCell } from "@/components/ui/sub-label"; // v1.79.0 - a placeholder is not a label
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
@@ -10117,7 +10118,13 @@ function Sales({ user }: { user: User }) {
               <span>UOM</span>
               <span>{L("Qty", "Kuantiti")}</span>
               <span>{L("Unit price (RM)", "Harga seunit (RM)")}</span>
-              <span>{L("Discount (RM)", "Diskaun (RM)")}</span>
+              {/* v1.79.0 (CEO, invoice INV-AZOO280826-1: "I see why discount
+                  not populated there?") — the RM 12 he entered went into the
+                  document-level box, so the line printed at full price with a
+                  dash in its DISCOUNT column. Both fields were called
+                  "Discount (RM)". They are different things that print in
+                  different places, so they now have different names. */}
+              <span>{L("Line discount (RM)", "Diskaun baris (RM)")}</span>
               <span />
             </div>
             {doc.items.map((item, i) => {
@@ -10207,26 +10214,39 @@ function Sales({ user }: { user: User }) {
                       ) : null}
                     </div>
                   )}
-                  <input
-                    className={inputClass}
-                    placeholder="UOM"
-                    maxLength={12}
-                    value={item.uom ?? ""}
-                    title={L(
-                      "Unit of measure — PCS, UNIT, SET, VIDEO, SESSION…",
-                      "Unit ukuran — PCS, UNIT, SET, VIDEO, SESSION…"
-                    )}
-                    onChange={(e) =>
-                      patch({ uom: e.target.value.toUpperCase() })
-                    }
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    className={inputClass}
-                    value={item.qty}
-                    onChange={(e) => patch({ qty: Number(e.target.value) })}
-                  />
+                  {/* v1.79.0 — THE HEADER ROW ABOVE IS `hidden sm:grid`, so on
+                      a phone this line was four unlabelled boxes, two of them
+                      reading "0.00": unit price and line discount, side by
+                      side, indistinguishable. `Cell` puts the label back
+                      below the sm breakpoint and gets out of the way above
+                      it, where the header row already names the columns — so
+                      a five-line invoice does not repeat five sets of
+                      labels, and there is still exactly ONE input per field. */}
+                  <RowCell t={L("UOM", "Unit")}>
+                    <input
+                      className={inputClass}
+                      placeholder="UOM"
+                      maxLength={12}
+                      value={item.uom ?? ""}
+                      title={L(
+                        "Unit of measure — PCS, UNIT, SET, VIDEO, SESSION…",
+                        "Unit ukuran — PCS, UNIT, SET, VIDEO, SESSION…"
+                      )}
+                      onChange={(e) =>
+                        patch({ uom: e.target.value.toUpperCase() })
+                      }
+                    />
+                  </RowCell>
+                  <RowCell t={L("Qty", "Kuantiti")}>
+                    <input
+                      type="number"
+                      min={1}
+                      className={inputClass}
+                      value={item.qty}
+                      onChange={(e) => patch({ qty: Number(e.target.value) })}
+                    />
+                  </RowCell>
+                  <RowCell t={L("Unit price (RM)", "Harga seunit (RM)")}>
                   <input
                     type="number"
                     min={0}
@@ -10256,6 +10276,8 @@ function Sales({ user }: { user: User }) {
                       })
                     }
                   />
+                  </RowCell>
+                  <RowCell t={L("Line discount (RM)", "Diskaun baris (RM)")}>
                   <input
                     type="number"
                     min={0}
@@ -10263,8 +10285,8 @@ function Sales({ user }: { user: User }) {
                     className={inputClass}
                     placeholder="0.00"
                     title={L(
-                      "Discount on THIS line — the document-level discount stays separate",
-                      "Diskaun pada baris INI — diskaun peringkat dokumen kekal berasingan"
+                      "Discount on THIS line only — it comes off this line's amount and prints in the document's DISCOUNT column. The whole-document discount below is a separate figure, printed separately.",
+                      "Diskaun untuk baris INI sahaja — ia ditolak daripada jumlah baris ini dan dicetak dalam lajur DISKAUN dokumen. Diskaun seluruh dokumen di bawah ialah angka berasingan, dicetak berasingan."
                     )}
                     value={
                       item.disc_cents ? (item.disc_cents / 100).toString() : ""
@@ -10278,6 +10300,7 @@ function Sales({ user }: { user: User }) {
                       })
                     }
                   />
+                  </RowCell>
                   {doc.items.length > 1 ? (
                     <button
                       type="button"
@@ -10344,9 +10367,18 @@ function Sales({ user }: { user: User }) {
             <div
               className={`grid grid-cols-2 gap-3 ${doc.doc_type !== "DO" ? "sm:grid-cols-3" : ""}`}
             >
+              {/* v1.79.0 (CEO, on INV-AZOO280826-1: "I see why discount not
+                  populated there?") — this field and the one on each item row
+                  were BOTH called "Discount (RM)". They are not the same
+                  thing: this one comes off the whole document and prints in
+                  the totals ladder as "Less: discount"; the line one comes off
+                  its own line and prints in the DISCOUNT column. His RM 12
+                  went here, so LUMI LUXE printed at 39.00 with a dash beside
+                  it and the reduction appeared at the bottom instead. Both
+                  now say which they are, and this one says where it prints. */}
               <label className="block">
                 <span className="text-muted-foreground mb-1 block text-xs">
-                  {L("Discount (RM, optional)", "Diskaun (RM, pilihan)")}
+                  {L("Whole-document discount (RM, optional)", "Diskaun seluruh dokumen (RM, pilihan)")}
                 </span>
                 <input
                   type="number"
@@ -10369,6 +10401,21 @@ function Sales({ user }: { user: User }) {
                     }))
                   }
                 />
+                <span className="text-muted-foreground mt-1 block text-[11px] leading-snug">
+                  {L('Comes off the whole document and prints at the bottom as "Less: discount". To show it against one item instead, use that line\u2019s Line discount box.',
+                     'Ditolak daripada seluruh dokumen dan dicetak di bawah sebagai "Less: discount". Untuk menunjukkannya pada satu barang sahaja, guna kotak Diskaun baris pada baris itu.')}
+                </span>
+                {/* The Worker clamps the total at zero, so a discount larger
+                    than the goods does not produce a negative invoice — it
+                    produces a document whose ladder reads "Less: discount
+                    − RM 500" under a subtotal of RM 39 and a total of RM 0.
+                    That is a customer-facing document, so say it here. */}
+                {doc.discount_cents > subtotal && (
+                  <span className="mt-1 block text-[11px] leading-snug font-semibold text-amber-700">
+                    {L(`More than the items come to (${fmtRM(subtotal)}) — the total would print as RM 0.00`,
+                       `Lebih daripada jumlah barang (${fmtRM(subtotal)}) — jumlah akan dicetak sebagai RM 0.00`)}
+                  </span>
+                )}
               </label>
               {/* v1.4.160: delivery / postage fee — quoted on the QT, billed on
                   the INV; a Delivery Order carries goods only (Malaysian
