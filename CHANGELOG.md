@@ -2,6 +2,59 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.80.0] — 2026-09-03 — a working day in two blocks
+
+**CEO:** *"I want minimalist interface for me to easier to choose which area that I want to update. If user clock in after working hour need to check if their task is assigned to work at 8pm above? if yes, then it is consider their working time. this one need to change since it is not working correctly flow which is require 8 hours, 11:00am to 5:00pm then continue work at 8:30pm to 10:30pm and bulk choose day for me to update easily"*
+
+### 11:00–17:00, then 20:30–22:30
+
+v1.76.0 gave every weekday **one** start and one end. That is the shape of an office day and not the shape of this company: a live host works the afternoon, goes home, and comes back for the evening broadcast. Six hours plus two is the eight he is owed, and there was nowhere to put the two.
+
+Written as one window — 11:00–22:30, the only way it fitted — everything downstream believed it. **Eleven and a half scheduled hours.** An early-out flag on anybody who left at 17:00 as instructed. And a part-time host paid RM15/h for the three and a half hours he spent at home: **RM 52.50 a day**.
+
+Migration `0102` gives each weekday an optional second block. A day is now a list of blocks, and four helpers exist so it is easier to be right than to reach for the old `start`/`end` and be subtly wrong at 20:30 — `windowAt`, `lateAgainst`, `endOfDay`, `scheduledMinutes`. `start` and `end` still mean the first block, so every single-block pattern in the company behaves exactly as it did.
+
+Four places were wrong about the evening and are not now:
+
+- **Late** is measured against the block somebody is turning up *for*. 20:28 for a 20:30 block was previously "late by nine hours" against an 11:00 start — and being past the half-day threshold, it **docked half a day**.
+- **Early-out** is measured against the *last* block's end. Against a 17:00 first-block end, leaving at 22:30 read "ok" and leaving at 17:05 read "ok" too; the flag meant nothing.
+- **Hourly pay** counts the overlap of the punch span with the scheduled blocks, not the span. 11:00 to 22:30 now pays eight hours.
+- **The short-day scan** compares like with like. It had been measuring a six-hour first block against an 11.5-hour span, so it never found anybody short — ever.
+
+### Work the schedule does not know about
+
+*"If user clock in after working hour need to check if their task is assigned to work at 8pm above? if yes, then it is consider their working time."*
+
+A pattern is a normal week. A client booking a 21:00 broadcast is not, and a punch at 21:00 was being measured against a shift that ended at 17:00.
+
+A punch outside every scheduled block is now checked against the two places this company actually schedules work — `live_sessions` (the live board) and `task_blocks` (the roster). If either covers that moment, the punch **counts as working time** and the register says which job vouched for it, by name: *assigned: Sara Beauty*. The month's commitments are read once per request, not twice per punch.
+
+Three limits, each with a reason: a **cancelled** session covers nothing (turning up for a session that was called off is not assigned work); a block with no end time covers **three hours**, not the rest of the night (`task_blocks.end_time` is nullable, and open-ended would vouch for a punch at midnight); and assigned minutes overlapping a scheduled block are **never paid twice**.
+
+Where there is nothing to measure against at all — a rest day worked, a database that has not applied `0099` — the whole span still counts, exactly as before. **A schedule the system cannot read must never silently zero a wage.** And because this change can make a payslip *smaller*, the payroll row now shows both figures: `clocked 11h30 · 3h30 off-schedule`.
+
+### Bulk day select, and hours you can see
+
+*"bulk choose day for me to update easily"*
+
+Tick the days that share a schedule — with Mon–Fri and All shortcuts — type the times once, Apply. Typing 11:00–17:00 into five rows by hand is five chances to put 17:30 where 17:00 belongs, and the only symptom is somebody flagged late on a Thursday three weeks later.
+
+Every row shows what that day comes to, and the footer shows the week. Eight hours split across two blocks is not a sum anybody should be doing in their head.
+
+### The card opens short
+
+*"I want minimalist interface for me to easier to choose which area that I want to update"*
+
+Add record, Unpaid leave, Working hours and Find & filter were four full forms stacked open at once — **eighteen controls before the first attendance row**, and the records he opened the card to read were off the bottom of the screen. One area at a time now, chosen from a row of buttons. Find & filter opens by default, because it decides what the table shows; the table itself is always there.
+
+### Guarded
+
+Guard #24 gained fifteen checks: that the helpers exist rather than being re-derived at each call site, that blocks are stored in order, that all three punch classifiers use them, that a cancelled session vouches for nothing, that assigned minutes are not double-paid, and that an unreadable schedule still pays the span.
+
+Two of its existing checks named the export's column list and a formula verbatim, and went red because the export widened to carry both blocks — the third and fourth time this release that a guard pinned prose instead of behaviour. Both now assert the property.
+
+One check was **itself wrong on its first run**: it looked for the pre-migration recovery by searching the file for `if (!String(e2).includes("no such column")) throw e2;`, a line that already appears twice elsewhere in `staff.ts` — so it passed with the recovery deleted. It now matches the whole recovery as one span. That recovery matters: the worker publishes **before** migrations run, and `shiftOn` names its columns explicitly, so for a few minutes it asks a database with no `mon_start2` for `mon_start2`. Swallowed, that would have flagged every punch in the window against the hard-coded 10:00–18:00 nobody works.
+
 ## [1.79.0] — 2026-09-02 — one tab registry, a payroll row you can read, and two discounts told apart
 
 **CEO:** *"why it wrapped like this? when I clicked closed it doesnt popup which is not correct! also I want minimalist style to make it easy in order and 🔐 Tab access control should update all the tabs available to make it up-to-date"*

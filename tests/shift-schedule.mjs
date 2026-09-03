@@ -70,6 +70,7 @@ const ok = (label, cond, extra = "") => {
     if (!/SHIFT\.(startMinutes|endMinutes|halfDayMinutes)/.test(l)) return;
     if (/\?\? SHIFT\./.test(l)) return;          // a null-safe default inside a shiftOn result
     if (/weekday \? SHIFT\./.test(l)) return;     // the fallback inside shiftOn itself
+    if (/windows: weekday \? \[\{ start: SHIFT\./.test(l)) return; // v1.80.0: the same fallback, as a block
     if (/halfDay: SHIFT\.halfDayMinutes/.test(l)) return;
     offenders.push(i + 1);
   });
@@ -82,12 +83,22 @@ const ok = (label, cond, extra = "") => {
      "measuring a Saturday against hours that do not apply produced a false early_out");
   ok("the register annotates against each person's own schedule",
      /const shR = shiftAtR\(r\.user_id, dateIso\)/.test(staff));
+  /* v1.80.0 — this named the export's columns verbatim, so widening the
+     export to carry BOTH blocks failed a guard about traceability. It now
+     asserts the PROPERTY: whatever the columns are called, the export must
+     carry the hours judged against and the pattern they came from. */
   ok("the payroll export carries which schedule it judged against",
-     /"day_kind", "pattern", "shift_start", "shift_end"/.test(staff),
+     /"day_kind", "pattern", "shift_hours"/.test(staff) && /shiftLabel\(shE\)/.test(staff),
      "a late flag nobody can trace back to a set of hours is a late flag nobody can dispute");
+  ok("the export shows the evening block, not just the first one",
+     /"scheduled_minutes"/.test(staff) && /"assigned_work"/.test(staff),
+     "a split day exported as 11:00-17:00 hides the two hours that make it eight");
   ok("the short-day scan measures against the person's scheduled length",
-     /const scheduled = shD\.start !== null && shD\.end !== null/.test(staff),
-     "somebody on 11:00-19:00 is not short at 18:00");
+     /const scheduled = scheduledMinutes\(shD\) \|\| WORK_DAY_MINUTES/.test(staff),
+     "somebody on 11:00-19:00 is not short at 18:00, and a split day owes both blocks");
+  ok("the short-day scan compares like with like",
+     /const inside = minutesInWindows\(shD, fromD, fromD \+ span\);/.test(staff),
+     "11:00 to 22:30 is 11.5 hours elapsed and 8 hours worked - comparing the span against a scheduled 8 reports a short day as a long one");
 }
 
 /* ---- 3. effective dating ---- */
@@ -199,10 +210,119 @@ const ok = (label, cond, extra = "") => {
      /<option value="rest_day">/.test(panels) && /<option value="pending">/.test(panels));
 }
 
+/* ---- 7. SPLIT SHIFTS (v1.80.0, guard #24 extended) ----
+ *
+ * The CEO: *"require 8 hours, 11:00am to 5:00pm then continue work at 8:30pm
+ * to 10:30pm"*. A day is two blocks now, and every one of these checks is a
+ * place where reaching for `sh.start` or `sh.end` — which still exist, and
+ * still mean the FIRST block — gives a confidently wrong answer about the
+ * evening. Each of these was wrong before this release:
+ *
+ *   - 20:28 for a 20:30 block measured against 11:00 is not "late by nine
+ *     hours", and past `half_day_minutes` it silently docked half a day.
+ *   - Leaving at 22:30 measured against a 17:00 first-block end said "ok",
+ *     and leaving at 17:05 said "ok" too — the flag meant nothing.
+ *   - 11:00 to 22:30 clocked is 11.5 hours. At RM15/h the three and a half
+ *     hours spent at home was RM 52.50 a day.
+ */
+{
+  const helpers = ["windowAt", "lateAgainst", "endOfDay", "scheduledMinutes", "minutesInWindows", "shiftLabel"];
+  for (const h of helpers) {
+    ok(`${h} exists`, new RegExp(`export function ${h}\\(`).test(staff),
+       "the split-shift maths must live in one place, not be re-derived at each call site");
+  }
+  ok("a day carries every block, not just the first",
+     /windows: ShiftWindow\[\]/.test(staff) && /windows\.sort\(\(a, b\) => a\.start - b\.start\)/.test(staff),
+     "blocks out of order would make endOfDay() name the wrong finish");
+  ok("a block needs BOTH ends to exist",
+     /if \(row\.s2 !== null && row\.s2 !== undefined && row\.e2 !== null && row\.e2 !== undefined\)/.test(staff),
+     "half a block would put scheduled hours on the payroll that nobody typed");
+  ok("a rest day is still no FIRST block",
+     /kind: row\.s === null \|\| row\.s === undefined \? "rest_day" : "workday"/.test(staff),
+     "changing this test would reclassify every existing pattern");
+
+  /* The three classifiers. Named individually because they drift apart —
+     that is exactly what happened between the register and the CSV export
+     in v1.76, where one used > start and the other used <= start. */
+  const lateUses = (staff.match(/lateAgainst\(/g) ?? []).length;
+  ok("every clock-in flag is measured against the right block", lateUses >= 4,
+     `${lateUses} references (1 definition + the live route, the register and the CSV export) — a call site still on sh.start calls the evening shift late`);
+  const endUses = (staff.match(/endOfDay\(/g) ?? []).length;
+  ok("every clock-out flag is measured against the LAST block", endUses >= 4,
+     `${endUses} references — sh.end is the first block's finish, so an early-out against it is meaningless on a split day`);
+
+  /* Assigned work. */
+  ok("there is a batch resolver for assigned work", /export async function assignedResolver/.test(staff));
+  ok("it reads BOTH places the company schedules work",
+     /FROM live_sessions/.test(staff) && /FROM task_blocks b/.test(staff),
+     "a host is booked on the live board and a designer on the roster - one source would vouch for half the company");
+  ok("a cancelled live session vouches for nothing",
+     /status != 'cancelled'/.test(staff),
+     "turning up for a session that was called off is not assigned work");
+  ok("an open-ended block does not cover the rest of the night",
+     /const OPEN_BLOCK_MINUTES = 180/.test(staff),
+     "task_blocks.end_time is nullable, and treating a blank as open-ended would vouch for a punch at midnight");
+  ok("assigned work is only looked up when the schedule says nothing",
+     /const inWindow = windowAt\(sh, mins\);/.test(staff) &&
+     /const asg = inWin \? null : assignedAtR\(/.test(staff),
+     "inside a scheduled block the schedule is already the answer, and the lookup would cost queries to confirm it");
+  ok("the resolver is built ONCE per request, not per punch",
+     /const assignedAtR = await assignedResolver\(env, `\$\{month\}-01`/.test(staff) &&
+     /const assignedAtE = await assignedResolver\(env, `\$\{month\}-01`/.test(staff),
+     "the v1.77.0 rule: a lookup inside a loop comes from a resolver read once");
+
+  /* The money. */
+  ok("hourly pay counts the overlap with the schedule, not the span",
+     /let day = minutesInWindows\(sh, from, to\);/.test(staff),
+     "last-out minus first-in pays for the gap between an afternoon and an evening shift");
+  ok("assigned minutes are never paid twice",
+     /if \(windowAt\(sh, m\)\) continue;/.test(staff),
+     "an evening session overlapping a scheduled block would be counted by both");
+  ok("nothing to measure against means the whole span still counts",
+     /counted \+= day > 0 \? day : span;/.test(staff),
+     "a rest day worked, or a database without 0099, must never silently zero a wage");
+  ok("the payslip shows what was clocked as well as what was counted",
+     /hourly_clocked_live/.test(staff) && /hourly_trimmed_live/.test(staff) &&
+     /off-schedule/.test(read("components/portal/payroll-panel.tsx")),
+     "a change that reduces a wage has to say so on the row");
+
+  /* The editor. */
+  ok("the second block cannot start before the first one finishes",
+     /the second block starts before the first one finishes/.test(staff),
+     "overlapping blocks would count the same minute twice");
+  ok("a second block cannot exist without a first",
+     /a second block needs a first one/.test(staff));
+  ok("the editor can bulk-apply days", /const \[bulkDays, setBulkDays\]/.test(panels) &&
+     /Apply to \$\{bulkDays\.length \|\| 0\} day/.test(panels),
+     "the CEO: bulk choose day for me to update easily");
+  ok("the editor shows what a day and a week come to",
+     /const dayMinutes = /.test(panels) && /Week: \$\{hLabel\(/.test(panels),
+     "eight hours split across two blocks is not a sum to do in your head");
+  ok("the card opens one section at a time",
+     /const \[section, setSection\] = useState<"find" \| "add" \| "unpaid" \| "hours">/.test(panels),
+     "the CEO: I want minimalist interface for me to easier to choose which area that I want to update");
+  ok("the register can filter to assigned-work punches",
+     /<option value="assigned">/.test(panels));
+  /* THE DEPLOY WINDOW. The worker publishes before the migrations run, and
+     shiftOn names its columns explicitly - so for a few minutes it asks a
+     database with no mon_start2 for mon_start2. The outer catch would have
+     turned that into the 10:00-18:00 constant on the one path that
+     classifies a live clock-in. */
+  /* ONE regex spanning the whole recovery, not two independent ones: staff.ts
+     already contained the line `if (!String(e2).includes("no such column"))
+     throw e2;` in two unrelated places, so a check that merely found that text
+     somewhere in the file passed with this recovery deleted. It did, on the
+     first run of this very check. */
+  ok("a database without 0102 still reads its own patterns",
+     /use = await withBlocks\(true\);[\s\S]{0,220}?no such column[\s\S]{0,120}?use = await withBlocks\(false\)/.test(staff),
+     "falling back to the hard-coded shift would flag every punch between the deploy and the migration against hours nobody works");
+}
+
 /* ---- 6. registered and probed ---- */
 for (const [name, probe] of [
   ["0099_shift_patterns", "0099 \\(working-hour schedules\\)"],
   ["0100_attendance_pending", "0100 \\(a forgotten punch waits for approval\\)"],
+  ["0102_split_shifts", "0102 \\(a working day in two blocks\\)"],
 ]) {
   ok(`${name} is in EXPECTED_MIGRATIONS`, index.includes(`"${name}",`));
   ok(`${name} has a health probe`, new RegExp(probe).test(index));
@@ -210,7 +330,7 @@ for (const [name, probe] of [
 
 console.log(
   fails.length === 0
-    ? `PASS — hours come from a schedule, and an unapproved punch counts for nothing (${pass} checks)`
+    ? `PASS — hours come from a schedule that can split a day, and an unapproved punch counts for nothing (${pass} checks)`
     : `\n${fails.map((f) => `  ✗ ${f}`).join("\n")}\n\n${fails.length} check(s) failed.`,
 );
 process.exit(fails.length === 0 ? 0 : 1);

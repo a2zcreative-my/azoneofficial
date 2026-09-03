@@ -77,6 +77,11 @@ interface Entry {
   hourly_minutes_live?: number;
   hourly_rate_live?: number;
   hourly_pay_live?: number;
+  /* v1.80.0 — what the clock said before the split-shift gap came off, and
+     how many minutes that was. Shown beside the figure: a wage that goes DOWN
+     because of a code change must say so on the row, not in a changelog. */
+  hourly_clocked_live?: number;
+  hourly_trimmed_live?: number;
 }
 
 /* v1.4.183 (CEO): a PART-TIME LIVE HOST is paid RM15.00/hour on clocked
@@ -1175,9 +1180,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
                     <td key={k} className="px-2 py-1.5">
                       {hourlyRow && k === "basic_cents" ? (
-                        <span className="block text-xs" title={L("Auto from clock in–out — first in to last out per day, summed for the month. RM15.00/hour (CEO rule). Not editable.", "Auto daripada daftar masuk–keluar — masuk pertama hingga keluar terakhir setiap hari, dijumlahkan untuk bulan itu. RM15.00/jam (peraturan CEO). Tidak boleh disunting.")}>
+                        <span className="block text-xs" title={L("Auto from clock in–out, counting only time inside the person's scheduled blocks plus any live session or roster block outside them. RM15.00/hour (CEO rule). Not editable.", "Auto daripada daftar masuk–keluar, mengira hanya masa dalam blok berjadual orang itu campur sesi LIVE atau blok roster di luarnya. RM15.00/jam (peraturan CEO). Tidak boleh disunting.")}>
                           <span className="font-medium">{(hourlyPay / 100).toFixed(2)}</span>
                           <span className="text-muted-foreground"> · {hmLabel(hourlyMins)}{L(" × RM15/h", " × RM15/jam")}</span>
+                          {/* v1.80.0 — the gap in a split day is not paid, and
+                              this is where a smaller number than last month
+                              gets explained on the row itself. */}
+                          {(e.hourly_trimmed_live ?? 0) > 0 && (
+                            <span className="text-muted-foreground block text-[10px]"
+                              title={L(`Clocked ${hmLabel(e.hourly_clocked_live ?? 0)} in total. ${hmLabel(e.hourly_trimmed_live ?? 0)} of that fell outside the scheduled blocks with no live session or roster block covering it — the gap between an afternoon and an evening shift, for example — so it is not paid.`, `Berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} semuanya. ${hmLabel(e.hourly_trimmed_live ?? 0)} daripadanya di luar blok berjadual tanpa sesi LIVE atau blok roster yang meliputinya — jurang antara syif petang dan malam, contohnya — jadi ia tidak dibayar.`)}>
+                              {L(`clocked ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_trimmed_live ?? 0)} off-schedule`,
+                                 `berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_trimmed_live ?? 0)} luar jadual`)}
+                            </span>
+                          )}
                         </span>
                       ) : (
                       <input

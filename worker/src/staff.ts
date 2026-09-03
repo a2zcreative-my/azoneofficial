@@ -156,7 +156,19 @@ export const STAFF_ORDER_SQL = `
       ELSE 2 END,
   COALESCE(NULLIF(TRIM(u.full_name), ''), u.name)`;
 
-/** One person's hours on one date: NULL start = not a working day for them. */
+/** A block of scheduled time, minutes from midnight MYT. */
+export interface ShiftWindow { start: number; end: number }
+
+/** One person's hours on one date: NULL start = not a working day for them.
+ *
+ * v1.80.0 — A DAY IS NOW A LIST OF BLOCKS. The CEO: *"require 8 hours, 11:00am
+ * to 5:00pm then continue work at 8:30pm to 10:30pm"*. `start` and `end` stay,
+ * and stay meaning the FIRST block, so every caller written against 0099 keeps
+ * giving the answer it always gave for the single-block days that are still
+ * the overwhelming majority. Anything that must be right about a split day
+ * reads `windows` instead — and the helpers below (`windowAt`, `lateAgainst`,
+ * `endOfDay`, `scheduledMinutes`) exist so that it is easier to be right than
+ * to reach for `start` and be subtly wrong at 20:30. */
 export interface DayShift {
   start: number | null;
   end: number | null;
@@ -164,6 +176,64 @@ export interface DayShift {
   /** workday | rest_day — the person's OWN week, not an assumption about Sat/Sun. */
   kind: "workday" | "rest_day";
   pattern: string;
+  /** Every scheduled block of the day, in order. Empty on a rest day. */
+  windows: ShiftWindow[];
+}
+
+/** The block a moment falls in, or null if it falls in none of them.
+    A generous edge: a punch AT the closing minute is still inside. */
+export function windowAt(sh: DayShift, minutes: number): ShiftWindow | null {
+  return sh.windows.find((w) => minutes >= w.start && minutes <= w.end) ?? null;
+}
+
+/** The start a clock-in should be judged against.
+ *
+ * NOT `sh.start`. Somebody whose day is 11:00-17:00 and 20:30-22:30 arriving
+ * for the evening block at 20:28 is EARLY, and measuring him against 11:00
+ * called him five hundred minutes late and then, because that is past the
+ * half-day threshold, docked him half a day. The rule: the block he is in, or
+ * if he is between blocks, the next one he is turning up for. */
+export function lateAgainst(sh: DayShift, minutes: number): number | null {
+  const inside = windowAt(sh, minutes);
+  if (inside) return inside.start;
+  const next = sh.windows.find((w) => w.start > minutes);
+  if (next) return next.start;
+  // After every block: judged against the last one he was due at.
+  return sh.windows.length ? sh.windows[sh.windows.length - 1]!.start : sh.start;
+}
+
+/** When the day is over — the END OF THE LAST BLOCK, which is what an
+    early-out means. Against `sh.end` (17:00) a host who worked the evening
+    and left at 22:30 was "on time" while one who left at 17:05 was too. */
+export function endOfDay(sh: DayShift): number | null {
+  return sh.windows.length ? sh.windows[sh.windows.length - 1]!.end : sh.end;
+}
+
+/** Total scheduled minutes across every block. 11:00-17:00 + 20:30-22:30 = 480,
+    which is the eight hours the CEO is counting. */
+export function scheduledMinutes(sh: DayShift): number {
+  return sh.windows.reduce((n, w) => n + Math.max(0, w.end - w.start), 0);
+}
+
+/** How much of a span [from, to] falls INSIDE the scheduled blocks.
+ *
+ * The CEO chose one clock-in and one clock-out for a split day, so a host
+ * punches in at 11:00 and out at 22:30 and the 17:00-20:30 he spends at home
+ * is inside that span. Counting the span itself pays eleven and a half hours
+ * for an eight-hour day; counting the overlap pays eight. */
+export function minutesInWindows(sh: DayShift, from: number, to: number): number {
+  if (to <= from) return 0;
+  if (sh.windows.length === 0) return 0;
+  return sh.windows.reduce(
+    (n, w) => n + Math.max(0, Math.min(to, w.end) - Math.max(from, w.start)),
+    0,
+  );
+}
+
+/** A day printed the way it is worked: "11:00-17:00 + 20:30-22:30". */
+export function shiftLabel(sh: DayShift): string {
+  if (sh.windows.length === 0) return sh.pattern;
+  return sh.windows.map((w) => `${hhmm(w.start)}-${hhmm(w.end)}`).join(" + ");
 }
 
 const DOW_COL = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -178,6 +248,7 @@ function shiftFallback(dow: number): DayShift {
     halfDay: SHIFT.halfDayMinutes,
     kind: weekday ? "workday" : "rest_day",
     pattern: SHIFT.label,
+    windows: weekday ? [{ start: SHIFT.startMinutes, end: SHIFT.endMinutes }] : [],
   };
 }
 
@@ -185,14 +256,36 @@ function shiftFallback(dow: number): DayShift {
     batch resolver go through here, so they cannot come to different answers
     about the same row - in particular about a blank start being a rest day. */
 function dayShiftFrom(
-  row: { name: string; half_day_minutes: number | null; s: number | null; e: number | null },
+  row: {
+    name: string; half_day_minutes: number | null;
+    s: number | null; e: number | null;
+    /** v1.80.0 - the optional second block. Absent on a pre-0102 database,
+        which reads as a day with one block, exactly as before. */
+    s2?: number | null; e2?: number | null;
+  },
 ): DayShift {
+  /* A block needs BOTH ends to exist. A start with no end is a half-typed
+     row, and guessing an end for it would put scheduled hours on the payroll
+     that nobody entered. */
+  const windows: ShiftWindow[] = [];
+  if (row.s !== null && row.s !== undefined && row.e !== null && row.e !== undefined) {
+    windows.push({ start: row.s, end: row.e });
+  }
+  if (row.s2 !== null && row.s2 !== undefined && row.e2 !== null && row.e2 !== undefined) {
+    windows.push({ start: row.s2, end: row.e2 });
+  }
+  windows.sort((a, b) => a.start - b.start);
   return {
     start: row.s ?? null,
     end: row.e ?? null,
     halfDay: row.half_day_minutes ?? SHIFT.halfDayMinutes,
+    /* REST DAY IS STILL "NO FIRST BLOCK", not "no windows at all": a row with
+       only a second block is malformed rather than a rest day, and the editor
+       cannot produce one. Keeping the original test means 0099 behaviour is
+       bit-for-bit unchanged on every existing pattern. */
     kind: row.s === null || row.s === undefined ? "rest_day" : "workday",
     pattern: row.name,
+    windows,
   };
 }
 
@@ -206,19 +299,40 @@ export async function shiftOn(env: Env, userId: number, iso: string): Promise<Da
   const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
   const col = DOW_COL[dow]!;
   const fallback = (): DayShift => shiftFallback(dow);
-  try {
+  type Row = { name: string; half_day_minutes: number; s: number | null; e: number | null; s2?: number | null; e2?: number | null };
+  /* v1.80.0 — THE DEPLOY WINDOW. The worker publishes BEFORE the migrations
+     run, so for a few minutes this code asks a database that has no
+     `mon_start2` for `mon_start2`. Naming the columns explicitly (which
+     `shiftResolver` does not - it uses SELECT *) makes that a hard error, and
+     the catch below would have swallowed it into the 10:00-18:00 constant:
+     every punch in that window flagged against hours nobody works, on the one
+     path that classifies a LIVE clock-in. So the second block is asked for
+     separately, and a database that cannot answer simply gets the one-block
+     reading it had before - the correct answer for it. */
+  const withBlocks = async (two: boolean): Promise<Row | null> => {
+    const cols2 = two ? `, p.${col}_start2 AS s2, p.${col}_end2 AS e2` : "";
+    const dcols2 = two ? `, ${col}_start2 AS s2, ${col}_end2 AS e2` : "";
     /* The assignment that had started by this date, newest first. A change
        made in March cannot alter what January was flagged against. */
     const row = await env.DB.prepare(
-      `SELECT p.name, p.half_day_minutes, p.${col}_start AS s, p.${col}_end AS e
+      `SELECT p.name, p.half_day_minutes, p.${col}_start AS s, p.${col}_end AS e${cols2}
          FROM staff_shifts a JOIN shift_patterns p ON p.id = a.pattern_id
         WHERE a.user_id = ?1 AND a.effective_from <= ?2
         ORDER BY a.effective_from DESC, a.id DESC LIMIT 1`,
-    ).bind(userId, iso).first<{ name: string; half_day_minutes: number; s: number | null; e: number | null }>();
-    const use = row ?? await env.DB.prepare(
-      `SELECT name, half_day_minutes, ${col}_start AS s, ${col}_end AS e
+    ).bind(userId, iso).first<Row>();
+    return row ?? await env.DB.prepare(
+      `SELECT name, half_day_minutes, ${col}_start AS s, ${col}_end AS e${dcols2}
          FROM shift_patterns WHERE is_default = 1 LIMIT 1`,
-    ).first<{ name: string; half_day_minutes: number; s: number | null; e: number | null }>();
+    ).first<Row>();
+  };
+  try {
+    let use: Row | null;
+    try {
+      use = await withBlocks(true);
+    } catch (e2) {
+      if (!String(e2).includes("no such column")) throw e2;
+      use = await withBlocks(false); // pre-0102: one block, as it always was
+    }
     if (!use) return fallback();
     return dayShiftFrom(use);
   } catch {
@@ -280,13 +394,107 @@ export async function shiftResolver(env: Env): Promise<ShiftLookup> {
     const a = mine.get(userId)?.find((x) => x.effective_from <= iso);
     const p = (a ? byId.get(a.pattern_id) : null) ?? def;
     if (!p) return shiftFallback(dow);
+    /* `SELECT *` already carries the 0102 columns, so this needs no second
+       query - and on a database that has not applied 0102 the keys are simply
+       absent, which `dayShiftFrom` reads as "one block", the old behaviour. */
     return dayShiftFrom({
       name: p.name,
       half_day_minutes: p.half_day_minutes,
       s: (p[`${col}_start`] as number | null) ?? null,
       e: (p[`${col}_end`] as number | null) ?? null,
+      s2: (p[`${col}_start2`] as number | null) ?? null,
+      e2: (p[`${col}_end2`] as number | null) ?? null,
     });
   };
+}
+
+/** What somebody was ASSIGNED to be doing at a moment, when their schedule
+    says nothing. */
+export interface AssignedAt {
+  /** "live" | "task" - what kind of commitment covered the punch. */
+  kind: "live" | "task";
+  /** Shown to the CEO on the register: the client, or the task title. */
+  what: string;
+  start: number;
+  end: number;
+}
+
+/** One person, one date, one moment -> the commitment covering it, if any. */
+export type AssignedLookup = (userId: number, iso: string, minutes: number) => AssignedAt | null;
+
+/** v1.80.0 - WORK THE SCHEDULE DOES NOT KNOW ABOUT.
+ *
+ * The CEO, 02-09-2026: *"If user clock in after working hour need to check if
+ * their task is assigned to work at 8pm above? if yes, then it is consider
+ * their working time."*
+ *
+ * A pattern is a normal week. Evening work that is not part of anybody normal
+ * week still happens - a client books a 21:00 broadcast, a shoot runs late -
+ * and until now a punch at 21:00 was measured against a shift that ended at
+ * 17:00 and came back "late" by four hours, or "outside working hours" on a
+ * rest day. Both readings are wrong about somebody who was told to be there.
+ *
+ * TWO SOURCES, BECAUSE THE COMPANY SCHEDULES WORK IN TWO PLACES:
+ *   live_sessions - a host, a client, a slot. The evening broadcast.
+ *   task_blocks   - the roster board (0095). A task with a time on a day.
+ * A cancelled live session covers nothing: it was called off, so turning up
+ * for it is not assigned work.
+ *
+ * READ ONCE, LIKE THE SCHEDULE. Same reasoning as `shiftResolver` and the
+ * same rule: this is called inside loops over a month of punches, and two
+ * queries per punch is what made the Payroll tab unusable in v1.76.
+ *
+ * A block with no end time is treated as covering THREE HOURS from its start.
+ * `task_blocks.end_time` is nullable and often blank, and the alternative -
+ * treating it as covering nothing - would mean the roster silently stops
+ * vouching for exactly the evening work this exists to vouch for. Three hours
+ * is a shift-length guess, deliberately not open-ended: a 14:00 block must not
+ * still be covering a punch at midnight.
+ */
+const OPEN_BLOCK_MINUTES = 180;
+
+export async function assignedResolver(env: Env, fromIso: string, toIso: string): Promise<AssignedLookup> {
+  const hm = (t: string | null | undefined): number | null => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(t ?? ""));
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  /** user -> date -> commitments on that date */
+  const by = new Map<string, AssignedAt[]>();
+  const add = (userId: number, iso: string, a: AssignedAt) => {
+    const k = `${userId}|${iso}`;
+    const list = by.get(k);
+    if (list) list.push(a);
+    else by.set(k, [a]);
+  };
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT host_user_id AS uid, session_date AS d, start_time AS st, end_time AS en,
+              COALESCE(NULLIF(client_name, ''), 'Live session') AS what
+         FROM live_sessions
+        WHERE session_date BETWEEN ?1 AND ?2 AND status != 'cancelled'`,
+    ).bind(fromIso, toIso).all<{ uid: number; d: string; st: string; en: string | null; what: string }>();
+    for (const r of results ?? []) {
+      const st = hm(r.st);
+      if (st === null) continue;
+      add(r.uid, r.d, { kind: "live", what: r.what, start: st, end: hm(r.en) ?? st + OPEN_BLOCK_MINUTES });
+    }
+  } catch { /* pre-live_sessions */ }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT b.user_id AS uid, b.block_date AS d, b.start_time AS st, b.end_time AS en,
+              COALESCE(t.title, 'Assigned task') AS what
+         FROM task_blocks b LEFT JOIN tasks t ON t.id = b.task_id
+        WHERE b.block_date BETWEEN ?1 AND ?2`,
+    ).bind(fromIso, toIso).all<{ uid: number; d: string; st: string; en: string | null; what: string }>();
+    for (const r of results ?? []) {
+      const st = hm(r.st);
+      if (st === null) continue;
+      add(r.uid, r.d, { kind: "task", what: r.what, start: st, end: hm(r.en) ?? st + OPEN_BLOCK_MINUTES });
+    }
+  } catch { /* pre-0095 */ }
+  return (userId, iso, minutes) =>
+    by.get(`${userId}|${iso}`)?.find((a) => minutes >= a.start && minutes <= a.end) ?? null;
 }
 
 /** Every person's shift for one date, in one pass - for the register, the
@@ -1495,13 +1703,31 @@ export async function handleStaff(
     const myt = new Date(Date.now() + 8 * 3600 * 1000);
     const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
     const sh = await shiftOn(env, user.id, todayMYT);
+    /* v1.80.0 — ASSIGNED WORK OUTRANKS THE PATTERN. The CEO: *"If user clock
+       in after working hour need to check if their task is assigned to work
+       at 8pm above? if yes, then it is consider their working time."* Checked
+       only when the punch falls outside every scheduled block, because inside
+       one the schedule is already the answer and a lookup would cost two
+       queries to confirm what we know. */
+    const inWindow = windowAt(sh, mins);
+    const assigned = inWindow ? null
+      : (await assignedResolver(env, todayMYT, todayMYT))(user.id, todayMYT, mins);
     let flag: string;
-    if (sh.kind === "rest_day") {
+    if (assigned) {
+      /* Scheduled by name, on the roster or the live board. Not late, not a
+         rest-day anomaly - working time, and the register says which job. */
+      flag = "assigned";
+    } else if (sh.kind === "rest_day") {
       flag = "rest_day";
     } else if (body.type === "clock_in") {
-      flag = mins <= (sh.start ?? SHIFT.startMinutes) ? "ok" : mins <= sh.halfDay ? "late" : "half_day";
+      /* Against the block he is turning up FOR, not against the first block
+         of the day: 20:28 for a 20:30 evening block is early, and measuring
+         it against 11:00 called it five hundred minutes late and then docked
+         half a day for it. */
+      const due = lateAgainst(sh, mins) ?? SHIFT.startMinutes;
+      flag = mins <= due ? "ok" : mins <= sh.halfDay ? "late" : "half_day";
     } else {
-      flag = mins < (sh.end ?? SHIFT.endMinutes) ? "early_out" : "completed";
+      flag = mins < (endOfDay(sh) ?? SHIFT.endMinutes) ? "early_out" : "completed";
     }
     /* v1.9.1 — OFFICE GEOFENCE (replaces the selfie step). Placed AFTER the
        dup/no_clock_in checks (an "already punched" answer never needs
@@ -2396,27 +2622,40 @@ export async function handleStaff(
        cache per (person, date), which still meant a pair of database queries
        for every new day in the month. */
     const shiftAtR = await shiftResolver(env);
+    /* v1.80.0 — the month's rosters and live sessions, read ONCE for the same
+       reason the schedule is: this loop runs over every punch in the month. */
+    const assignedAtR = await assignedResolver(env, `${month}-01`, `${month}-31`);
     const annotated: Record<string, unknown>[] = [];
     for (const r of results as { user_id: number; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
       const dateIso = myt.toISOString().slice(0, 10);
       const shR = shiftAtR(r.user_id, dateIso);
+      const inWin = windowAt(shR, minutes);
+      const asg = inWin ? null : assignedAtR(r.user_id, dateIso, minutes);
       annotated.push({
         ...r,
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
         workday: shR.kind === "workday",
         day_kind: shR.kind,
-        shift_label: shR.start === null ? shR.pattern : `${hhmm(shR.start)}-${hhmm(shR.end)}`,
+        /* Both blocks, so a split day reads "11:00-17:00 + 20:30-22:30" and
+           the CEO can see the eight hours rather than infer them. */
+        shift_label: shiftLabel(shR),
+        scheduled_minutes: scheduledMinutes(shR),
         pending: r.pending_approval === 1,
+        /* What vouched for a punch outside the pattern, by name — the client
+           whose broadcast it was, or the task on the roster. */
+        assigned_kind: asg?.kind ?? null,
+        assigned_what: asg?.what ?? null,
         flag:
-          shR.kind === "rest_day" ? "rest_day"
+          asg ? "assigned"
+          : shR.kind === "rest_day" ? "rest_day"
           : r.type === "clock_in"
-            ? (minutes <= (shR.start ?? SHIFT.startMinutes) ? "ok" : minutes <= shR.halfDay ? "late" : "half_day")
-            : (minutes < (shR.end ?? SHIFT.endMinutes) ? "early_out" : "ok"),
+            ? (minutes <= (lateAgainst(shR, minutes) ?? SHIFT.startMinutes) ? "ok" : minutes <= shR.halfDay ? "late" : "half_day")
+            : (minutes < (endOfDay(shR) ?? SHIFT.endMinutes) ? "early_out" : "ok"),
       });
     }
-    return json({ month, shift: "per staff schedule (v1.76.0)", records: annotated });
+    return json({ month, shift: "per staff schedule (v1.80.0, split shifts)", records: annotated });
   }
 
   /* ---- leave ---- */
@@ -6007,21 +6246,38 @@ export async function handleStaff(
        make every punch that day an early-out. */
     const cols = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
     const vals: (number | null)[] = [];
+    /* v1.80.0 - the second block is validated by the SAME rules as the first
+       and then two more, because a second block is where the mistakes live:
+       it must come AFTER the first (a pattern is read in order downstream)
+       and it must not overlap it (overlapping blocks would count the same
+       minute twice in the payroll intersection). */
+    const vals2: (number | null)[] = [];
     for (const c of cols) {
-      const dayV = (body?.[c] ?? null) as { start?: unknown; end?: unknown } | null;
+      const dayV = (body?.[c] ?? null) as { start?: unknown; end?: unknown; start2?: unknown; end2?: unknown } | null;
       const st = typeof dayV?.start === "number" ? Math.round(dayV.start) : null;
       const en = typeof dayV?.end === "number" ? Math.round(dayV.end) : null;
-      if (st !== null && (st < 0 || st > 1439)) return err("invalid_input", `${c}: start is not a time of day`, 400);
-      if (en !== null && (en < 1 || en > 1440)) return err("invalid_input", `${c}: end is not a time of day`, 400);
-      if (st !== null && en !== null && en <= st) {
-        return err("invalid_input", `${c}: the finish time is not after the start time`, 400);
+      const st2 = typeof dayV?.start2 === "number" ? Math.round(dayV.start2) : null;
+      const en2 = typeof dayV?.end2 === "number" ? Math.round(dayV.end2) : null;
+      for (const [label, a, b] of [["", st, en], [" (second block)", st2, en2]] as const) {
+        if (a !== null && (a < 0 || a > 1439)) return err("invalid_input", `${c}${label}: start is not a time of day`, 400);
+        if (b !== null && (b < 1 || b > 1440)) return err("invalid_input", `${c}${label}: end is not a time of day`, 400);
+        if (a !== null && b !== null && b <= a) {
+          return err("invalid_input", `${c}${label}: the finish time is not after the start time`, 400);
+        }
+        /* One without the other is a half-defined day - it would flag every
+           punch against a boundary that does not exist. */
+        if ((a === null) !== (b === null)) {
+          return err("invalid_input", `${c}${label}: give both a start and a finish, or neither`, 400);
+        }
       }
-      /* One without the other is a half-defined day - it would flag every
-         punch against a boundary that does not exist. */
-      if ((st === null) !== (en === null)) {
-        return err("invalid_input", `${c}: give both a start and a finish, or neither for a rest day`, 400);
+      if (st2 !== null && st === null) {
+        return err("invalid_input", `${c}: a second block needs a first one - a rest day has neither`, 400);
+      }
+      if (st2 !== null && en !== null && st2 < en) {
+        return err("invalid_input", `${c}: the second block starts before the first one finishes`, 400);
       }
       vals.push(st, en);
+      vals2.push(st2, en2);
     }
     const halfV = typeof body?.half_day_minutes === "number" ? Math.round(body.half_day_minutes) : 720;
     try {
@@ -6033,9 +6289,13 @@ export async function handleStaff(
              mon_start = ?2, mon_end = ?3, tue_start = ?4, tue_end = ?5,
              wed_start = ?6, wed_end = ?7, thu_start = ?8, thu_end = ?9,
              fri_start = ?10, fri_end = ?11, sat_start = ?12, sat_end = ?13,
-             sun_start = ?14, sun_end = ?15, half_day_minutes = ?16
+             sun_start = ?14, sun_end = ?15, half_day_minutes = ?16,
+             mon_start2 = ?18, mon_end2 = ?19, tue_start2 = ?20, tue_end2 = ?21,
+             wed_start2 = ?22, wed_end2 = ?23, thu_start2 = ?24, thu_end2 = ?25,
+             fri_start2 = ?26, fri_end2 = ?27, sat_start2 = ?28, sat_end2 = ?29,
+             sun_start2 = ?30, sun_end2 = ?31
            WHERE id = ?17`,
-        ).bind(nameS, ...vals, halfV, idS).run();
+        ).bind(nameS, ...vals, halfV, idS, ...vals2).run();
         await audit(env, user.id, "shift_pattern.update", "shift_patterns", String(idS), { name: nameS });
         return json({ ok: true, id: idS });
       }
@@ -6043,15 +6303,20 @@ export async function handleStaff(
         `INSERT INTO shift_patterns
            (name, mon_start, mon_end, tue_start, tue_end, wed_start, wed_end,
             thu_start, thu_end, fri_start, fri_end, sat_start, sat_end,
-            sun_start, sun_end, half_day_minutes, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            sun_start, sun_end, half_day_minutes, created_by,
+            mon_start2, mon_end2, tue_start2, tue_end2, wed_start2, wed_end2,
+            thu_start2, thu_end2, fri_start2, fri_end2, sat_start2, sat_end2,
+            sun_start2, sun_end2)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                 ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
          RETURNING id`,
-      ).bind(nameS, ...vals, halfV, user.id).first<{ id: number }>();
+      ).bind(nameS, ...vals, halfV, user.id, ...vals2).first<{ id: number }>();
       await audit(env, user.id, "shift_pattern.create", "shift_patterns", String(res?.id), { name: nameS });
       return json({ ok: true, id: res?.id }, 201);
     } catch (eS) {
-      if (!String(eS).includes("no such table")) throw eS;
-      return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
+      const msgS = String(eS);
+      if (!msgS.includes("no such table") && !msgS.includes("no such column")) throw eS;
+      return err("migration_missing", `Migration ${msgS.includes("no such column") ? "0102" : "0099"} is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.`, 500);
     }
   }
 
@@ -7032,7 +7297,36 @@ export async function handleStaff(
      view, the save route and the recompute button — single source of truth. */
   /* PART_TIME_LH_RATE_CENTS and isHourlyUser are at module scope (v1.77.0,
      v1.78.0) - see the notes beside them. */
-  const clockedMinutes = async (userId: number, month: string): Promise<number> => {
+  /* v1.80.0 — THE GAP IN A SPLIT DAY IS NOT PAID.
+   *
+   * The CEO chose one clock-in and one clock-out for a split day, so a host
+   * on 11:00-17:00 plus 20:30-22:30 punches in at 11:00 and out at 22:30.
+   * Last-out minus first-in reads 11.5 hours; he worked 8. The three and a
+   * half hours in between he spent at home, and at RM15/h that gap was
+   * RM 52.50 a day of pay for being away.
+   *
+   * So the span is INTERSECTED with what the person was actually due to be
+   * doing: their scheduled blocks, plus any live session or roster block that
+   * covers time outside them (the CEO's *"if yes, then it is consider their
+   * working time"*).
+   *
+   * THE FALLBACK MATTERS AS MUCH AS THE RULE. When there is nothing to
+   * intersect with — a rest day worked, an unassigned evening, a database
+   * that has not applied 0099 — the whole span counts, exactly as it did
+   * before. A schedule the system cannot read must never silently zero
+   * somebody's wage.
+   *
+   * Both figures are returned. A change that quietly reduces a payslip is
+   * the kind this system has been burned by, so the panel shows "clocked
+   * 11h30 -> counted 8h00" and says why, rather than a smaller number with
+   * no explanation.
+   */
+  let shiftAtP: ShiftLookup | null = null;
+  let assignedAtP: AssignedLookup | null = null;
+  const clockedMinutes = async (
+    userId: number,
+    month: string,
+  ): Promise<{ counted: number; clocked: number; trimmed: number }> => {
     /* An unapproved punch pays nobody - this is an hourly host's wage. */
     const notPending = await notPendingSql(env);
     const { results } = await env.DB.prepare(
@@ -7043,13 +7337,38 @@ export async function handleStaff(
        WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2${notPending}
        GROUP BY d`,
     ).bind(userId, month).all<{ d: string; i: string | null; o: string | null }>();
-    let mins = 0;
+    /* Read once and reused across every hourly person in the run — this
+       helper is itself called inside a loop over staff (v1.77.0 rule). */
+    shiftAtP ??= await shiftResolver(env);
+    assignedAtP ??= await assignedResolver(env, `${month}-01`, `${month}-31`);
+    let counted = 0;
+    let clocked = 0;
     for (const r of results) {
       if (!r.i || !r.o) continue; // an unpaired day earns nothing until fixed
-      const diff = (new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000;
-      if (diff > 0) mins += Math.round(diff);
+      const inM = new Date(r.i + "Z").getTime();
+      const outM = new Date(r.o + "Z").getTime();
+      const span = Math.round((outM - inM) / 60000);
+      if (span <= 0) continue;
+      clocked += span;
+      const mytMin = (ms: number) => {
+        const d = new Date(ms + 8 * 3600 * 1000);
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+      };
+      const from = mytMin(inM);
+      const to = from + span; // may run past midnight; the windows simply stop
+      const sh = shiftAtP(userId, r.d);
+      let day = minutesInWindows(sh, from, to);
+      /* Assigned work outside the pattern counts too, and only the part of it
+         that is both inside the punch span AND outside the scheduled blocks —
+         so an evening session that overlaps a scheduled block is never paid
+         twice. */
+      for (let m = from; m < to; m++) {
+        if (windowAt(sh, m)) continue;
+        if (assignedAtP(userId, r.d, m)) day++;
+      }
+      counted += day > 0 ? day : span;
     }
-    return mins;
+    return { counted, clocked, trimmed: Math.max(0, clocked - counted) };
   };
   const hourlyPayCents = (mins: number) => Math.round((mins * PART_TIME_LH_RATE_CENTS) / 60);
 
@@ -7071,10 +7390,15 @@ export async function handleStaff(
     // CURRENT month figure even before the entry is saved/recomputed.
     for (const r of results as Record<string, unknown>[]) {
       if (isHourlyUser(r.user_role as string, r.employment_status as string)) {
-        const mins = await clockedMinutes(r.user_id as number, month);
-        r.hourly_minutes_live = mins;
+        const cm = await clockedMinutes(r.user_id as number, month);
+        r.hourly_minutes_live = cm.counted;
+        /* v1.80.0 — what the clock said, and how much of it was off-schedule.
+           Shown beside the figure so a smaller number than last month is
+           explainable without opening the register. */
+        r.hourly_clocked_live = cm.clocked;
+        r.hourly_trimmed_live = cm.trimmed;
         r.hourly_rate_live = PART_TIME_LH_RATE_CENTS;
-        r.hourly_pay_live = hourlyPayCents(mins);
+        r.hourly_pay_live = hourlyPayCents(cm.counted);
       }
     }
     const releasedRow = await env.DB.prepare(
@@ -7368,12 +7692,27 @@ export async function handleStaff(
            hours, not against a day that ended at 18:00. */
         const shD = shiftAtA(u.id, d);
         if (shD.kind === "rest_day") continue;
-        const scheduled = shD.start !== null && shD.end !== null
-          ? shD.end - shD.start : WORK_DAY_MINUTES;
+        /* v1.80.0 — BOTH blocks. On a split day this read the first block
+           only: 11:00-17:00 of an 11:00-17:00 plus 20:30-22:30 day, so the
+           scan measured a six-hour day against somebody who owed eight and
+           found nobody short, ever. */
+        const scheduled = scheduledMinutes(shD) || WORK_DAY_MINUTES;
         const c = clocked.get(`${u.id}|${d}`);
         if (!c || !c.i) { missing.push(d); continue; }
         if (!c.o) continue; // still open or never clocked out - not a pay question
-        const mins = Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000);
+        const span = Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000);
+        /* And the time actually inside those blocks, for the same reason the
+           hourly wage counts the overlap: 11:00 to 22:30 is 11.5 hours of
+           elapsed time and 8 hours of work, and comparing 11.5 against a
+           scheduled 8 would report a short day as a long one. Falls back to
+           the span when there is nothing to intersect with. */
+        const mytOf = (iso: string) => {
+          const t = new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000);
+          return t.getUTCHours() * 60 + t.getUTCMinutes();
+        };
+        const fromD = mytOf(c.i);
+        const inside = minutesInWindows(shD, fromD, fromD + span);
+        const mins = inside > 0 ? inside : span;
         /* A quarter of the scheduled day is the smallest thing worth raising -
            below that this becomes a list of people who left ten minutes
            early, which is a conversation, not a payroll line. */
@@ -7652,7 +7991,7 @@ export async function handleStaff(
       /* v1.4.183: hourly (part-time live host) rows re-derive from the
          attendance clock — same formula as the save route. */
       if (isHourlyUser(e.user_role, e.employment_status)) {
-        const minsR = await clockedMinutes(e.user_id, monthR);
+        const minsR = (await clockedMinutes(e.user_id, monthR)).counted;
         const basicR = hourlyPayCents(minsR);
         /* v1.77.0 — a part-timer's hours on a public holiday earn a second
            RM15/h (Part-Time Employees Regulations 2010). */
@@ -7730,7 +8069,7 @@ export async function handleStaff(
     const tRow = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
       .bind(body.user_id).first<{ role: string; employment_status: string | null }>();
     if (tRow && isHourlyUser(tRow.role, tRow.employment_status)) {
-      const minsH = await clockedMinutes(body.user_id, month);
+      const minsH = (await clockedMinutes(body.user_id, month)).counted;
       const basicH = hourlyPayCents(minsH);
       /* v1.77.0 — a second RM15/h for hours on a public holiday. */
       const whoH = await env.DB.prepare(`SELECT joined_on, left_on, rejoined_on FROM users WHERE id = ?1`).bind(body.user_id)
@@ -7801,20 +8140,29 @@ export async function handleStaff(
        so the export spent its entire time asking the same handful of
        patterns over and over. */
     const shiftAtE = await shiftResolver(env);
+    const assignedAtE = await assignedResolver(env, `${month}-01`, `${month}-31`);
     const rows: (string | number)[][] = [];
     for (const r of results as { user_id: number; name: string; email: string; employee_id: string | null; type: string; created_at: string }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
       const date = myt.toISOString().slice(0, 10);
       const shE = shiftAtE(r.user_id, date);
-      const flag = shE.kind === "rest_day" ? "rest_day"
-        : r.type === "clock_in" && shE.start !== null && minutes > shE.start ? "late"
-        : r.type === "clock_out" && shE.end !== null && minutes < shE.end ? "early_out"
+      const winE = windowAt(shE, minutes);
+      const asgE = winE ? null : assignedAtE(r.user_id, date, minutes);
+      /* v1.80.0 — measured against the block the punch belongs to, and the
+         last block's end for a clock-out. The old test used the FIRST block
+         for both, so on a split day every evening arrival exported as "late"
+         and every evening departure as on time. */
+      const flag = asgE ? "assigned"
+        : shE.kind === "rest_day" ? "rest_day"
+        : r.type === "clock_in" && shE.windows.length > 0 && minutes > (lateAgainst(shE, minutes) ?? 0) ? "late"
+        : r.type === "clock_out" && endOfDay(shE) !== null && minutes < endOfDay(shE)! ? "early_out"
         : "ok";
       rows.push([r.employee_id ?? "", r.name, r.email, date, myt.toISOString().slice(11, 16),
-                 r.type, flag, shE.kind, shE.pattern, hhmm(shE.start), hhmm(shE.end)]);
+                 r.type, flag, shE.kind, shE.pattern, shiftLabel(shE), scheduledMinutes(shE),
+                 asgE ? `${asgE.kind}: ${asgE.what}` : ""]);
     }
-    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag", "day_kind", "pattern", "shift_start", "shift_end"];
+    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag", "day_kind", "pattern", "shift_hours", "scheduled_minutes", "assigned_work"];
     const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     const csv = [header, ...rows].map((row) => row.map((c) => esc(String(c))).join(",")).join("\r\n");
     await audit(env, user.id, "attendance.export", "attendance_records", month);

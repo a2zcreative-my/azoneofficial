@@ -2029,6 +2029,13 @@ interface AttRecord {
   day_kind?: "workday" | "rest_day";
   shift_label?: string;
   pending?: boolean;
+  /* v1.80.0 — a punch outside the pattern that a live session or a roster
+     block vouches for. The CEO: *"if yes, then it is consider their working
+     time."* `assigned_what` names the job so the register answers "why is
+     there a punch at 21:00" without opening another tab. */
+  assigned_kind?: "live" | "task" | null;
+  assigned_what?: string | null;
+  scheduled_minutes?: number;
 }
 
 /* v1.21.0 (allow-but-flag geofence): where the punch happened, against HQ.
@@ -2095,6 +2102,24 @@ const toMins = (v: string): number | null => {
 const toTime = (m: number | null | undefined): string =>
   m === null || m === undefined ? "" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
+/** One weekday in the pattern editor: up to two blocks, blank = not worked. */
+type DayEdit = { start: string; end: string; start2: string; end2: string };
+const EMPTY_DAY: DayEdit = { start: "", end: "", start2: "", end2: "" };
+
+/** Minutes a day adds up to across both blocks — the number the CEO is
+    actually counting when he says the day should come to eight hours. A block
+    with only one end contributes nothing, the same rule the server applies. */
+const dayMinutes = (d: DayEdit | undefined): number => {
+  const span = (a: string, b: string) => {
+    const s = toMins(a), e = toMins(b);
+    return s === null || e === null || e <= s ? 0 : e - s;
+  };
+  return span(d?.start ?? "", d?.end ?? "") + span(d?.start2 ?? "", d?.end2 ?? "");
+};
+/** "8h", "7h30" — short enough to sit at the end of a row without wrapping. */
+const hLabel = (mins: number): string =>
+  mins === 0 ? "—" : mins % 60 === 0 ? `${mins / 60}h` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+
 /* v1.78.0 — the UnpaidDay row type left with the month's unpaid-day list: this
    card records a day, the Staff tab is where the recorded days are reviewed. */
 
@@ -2120,7 +2145,21 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
   const [pending, setPending] = useState<PendingPunch[]>([]);
   const [fixTime, setFixTime] = useState<Record<number, string>>({});
-  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; days: Record<string, { start: string; end: string }> } | null>(null);
+  /* v1.80.0 — a day is TWO optional blocks now (CEO: "require 8 hours, 11:00am
+     to 5:00pm then continue work at 8:30pm to 10:30pm"). `start`/`end` stay
+     the first block, so an existing pattern loads and saves unchanged. */
+  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; days: Record<string, DayEdit> } | null>(null);
+  /* v1.80.0 (CEO: "bulk choose day for me to update easily") — the days ticked
+     in the editor, and the times about to be applied to all of them. Typing
+     the same 11:00-17:00 into five rows is how a Thursday ends up at 11:00-
+     17:30 and nobody notices until somebody is flagged late. */
+  const [bulkDays, setBulkDays] = useState<string[]>([]);
+  const [bulk, setBulk] = useState({ start: "", end: "", start2: "", end2: "" });
+  /* v1.80.0 (CEO: "I want minimalist interface for me to easier to choose
+     which area that I want to update") — four full forms were stacked open at
+     once and the card ran off the screen before the records began. One area
+     at a time, chosen from the row of buttons at the top. */
+  const [section, setSection] = useState<"find" | "add" | "unpaid" | "hours">("find");
   const [assign, setAssign] = useState({ user_id: 0, pattern_id: 0, effective_from: "" });
   // v1.4.80: click a column HEADER to sort (▲ asc / ▼ desc); click again to
   // flip. Default = the API's chronological order.
@@ -2137,7 +2176,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      already loaded, so it is instant and costs no request. */
   const [q, setQ] = useState("");
   const [typeF, setTypeF] = useState<"all" | "clock_in" | "clock_out">("all");
-  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite" | "rest_day" | "pending">("all");
+  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite" | "rest_day" | "pending" | "assigned">("all");
   const [dayF, setDayF] = useState("");
   const filtersOn = q.trim() !== "" || typeF !== "all" || markF !== "all" || dayF !== "";
   /* ONE definition of "the rows on screen", used by the table AND by the CSV
@@ -2162,6 +2201,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     if (markF === "offsite") { if (attLoc(r)?.tone !== "flag") return false; }
     else if (markF === "rest_day") { if (r.day_kind !== "rest_day") return false; }
     else if (markF === "pending") { if (!r.pending) return false; }
+    else if (markF === "assigned") { if (!r.assigned_what) return false; }
     else if (markF !== "all" && markOf(r) !== markF) return false;
     if (dayF && utcToMytLocal(r.created_at).slice(0, 10) !== dayF) return false;
     return true;
@@ -2225,8 +2265,32 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           the row read as a broken ladder. All four rows are now the portal's
           own labelled field grid: a SubR label per control, the shared
           inputClass, and the COLUMN deciding the width. */}
-      <span className="text-muted-foreground mt-3 block text-[11px] font-semibold tracking-wide uppercase">{L("Add record", "Tambah rekod")}</span>
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* v1.80.0 (CEO: "I want minimalist interface for me to easier to choose
+          which area that I want to update") — Add record, Unpaid leave,
+          Working hours and Find & filter were four full forms stacked open at
+          once: eighteen controls before the first attendance row, and the
+          records he came to look at were off the bottom of the screen. One
+          area at a time now, chosen here. Find & filter opens by default
+          because it is the one that decides what the table below shows. */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {([
+          ["find", L("Find & filter", "Cari & tapis")],
+          ["add", L("Add record", "Tambah rekod")],
+          ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const,
+                           ["hours", L("Working hours", "Waktu bekerja")] as const] : []),
+        ] as [typeof section, string][]).map(([key, label]) => (
+          <button key={key} type="button"
+            className={section === key
+              ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
+              : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+            onClick={() => setSection(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === "add" && (
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SubR t={L("Staff", "Kakitangan")}>
           <select className={inputClass} value={add.user_id}
             onChange={(e) => setAdd((d) => ({ ...d, user_id: Number(e.target.value) }))}>
@@ -2261,6 +2325,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           </button>
         </div>
       </div>
+      )}
       {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
 
       {/* v1.76.0 (CEO: "if they forget to clock in or clock out... The
@@ -2309,7 +2374,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </>
       )}
 
-      {canUnpaid && (
+      {canUnpaid && section === "unpaid" && (
         <>
           <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
             {L("Unpaid leave — deducted from pay", "Cuti tanpa gaji — dipotong daripada gaji")}
@@ -2371,7 +2436,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           change that had already happened by announcement and that the code
           never knew about. Assignments carry the date they start, so fixing
           somebody's hours today does not re-flag a month already paid. */}
-      {canUnpaid && (
+      {canUnpaid && section === "hours" && (
         <>
           <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
             {L("Working hours", "Waktu bekerja")}
@@ -2385,22 +2450,26 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               <button key={pt.id} type="button"
                 className={`${chipNeutral} hover:bg-secondary/70`}
                 title={L("Edit this pattern", "Sunting corak ini")}
-                onClick={() => setEditP({
+                onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
                   id: pt.id, name: pt.name, half: toTime(pt.half_day_minutes as number),
                   days: Object.fromEntries(DAYS.map(([k]) => [k, {
                     start: toTime(pt[`${k}_start`] as number | null),
                     end: toTime(pt[`${k}_end`] as number | null),
+                    /* Absent on a pre-0102 row, which reads as a day with one
+                       block — the same thing it has always been. */
+                    start2: toTime(pt[`${k}_start2`] as number | null),
+                    end2: toTime(pt[`${k}_end2`] as number | null),
                   }])),
-                })}>
+                }); }}>
                 {pt.name}{pt.is_default ? ` · ${L("default", "lalai")}` : ""}
               </button>
             ))}
             <button type="button"
               className={`${chipNeutral} border-border hover:bg-secondary/70 border border-dashed bg-transparent`}
-              onClick={() => setEditP({
+              onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
                 name: "", half: "12:00",
-                days: Object.fromEntries(DAYS.map(([k]) => [k, { start: "", end: "" }])),
-              })}>
+                days: Object.fromEntries(DAYS.map(([k]) => [k, { ...EMPTY_DAY }])),
+              }); }}>
               {L("+ New pattern", "+ Corak baharu")}
             </button>
           </div>
@@ -2419,22 +2488,136 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     onChange={(e) => setEditP({ ...editP, half: e.target.value })} />
                 </SubR>
               </div>
-              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-                {DAYS.map(([k, label]) => (
-                  <div key={k} className="flex items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground w-9">{label}</span>
-                    <input type="time" className={inputClassSm}
-                      value={editP.days[k]?.start ?? ""}
-                      onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: e.target.value, end: editP.days[k]?.end ?? "" } } })} />
-                    <span className="text-muted-foreground">-</span>
-                    <input type="time" className={inputClassSm}
-                      value={editP.days[k]?.end ?? ""}
-                      onChange={(e) => setEditP({ ...editP, days: { ...editP.days, [k]: { start: editP.days[k]?.start ?? "", end: e.target.value } } })} />
-                  </div>
-                ))}
+              {/* v1.80.0 (CEO: "bulk choose day for me to update easily") —
+                  tick the days that share a schedule, type it once, Apply.
+                  Five rows typed by hand is five chances to put 17:30 where
+                  17:00 belongs, and the only symptom is somebody flagged late
+                  on a Thursday three weeks later. */}
+              <div className="border-border bg-secondary/30 mt-3 rounded-lg border p-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-muted-foreground text-[11px] font-medium">{L("Apply to", "Guna pada")}</span>
+                  {DAYS.map(([k, label]) => {
+                    const on = bulkDays.includes(k);
+                    return (
+                      <button key={k} type="button"
+                        className={on
+                          ? "bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          : "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[11px]"}
+                        onClick={() => setBulkDays((d) => (on ? d.filter((x) => x !== k) : [...d, k]))}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                  <button type="button" className="text-muted-foreground ml-1 text-[11px] underline"
+                    onClick={() => setBulkDays(bulkDays.length === 5 && DAYS.slice(0, 5).every(([k]) => bulkDays.includes(k)) ? [] : DAYS.slice(0, 5).map(([k]) => k))}>
+                    {L("Mon-Fri", "Isn-Jum")}
+                  </button>
+                  <button type="button" className="text-muted-foreground text-[11px] underline"
+                    onClick={() => setBulkDays(bulkDays.length === DAYS.length ? [] : DAYS.map(([k]) => k))}>
+                    {L("All", "Semua")}
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-end gap-x-2 gap-y-2">
+                  <SubR t={L("Block 1", "Blok 1")}>
+                    <span className="flex items-center gap-1">
+                      <input type="time" className={inputClassSm} value={bulk.start}
+                        onChange={(e) => setBulk((b) => ({ ...b, start: e.target.value }))} />
+                      <span className="text-muted-foreground">-</span>
+                      <input type="time" className={inputClassSm} value={bulk.end}
+                        onChange={(e) => setBulk((b) => ({ ...b, end: e.target.value }))} />
+                    </span>
+                  </SubR>
+                  <SubR t={L("Block 2 (optional)", "Blok 2 (pilihan)")}>
+                    <span className="flex items-center gap-1">
+                      <input type="time" className={inputClassSm} value={bulk.start2}
+                        onChange={(e) => setBulk((b) => ({ ...b, start2: e.target.value }))} />
+                      <span className="text-muted-foreground">-</span>
+                      <input type="time" className={inputClassSm} value={bulk.end2}
+                        onChange={(e) => setBulk((b) => ({ ...b, end2: e.target.value }))} />
+                    </span>
+                  </SubR>
+                  <span className="flex items-center gap-2 pb-0.5">
+                    <button type="button" className={rowBtnPrimary}
+                      disabled={bulkDays.length === 0 || !bulk.start || !bulk.end}
+                      title={L("Write these times into every ticked day", "Tulis masa ini ke setiap hari yang ditanda")}
+                      onClick={() => setEditP({
+                        ...editP,
+                        days: {
+                          ...editP.days,
+                          ...Object.fromEntries(bulkDays.map((k) => [k, { ...bulk }])),
+                        },
+                      })}>
+                      {L(`Apply to ${bulkDays.length || 0} day${bulkDays.length === 1 ? "" : "s"}`, `Guna pada ${bulkDays.length || 0} hari`)}
+                    </button>
+                    <button type="button" className={rowBtn}
+                      disabled={bulkDays.length === 0}
+                      title={L("Make every ticked day a rest day", "Jadikan setiap hari yang ditanda hari rehat")}
+                      onClick={() => setEditP({
+                        ...editP,
+                        days: {
+                          ...editP.days,
+                          ...Object.fromEntries(bulkDays.map((k) => [k, { ...EMPTY_DAY }])),
+                        },
+                      })}>
+                      {L("Clear those days", "Kosongkan hari itu")}
+                    </button>
+                  </span>
+                </div>
+                {bulk.start && bulk.end && (
+                  <p className="text-muted-foreground mt-1.5 text-[11px]">
+                    {L(`Each ticked day becomes ${hLabel(dayMinutes({ ...bulk }))}.`, `Setiap hari yang ditanda menjadi ${hLabel(dayMinutes({ ...bulk }))}.`)}
+                  </p>
+                )}
               </div>
-              <p className="text-muted-foreground mt-1.5 text-[11px]">
-                {L("Leave both boxes empty for a rest day.", "Biarkan kedua-dua kotak kosong untuk hari rehat.")}
+
+              {/* One row per day: block 1, block 2, and what the day comes to.
+                  The total is on the row because eight hours split across two
+                  blocks is not a sum anybody should be doing in their head. */}
+              <div className="mt-3 space-y-1">
+                <div className="text-muted-foreground hidden gap-2 px-1 text-[11px] sm:grid sm:grid-cols-[3rem_1fr_1fr_3.5rem]">
+                  <span />
+                  <span>{L("Block 1", "Blok 1")}</span>
+                  <span>{L("Block 2 (optional)", "Blok 2 (pilihan)")}</span>
+                  <span className="text-right">{L("Total", "Jumlah")}</span>
+                </div>
+                {DAYS.map(([k, label]) => {
+                  const d = editP.days[k] ?? EMPTY_DAY;
+                  const set = (patch: Partial<DayEdit>) =>
+                    setEditP({ ...editP, days: { ...editP.days, [k]: { ...EMPTY_DAY, ...d, ...patch } } });
+                  const mins = dayMinutes(d);
+                  return (
+                    <div key={k} className="grid grid-cols-1 items-center gap-x-2 gap-y-1 text-xs sm:grid-cols-[3rem_1fr_1fr_3.5rem]">
+                      <span className="text-muted-foreground font-medium">{label}</span>
+                      <span className="flex items-center gap-1">
+                        <input type="time" className={inputClassSm} value={d.start}
+                          onChange={(e) => set({ start: e.target.value })} />
+                        <span className="text-muted-foreground">-</span>
+                        <input type="time" className={inputClassSm} value={d.end}
+                          onChange={(e) => set({ end: e.target.value })} />
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <input type="time" className={inputClassSm} value={d.start2}
+                          disabled={!d.start}
+                          title={d.start ? L("A second block on the same day, for example an evening broadcast", "Blok kedua pada hari yang sama, contohnya siaran malam") : L("Fill the first block first", "Isi blok pertama dahulu")}
+                          onChange={(e) => set({ start2: e.target.value })} />
+                        <span className="text-muted-foreground">-</span>
+                        <input type="time" className={inputClassSm} value={d.end2}
+                          disabled={!d.start}
+                          onChange={(e) => set({ end2: e.target.value })} />
+                      </span>
+                      <span className={`text-right text-[11px] ${mins > 0 ? "font-medium" : "text-muted-foreground"}`}>
+                        {hLabel(mins)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-muted-foreground mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <span>{L("Leave both boxes empty for a rest day. A second block is for a day worked in two parts — 11:00-17:00, then 20:30-22:30.", "Biarkan kedua-dua kotak kosong untuk hari rehat. Blok kedua untuk hari yang dikerjakan dalam dua bahagian — 11:00-17:00, kemudian 20:30-22:30.")}</span>
+                <span className="font-medium whitespace-nowrap">
+                  {L(`Week: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k]), 0))}`,
+                     `Minggu: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k]), 0))}`)}
+                </span>
               </p>
               <div className="mt-2 flex gap-2">
                 <button type="button" className={rowBtnPrimary} disabled={!editP.name.trim()}
@@ -2445,7 +2628,12 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                       half_day_minutes: toMins(editP.half) ?? 720,
                     };
                     for (const [k] of DAYS) {
-                      payload[k] = { start: toMins(editP.days[k]?.start ?? ""), end: toMins(editP.days[k]?.end ?? "") };
+                      payload[k] = {
+                        start: toMins(editP.days[k]?.start ?? ""),
+                        end: toMins(editP.days[k]?.end ?? ""),
+                        start2: toMins(editP.days[k]?.start2 ?? ""),
+                        end2: toMins(editP.days[k]?.end2 ?? ""),
+                      };
                     }
                     void act(`/shift-patterns`, { method: editP.id ? "PATCH" : "POST", body: JSON.stringify(payload) },
                       L("Working hours saved.", "Waktu bekerja disimpan."));
@@ -2506,10 +2694,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </>
       )}
 
-      <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
-        {L("Find & filter", "Cari & tapis")}
-      </span>
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {section === "find" && (
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SubR t={L("Search", "Cari")}>
           <input type="search" className={inputClass} value={q}
             placeholder={L("Search staff name…", "Cari nama kakitangan…")}
@@ -2535,6 +2721,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             <option value="amended">{L("Time amended", "Masa dipinda")}</option>
             <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
             <option value="rest_day">{L("Weekend / rest day", "Hujung minggu / hari rehat")}</option>
+            <option value="assigned">{L("Outside hours, assigned work", "Luar waktu, kerja ditugaskan")}</option>
             <option value="pending">{L("Waiting for approval", "Menunggu kelulusan")}</option>
           </select>
         </SubR>
@@ -2617,7 +2804,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           )}
         </span>
       </div>
+      )}
 
+      {/* The records themselves are always here — the chooser above decides
+          which FORM is open, never whether he can see the month. */}
       <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
         <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">
           <thead>
@@ -2671,6 +2861,15 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     <span className="text-info ml-1.5 whitespace-nowrap font-medium"
                       title={L("Outside this person's working days", "Di luar hari bekerja orang ini")}>
                       · {L("rest day", "hari rehat")}
+                    </span>
+                  )}
+                  {/* v1.80.0 — outside the pattern, but on the roster or the
+                      live board. Green because it is the good case: the
+                      person was where they were told to be. */}
+                  {r.assigned_what && (
+                    <span className="text-success ml-1.5 font-medium"
+                      title={L(`Outside the scheduled hours, but ${r.assigned_kind === "live" ? "a live session" : "a task on the roster"} covers this time — it counts as working time`, `Di luar waktu berjadual, tetapi ${r.assigned_kind === "live" ? "sesi LIVE" : "tugasan pada roster"} meliputi masa ini — ia dikira sebagai waktu bekerja`)}>
+                      · {L("assigned", "ditugaskan")}: {r.assigned_what}
                     </span>
                   )}
                   {r.pending && (
