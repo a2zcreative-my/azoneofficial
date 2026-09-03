@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.85.0] — 2026-09-03 — the payslips that never got the memo
+
+**CEO**, on his August payslip: *"payslip capture AZ ONE OFFICIAL instead of A2Z Creative Marketing"*
+
+He is right, and the code was not wrong. v1.28.0 built the whole mechanism: a payslip carries the employer of record stamped on its month row in `payslip_releases`, and the renderer resolves it. `NULL` means a month released before the switch and renders as **AZ ONE OFFICIAL** forever — and that rule is deliberate, because a payslip may not be retroactively rebranded onto an entity that did not employ the person that month.
+
+**What went wrong is narrower than that.** The release route stamps the code inside a `try`, with a fallback `INSERT` for a database that had not applied migration 0073 yet. **The fallback writes no `issuer_code` at all.** So a month released in that window records `NULL` — not because it was an AZ ONE month, but because the column was not there to write to — and reads as AZ ONE forever, with nothing on any screen to say so.
+
+### The correction, and its limit
+
+A2Z CREATIVE MARKETING has employed since 19-08-2026 — the CEO's own decision, recorded in `lib/issuers.ts` as *"A2Z invoices, A2Z employs"*. Migration `0104` sets the stamp on months from **2026-08 onward that are still NULL**. Months before that are left exactly as they are: they were AZ ONE months, they say AZ ONE, and that is not a bug. Only `NULL` rows are touched — a month somebody deliberately stamped `azoo` keeps its stamp. This repairs an absence; it does not overrule a decision.
+
+### And the hole it came through
+
+The fallback still cannot fail the release — a payslip nobody can see is worse than one with the wrong letterhead — but it no longer passes in silence. It writes a `payroll.release_unstamped` audit entry naming the cause and the consequence, and the response reports the employer **the row actually carries**, not the one the insert attempted: the month may already have been released, in which case `ON CONFLICT DO NOTHING` changed nothing.
+
+Most of all, **the Payroll panel now names the employer of record before the payslips go out**, and flags a released month carrying no stamp with what to do about it. That fact was previously discoverable only by opening a rendered PDF, which is exactly how a month of slips went out under the wrong entity without anybody noticing.
+
+Eight checks added to guard #12, negative-tested — including that the worker's copy of the two entity names still matches `lib/issuers.ts`, which the worker cannot import.
+
+**One to confirm:** August 2026 is treated as an A2Z month, since the switch was 19-08-2026 and the period runs 01-08 to 31-08. If July or earlier should also read A2Z, say so — it is one line in `0104`, but it is a legal statement about who employed whom, so it is not one to guess at.
+
+## [1.84.1] — 2026-09-03 — the pills are the filter
+
+**CEO:** *"pill above there should clickable to get the data"*
+
+The three figures at the top answered *"is anything wrong this month"* — and then the only way to act on the answer was to read every row looking for it. Each pill is now the filter for the thing it counts, and the table, the expanded dates and the CSV all follow it. A summary that cannot be opened is a summary you have to verify by hand.
+
+Filtering to a thing opens its dates, rather than making him click every row he just asked for. A pill with nothing behind it stays plain text: *"Every row balances"* is the good news and there is nothing to open.
+
+### The figure his screenshot was actually asking about
+
+Zolkefli's row read **19 worked** beside **46h34 / 131h**, with no flag explaining it. A day clocked in and never clocked out counts as a day worked and contributes **no hours at all** — so the Hours column reads low and nothing on the row says why.
+
+There is now a fourth pill and a per-row flag for it, with the dates behind them. It is not an absence and it is not a short day; it is a missing punch, and it is fixed on the Attendance card.
+
+### The guard missed one of its own class
+
+The first draft of the pill row declared `Pill` inside the card's render — a new component type every render, rebuilding all four pills each time. That is precisely what guard #30 was written for last week, and it went straight past: the guard recognised a body that **starts** with JSX or with `return (<`, and this one starts with a condition (`on ? (<button…>) : (<span…>)`).
+
+The guard now recognises the third shape too — an expression body whose JSX arrives after a ternary or a short-circuit — bounded to the same 200 characters so a `<` further down still cannot be mistaken for it. Negative-tested against exactly the shape that escaped.
+
 ## [1.84.0] — 2026-09-03 — the month, reconciled
 
 **CEO:** *"attendance verification should move to Attendance and make it minimalist interface, then it is should include for the staff which is on leave, or medical leave. full report is require and a must!"*

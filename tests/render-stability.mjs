@@ -73,9 +73,18 @@ for (const rel of files) {
        whose first statement returns one. Checked against the 200 characters
        that follow the declaration, not a window around it: a `return (<` two
        hundred lines further down belongs to something else. */
+    /* v1.84.1 — THE GUARD MISSED ONE OF ITS OWN CLASS. A pill component was
+       written as `= ({...}) => on ? (<button…>) : (<span…>)`, declared inside
+       a card's render: a new type every render, rebuilding all four pills
+       each time. It slipped past because both tests below required the body
+       to START with JSX or with `return (<`, and this one starts with a
+       condition. So a third shape: an expression body whose JSX arrives after
+       a ternary or a short-circuit. Bounded to the same 200 characters, so a
+       `<` two hundred lines down still cannot be mistaken for this one. */
     const isComponent =
       /^\s*\(?\s*</.test(head) ||
-      /^[^{]{0,200}\{\s*(?:\/\*[\s\S]*?\*\/\s*)?return\s*\(?\s*</.test(head);
+      /^[^{]{0,200}\{\s*(?:\/\*[\s\S]*?\*\/\s*)?return\s*\(?\s*</.test(head) ||
+      /^[^{;]{0,200}[?&|]{1,2}\s*\(?\s*</.test(head);
     if (!isComponent) continue;
     offenders.push(`${rel}:${lineAt(m.index)} (${name})`);
   }

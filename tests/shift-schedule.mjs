@@ -431,6 +431,32 @@ const ok = (label, cond, extra = "") => {
   ok("the card is on the Attendance tab, not HR",
      /<VerificationCard \/>/.test(page) && !/AttendanceRow\[\]>\(\[\]\)/.test(panels),
      "the CEO asked for it on Attendance, and a copy left behind on HR is two reports that will disagree");
+  /* ---- the pills are the filter (v1.84.1) ----
+     The CEO: "pill above there should clickable to get the data". The three
+     figures answered "is anything wrong this month" and then left him to
+     read every row looking for it. */
+  ok("a pill with something behind it is a button",
+     /aria-pressed=\{active\}/.test(vcard) && /onPick: \(\) => void/.test(vcard),
+     "a summary that cannot be opened is a summary you have to verify by hand");
+  ok("the table, the dates and the CSV follow the same filter",
+     /const shown = \(\): VRow\[\] =>/.test(vcard) &&
+     /\{shown\(\)\.map\(\(r\) => \(/.test(vcard) &&
+     /const list = shown\(\);/.test(vcard),
+     "two definitions of what is on screen disagree the first time a filter is added, and the file then holds something other than what was looked at");
+  ok("filtering to a thing opens its dates",
+     /const showDates = pill === "leave"/.test(vcard),
+     "asking to see the absences and then having to click every row is asking twice");
+
+  /* A day clocked IN and never OUT counts as worked and adds no hours - which
+     is how a row reads 19 worked beside 46h34 of 131h and looks like a
+     mystery. It is a missing punch, and the report names it. */
+  ok("a day with no clock-out is counted and named",
+     /if \(!c\.o\) \{ noClockOut\+\+; openDates\.push\(d\); \}/.test(staff) &&
+     /no_clock_out: noClockOut, open_dates: openDates,/.test(staff));
+  ok("and it is on the row, not only in the total",
+     /no clock-out`, `\$\{r\.no_clock_out\} tiada keluar`/.test(vcard),
+     "a company total nobody can attribute to a person is a total nobody can act on");
+
   ok("the export carries the dates behind the figures",
      /L\("Absent dates", "Tarikh tidak hadir"\)/.test(vcard) && /L\("Leave dates", "Tarikh cuti"\)/.test(vcard),
      "a figure somebody has to come back and ask about is half a report");

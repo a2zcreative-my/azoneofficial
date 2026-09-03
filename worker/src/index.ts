@@ -265,7 +265,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0103_unpaid_break";
+const LATEST_MIGRATION = "0104_payslip_employer";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4417,6 +4417,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0101_replacement_credits",
       "0102_split_shifts",
       "0103_unpaid_break",
+      "0104_payslip_employer",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

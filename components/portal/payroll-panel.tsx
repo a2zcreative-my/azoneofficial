@@ -603,7 +603,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.4.80: staff payslip release state for this month.
   // v1.28.0: released also carries issuer_code — the employer stamped at
   // release time, which every payslip printed for this month must show.
-  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null } | null>(null);
+  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
@@ -612,7 +612,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
-      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null } }>(`/payroll?month=${month}`),
+      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
@@ -961,6 +961,24 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         </div>
       )}
 
+      {/* v1.85.0 (CEO: "payslip capture AZ ONE OFFICIAL instead of A2Z
+          Creative Marketing") — THE EMPLOYER OF RECORD, ON THE SCREEN.
+          It was only ever discoverable by opening a rendered PDF, which is
+          how a month of payslips went out under the wrong entity with
+          nothing on any screen to say so. A2Z has employed since 19-08-2026;
+          a released month still carrying no stamp says AZ ONE forever and is
+          almost certainly the 0073 deploy-window gap, so it is flagged
+          rather than merely printed. */}
+      {release?.employer && (
+        <p className={`mt-2 text-xs ${release.employer_is_legacy ? "text-amber-700 font-medium" : "text-muted-foreground"}`}>
+          {L("Employer of record on these payslips: ", "Majikan direkodkan pada slip gaji ini: ")}
+          <span className="font-semibold">{release.employer}</span>
+          {release.employer_is_legacy && L(
+            " — this month was released without an employer stamp, so the slips print the legacy entity. Apply migration 0104, which corrects months from August 2026 onward.",
+            " — bulan ini dikeluarkan tanpa cap majikan, jadi slip mencetak entiti lama. Guna migrasi 0104, yang membetulkan bulan dari Ogos 2026 ke atas.",
+          )}
+        </p>
+      )}
       {release && (
         <p className="mt-2 text-xs">
           {release.released ? (

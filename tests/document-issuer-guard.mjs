@@ -189,5 +189,45 @@ if (!existsSync(ISSUERS)) {
   }
 }
 
+/* ---- v1.85.0: the payslip employer ----
+   The CEO, on his August payslip: "payslip capture AZ ONE OFFICIAL instead
+   of A2Z Creative Marketing". The mechanism was right since v1.28.0; the
+   RELEASE ROUTE had a fallback that inserts the month with no issuer_code
+   for a pre-0073 database, and NULL renders as AZ ONE forever — not because
+   it was an AZ ONE month, but because the column was not there to write to,
+   and nothing on any screen said so. */
+{
+  const rd = (f) => (existsSync(f) ? readFileSync(f, "utf8") : "");
+  const ok = (label, cond, extra = "") => { if (!cond) errors.push(`${label}${extra ? ` — ${extra}` : ""}`); };
+  const staffSrc = rd("worker/src/staff.ts");
+  const panel = rd("components/portal/payroll-panel.tsx");
+  ok("the worker can name an employer from a stamp code",
+     /function issuerName\(code\?: string \| null\): string \{[\s\S]{0,140}?code === "a2z" \? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL"/.test(staffSrc));
+  ok("the two names match lib/issuers.ts",
+     /name: "A2Z CREATIVE MARKETING"/.test(rd("lib/issuers.ts")) &&
+     /name: "AZ ONE OFFICIAL"/.test(rd("lib/issuers.ts")),
+     "the worker cannot import the issuer registry, so the two copies are held to each other here");
+  ok("an unstamped release is recorded, not swallowed",
+     /"payroll\.release_unstamped"/.test(staffSrc),
+     "the silent fallback is exactly how a month of payslips went out under the wrong entity");
+  ok("the release answers with what the ROW says, not what it tried to write",
+     /SELECT issuer_code FROM payslip_releases WHERE month = \?1/.test(staffSrc) &&
+     /ON CONFLICT\(month\) DO NOTHING/.test(staffSrc),
+     "the month may already have been released, in which case the insert changed nothing");
+  ok("the panel names the employer before the payslips go out",
+     /Employer of record on these payslips/.test(panel),
+     "it was only discoverable by opening a rendered PDF");
+  ok("a released month with no stamp is flagged, not merely printed",
+     /release\.employer_is_legacy/.test(panel) && /released without an employer stamp/.test(panel));
+  /* The correction, and its limit. */
+  const mig = rd("worker/migrations/0104_payslip_employer.sql");
+  ok("0104 corrects only months from the switch onward",
+     /WHERE issuer_code IS NULL/.test(mig) && /AND month >= '2026-08'/.test(mig),
+     "a payslip may not be retroactively rebranded onto an entity that did not employ the person that month");
+  ok("0104 never overrules a deliberate stamp",
+     /SET issuer_code = 'a2z'\s*\n\s*WHERE issuer_code IS NULL/.test(mig),
+     "this repairs an absence - a month somebody stamped azoo keeps its stamp");
+}
+
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }
 console.log(`PASS — ${scanned.length} generators free of SITE_CONFIG; DOCUMENT_ISSUER is A2Z CREATIVE MARKETING (SSM 202603003468, MAYBANK 5511 0086 5300); AZ_ONE legacy entry intact; resolveIssuer maps NULL -> AZ ONE; consultancy 'azoo' stamps and inherits correctly`);

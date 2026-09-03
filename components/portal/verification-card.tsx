@@ -63,6 +63,8 @@ interface VRow {
   early_out: number;
   short_days: number;
   assigned_days: number;
+  no_clock_out?: number;
+  open_dates?: string[];
   scheduled_minutes: number;
   worked_minutes: number;
   absent_dates: string[];
@@ -86,10 +88,47 @@ const leaveLabel = (t: string) => {
 const hm = (mins: number) =>
   mins <= 0 ? "—" : mins % 60 === 0 ? `${mins / 60}h` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
 
+/**
+ * One summary pill — v1.84.1.
+ *
+ * A pill with nothing behind it is not a filter, it is a dead end: "Every row
+ * balances" is the good news and there is nothing to open. Those render as
+ * plain text; the rest become buttons that filter the table, the dates and
+ * the CSV together.
+ *
+ * MODULE SCOPE, not inside the card. The first draft declared this inside the
+ * render, which makes it a new component type every render and rebuilds all
+ * four pills each time — the exact hazard guard #30 was written for last
+ * week, and it slipped past because the guard only recognised a body that
+ * STARTS with JSX, not one behind a conditional. The guard now recognises
+ * both, which is the second bug this found.
+ */
+function Pill({ active, on, tone, label, hint, onPick }: {
+  active: boolean; on: boolean; tone: string; label: string; hint?: string; onPick: () => void;
+}) {
+  if (!on) return <span className={`rounded-full px-2.5 py-1 ${tone}`} title={hint}>{label}</span>;
+  return (
+    <button type="button"
+      title={hint ?? L("Click to show only these — the table, the dates and the CSV all follow", "Klik untuk tunjuk yang ini sahaja — jadual, tarikh dan CSV mengikutinya")}
+      className={`rounded-full px-2.5 py-1 font-medium transition ${active ? "ring-primary ring-2 ring-offset-1" : "hover:opacity-80"} ${tone}`}
+      aria-pressed={active}
+      onClick={onPick}>
+      {label}{active ? " ✕" : ""}
+    </button>
+  );
+}
+
 export function VerificationCard() {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<VRow[]>([]);
   const [open, setOpen] = useState<number | null>(null);
+  /* v1.84.1 (CEO: "pill above there should clickable to get the data") — the
+     three figures at the top were the answer to "is anything wrong this
+     month", and then the only way to act on the answer was to read every row
+     looking for it. Each pill is now the filter for the thing it counts, and
+     the table, the expanded dates and the CSV all follow it — a summary that
+     cannot be opened is a summary you have to verify by hand. */
+  const [pill, setPill] = useState<"" | "unbalanced" | "leave" | "absent" | "open">("");
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState("");
 
@@ -109,13 +148,30 @@ export function VerificationCard() {
   const unbalanced = rows.filter((r) => !r.balances).length;
   const totalAbsent = rows.reduce((n, r) => n + r.absent, 0);
   const totalLeave = rows.reduce((n, r) => n + r.leave_total, 0);
+  const totalOpen = rows.reduce((n, r) => n + (r.no_clock_out ?? 0), 0);
+
+  /* ONE definition of "the rows on screen", read by the table AND the export
+     — the same rule the attendance card follows, and for the same reason:
+     two definitions disagree the first time a filter is added, and the file
+     then quietly holds something other than what was being looked at. */
+  const shown = (): VRow[] => {
+    if (pill === "unbalanced") return rows.filter((r) => !r.balances);
+    if (pill === "leave") return rows.filter((r) => r.leave_total > 0);
+    if (pill === "absent") return rows.filter((r) => r.absent > 0);
+    if (pill === "open") return rows.filter((r) => (r.no_clock_out ?? 0) > 0);
+    return rows;
+  };
+  /* Filtering to a thing means wanting to see it: the dates open themselves
+     rather than making him click every row he just asked for. */
+  const showDates = pill === "leave" || pill === "absent" || pill === "open" || pill === "unbalanced";
 
   const exportCsv = () => {
     /* The full report: the summary AND the dates behind it, because a figure
        somebody has to come back and ask about is half a report. */
-    downloadCsv(`attendance-verification-${month}`, [
+    const list = shown();
+    downloadCsv(`attendance-verification-${month}${pill ? `-${pill}` : ""}`, [
       [`# ${L("Attendance verification", "Pengesahan kehadiran")} — ${month}`],
-      [`# ${L("Generated", "Dijana")} ${csvStampMyt()}`],
+      [`# ${L("Generated", "Dijana")} ${csvStampMyt()}${pill ? ` — ${L("filtered to", "ditapis kepada")}: ${pill}` : ""}`],
       [`# ${L("worked + leave + absent = scheduled working days", "bekerja + cuti + tidak hadir = hari bekerja berjadual")}`],
       [],
       [
@@ -131,8 +187,9 @@ export function VerificationCard() {
         L("Scheduled hours", "Jam berjadual"), L("Worked hours", "Jam bekerja"),
         L("Balances", "Seimbang"),
         L("Absent dates", "Tarikh tidak hadir"), L("Leave dates", "Tarikh cuti"),
+        L("No clock-out", "Tiada daftar keluar"), L("No clock-out dates", "Tarikh tiada daftar keluar"),
       ],
-      ...rows.map((r) => [
+      ...list.map((r) => [
         r.employee_id ?? "", properName(r.name), r.email ?? "", r.position ?? "",
         r.employment_status ?? "", r.scheduled, r.worked, r.leave_total,
         r.leave_by_type.annual ?? 0, r.leave_by_type.medical ?? 0, r.leave_by_type.emergency ?? 0,
@@ -143,6 +200,8 @@ export function VerificationCard() {
         r.balances ? L("yes", "ya") : L("NO — check", "TIDAK — semak"),
         r.absent_dates.join(" "),
         r.leave_dates.map((l) => `${l.d}:${l.type}`).join(" "),
+        r.no_clock_out ?? 0,
+        (r.open_dates ?? []).join(" "),
       ]),
     ]);
   };
@@ -168,7 +227,7 @@ export function VerificationCard() {
           <button
             type="button"
             className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium disabled:opacity-50"
-            disabled={rows.length === 0}
+            disabled={shown().length === 0}
             title={L("The full report: every figure below, plus the absent and leave dates behind them", "Laporan penuh: setiap angka di bawah, campur tarikh tidak hadir dan cuti di sebaliknya")}
             onClick={exportCsv}
           >
@@ -180,20 +239,31 @@ export function VerificationCard() {
       {/* The three figures worth seeing before any row. A month with nothing
           unbalanced and nothing absent needs no reading at all. */}
       {loaded && rows.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className={`rounded-full px-2.5 py-1 font-medium ${unbalanced > 0 ? "bg-danger-soft text-danger" : "bg-success-soft text-success"}`}
-            title={L("A row that does not add up has a missing punch, a leave recorded outside its dates, or a day counted twice", "Baris yang tidak seimbang mempunyai ketukan hilang, cuti direkod di luar tarikhnya, atau hari dikira dua kali")}>
-            {unbalanced === 0
-              ? L("Every row balances", "Setiap baris seimbang")
-              : L(`${unbalanced} row${unbalanced === 1 ? "" : "s"} do not add up`, `${unbalanced} baris tidak seimbang`)}
-          </span>
-          <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1">
-            {L(`${totalLeave} leave day${totalLeave === 1 ? "" : "s"}`, `${totalLeave} hari cuti`)}
-          </span>
-          <span className={`rounded-full px-2.5 py-1 ${totalAbsent > 0 ? "bg-warning-soft text-warning font-medium" : "bg-secondary text-muted-foreground"}`}>
-            {L(`${totalAbsent} absent day${totalAbsent === 1 ? "" : "s"}`, `${totalAbsent} hari tidak hadir`)}
-          </span>
-        </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <Pill active={pill === "unbalanced"} onPick={() => setPill(pill === "unbalanced" ? "" : "unbalanced")} on={unbalanced > 0}
+              tone={unbalanced > 0 ? "bg-danger-soft text-danger" : "bg-success-soft text-success font-medium"}
+              hint={L("A row that does not add up has a missing punch, a leave recorded outside its dates, or a day counted twice", "Baris yang tidak seimbang mempunyai ketukan hilang, cuti direkod di luar tarikhnya, atau hari dikira dua kali")}
+              label={unbalanced === 0
+                ? L("Every row balances", "Setiap baris seimbang")
+                : L(`${unbalanced} row${unbalanced === 1 ? "" : "s"} do not add up`, `${unbalanced} baris tidak seimbang`)} />
+            <Pill active={pill === "leave"} onPick={() => setPill(pill === "leave" ? "" : "leave")} on={totalLeave > 0} tone="bg-info-soft text-info"
+              label={L(`${totalLeave} leave day${totalLeave === 1 ? "" : "s"}`, `${totalLeave} hari cuti`)} />
+            <Pill active={pill === "absent"} onPick={() => setPill(pill === "absent" ? "" : "absent")} on={totalAbsent > 0}
+              tone={totalAbsent > 0 ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}
+              label={L(`${totalAbsent} absent day${totalAbsent === 1 ? "" : "s"}`, `${totalAbsent} hari tidak hadir`)} />
+            {/* v1.84.1 — the figure that explains a row reading "19 worked"
+                beside "46h34 of 131h". A day clocked in and never out counts
+                as a day worked and contributes no hours at all. */}
+            <Pill active={pill === "open"} onPick={() => setPill(pill === "open" ? "" : "open")} on={totalOpen > 0} tone="bg-warning-soft text-warning"
+              hint={L("Clocked in and never clocked out. The day counts as worked and adds no hours, so the Hours column reads low until the punch is corrected on the Attendance card.", "Daftar masuk tetapi tiada daftar keluar. Hari itu dikira bekerja dan tidak menambah jam, jadi lajur Jam kelihatan rendah sehingga ketukan dibetulkan pada kad Kehadiran.")}
+              label={L(`${totalOpen} day${totalOpen === 1 ? "" : "s"} with no clock-out`, `${totalOpen} hari tiada daftar keluar`)} />
+            {pill && (
+              <button type="button" className="text-muted-foreground underline"
+                onClick={() => setPill("")}>
+                {L(`Showing ${shown().length} of ${rows.length} — clear`, `Menunjukkan ${shown().length} daripada ${rows.length} — kosongkan`)}
+              </button>
+            )}
+          </div>
       )}
 
       {err && <p className="text-danger mt-2 text-xs font-medium">{err}</p>}
@@ -225,10 +295,14 @@ export function VerificationCard() {
                 <td className={td}><Skel className="h-6 w-14 rounded-lg" /></td>
               </tr>
             ))}
-            {loaded && rows.length === 0 && !err && (
-              <tr><td className={`${td} text-muted-foreground`} colSpan={8}>{L("No staff to report on for this month.", "Tiada kakitangan untuk dilaporkan bulan ini.")}</td></tr>
+            {loaded && shown().length === 0 && !err && (
+              <tr><td className={`${td} text-muted-foreground`} colSpan={8}>
+                {rows.length === 0
+                  ? L("No staff to report on for this month.", "Tiada kakitangan untuk dilaporkan bulan ini.")
+                  : L("Nobody matches that filter.", "Tiada sesiapa sepadan dengan tapisan itu.")}
+              </td></tr>
             )}
-            {rows.map((r) => (
+            {shown().map((r) => (
               <tr key={r.user_id} className={`border-border border-b last:border-0 ${!r.balances ? "bg-danger-soft/30" : ""}`}>
                 <td className={`${td} align-top`}>
                   <span className="block font-medium whitespace-nowrap">{properName(r.name)}</span>
@@ -253,14 +327,21 @@ export function VerificationCard() {
                   {r.late > 0 && <span className="text-warning mr-1.5">{L(`${r.late} late`, `${r.late} lewat`)}</span>}
                   {r.short_days > 0 && <span className="text-warning mr-1.5">{L(`${r.short_days} short`, `${r.short_days} pendek`)}</span>}
                   {r.assigned_days > 0 && <span className="text-success mr-1.5">{L(`${r.assigned_days} assigned`, `${r.assigned_days} ditugaskan`)}</span>}
-                  {r.late === 0 && r.short_days === 0 && r.assigned_days === 0 && <span className="text-muted-foreground">—</span>}
+                  {/* v1.84.1 — the flag that explains a low Hours figure. */}
+                  {(r.no_clock_out ?? 0) > 0 && (
+                    <span className="text-warning mr-1.5 font-medium"
+                      title={L("Clocked in and never out. The day counts as worked and adds no hours — correct the punch on the Attendance card.", "Daftar masuk tanpa daftar keluar. Hari dikira bekerja dan tidak menambah jam — betulkan ketukan pada kad Kehadiran.")}>
+                      {L(`${r.no_clock_out} no clock-out`, `${r.no_clock_out} tiada keluar`)}
+                    </span>
+                  )}
+                  {r.late === 0 && r.short_days === 0 && r.assigned_days === 0 && (r.no_clock_out ?? 0) === 0 && <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className={`${td} text-right align-top whitespace-nowrap`}>
                   <span className="font-medium">{hm(r.worked_minutes)}</span>
                   <span className="text-muted-foreground">{" / "}{hm(r.scheduled_minutes)}</span>
                 </td>
                 <td className={`${td} align-top`}>
-                  {(r.absent_dates.length > 0 || r.leave_dates.length > 0) && (
+                  {(r.absent_dates.length > 0 || r.leave_dates.length > 0 || (r.open_dates ?? []).length > 0) && !showDates && (
                     <button type="button" className={rowBtn}
                       onClick={() => setOpen(open === r.user_id ? null : r.user_id)}>
                       {open === r.user_id ? L("Hide", "Sembunyi") : L("Dates", "Tarikh")}
@@ -272,7 +353,7 @@ export function VerificationCard() {
             {/* The dates behind the two figures anybody queries. On the row
                 they belong to, because a detail panel somewhere else is a
                 detail panel nobody connects to the number. */}
-            {rows.filter((r) => open === r.user_id).map((r) => (
+            {shown().filter((r) => open === r.user_id || showDates).map((r) => (
               <tr key={`open-${r.user_id}`} className="border-border border-b last:border-0">
                 <td className={`${td} bg-secondary/40 text-xs`} colSpan={8}>
                   {r.absent_dates.length > 0 && (
@@ -285,6 +366,15 @@ export function VerificationCard() {
                     <p className={r.absent_dates.length > 0 ? "mt-1" : ""}>
                       <span className="text-info font-semibold">{L("Leave", "Cuti")}: </span>
                       {r.leave_dates.map((l) => `${dmy(l.d)} (${leaveLabel(l.type)})`).join(" · ")}
+                    </p>
+                  )}
+                  {(r.open_dates ?? []).length > 0 && (
+                    <p className={r.absent_dates.length > 0 || r.leave_dates.length > 0 ? "mt-1" : ""}>
+                      <span className="text-warning font-semibold">{L("No clock-out", "Tiada daftar keluar")}: </span>
+                      {(r.open_dates ?? []).map((d) => dmy(d)).join(" · ")}
+                      <span className="text-muted-foreground">
+                        {" — "}{L("these days count as worked but add no hours", "hari ini dikira bekerja tetapi tidak menambah jam")}
+                      </span>
                     </p>
                   )}
                   {!r.balances && (

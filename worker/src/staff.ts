@@ -899,6 +899,15 @@ const OPERATING_ISSUER_CODE = "a2z";
    invoice's entity, because they acknowledge money paid into the bank
    account THAT letterhead printed). HR paperwork — claims, leave,
    payslips — is untouched: A2Z employs, so A2Z issues those, always. */
+/** v1.85.0 - the employer of record, in words, for a stamp code.
+    The worker cannot import lib/issuers.ts (separate bundle), so the two
+    names live in both places; tests/document-issuer-guard.mjs holds them to
+    each other. NULL is a legacy month, and legacy means AZ ONE - never
+    retroactively rebranded. */
+function issuerName(code?: string | null): string {
+  return code === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL";
+}
+
 async function stampIssuer(
   env: Env,
   table: "sales_documents" | "receipts" | "credit_notes" | "claims" | "leave_requests",
@@ -2758,10 +2767,15 @@ export async function handleStaff(
       const mine = employedDays(daysV, u.joined_on, u.left_on, u.rejoined_on);
       const byType: Record<string, number> = {};
       let scheduled = 0, worked = 0, restDays = 0, publicHols = 0, absent = 0;
-      let late = 0, earlyOut = 0, shortDays = 0, assignedDays = 0;
+      let late = 0, earlyOut = 0, shortDays = 0, assignedDays = 0, noClockOut = 0;
       let schedMins = 0, workedMins = 0;
       const absentDates: string[] = [];
       const leaveDates: { d: string; type: string }[] = [];
+      /* v1.84.1 - a day clocked IN and never OUT counts as a day worked and
+         contributes NO hours, which is how a row reads "19 worked" beside
+         "46h34 of 131h" and looks like a mystery. It is not a mystery and it
+         is not an absence: it is a missing punch, and the report names it. */
+      const openDates: string[] = [];
 
       for (const d of mine) {
         const sh = shiftAtV(u.id, d);
@@ -2790,6 +2804,7 @@ export async function handleStaff(
         const inMin = mytMin(c.i);
         if (assignedAtV(u.id, d, inMin) && !windowAt(sh, inMin)) assignedDays++;
         else if (inMin > (lateAgainst(sh, inMin) ?? 0)) late++;
+        if (!c.o) { noClockOut++; openDates.push(d); }
         if (c.o) {
           const outMin = mytMin(c.o);
           const span = Math.max(0, Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000));
@@ -2808,6 +2823,7 @@ export async function handleStaff(
         scheduled, worked, leave_total: leaveTotal, leave_by_type: byType,
         absent, rest_days: restDays, public_holidays: publicHols,
         late, early_out: earlyOut, short_days: shortDays, assigned_days: assignedDays,
+        no_clock_out: noClockOut, open_dates: openDates,
         scheduled_minutes: schedMins, worked_minutes: workedMins,
         absent_dates: absentDates, leave_dates: leaveDates,
         /* THE RECONCILIATION. If this is false the row has a question in it,
@@ -7843,10 +7859,23 @@ export async function handleStaff(
     }
     const releasedRow = await env.DB.prepare(
       `SELECT released_at, released_by, issuer_code FROM payslip_releases WHERE month = ?1`,
-    ).bind(month).first();
+    ).bind(month).first<{ released_at: string; released_by: number; issuer_code: string | null }>()
+      .catch(async () => await env.DB.prepare(
+        `SELECT released_at, released_by FROM payslip_releases WHERE month = ?1`,
+      ).bind(month).first<{ released_at: string; released_by: number }>() as never);
     return json({
       month, entries: results,
-      release: { available_from: await payslipAvailableFrom(month), released: releasedRow ?? null },
+      release: {
+        available_from: await payslipAvailableFrom(month),
+        released: releasedRow ?? null,
+        /* v1.85.0 — the letterhead these payslips WILL carry, named on the
+           panel before they go out. It was only discoverable by opening a
+           rendered PDF, which is how a month of slips went out under the
+           wrong entity without anybody noticing. Shown for an unreleased
+           month too, as the employer it would be released under. */
+        employer: issuerName(releasedRow?.issuer_code ?? (releasedRow ? null : OPERATING_ISSUER_CODE)),
+        employer_is_legacy: Boolean(releasedRow) && !releasedRow.issuer_code,
+      },
     });
   }
   if (path === "/payroll/paid" && method === "POST") {
@@ -7926,19 +7955,42 @@ export async function handleStaff(
     /* v1.28.0: the payslip's employer of record is decided at RELEASE time —
        months released after the A2Z switch are A2Z payslips; already-released
        months keep NULL and render as AZ ONE OFFICIAL forever. */
+    /* v1.85.0 — THE FALLBACK IS WHY HIS AUGUST PAYSLIP SAID AZ ONE.
+       The catch below exists for a database that has not applied 0073, and it
+       inserts the row with NO issuer_code. A month released in that window
+       records NULL — not because it was an AZ ONE month, but because the
+       column was not there to write to — and NULL renders as AZ ONE OFFICIAL
+       forever, with nothing on any screen to say why.
+       It still cannot 500 the release, because a payslip nobody can see is
+       worse than one with the wrong letterhead. But it no longer passes in
+       silence: the response says which employer was recorded, the panel
+       prints it, and the audit log carries the failure. */
+    let stamped: string | null = OPERATING_ISSUER_CODE;
     try {
       await env.DB.prepare(
         `INSERT INTO payslip_releases (month, released_by, issuer_code) VALUES (?1, ?2, ?3)
          ON CONFLICT(month) DO NOTHING`,
       ).bind(mR, user.id, OPERATING_ISSUER_CODE).run();
-    } catch {
+    } catch (eRel) {
+      stamped = null;
       await env.DB.prepare(
         `INSERT INTO payslip_releases (month, released_by) VALUES (?1, ?2)
          ON CONFLICT(month) DO NOTHING`,
       ).bind(mR, user.id).run();
+      await audit(env, user.id, "payroll.release_unstamped", "payslip_releases", mR, {
+        why: String(eRel).slice(0, 200),
+        consequence: "no employer of record recorded - these payslips will render as AZ ONE OFFICIAL until 0073 is applied and the row corrected",
+      });
     }
-    await audit(env, user.id, "payroll.release", "payslip_releases", mR);
-    return json({ ok: true });
+    await audit(env, user.id, "payroll.release", "payslip_releases", mR, { issuer_code: stamped });
+    /* The month may already have been released - ON CONFLICT DO NOTHING - so
+       the truthful answer is what the ROW says, not what we tried to write. */
+    let onRow: string | null = null;
+    try {
+      onRow = (await env.DB.prepare(`SELECT issuer_code FROM payslip_releases WHERE month = ?1`)
+        .bind(mR).first<{ issuer_code: string | null }>())?.issuer_code ?? null;
+    } catch { /* pre-0073 */ }
+    return json({ ok: true, issuer_code: onRow, employer: issuerName(onRow) });
   }
   if (path === "/payroll/base" && method === "GET") {
     // v1.4.78: fixed basic salaries — the source Payroll auto-fills from.
