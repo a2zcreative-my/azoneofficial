@@ -12,6 +12,40 @@
  *   - it prints which guards ran, so the log proves what was actually
  *     checked rather than asserting it.
  *
+ * HOW TO WRITE A CHECK — v1.82.0, after seven of these failed in one week
+ * on changes that were CORRECT.
+ *
+ * A guard that goes red when the code is right is worse than no guard. It
+ * costs a deploy, it trains everybody to read a failure as noise, and the
+ * one time it means something it gets waved through with the rest.
+ *
+ * Every one of the seven had the same shape: the check named an
+ * IMPLEMENTATION where it meant a BEHAVIOUR.
+ *
+ *   scheduledMinutes(shD)          when it meant "the day's own length"
+ *   shortMins / WORK_DAY_MINUTES   when it meant "rounded to quarter days"
+ *   "shift_start", "shift_end"     when it meant "the export is traceable"
+ *   exportRows().length            when it meant "the button counts honestly"
+ *   an eighty-character sentence   when it meant "the reason is on screen"
+ *
+ * So: assert the PROPERTY, and let the expression move.
+ *
+ *   - Match the shape, not the name: /\w+\(shD\) \|\| WORK_DAY_MINUTES/ over
+ *     the exact function, when which function it is belongs to another check.
+ *   - Strip what you are not testing. The "reason is on screen" check now
+ *     removes every title={...} and asks whether the figures survive as
+ *     text - indifferent to the wording, still fatal if it moves to a
+ *     tooltip.
+ *   - Pin prose ONLY when the prose IS the behaviour: a refusal that has to
+ *     name the people, a notification that has to say "half a day". Never to
+ *     identify a code path.
+ *   - Pin a constant only where its VALUE is the rule (five hours is the
+ *     Employment Act), never as a landmark for finding a line.
+ *
+ * `node /tmp/brittle.mjs`-style sweeps flag candidates; the judgement is
+ * whether the thing named could be rewritten while staying correct. If it
+ * could, the check is naming the wrong thing.
+ *
  * The four Playwright guards (bm-coverage, leaderboard-sales-floor,
  * location-scenarios, no-false-attendance) are NOT here: they drive a real
  * browser against a served build, which Cloudflare's build container has no

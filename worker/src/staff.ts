@@ -2696,7 +2696,59 @@ export async function handleStaff(
             : (minutes < (endOfDay(shR) ?? SHIFT.endMinutes) ? "early_out" : "ok"),
       });
     }
-    return json({ month, shift: "per staff schedule (v1.80.0, split shifts)", records: annotated });
+    /* v1.82.0 (CEO: "find and filter should include UPL and also Leave on
+       that month which is for me easier to pull the data") — a month of
+       attendance without the leave beside it is a month with holes in it,
+       and answering "why was nobody in on the 12th" meant opening the Leave
+       tab and reading two screens against each other. The register carries
+       the leave too now, so one filter and one CSV answer the question.
+     *
+     * OVERLAP, NOT start_date. Payroll attributes a leave to the month it
+     * STARTS in - deliberately, and payslipExtras depends on it. This is a
+     * different question: a leave from 29 August to 2 September means the
+     * person was away on the 1st and 2nd, and a September register that
+     * omitted those two days would be lying about September.
+     *
+     * APPROVED ONLY. A pending application is a request, not an absence -
+     * the same rule the pending punch follows. */
+    let leave: Record<string, unknown>[] = [];
+    try {
+      const { results: lv } = await env.DB.prepare(
+        `SELECT l.id, l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
+                u.email, u.role, l.type, l.start_date, l.end_date, l.days, l.reason
+           FROM leave_requests l JOIN users u ON u.id = l.user_id
+          WHERE l.status = 'approved'
+            AND l.start_date <= ?1 || '-31' AND l.end_date >= ?1 || '-01'
+          ORDER BY l.start_date, name`,
+      ).bind(month).all<{
+        id: number; user_id: number; name: string; email: string | null; role: string;
+        type: string; start_date: string; end_date: string; days: number | null; reason: string | null;
+      }>();
+      /* ONE ROW PER DAY IN THE MONTH, not one per request. A CSV is only
+         useful if a row is a person-day - the same shape as a punch - so a
+         three-day leave can be counted, filtered and totalled beside the
+         attendance rather than needing its date range unpacked by hand.
+         A single-day request keeps its exact `days` (0.5 for the CEO's half
+         day); a range spreads whole days and cannot claim a fraction. */
+      for (const l of lv ?? []) {
+        for (let d = new Date(`${l.start_date}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 1)) {
+          const iso = d.toISOString().slice(0, 10);
+          if (iso > l.end_date) break;
+          if (!iso.startsWith(month)) continue;
+          const sh = shiftAtR(l.user_id, iso);
+          /* A rest day inside a leave range is not a day of leave - it is a
+             weekend. Counting it would inflate every leave that spans one. */
+          if (sh.kind === "rest_day") continue;
+          leave.push({
+            id: l.id, user_id: l.user_id, name: l.name, email: l.email, role: l.role,
+            leave_type: l.type, date: iso, reason: l.reason,
+            days: l.start_date === l.end_date ? (l.days ?? 1) : 1,
+            day_kind: sh.kind, shift_label: shiftLabel(sh),
+          });
+        }
+      }
+    } catch { /* pre-leave_requests, or a column this database has not got */ }
+    return json({ month, shift: "per staff schedule (v1.80.0, split shifts)", records: annotated, leave });
   }
 
   /* ---- leave ---- */

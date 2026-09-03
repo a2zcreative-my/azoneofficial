@@ -2091,6 +2091,30 @@ type ShiftAssignment = {
 };
 type PendingPunch = { id: number; user_id: number; name: string; type: string; created_at: string };
 
+/* v1.82.0 (CEO: "find and filter should include UPL and also Leave on that
+   month which is for me easier to pull the data") — one row per person-day,
+   the same shape as a punch, so leave can be filtered, counted and exported
+   beside the attendance instead of living on another screen. */
+type LeaveDay = {
+  id: number; user_id: number; name: string; role: string;
+  leave_type: string; date: string; days: number;
+  reason?: string | null; shift_label?: string | null;
+};
+/* The leave types this company records. Anything unrecognised prints its own
+   name rather than being hidden — a type added to the server and not here
+   must still show up in the CSV. */
+const LEAVE_LABEL: Record<string, [string, string]> = {
+  unpaid: ["Unpaid (UPL)", "Tanpa gaji (UPL)"],
+  annual: ["Annual", "Tahunan"],
+  medical: ["Medical", "Perubatan"],
+  emergency: ["Emergency", "Kecemasan"],
+  replacement: ["Replacement", "Gantian"],
+  maternity: ["Maternity", "Bersalin"],
+  paternity: ["Paternity", "Kebapaan"],
+  hospitalisation: ["Hospitalisation", "Kemasukan hospital"],
+  compassionate: ["Compassionate", "Ihsan"],
+};
+
 const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"],
               ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]] as const;
 
@@ -2140,6 +2164,7 @@ const hLabel = (mins: number): string =>
 export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
+  const [leave, setLeave] = useState<LeaveDay[]>([]);
   const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null }[]>([]);
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
@@ -2194,9 +2219,29 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      already loaded, so it is instant and costs no request. */
   const [q, setQ] = useState("");
   const [typeF, setTypeF] = useState<"all" | "clock_in" | "clock_out">("all");
-  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite" | "rest_day" | "pending" | "assigned">("all");
+  const [markF, setMarkF] = useState<"all" | "punch" | "manual" | "amended" | "offsite" | "rest_day" | "pending" | "assigned" | "leave" | "unpaid">("all");
   const [dayF, setDayF] = useState("");
   const filtersOn = q.trim() !== "" || typeF !== "all" || markF !== "all" || dayF !== "";
+  /* v1.82.0 — the same filters, applied to the leave rows. A leave day is
+     neither a clock-in nor a clock-out, so the Direction filter EXCLUDES it
+     when set: asking for "In only" and being handed absences would be a
+     filter that does not filter. */
+  const leaveMatches = (l: LeaveDay) => {
+    if (q.trim() && !properName(l.name).toLowerCase().includes(q.trim().toLowerCase())) return false;
+    if (typeF !== "all") return false;
+    if (markF === "unpaid") { if (l.leave_type !== "unpaid") return false; }
+    else if (markF !== "all" && markF !== "leave") return false;
+    if (dayF && l.date !== dayF) return false;
+    return true;
+  };
+  const visibleLeave = (): LeaveDay[] => {
+    const v = filtersOn ? leave.filter(leaveMatches) : leave;
+    return [...v].sort((a, b) => (a.date.localeCompare(b.date) || properName(a.name).localeCompare(properName(b.name))) * (sortKey ? sortDir : 1));
+  };
+  const leaveLabel = (t: string) => {
+    const hit = LEAVE_LABEL[t];
+    return hit ? L(hit[0], hit[1]) : t;
+  };
   /* ONE definition of "the rows on screen", used by the table AND by the CSV
      button. Two definitions would drift the moment somebody adds a filter,
      and the export would quietly disagree with what was being looked at —
@@ -2220,6 +2265,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     else if (markF === "rest_day") { if (r.day_kind !== "rest_day") return false; }
     else if (markF === "pending") { if (!r.pending) return false; }
     else if (markF === "assigned") { if (!r.assigned_what) return false; }
+    /* Asking for leave means leave. A punch is not one. */
+    else if (markF === "leave" || markF === "unpaid") { return false; }
     else if (markF !== "all" && markOf(r) !== markF) return false;
     if (dayF && utcToMytLocal(r.created_at).slice(0, 10) !== dayF) return false;
     return true;
@@ -2246,10 +2293,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const load = useCallback(async () => {
     void loadShifts();
     const [r, u] = await Promise.all([
-      api<{ records: AttRecord[] }>(`/attendance/report?month=${month}`),
+      api<{ records: AttRecord[]; leave?: LeaveDay[] }>(`/attendance/report?month=${month}`),
       api<{ users?: { id: number; name: string; full_name?: string | null; role: string }[]; staff?: { id: number; name: string; full_name?: string | null; role: string }[] }>(`/users`),
     ]);
-    if (r.data) setRows(r.data.records ?? []);
+    if (r.data) { setRows(r.data.records ?? []); setLeave(r.data.leave ?? []); }
     const list = u.data?.users ?? u.data?.staff ?? [];
     setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
     setLoaded(true);
@@ -2819,6 +2866,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             <option value="offsite">{L("Off-site (flagged)", "Luar tapak (ditanda)")}</option>
             <option value="rest_day">{L("Weekend / rest day", "Hujung minggu / hari rehat")}</option>
             <option value="assigned">{L("Outside hours, assigned work", "Luar waktu, kerja ditugaskan")}</option>
+            {/* v1.82.0 — leave lives in this list now, so a month can be
+                pulled in one go instead of read off two screens. */}
+            <option value="leave">{L("Leave (all types)", "Cuti (semua jenis)")}</option>
+            <option value="unpaid">{L("Unpaid leave (UPL) only", "Cuti tanpa gaji (UPL) sahaja")}</option>
             <option value="pending">{L("Waiting for approval", "Menunggu kelulusan")}</option>
           </select>
         </SubR>
@@ -2842,10 +2893,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             so it is instant and needs no round trip. */}
         <button type="button"
           className="border-border hover:bg-secondary inline-flex h-9 items-center justify-center self-end rounded-lg border px-3 text-xs font-medium disabled:opacity-50 sm:col-span-2 lg:col-span-1"
-          disabled={exportRows().length === 0}
+          disabled={exportRows().length + visibleLeave().length === 0}
           title={L("Download these rows as a CSV for Excel", "Muat turun baris ini sebagai CSV untuk Excel")}
           onClick={() => {
             const rows = exportRows();
+            const lv = visibleLeave();
             const active = [
               q.trim() ? `${L("search", "cari")}: ${q.trim()}` : "",
               typeF === "all" ? "" : typeF === "clock_in" ? L("in only", "masuk sahaja") : L("out only", "keluar sahaja"),
@@ -2861,7 +2913,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               [
                 [`# ${L("Staff attendance", "Kehadiran kakitangan")} — ${month}`],
                 [`# ${L("Generated", "Dijana")} ${csvStampMyt()}${active.length ? ` — ${L("filters", "tapisan")}: ${active.join(" · ")}` : ` — ${L("no filters", "tiada tapisan")}`}`],
-                [`# ${rows.length} ${L("records", "rekod")}`],
+                [`# ${rows.length} ${L("punch records", "rekod ketukan")}, ${lv.length} ${L("leave days", "hari cuti")}`],
                 [],
                 [L("Staff", "Kakitangan"), L("Type", "Jenis"), L("Date (MYT)", "Tarikh (MYT)"),
                  L("Time (MYT)", "Masa (MYT)"), L("Mark", "Tanda"), L("Day", "Hari"),
@@ -2882,17 +2934,37 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     r.id,
                   ];
                 }),
+                /* v1.82.0 — the leave days, in the SAME columns. A separate
+                   block or a second file would put the CEO back to reading
+                   two things against each other, which is the thing he asked
+                   to stop doing. Time is blank because a leave day has no
+                   clock; the amount rides in the Mark column, so a half day
+                   is visible without a column nothing else uses. */
+                ...lv.map((l) => [
+                  properName(l.name),
+                  L("Leave", "Cuti"),
+                  l.date,
+                  "",
+                  `${leaveLabel(l.leave_type)}${l.days !== 1 ? ` (${l.days})` : ""}`,
+                  L("working day", "hari bekerja"),
+                  l.shift_label ?? "",
+                  l.reason ?? "",
+                  "",
+                  l.id,
+                ]),
               ],
             );
           }}>
-          {L(`⬇ CSV — ${exportRows().length} rows`, `⬇ CSV — ${exportRows().length} baris`)}
+          {L(`⬇ CSV — ${exportRows().length + visibleLeave().length} rows`, `⬇ CSV — ${exportRows().length + visibleLeave().length} baris`)}
         </button>
         <span className="text-muted-foreground flex items-end text-xs sm:col-span-2 lg:col-span-3">
           {(() => {
             const n = rows.filter(matches).length;
+            const nl = visibleLeave().length;
+            const lvPart = nl > 0 ? L(` + ${nl} leave day${nl === 1 ? "" : "s"}`, ` + ${nl} hari cuti`) : "";
             return filtersOn
-              ? L(`${n} of ${rows.length} records`, `${n} daripada ${rows.length} rekod`)
-              : L(`${rows.length} records`, `${rows.length} rekod`);
+              ? L(`${n} of ${rows.length} records${lvPart}`, `${n} daripada ${rows.length} rekod${lvPart}`)
+              : L(`${rows.length} records${lvPart}`, `${rows.length} rekod${lvPart}`);
           })()}
           {filtersOn && (
             <button type="button" className="ml-2 underline" onClick={clearFilters}>
@@ -2931,12 +3003,44 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 <td className={td}><Skel className="h-7 w-24" /></td>
               </tr>
             ))}
-            {loaded && rows.length === 0 && (
+            {loaded && rows.length === 0 && leave.length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("No records this month.", "Tiada rekod bulan ini.")}</td></tr>
             )}
-            {rows.length > 0 && filtersOn && rows.filter(matches).length === 0 && (
+            {(rows.length > 0 || leave.length > 0) && filtersOn && rows.filter(matches).length === 0 && visibleLeave().length === 0 && (
               <tr><td className={`${td} text-muted-foreground`} colSpan={5}>{L("Nothing matches these filters this month.", "Tiada yang sepadan dengan tapisan ini bulan ini.")}</td></tr>
             )}
+            {/* v1.82.0 — the month's approved leave, in the same table. Rows
+                are READ-ONLY on purpose: a leave is decided on the Leave tab
+                with its own chain of approvals, and a Save button here would
+                be a second, quieter way to change one. They sit above the
+                punches because an absence explains the punches that are
+                missing beneath it. */}
+            {visibleLeave().map((l) => (
+              <tr key={`lv-${l.id}-${l.date}`} className="border-border bg-info-soft/30 border-b last:border-0">
+                <td className={td}>{properName(l.name)}</td>
+                <td className={`${td} whitespace-nowrap`}>
+                  <span className="text-info font-medium">{L("Leave", "Cuti")}</span>
+                </td>
+                <td className={`${td} whitespace-nowrap`}>
+                  {dmy(l.date)}
+                  {l.days !== 1 && (
+                    <span className="text-muted-foreground ml-1.5 text-xs">
+                      · {l.days === 0.5 ? L("half day", "setengah hari") : `${l.days}`}
+                    </span>
+                  )}
+                </td>
+                <td className={`${td} text-xs`}>
+                  <span className={l.leave_type === "unpaid" ? "text-danger font-semibold" : "font-medium"}>
+                    {leaveLabel(l.leave_type)}
+                  </span>
+                  {l.reason && <span className="text-muted-foreground ml-1.5">· {l.reason}</span>}
+                </td>
+                <td className={`${td} text-muted-foreground text-xs whitespace-nowrap`}
+                  title={L("Leave is approved and undone on the Leave tab, where it has its own approval chain", "Cuti diluluskan dan dibuat asal pada tab Cuti, di mana ia mempunyai rantaian kelulusan sendiri")}>
+                  {L("on Leave tab", "di tab Cuti")}
+                </td>
+              </tr>
+            ))}
             {exportRows().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={td}>{properName(r.name)}</td>

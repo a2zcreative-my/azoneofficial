@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.82.0] — 2026-09-03 — leave in the register
+
+**CEO:** *"find and filter should include UPL and also Leave on that month which is for me easier to pull the data"*
+
+A month of attendance without the leave beside it is a month with holes in it. Answering *"why was nobody in on the 12th"* meant opening the Leave tab and reading two screens against each other, and pulling the data meant two exports and a join in Excel.
+
+The register carries the month's approved leave now — in the same table, under the same filters, in the same CSV. **Record type** gains *Leave (all types)* and *Unpaid leave (UPL) only*.
+
+Four decisions worth stating, because each is a way the two could have disagreed:
+
+- **Overlap, not start date.** Payroll attributes a leave to the month it *starts* in, deliberately, and `payslipExtras` depends on that. This is a different question: a leave from 29 August to 2 September means the person was away on the 1st and 2nd, and a September register that omitted those days would be lying about September.
+- **One row per person-day**, not one per request — the same shape as a punch, so leave can be counted, filtered and totalled beside the attendance instead of needing its date range unpacked by hand. A single-day request keeps its exact `days`, so a half day shows as a half day; a range spreads whole days and cannot claim a fraction.
+- **A rest day inside a leave range is not a day of leave.** It is a weekend. Counting it would inflate every leave that spans one.
+- **Approved only.** A pending application is a request, not an absence — the same rule the pending punch already follows.
+
+Leave rows are **read-only** here: a leave is decided on the Leave tab with its own approval chain, and a Save button in the register would be a second, quieter way to change one. The Direction filter excludes leave when set, because a leave day is neither a clock-in nor a clock-out.
+
+### The guard suite has a rule now
+
+Correcting the CSV button's row count to include the leave failed a check about the count being honest — **the seventh guard this week to go red on a change that was right**.
+
+All seven had one shape: the check named an *implementation* where it meant a *behaviour*. `scheduledMinutes(shD)` when it meant "the day's own length". `shortMins / WORK_DAY_MINUTES` when it meant "rounded to quarter days". An eighty-character sentence when it meant "the reason is on screen".
+
+A guard that goes red when the code is right is worse than no guard: it costs a deploy, it trains everybody to read a failure as noise, and the one time it means something it gets waved through with the rest.
+
+A sweep of all 33 guards flagged **57 checks** with the same shape. They are not all wrong — pinning prose is correct when the prose *is* the behaviour, like a refusal that has to name the people or a notification that has to say "half a day". The test is whether the thing named could be rewritten while staying correct.
+
+`scripts/run-guards.mjs` now carries the rule at the top, where every guard author reads it, with the seven failures as worked examples. The remaining candidates are listed but not rewritten: weakening a real guard to silence a false one is the worse mistake, and each needs the judgement made deliberately rather than in bulk.
+
 ## [1.81.1] — 2026-09-03 — half a day unpaid
 
 **CEO:** *"unpaid should have option half day unpaid or full day unpaid"*

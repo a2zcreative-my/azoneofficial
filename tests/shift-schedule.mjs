@@ -364,6 +364,40 @@ const ok = (label, cond, extra = "") => {
      /\{sh\.hours\}h\/\{sh\.of \?\? 8\}h/.test(read("components/portal/payroll-panel.tsx")),
      "a hard-coded /8h beside a figure the server measured against seven is a number nobody can check");
 
+  /* ---- leave in the register (v1.82.0) ----
+     The CEO: "find and filter should include UPL and also Leave on that
+     month which is for me easier to pull the data". A month of attendance
+     without the leave beside it has holes in it, and every one of these
+     checks is a way the two could disagree. */
+  ok("the register carries the month's leave", /records: annotated, leave \}/.test(staff));
+  ok("leave is matched by OVERLAP, not by the month it starts in",
+     /AND l\.start_date <= \?1 \|\| '-31' AND l\.end_date >= \?1 \|\| '-01'/.test(staff),
+     "payroll attributes a leave to the month it starts in - a September register that omitted an August-to-September leave would be lying about September");
+  ok("only approved leave is an absence",
+     /WHERE l\.status = 'approved'[\s\S]{0,120}?l\.end_date >= \?1/.test(staff),
+     "a pending application is a request, not an absence - the same rule the pending punch follows");
+  ok("a rest day inside a leave range is not a day of leave",
+     /if \(sh\.kind === "rest_day"\) continue;[\s\S]{0,200}?leave\.push\(/.test(staff),
+     "counting the weekend inside a leave would inflate every leave that spans one");
+  ok("a range cannot claim a fraction of a day",
+     /days: l\.start_date === l\.end_date \? \(l\.days \?\? 1\) : 1,/.test(staff),
+     "0.5 days spread across three dates would deduct half a day three times");
+  ok("the filter offers leave and UPL",
+     /<option value="leave">/.test(panels) && /<option value="unpaid">/.test(panels));
+  ok("asking for leave excludes punches, and Direction excludes leave",
+     /else if \(markF === "leave" \|\| markF === "unpaid"\) \{ return false; \}/.test(panels) &&
+     /if \(typeF !== "all"\) return false;/.test(panels),
+     "a leave day is neither a clock-in nor a clock-out, so In only must not hand back absences");
+  ok("the CSV carries the leave in the SAME columns",
+     /\.\.\.lv\.map\(\(l\) => \[/.test(panels),
+     "a second block or a second file puts him back to reading two things against each other");
+  ok("the export count includes the leave rows",
+     /exportRows\(\)\.length \+ visibleLeave\(\)\.length/.test(panels),
+     "a button promising 24 rows and writing 31 is a button nobody trusts twice");
+  ok("leave rows are read-only in the register",
+     /on Leave tab/.test(panels),
+     "a Save button here would be a second, quieter way to change a leave that has its own approval chain");
+
   /* THE BUG BEHIND THE REQUEST. His rename WAS failing; the card told him in
      green, near the top, while he was in Working hours below the fold. */
   ok("a refused action says so where the eye is",
