@@ -398,6 +398,43 @@ const ok = (label, cond, extra = "") => {
      /on Leave tab/.test(panels),
      "a Save button here would be a second, quieter way to change a leave that has its own approval chain");
 
+  /* ---- the verification report (v1.84.0) ----
+     The CEO: "attendance verification should move to Attendance ... it should
+     include for the staff which is on leave, or medical leave. full report is
+     require and a must!" The old card printed every punch and nothing added
+     up; somebody on medical leave for a week had NO ROWS, which on that
+     screen is indistinguishable from somebody who never came in. */
+  const vcard = read("components/portal/verification-card.tsx");
+  ok("there is a verification report", /path === "\/attendance\/verification" && method === "GET"/.test(staff));
+  ok("the month reconciles on every row",
+     /balances: worked \+ leaveTotal \+ absent === scheduled,/.test(staff),
+     "a report whose buckets do not sum to the scheduled days is a list, not a report");
+  ok("and a row that does not add up says so",
+     /This row does not add up/.test(vcard),
+     "a reconciliation nobody can see is a reconciliation nobody does");
+  ok("leave is counted, not left as a gap",
+     /byType\[lv\.type\] = \(byType\[lv\.type\] \?\? 0\) \+ 1;/.test(staff),
+     "the whole point of the request - a week of medical leave must not read as a week of absence");
+  ok("a rest day or a public holiday is not a scheduled day",
+     /if \(sh\.kind === "rest_day"\) \{ restDays\+\+; continue; \}/.test(staff) &&
+     /if \(holSet\.has\(d\)\) \{ publicHols\+\+; continue; \}/.test(staff),
+     "nobody is absent from a day they were never due to work");
+  ok("tomorrow is not an absence",
+     /if \(d <= todayV\) \{ absent\+\+; absentDates\.push\(d\); \}/.test(staff),
+     "a month opened on the 3rd would otherwise report everybody absent for the rest of it");
+  ok("only days the person was employed count",
+     /const mine = employedDays\(daysV, u\.joined_on, u\.left_on, u\.rejoined_on\);/.test(staff),
+     "a joiner is not absent from the fortnight before they started");
+  ok("the holidays table is read by its real column name",
+     /SELECT holiday_date FROM holidays WHERE holiday_date LIKE/.test(staff),
+     "the first draft asked for `date`, which the catch would have swallowed into a month with no public holidays at all");
+  ok("the card is on the Attendance tab, not HR",
+     /<VerificationCard \/>/.test(page) && !/AttendanceRow\[\]>\(\[\]\)/.test(panels),
+     "the CEO asked for it on Attendance, and a copy left behind on HR is two reports that will disagree");
+  ok("the export carries the dates behind the figures",
+     /L\("Absent dates", "Tarikh tidak hadir"\)/.test(vcard) && /L\("Leave dates", "Tarikh cuti"\)/.test(vcard),
+     "a figure somebody has to come back and ask about is half a report");
+
   /* THE BUG BEHIND THE REQUEST. His rename WAS failing; the card told him in
      green, near the top, while he was in Working hours below the fold. */
   ok("a refused action says so where the eye is",

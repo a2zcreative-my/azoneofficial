@@ -118,7 +118,10 @@ const page = read("app/portal/page.tsx");
 
   /* Every payroll query that feeds a screen or a payment file. */
   const uses = (staff.match(/ORDER BY \$\{STAFF_ORDER_SQL\}/g) ?? []).length;
-  ok("every payroll listing uses it", uses === 3,
+  /* v1.84.0 — `=== 3` failed when a FOURTH listing correctly adopted the
+     order (the verification report). More surfaces sharing one order is the
+     goal, not a regression; too few is the failure this guards. */
+  ok("every payroll listing uses it", uses >= 3,
      `${uses} of 3 — the payroll table, the M2E file and the M2E preview; one left on ORDER BY u.name ` +
      "is one surface disagreeing with the other two");
   ok("no payroll query still orders by name alone",

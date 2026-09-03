@@ -2,6 +2,54 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.84.0] — 2026-09-03 — the month, reconciled
+
+**CEO:** *"attendance verification should move to Attendance and make it minimalist interface, then it is should include for the staff which is on leave, or medical leave. full report is require and a must!"*
+
+The card lived on the HR tab and printed **every punch in the month** — one row per ketukan, hundreds of them, each with a Shift check badge beside it. Nothing added up, and nothing could: it was a log, not a report.
+
+The part that mattered most: somebody on medical leave for a week simply had **no rows**, which on that screen is indistinguishable from somebody who never came in. Telling those two apart is the entire job of a verification report.
+
+### What makes it a report
+
+Every scheduled working day now lands in exactly one bucket, and the buckets sum:
+
+> **worked + leave + absent = scheduled**
+
+A row where that fails carries a question, and the row says so and explains the usual causes — a reconciliation nobody can see is a reconciliation nobody does. Rest days and public holidays are counted separately and are **not** scheduled days: nobody is absent from a day they were never due to work, and which days those are comes from that person's own split-shift pattern rather than an assumption about Saturdays.
+
+Three more rails: a joiner is not absent from the fortnight before they started; **tomorrow is not an absence**, so a month opened on the 3rd does not report everybody absent for the rest of it; and leave is broken down by type, so medical, annual and unpaid are each visible rather than merged into "away".
+
+**Minimalist** means one row per person, not per punch — nine rows instead of six hundred — with the day-level dates one click away on the row they belong to. The CSV carries every figure plus the absent and leave dates behind them, because a figure somebody has to come back and ask about is half a report.
+
+### Three bugs the toolchain caught before you did
+
+- **A temporal dead zone.** `employedDays` was a `const` a few thousand lines inside `handleStaff`, and the new report sits above that line — a `ReferenceError` at runtime on the route. esbuild passed it without a murmur; `tsc` failed it (TS2448), which is exactly why the compile gate was changed to treat that code as fatal rather than a strict-mode warning. Hoisted to module scope, like `WORK_DAY_MINUTES` before it.
+- **A 404.** The card called `/attendance/verification` where the staff routes live under `/staff/…`. Guard #26 named the file, the line and the address it would have hit.
+- **A wrong column.** The holiday query asked for `date`; the table's column is `holiday_date`. It sat inside a `try/catch`, so it would have failed silently into a month with no public holidays — every one of them counted as a scheduled working day, and anybody who took the day off marked absent.
+
+Two guards were exact-count checks (`employedDays` at six call sites, `STAFF_ORDER_SQL` at three) and went red because a **sixth and a fourth surface correctly adopted them**. More surfaces sharing one rule is the goal, not a regression, so both now assert a floor. The property in each is carried by the other half of the check.
+
+Ten checks added to guard #24, negative-tested.
+
+## [1.83.0] — 2026-09-03 — a leave you can correct or take back
+
+**CEO:** *"leave application and history I want to view and to edit if necessary or to remove if require. filter by month"*
+
+A leave could be applied for, decided, and after that only **read**. A wrong date, a leave taken as annual that should have been medical, a request approved twice — none of it could be corrected, and the only way out was a second record contradicting the first.
+
+**Recently decided** was five lines of plain text with nothing to click. It is now the whole history, filtered by month, with Edit and Remove on each row. A month filter is the only one that matters here: a leave question is nearly always *"what happened in August"*, and it is the same month the payslip is being checked against. Matched by **overlap**, so a leave running from the 29th into the next month appears under both — it was taken in both.
+
+Both actions are the **CEO alone**, for the same reason recording an unpaid day is. An amendment is not a smaller act than an approval: it can move a day between payroll months, turn a paid day unpaid, or delete a deduction somebody has already been charged for.
+
+Three rails on an amendment: the days figure has to **fit the dates** (0.5 days across a week, or 5 days on one date, is a figure payroll would multiply anyway); a date more than a year out is refused as a typo in the year, the same rail recording one already had; and a multi-day range cannot carry a fraction.
+
+**Every change records what it replaced** — not a flag saying "edited", the whole previous row, in the audit log. A register where a figure can change and the old one is gone is a register nobody can reconcile a payslip against. Removal records the deleted row for the same reason: afterwards there is nothing left to compare against.
+
+And the person is told, either way. A deduction somebody first hears about on pay day is how trust in a payroll system ends, and that is as true of a change to one as of the original. Both the toast and the amendment form say to press **Recompute nets** if that month's payroll is already saved.
+
+Eleven checks added to guard #14, negative-tested.
+
 ## [1.82.0] — 2026-09-03 — leave in the register
 
 **CEO:** *"find and filter should include UPL and also Leave on that month which is for me easier to pull the data"*

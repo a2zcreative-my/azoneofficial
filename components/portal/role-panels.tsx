@@ -117,20 +117,10 @@ function Badge({ value }: { value: string }) {
 
 /* ================= HR & Administrative ================= */
 
-interface AttendanceRow {
-  name: string;
-  email: string;
-  user_id: number;
-  type: string;
-  myt_time: string;
-  flag: string;
-  workday: boolean;
-}
+/* v1.84.0 - AttendanceRow left with the verification table. */
 
 export function HrPanel() {
-  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
-  const [rows, setRows] = useState<AttendanceRow[]>([]);
-  const [shift, setShift] = useState("");
+  /* v1.84.0 — month, rows and shift left with the verification table. */
   const [reports, setReports] = useState<
     { id: number; period: string; report_date: string; content: string; author: string }[]
   >([]);
@@ -145,19 +135,14 @@ export function HrPanel() {
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const [a, r, b] = await Promise.all([
-      api<{ shift: string; records: AttendanceRow[] }>(`/attendance/report?month=${month}`),
+    const [r, b] = await Promise.all([
       api<{ reports: typeof reports }>(`/task-reports`),
       api<{ birthdays: typeof birthdays }>(`/birthdays`),
     ]);
-    if (a.data) {
-      setRows(a.data.records);
-      setShift(a.data.shift);
-    }
     if (r.data) setReports(r.data.reports);
     if (b.data) setBirthdays(b.data.birthdays);
     setLoaded(true);
-  }, [month]);
+  }, []);
   useEffect(() => {
     void load().finally(() => setLoaded(true)); // a failed request clears the skeleton too
   }, [load]);
@@ -178,75 +163,11 @@ export function HrPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold">{L("Attendance verification", "Pengesahan kehadiran")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Company accounts · shift", "Akaun syarikat · syif")} {shift || L("10:00–18:00 MYT, Monday–Friday", "10:00–18:00 MYT, Isnin–Jumaat")} {L("· CSV export for payroll", "· eksport CSV untuk gaji")}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="month"
-              className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-            />
-            <a
-              href={`/api/v1/staff/attendance/export?month=${month}`}
-              className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium"
-            >
-              {L("Export CSV", "Eksport CSV")}
-            </a>
-          </div>
-        </div>
-        {/* v1.4.190 (CEO): the verification list scrolls inside the card
-            like every other long table — sticky subheads per v1.4.189. */}
-        <div className="mt-4 max-h-[28rem] overflow-x-auto overflow-y-auto">
-          <table className="tbl-sticky w-full min-w-[640px] border-collapse">
-            <thead>
-              <tr className="border-border border-b">
-                <th className={th}>{L("Staff", "Kakitangan")}</th>
-                <th className={th}>{L("Email", "E-mel")}</th>
-                <th className={th}>{L("Event", "Acara")}</th>
-                <th className={th}>{L("Time (MYT)", "Masa (MYT)")}</th>
-                <th className={th}>{L("Shift check", "Semakan syif")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* v1.77.0 — skeleton until the first fetch lands: five columns, like the real rows. */}
-              {!loaded && Array.from({ length: 5 }, (_, i) => (
-                <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
-                  <td className={td}><Skel className="h-4 w-28" /></td>
-                  <td className={td}><Skel className="h-4 w-40" /></td>
-                  <td className={td}><Skel className="h-4 w-16" /></td>
-                  <td className={td}><Skel className="h-4 w-32" /></td>
-                  <td className={td}><Skel className="h-5 w-16 rounded-full" /></td>
-                </tr>
-              ))}
-              {loaded && rows.length === 0 && (
-                <tr>
-                  <td className={`${td} text-muted-foreground`} colSpan={5}>
-                    {L("No attendance records for this month yet.", "Tiada rekod kehadiran untuk bulan ini lagi.")}
-                  </td>
-                </tr>
-              )}
-              {rows.map((r, i) => (
-                <tr key={i} className="border-border border-b last:border-0">
-                  <td className={`${td} font-medium`}>{properName(r.name)}</td>
-                  <td className={`${td} text-muted-foreground`}>{r.email}</td>
-                  <td className={td}>{r.type === "clock_in" ? L("clock in", "daftar masuk") : r.type === "clock_out" ? L("clock out", "daftar keluar") : r.type.replace(/_/g, " ")}</td>
-                  <td className={td}>{dmy(r.myt_time ?? "")}</td>
-                  <td className={td}>
-                    <Badge value={r.flag} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* v1.84.0 — the verification table left this card for the Attendance
+          tab, where the CEO asked for it, and became a REPORT rather than a
+          log: one row per person, every scheduled day accounted for, and
+          leave counted instead of appearing as a gap. See
+          components/portal/verification-card.tsx. */}
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>

@@ -45,16 +45,17 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
-import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
-import { RowCell } from "@/components/ui/sub-label"; // v1.79.0 - a placeholder is not a label
+import { RowCell, SubR } from "@/components/ui/sub-label"; // v1.79.0 - a placeholder is not a label
 import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { VerificationCard } from "@/components/portal/verification-card"; // v1.84.0 - the month, reconciled
 import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
@@ -5922,6 +5923,18 @@ function Leave({ user }: { user: User }) {
   ].includes(user.role);
   const { confirm: askOverride, node: overrideConfirmNode } = useConfirm();
   const { show: showLeaveToast, node: leaveToastNode } = useSaveToast();
+  /* v1.83.0 (CEO: "leave application and history I want to view and to edit
+     if necessary or to remove if require. filter by month") — the decided
+     list was five lines of plain text with no way to reach any of them. */
+  const [leaveMonth, setLeaveMonth] = useState("");
+  const [editLeave, setEditLeave] = useState<{
+    id: number; type: string; start_date: string; end_date: string; days: number; reason: string;
+  } | null>(null);
+  const { confirm: askRemoveLeave, node: removeLeaveNode } = useConfirm();
+  /* Amending a leave is the CEO's alone, exactly like recording an unpaid
+     day: it can move a day between payroll months or turn a paid one unpaid.
+     The server enforces the same list; this only decides what is drawn. */
+  const canAmend = ["ceo", "super_admin"].includes(user.role);
   /* v1.77.0 — skeleton until the first fetch lands. */
   const [loaded, setLoaded] = useState(false);
 
@@ -5983,6 +5996,46 @@ function Leave({ user }: { user: User }) {
     );
     void load();
   };
+  const saveAmend = async () => {
+    if (!editLeave) return;
+    const res = await api<{ error?: { message?: string } }>(`/staff/leave/${editLeave.id}/amend`, {
+      method: "PUT",
+      body: JSON.stringify({
+        type: editLeave.type, start_date: editLeave.start_date, end_date: editLeave.end_date,
+        days: editLeave.days, reason: editLeave.reason,
+      }),
+    });
+    if (!res.ok) {
+      showLeaveToast(L("Not amended", "Tidak dipinda"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showLeaveToast(L("Amended", "Dipinda"),
+      L("The staff member has been told. Press Recompute nets on Payroll if this month is already saved.",
+        "Kakitangan telah dimaklumkan. Tekan Kira semula bersih pada Gaji jika bulan ini sudah disimpan."));
+    setEditLeave(null);
+    void load();
+  };
+  const removeLeave = async (l: LeaveReq) => {
+    const yes = await askRemoveLeave({
+      title: L("Remove this leave record?", "Buang rekod cuti ini?"),
+      message: L(
+        `${properName(l.user_full || l.user_name || "")} — ${leaveTypeL(l.type)}, ${dmy(l.start_date)}. The record is deleted and they are told. If it was unpaid, the deduction goes with it; press Recompute nets on Payroll afterwards.`,
+        `${properName(l.user_full || l.user_name || "")} — ${leaveTypeL(l.type)}, ${dmy(l.start_date)}. Rekod dipadam dan mereka dimaklumkan. Jika ia tanpa gaji, potongan turut dibuang; tekan Kira semula bersih pada Gaji selepas ini.`,
+      ),
+      confirmLabel: L("Remove", "Buang"),
+      variant: "danger",
+    });
+    if (!yes) return;
+    const res = await api<{ error?: { message?: string } }>(`/staff/leave/${l.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      showLeaveToast(L("Not removed", "Tidak dibuang"),
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    showLeaveToast(L("Removed", "Dibuang"), L("The staff member has been told.", "Kakitangan telah dimaklumkan."));
+    void load();
+  };
   /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
      form of all the staff which is can by pass their HOD") — the chain is
      untouched; this is the way past a stage whose approver is away. The
@@ -6036,6 +6089,7 @@ function Leave({ user }: { user: User }) {
   return (
     <div className="space-y-4 md:space-y-6">
       {overrideConfirmNode}
+      {removeLeaveNode}
       {leaveToastNode}
       {canSetEntitlement && <LeaveEntitlement />}
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
@@ -6271,9 +6325,16 @@ function Leave({ user }: { user: User }) {
           const pending = all.filter(
             (l) => !TERMINAL.includes(l.stage ?? l.status)
           );
-          const decided = all
-            .filter((l) => TERMINAL.includes(l.stage ?? l.status))
-            .slice(0, 5);
+          /* v1.83.0 — the WHOLE history, filtered by month, not the last
+             five. A month filter is the only one that matters here: a leave
+             question is nearly always "what happened in August", and it is
+             the same month the payslip is being checked against. Matched by
+             OVERLAP, so a leave running from the 29th into the next month
+             appears under both — it was taken in both. */
+          const decidedAll = all.filter((l) => TERMINAL.includes(l.stage ?? l.status));
+          const decided = leaveMonth
+            ? decidedAll.filter((l) => l.start_date <= `${leaveMonth}-31` && l.end_date >= `${leaveMonth}-01`)
+            : decidedAll.slice(0, 8);
           const waitingOn = waitingOnLabel;
           const who = (l: LeaveReq) =>
             properName(l.user_full || l.user_name || "");
@@ -6369,22 +6430,117 @@ function Leave({ user }: { user: User }) {
                   );
                 })}
               </div>
-              {decided.length > 0 && (
-                <div className="mt-3">
+              <div className="mt-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
                   <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-                    {L("Recently decided", "Keputusan terkini")}
+                    {leaveMonth ? L("Decided this month", "Diputuskan bulan ini") : L("Recently decided", "Keputusan terkini")}
                   </p>
-                  {decided.map((l) => (
-                    <p
-                      key={l.id}
-                      className="text-muted-foreground mt-1 text-xs"
-                    >
-                      {who(l)} · {leaveTypeL(l.type)} · {dmy(l.start_date)} →{" "}
-                      {dmy(l.end_date)} · {stageL(l.stage ?? l.status)}
-                    </p>
-                  ))}
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="month"
+                      className="border-input bg-background h-8 rounded-lg border px-2 text-xs"
+                      value={leaveMonth}
+                      aria-label={L("Filter by month", "Tapis ikut bulan")}
+                      title={L("Show every leave taken in this month. A leave spanning two months appears under both.", "Tunjuk setiap cuti yang diambil dalam bulan ini. Cuti merentasi dua bulan muncul pada kedua-duanya.")}
+                      onChange={(e) => setLeaveMonth(e.target.value)}
+                    />
+                    {leaveMonth && (
+                      <button type="button" className="text-muted-foreground text-xs underline"
+                        onClick={() => setLeaveMonth("")}>
+                        {L("Clear", "Kosongkan")}
+                      </button>
+                    )}
+                  </span>
                 </div>
-              )}
+                {decided.length === 0 ? (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    {leaveMonth
+                      ? L("No leave decided in that month.", "Tiada cuti diputuskan pada bulan itu.")
+                      : L("Nothing decided yet.", "Tiada keputusan lagi.")}
+                  </p>
+                ) : (
+                  <div className="border-border divide-border mt-2 divide-y rounded-lg border">
+                    {decided.map((l) => (
+                      <div key={l.id} className="px-2.5 py-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                          <p className="min-w-0 text-xs">
+                            <span className="font-medium">{who(l)}</span>
+                            <span className="text-muted-foreground">
+                              {" · "}{leaveTypeL(l.type)}
+                              {" · "}{dmy(l.start_date)}{l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}
+                              {" · "}{l.days === 1 ? L("1 day", "1 hari") : l.days === 0.5 ? L("half day", "setengah hari") : `${l.days} ${L("days", "hari")}`}
+                              {" · "}{stageL(l.stage ?? l.status)}
+                            </span>
+                          </p>
+                          {canAmend && (
+                            <span className="flex shrink-0 items-center gap-2">
+                              <button type="button" className={rowBtn}
+                                title={L("Correct the type, the dates or the number of days", "Betulkan jenis, tarikh atau bilangan hari")}
+                                onClick={() => setEditLeave(editLeave?.id === l.id ? null : {
+                                  id: l.id, type: l.type, start_date: l.start_date,
+                                  end_date: l.end_date, days: l.days, reason: l.reason ?? "",
+                                })}>
+                                {editLeave?.id === l.id ? L("Close", "Tutup") : L("Edit", "Sunting")}
+                              </button>
+                              <button type="button" className={rowBtnDanger}
+                                onClick={() => void removeLeave(l)}>
+                                {L("Remove", "Buang")}
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                        {l.reason && editLeave?.id !== l.id && (
+                          <p className="text-muted-foreground mt-0.5 text-[11px]">{l.reason}</p>
+                        )}
+                        {/* v1.83.0 — the amendment form, on the row it amends.
+                            A modal would hide the record being changed at the
+                            moment it matters most. */}
+                        {editLeave?.id === l.id && (
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
+                            <SubR t={L("Type", "Jenis")}>
+                              <select className={inputClass} value={editLeave.type}
+                                onChange={(e) => setEditLeave({ ...editLeave, type: e.target.value })}>
+                                {["annual", "medical", "emergency", "unpaid", "replacement"].map((t) => (
+                                  <option key={t} value={t}>{leaveTypeL(t)}</option>
+                                ))}
+                              </select>
+                            </SubR>
+                            <SubR t={L("Start", "Mula")}>
+                              <input type="date" className={inputClass} value={editLeave.start_date}
+                                onChange={(e) => setEditLeave({ ...editLeave, start_date: e.target.value })} />
+                            </SubR>
+                            <SubR t={L("End", "Tamat")}>
+                              <input type="date" className={inputClass} value={editLeave.end_date}
+                                onChange={(e) => setEditLeave({ ...editLeave, end_date: e.target.value })} />
+                            </SubR>
+                            <SubR t={L("Days (0.5 = half)", "Hari (0.5 = separuh)")}>
+                              <input type="number" min={0.5} step={0.5} className={inputClass}
+                                value={editLeave.days}
+                                onChange={(e) => setEditLeave({ ...editLeave, days: Number(e.target.value) })} />
+                            </SubR>
+                            <SubR t={L("Reason", "Sebab")} className="sm:col-span-3">
+                              <input className={inputClass} value={editLeave.reason}
+                                onChange={(e) => setEditLeave({ ...editLeave, reason: e.target.value })} />
+                            </SubR>
+                            <div className="flex items-end gap-2">
+                              <button type="button" className={rowBtnPrimary} onClick={() => void saveAmend()}>
+                                {L("Save", "Simpan")}
+                              </button>
+                              <button type="button" className={rowBtn} onClick={() => setEditLeave(null)}>
+                                {L("Cancel", "Batal")}
+                              </button>
+                            </div>
+                            <p className="text-muted-foreground text-[11px] sm:col-span-4">
+                              {L("Every change is recorded with who made it and what it replaced, and the staff member is notified. If this month's payroll is already saved, press Recompute nets on the Payroll tab afterwards.",
+                                 "Setiap perubahan direkodkan dengan siapa yang membuatnya dan apa yang digantikan, dan kakitangan dimaklumkan. Jika gaji bulan ini sudah disimpan, tekan Kira semula bersih pada tab Gaji selepas ini.")}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
@@ -13615,6 +13771,13 @@ export default function PortalPage() {
                 )}
               />
               <Attendance user={user} />
+              {/* v1.84.0 (CEO: "attendance verification should move to
+                  Attendance ... full report is require and a must!") — it was
+                  on the HR tab, printing every punch in the month with no
+                  total. Same tier that could see it there. */}
+              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) && (
+                <VerificationCard />
+              )}
               {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? (
                 <OtApprovalsCard />
               ) : (

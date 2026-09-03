@@ -143,6 +143,35 @@ export const staffRolesSql = (alias = "") =>
  * Assumes the users table is aliased `u` - every payroll query joins it that
  * way, and the guard checks each call site.
  */
+/** The subset of a month's working days a person was actually employed for.
+    Equal to the whole list for anybody who did not join or leave inside the
+    month - which is why nobody else is ever prorated.
+
+    MODULE SCOPE (v1.84.0), for the same reason as WORK_DAY_MINUTES before it.
+    It was a `const` a few thousand lines inside `handleStaff`, and the new
+    verification report sits ABOVE that line: a temporal-dead-zone
+    ReferenceError at runtime, on a route that had passed esbuild without a
+    murmur. tsc caught it (TS2448), which is why the compile gate treats that
+    code as fatal rather than as a strict-mode warning. */
+export function employedDays(
+  days: string[], joined?: string | null, left?: string | null, rejoined?: string | null,
+): string[] {
+  return days.filter((d) => {
+    if (joined && d < joined.slice(0, 10)) return false;
+    /* v1.77.0 - RE-JOINERS. This read only joined_on and left_on, so somebody
+       who resigned and came back was still "gone" from the day they first
+       left: every working day after it was prorated away as an incomplete
+       month, silently, for as long as the old left_on sat in their record.
+       `rejoined_on` has existed as a field since v1.4.101 and the staff list
+       already honours it; the money did not. After the re-join date they are
+       employed again. */
+    if (left && d > left.slice(0, 10)) {
+      return Boolean(rejoined && d >= rejoined.slice(0, 10));
+    }
+    return true;
+  });
+}
+
 export const STAFF_ORDER_SQL = `
   (CASE u.role
      WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30
@@ -2638,6 +2667,158 @@ export async function handleStaff(
     return json({ date: todayM, staff: results, geofence: await getGeofence(env) });
   }
 
+  /* ============ v1.84.0 — the month, reconciled ============
+   *
+   * CEO, 03-09-2026: *"attendance verification should move to Attendance and
+   * make it minimalist interface, then it is should include for the staff
+   * which is on leave, or medical leave. full report is require and a must!"*
+   *
+   * The verification card was a flat list of every punch in the month, on the
+   * HR tab, with a Shift check badge beside each. Hundreds of rows, one per
+   * ketukan, and nothing that added up. Worse: a person on medical leave for
+   * a week simply had no rows, which is indistinguishable from a person who
+   * never came in - the two things a verification report exists to tell
+   * apart.
+   *
+   * THE PROPERTY THAT MAKES THIS A REPORT: every scheduled working day of the
+   * month lands in exactly one bucket, and the buckets sum to the scheduled
+   * days. Worked + leave + absent = scheduled. A row that does not add up is
+   * a row with a question in it, and the report says so on the row rather
+   * than leaving it to be discovered against a payslip.
+   *
+   * Public holidays and rest days are NOT scheduled working days and are
+   * counted separately - a person is not absent from a day they were never
+   * due to work, and the split-shift schedule (0102) is what decides which
+   * days those are, per person, rather than an assumption about Saturdays.
+   */
+  if (path === "/attendance/verification" && method === "GET") {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
+      return err("forbidden", "HR access required", 403);
+    }
+    const urlV = new URL(request.url);
+    const monthV = urlV.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(monthV)) return err("invalid_input", "month must be YYYY-MM", 400);
+
+    const [yV, mV] = monthV.split("-").map(Number) as [number, number];
+    const lastV = new Date(Date.UTC(yV, mV, 0)).getUTCDate();
+    const daysV: string[] = [];
+    for (let d = 1; d <= lastV; d++) daysV.push(`${monthV}-${String(d).padStart(2, "0")}`);
+    const todayV = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const { results: staffV } = await env.DB.prepare(
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email,
+              u.employee_id, u.position, u.role, u.employment_status,
+              u.joined_on, u.left_on, u.rejoined_on
+         FROM users u
+        WHERE ${staffRolesSql("u.")} AND (u.is_active = 1 OR u.left_on IS NOT NULL)
+        ORDER BY ${STAFF_ORDER_SQL}`,
+    ).all<{
+      id: number; name: string; email: string | null; employee_id: string | null;
+      position: string | null; role: string; employment_status: string | null;
+      joined_on: string | null; left_on: string | null; rejoined_on: string | null;
+    }>();
+
+    const shiftAtV = await shiftResolver(env);
+    const assignedAtV = await assignedResolver(env, `${monthV}-01`, `${monthV}-${lastV}`);
+    const notPendingV = await notPendingSql(env);
+
+    /* One clocked pair per person per day, in one query. */
+    const { results: clockV } = await env.DB.prepare(
+      `SELECT user_id, date(created_at, '+8 hours') AS d,
+              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
+              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
+         FROM attendance_records
+        WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingV}
+        GROUP BY user_id, d`,
+    ).bind(monthV).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
+    const clockMap = new Map((clockV ?? []).map((c) => [`${c.user_id}|${c.d}`, c]));
+
+    /* Approved leave overlapping the month, by OVERLAP for the same reason
+       the register uses it: a leave from 29 August covers 1 September too. */
+    let leaveRows: { user_id: number; type: string; start_date: string; end_date: string; days: number | null }[] = [];
+    try {
+      leaveRows = ((await env.DB.prepare(
+        `SELECT user_id, type, start_date, end_date, days FROM leave_requests
+          WHERE status = 'approved' AND start_date <= ?1 AND end_date >= ?2`,
+      ).bind(`${monthV}-${lastV}`, `${monthV}-01`).all<{ user_id: number; type: string; start_date: string; end_date: string; days: number | null }>()).results) ?? [];
+    } catch { /* pre-leave_requests */ }
+
+    let holsV: string[] = [];
+    try {
+      holsV = ((await env.DB.prepare(
+        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
+      ).bind(monthV).all<{ holiday_date: string }>()).results ?? []).map((h) => h.holiday_date);
+    } catch { /* pre-holidays */ }
+    const holSet = new Set(holsV);
+
+    const out: Record<string, unknown>[] = [];
+    for (const u of staffV ?? []) {
+      /* Only days this person was actually employed - a joiner is not absent
+         from the fortnight before they started. */
+      const mine = employedDays(daysV, u.joined_on, u.left_on, u.rejoined_on);
+      const byType: Record<string, number> = {};
+      let scheduled = 0, worked = 0, restDays = 0, publicHols = 0, absent = 0;
+      let late = 0, earlyOut = 0, shortDays = 0, assignedDays = 0;
+      let schedMins = 0, workedMins = 0;
+      const absentDates: string[] = [];
+      const leaveDates: { d: string; type: string }[] = [];
+
+      for (const d of mine) {
+        const sh = shiftAtV(u.id, d);
+        const lv = leaveRows.find((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        if (sh.kind === "rest_day") { restDays++; continue; }
+        if (holSet.has(d)) { publicHols++; continue; }
+        scheduled++;
+        schedMins += workMinutes(sh);
+        if (lv) {
+          byType[lv.type] = (byType[lv.type] ?? 0) + 1;
+          leaveDates.push({ d, type: lv.type });
+          continue;
+        }
+        const c = clockMap.get(`${u.id}|${d}`);
+        if (!c?.i) {
+          /* A day still in the future, or today before anybody has clocked,
+             is not an absence yet. */
+          if (d <= todayV) { absent++; absentDates.push(d); }
+          continue;
+        }
+        worked++;
+        const mytMin = (iso: string) => {
+          const t = new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000);
+          return t.getUTCHours() * 60 + t.getUTCMinutes();
+        };
+        const inMin = mytMin(c.i);
+        if (assignedAtV(u.id, d, inMin) && !windowAt(sh, inMin)) assignedDays++;
+        else if (inMin > (lateAgainst(sh, inMin) ?? 0)) late++;
+        if (c.o) {
+          const outMin = mytMin(c.o);
+          const span = Math.max(0, Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000));
+          const inside = minutesInWindows(sh, inMin, inMin + span);
+          const mins = inside > 0 ? inside : span;
+          workedMins += mins;
+          const owed = workMinutes(sh) || WORK_DAY_MINUTES;
+          if (outMin < (endOfDay(sh) ?? 0)) earlyOut++;
+          if (owed - mins >= owed / 4) shortDays++;
+        }
+      }
+      const leaveTotal = Object.values(byType).reduce((n, x) => n + x, 0);
+      out.push({
+        user_id: u.id, name: u.name, email: u.email, employee_id: u.employee_id,
+        position: u.position, role: u.role, employment_status: u.employment_status,
+        scheduled, worked, leave_total: leaveTotal, leave_by_type: byType,
+        absent, rest_days: restDays, public_holidays: publicHols,
+        late, early_out: earlyOut, short_days: shortDays, assigned_days: assignedDays,
+        scheduled_minutes: schedMins, worked_minutes: workedMins,
+        absent_dates: absentDates, leave_dates: leaveDates,
+        /* THE RECONCILIATION. If this is false the row has a question in it,
+           and the report says so rather than leaving it to be found against a
+           payslip three weeks later. */
+        balances: worked + leaveTotal + absent === scheduled,
+      });
+    }
+    return json({ month: monthV, days: daysV.length, staff: out });
+  }
+
   if (path === "/attendance/report" && method === "GET") {
     // HR + CEO manage; COO/CCO (exec_view) read.
     if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
@@ -2827,6 +3008,114 @@ export async function handleStaff(
       };
     }
     return json({ year, month: monthMYT, balances });
+  }
+
+  /* ============ v1.83.0 — a leave you can correct or take back ============
+   *
+   * CEO, 03-09-2026: *"leave application and history I want to view and to
+   * edit if necessary or to remove if require. filter by month"*
+   *
+   * A leave could be applied for, decided, and after that only READ. A wrong
+   * date, a leave taken as annual that should have been medical, a request
+   * approved twice - none of it could be corrected, and the only way out was
+   * a second record that contradicted the first.
+   *
+   * BOTH ROUTES ARE THE CEO ALONE, and for the same reason `unpaid_leave` is:
+   * a leave is a balance and, when it is unpaid, it is pay. An amendment is
+   * not a smaller act than an approval - it can move a day between months,
+   * turn a paid day unpaid, or delete a deduction somebody has already been
+   * charged for. The chain that decided it stays visible; this sits beside
+   * it, not inside it.
+   *
+   * EVERY CHANGE RECORDS WHAT IT REPLACED. Not a flag saying "edited" - the
+   * whole previous row, in the audit log, the same standard the entitlement
+   * editor holds itself to. A leave register where a figure can change and
+   * the old one is gone is a register nobody can reconcile a payslip against.
+   *
+   * AND THE PERSON IS TOLD. A deduction somebody first hears about on pay
+   * day is how trust in a payroll system ends, and that is as true of a
+   * change to one as of the original.
+   */
+  const CEO_ONLY: readonly Role[] = ["super_admin", "ceo"];
+
+  const leaveEdit = path.match(/^\/leave\/(\d+)\/amend$/);
+  if (leaveEdit && method === "PUT") {
+    if (!CEO_ONLY.includes(user.role)) {
+      return err("forbidden", "Only the CEO can amend a leave record", 403);
+    }
+    const idE = Number(leaveEdit[1]);
+    const before = await env.DB.prepare(
+      `SELECT id, user_id, type, start_date, end_date, days, reason, status, stage
+         FROM leave_requests WHERE id = ?1`,
+    ).bind(idE).first<Record<string, unknown>>();
+    if (!before) return err("not_found", "Leave request not found", 404);
+
+    const typeE = str(body?.type, 30) ? String(body!.type) : String(before.type);
+    if (!LEAVE_TYPES.includes(typeE as never)) {
+      return err("invalid_input", `type must be one of: ${LEAVE_TYPES.join(", ")}`, 400);
+    }
+    const startE = str(body?.start_date, 10) ? String(body!.start_date) : String(before.start_date);
+    const endE = str(body?.end_date, 10) ? String(body!.end_date) : String(before.end_date);
+    for (const [label, d] of [["start_date", startE], ["end_date", endE]] as const) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return err("invalid_input", `${label} must be YYYY-MM-DD`, 400);
+    }
+    if (endE < startE) return err("invalid_input", "The end date is before the start date", 400);
+    /* A year out is a typo in the year, and it would move the day into a
+       payroll month nobody is looking at. Same rail as recording one. */
+    const msE = Date.parse(`${startE}T00:00:00Z`);
+    if (!Number.isFinite(msE) || Math.abs(msE - Date.now()) > 400 * 86400 * 1000) {
+      return err("invalid_input", "That date is more than a year away - check the year", 400);
+    }
+    let daysE = typeof body?.days === "number" && Number.isFinite(body.days)
+      ? Math.round(body.days * 4) / 4 : Number(before.days ?? 1);
+    /* A range cannot be half a day, and a single day cannot be five: the
+       figure has to be sayable about the dates it sits on. */
+    const spanE = Math.round((Date.parse(`${endE}T00:00:00Z`) - msE) / 86400000) + 1;
+    if (daysE <= 0) return err("invalid_input", "Days must be more than zero", 400);
+    if (daysE > spanE) {
+      return err("invalid_input", `Those dates are ${spanE} day(s) - the leave cannot be ${daysE}`, 400);
+    }
+    if (spanE > 1 && daysE % 1 !== 0) daysE = Math.round(daysE);
+    const reasonE = body && "reason" in body
+      ? (str(body.reason, 500) ? String(body.reason) : null)
+      : (before.reason as string | null);
+
+    await env.DB.prepare(
+      `UPDATE leave_requests SET type = ?1, start_date = ?2, end_date = ?3, days = ?4, reason = ?5
+        WHERE id = ?6`,
+    ).bind(typeE, startE, endE, daysE, reasonE, idE).run();
+    await notify(env, before.user_id as number, "leave",
+      `Your ${typeE} leave has been amended to ${startE}${endE !== startE ? ` to ${endE}` : ""} (${daysE === 1 ? "1 day" : `${daysE} days`}). Check the Leave tab.`,
+      `leave:amend:${idE}`);
+    await audit(env, user.id, "leave.amend", "leave_requests", String(idE), {
+      before, after: { type: typeE, start_date: startE, end_date: endE, days: daysE, reason: reasonE },
+    });
+    return json({ ok: true, id: idE, days: daysE });
+  }
+
+  const leaveDel = path.match(/^\/leave\/(\d+)$/);
+  if (leaveDel && method === "DELETE") {
+    if (!CEO_ONLY.includes(user.role)) {
+      return err("forbidden", "Only the CEO can remove a leave record", 403);
+    }
+    const idX = Number(leaveDel[1]);
+    const rowX = await env.DB.prepare(
+      `SELECT id, user_id, type, start_date, end_date, days, reason, status, stage, recorded_direct
+         FROM leave_requests WHERE id = ?1`,
+    ).bind(idX).first<Record<string, unknown>>().catch(async () =>
+      await env.DB.prepare(
+        `SELECT id, user_id, type, start_date, end_date, days, reason, status, stage
+           FROM leave_requests WHERE id = ?1`,
+      ).bind(idX).first<Record<string, unknown>>());
+    if (!rowX) return err("not_found", "Leave request not found", 404);
+    await env.DB.prepare(`DELETE FROM leave_requests WHERE id = ?1`).bind(idX).run();
+    await notify(env, rowX.user_id as number, "leave",
+      `Your ${String(rowX.type)} leave on ${String(rowX.start_date)} has been removed from the record.`,
+      `leave:remove:${idX}`);
+    /* The whole row, because after this there is nothing left to compare a
+       payslip against. */
+    await audit(env, user.id, "leave.remove", "leave_requests", String(idX), { removed: rowX });
+    return json({ ok: true });
   }
 
   const leaveMatch = path.match(/^\/leave\/(\d+)$/);
@@ -6977,26 +7266,7 @@ export async function handleStaff(
     return out;
   };
 
-  /** The subset of those days the person was actually employed for. Equal to
-      the whole list for anybody who did not join or leave inside the month -
-      which is why nobody else is ever prorated. */
-  const employedDays = (
-    days: string[], joined?: string | null, left?: string | null, rejoined?: string | null,
-  ): string[] =>
-    days.filter((d) => {
-      if (joined && d < joined.slice(0, 10)) return false;
-      /* v1.77.0 — RE-JOINERS. This read only joined_on and left_on, so
-         somebody who resigned and came back was still "gone" from the day
-         they first left: every working day after it was prorated away as an
-         incomplete month, silently, for as long as the old left_on sat in
-         their record. `rejoined_on` has existed as a field since v1.4.101 and
-         the staff list already honours it; the money did not.
-         After the re-join date they are employed again. */
-      if (left && d > left.slice(0, 10)) {
-        return Boolean(rejoined && d >= rejoined.slice(0, 10));
-      }
-      return true;
-    });
+  /* employedDays is at MODULE SCOPE (v1.84.0) - see the note beside it. */
 
   /** The incomplete-month deduction, in sen. Zero unless they joined or left
       inside this month. */

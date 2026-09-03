@@ -306,10 +306,15 @@ const AUG = (() => {
   ok("somebody who left and came back is employed again from the re-join date",
      /return Boolean\(rejoined && d >= rejoined\.slice\(0, 10\)\);/.test(staff),
      "reading only left_on charged a returning employee an incomplete month for every day since they first resigned");
+  /* v1.84.0 — the count was `=== 6`, so ADDING a sixth surface that reads
+     employed days (the verification report) failed a check about none of
+     them being left behind. The property is carried entirely by the second
+     half: NO call omits `rejoined`. The count only guards against every
+     call disappearing, which `>=` still does. */
   ok("EVERY payable-days site passes the re-join date",
-     (staff.match(/employedDays\([^)]*rejoined[^)]*\)/g) ?? []).length === 6 &&
+     (staff.match(/employedDays\([^)]*rejoined[^)]*\)/g) ?? []).length >= 6 &&
      !/employedDays\((?:(?!rejoined)[^)])*\)/.test(staff),
-     "six call sites — the payslip, the panel's two, the absence scan and recompute; one left behind is one surface disagreeing about who was employed");
+     "the payslip, the panel's two, the absence scan, recompute and the verification report — one left behind is one surface disagreeing about who was employed");
   ok("recompute no longer prorates on worked_days",
      !/Math\.max\(0, workD - \(e\.worked_days as number\)\)/.test(staff),
      "that expression is the bug — it charged approved paid leave as absence");

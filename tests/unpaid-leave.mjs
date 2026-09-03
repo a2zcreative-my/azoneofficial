@@ -223,6 +223,43 @@ ok("the attendance panel is actually given the role",
    /<AttendanceAdminPanel role=\{user\.role\} \/>/.test(page),
    "without the prop the control renders for nobody, silently");
 
+/* ---- v1.83.0: a leave you can correct or take back ----
+   The CEO: "leave application and history I want to view and to edit if
+   necessary or to remove if require. filter by month". A leave could be
+   applied for, decided, and after that only READ - so a wrong date could
+   only be answered with a second record contradicting the first. */
+{
+  ok("a decided leave can be amended", /const leaveEdit = path\.match\(\/\^\\\/leave\\\/\(\\d\+\)\\\/amend\$\/\)/.test(staff));
+  ok("a leave can be removed", /const leaveDel = path\.match/.test(staff) && /if \(leaveDel && method === "DELETE"\)/.test(staff));
+  ok("both are the CEO alone",
+     /const CEO_ONLY: readonly Role\[\] = \["super_admin", "ceo"\];/.test(staff) &&
+     /Only the CEO can amend a leave record/.test(staff) &&
+     /Only the CEO can remove a leave record/.test(staff),
+     "an amendment can move a day between payroll months or turn a paid day unpaid - it is not a smaller act than an approval");
+  ok("an amendment records the whole row it replaced",
+     /audit\(env, user\.id, "leave\.amend", "leave_requests", String\(idE\), \{\s*before, after:/.test(staff),
+     "a register where a figure changes and the old one is gone is a register nobody can reconcile a payslip against");
+  ok("a removal records the whole row it deleted",
+     /audit\(env, user\.id, "leave\.remove", "leave_requests", String\(idX\), \{ removed: rowX \}\)/.test(staff),
+     "after a delete there is nothing left to compare a payslip against");
+  ok("the person is told either way",
+     /has been amended to/.test(staff) && /has been removed from the record/.test(staff),
+     "a deduction somebody first hears about on pay day is how trust in a payroll system ends");
+  ok("the days figure has to fit the dates",
+     /Those dates are \$\{spanE\} day\(s\) - the leave cannot be/.test(staff),
+     "0.5 days across a week, or 5 days on one date, is a figure payroll would multiply anyway");
+  ok("a year-out date is refused, as when recording one",
+     /Math\.abs\(msE - Date\.now\(\)\) > 400 \* 86400 \* 1000/.test(staff),
+     "a typo in the year moves the day into a payroll month nobody is looking at");
+  ok("the history filters by month, matched by overlap",
+     /l\.start_date <= `\$\{leaveMonth\}-31` && l\.end_date >= `\$\{leaveMonth\}-01`/.test(page),
+     "a leave running from the 29th into the next month was taken in both");
+  ok("removing a leave asks first, and says what goes with it",
+     /askRemoveLeave\(\{/.test(page) && /the deduction goes with it/.test(page));
+  ok("both actions report failure as well as success",
+     /L\("Not amended", "Tidak dipinda"\)/.test(page) && /L\("Not removed", "Tidak dibuang"\)/.test(page));
+}
+
 console.log(
   fails.length === 0
     ? `PASS — CEO-only powers are CEO-only, the cascade is complete, and one unpaid day is deducted once (${pass} checks)`
