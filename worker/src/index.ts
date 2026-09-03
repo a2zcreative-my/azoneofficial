@@ -265,7 +265,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0102_split_shifts";
+const LATEST_MIGRATION = "0103_unpaid_break";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4294,6 +4294,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0100 (a forgotten punch waits for approval)", `SELECT pending_approval FROM attendance_records LIMIT 1`],
       ["0101 (a rest day worked, credited as leave)", `SELECT work_date, days FROM replacement_credits LIMIT 1`],
       ["0102 (a working day in two blocks)", `SELECT mon_start2, fri_end2 FROM shift_patterns LIMIT 1`],
+      ["0103 (an unpaid break comes off the day)", `SELECT break_minutes FROM shift_patterns LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4415,6 +4416,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0100_attendance_pending",
       "0101_replacement_credits",
       "0102_split_shifts",
+      "0103_unpaid_break",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

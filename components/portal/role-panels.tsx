@@ -2109,12 +2109,26 @@ const EMPTY_DAY: DayEdit = { start: "", end: "", start2: "", end2: "" };
 /** Minutes a day adds up to across both blocks — the number the CEO is
     actually counting when he says the day should come to eight hours. A block
     with only one end contributes nothing, the same rule the server applies. */
-const dayMinutes = (d: DayEdit | undefined): number => {
-  const span = (a: string, b: string) => {
-    const s = toMins(a), e = toMins(b);
-    return s === null || e === null || e <= s ? 0 : e - s;
-  };
-  return span(d?.start ?? "", d?.end ?? "") + span(d?.start2 ?? "", d?.end2 ?? "");
+const blockSpan = (a: string, b: string): number => {
+  const s = toMins(a), e = toMins(b);
+  return s === null || e === null || e <= s ? 0 : e - s;
+};
+const daySpan = (d: DayEdit | undefined): number =>
+  blockSpan(d?.start ?? "", d?.end ?? "") + blockSpan(d?.start2 ?? "", d?.end2 ?? "");
+
+/** v1.81.0 — WHAT THE DAY IS OWED, which is the schedule minus lunch. Mirrors
+    `workMinutes` + `breakFor` in the worker: the break comes off ONCE, and
+    only when a block runs longer than five hours (Employment Act 1955
+    s.60A(1)(a)) — so a six-hour afternoon earns it and the two-hour evening
+    block beside it does not earn a second one. tests/shift-schedule.mjs fails
+    the build if the two sides ever stop agreeing. */
+const BREAK_AFTER_MINUTES = 5 * 60;
+const dayMinutes = (d: DayEdit | undefined, brk = 0): number => {
+  const earnsBreak = brk > 0 && (
+    blockSpan(d?.start ?? "", d?.end ?? "") > BREAK_AFTER_MINUTES ||
+    blockSpan(d?.start2 ?? "", d?.end2 ?? "") > BREAK_AFTER_MINUTES
+  );
+  return Math.max(0, daySpan(d) - (earnsBreak ? brk : 0));
 };
 /** "8h", "7h30" — short enough to sit at the end of a row without wrapping. */
 const hLabel = (mins: number): string =>
@@ -2148,7 +2162,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   /* v1.80.0 — a day is TWO optional blocks now (CEO: "require 8 hours, 11:00am
      to 5:00pm then continue work at 8:30pm to 10:30pm"). `start`/`end` stay
      the first block, so an existing pattern loads and saves unchanged. */
-  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; days: Record<string, DayEdit> } | null>(null);
+  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; brk: number; days: Record<string, DayEdit> } | null>(null);
   /* v1.80.0 (CEO: "bulk choose day for me to update easily") — the days ticked
      in the editor, and the times about to be applied to all of them. Typing
      the same 11:00-17:00 into five rows is how a Thursday ends up at 11:00-
@@ -2207,6 +2221,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     return true;
   };
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.80.1 — removing a pattern is not undoable, so it asks first. */
+  const { confirm: askPat, node: askPatNode } = useConfirm();
   const clickSort = (k: "name" | "type" | "time" | "mark") => {
     if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
     else { setSortKey(k); setSortDir(1); }
@@ -2238,20 +2254,36 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     void load().finally(() => setLoaded(true)); // v1.77.0 — a failed request clears the skeleton too
   }, [load]);
 
+  /* v1.80.1 (CEO: "there is a issue to update pattern name!") — HIS RENAME
+     WAS FAILING AND THE CARD WAS TELLING HIM IN GREEN, OFF-SCREEN.
+     A failure only ever set `msg`, which renders as one green line near the
+     TOP of the card — and this card is now long enough that Working hours
+     sits well below the fold. So a rejected save (a missing migration, an
+     expired session, a name the server would not take) looked exactly like
+     nothing happening at all: no toast, and the only explanation rendered in
+     the colour of success, several screens up.
+     Failures now go through the SAME toast as successes, which appears where
+     the eye is regardless of scroll, and `msg` is red when it is bad news. */
+  const [msgBad, setMsgBad] = useState(false);
   const act = async (path: string, init: RequestInit, okMsg: string) => {
     setMsg("");
     const res = await api<{ error?: { message?: string } }>(path, init);
     if (res.ok) {
+      setMsgBad(false);
       showToast(L("Saved", "Disimpan"), okMsg);
       void load();
     } else {
-      setMsg(res.data?.error?.message ?? L("Action failed — check access", "Tindakan gagal — semak akses"));
+      const why = res.data?.error?.message ?? L("Action failed — check access", "Tindakan gagal — semak akses");
+      setMsgBad(true);
+      setMsg(why);
+      showToast(L("Not saved", "Tidak disimpan"), why, "notice");
     }
   };
 
   return (
     <div className={`${card} mt-4 md:mt-6`}>
       {toastNode}
+      {askPatNode}
       <p className="text-sm font-semibold">{L("Staff attendance — corrections & back-entry", "Kehadiran kakitangan — pembetulan & kemasukan lampau")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Amend a wrong punch or add clock in/out for days worked before this system existed. Times are Malaysia time. Manual and amended records are marked and audit-logged.", "Pinda ketukan yang salah atau tambah daftar masuk/keluar untuk hari bekerja sebelum sistem ini wujud. Masa ialah waktu Malaysia. Rekod manual dan pindaan ditanda dan dilog audit.")}
@@ -2326,7 +2358,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </div>
       </div>
       )}
-      {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+      {msg && <p className={`mt-2 text-xs font-medium ${msgBad ? "text-danger" : "text-green-700"}`}>{msg}</p>}
 
       {/* v1.76.0 (CEO: "if they forget to clock in or clock out... The
           approval will be require CEO for approval then CEO will update the
@@ -2452,6 +2484,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 title={L("Edit this pattern", "Sunting corak ini")}
                 onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
                   id: pt.id, name: pt.name, half: toTime(pt.half_day_minutes as number),
+                  /* Absent on a pre-0103 row. 60 is what 0103 gives every
+                     existing pattern, so the editor shows what the server
+                     will apply rather than a zero it would then overwrite. */
+                  brk: (pt.break_minutes as number | null) ?? 60,
                   days: Object.fromEntries(DAYS.map(([k]) => [k, {
                     start: toTime(pt[`${k}_start`] as number | null),
                     end: toTime(pt[`${k}_end`] as number | null),
@@ -2467,7 +2503,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             <button type="button"
               className={`${chipNeutral} border-border hover:bg-secondary/70 border border-dashed bg-transparent`}
               onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
-                name: "", half: "12:00",
+                name: "", half: "12:00", brk: 60,
                 days: Object.fromEntries(DAYS.map(([k]) => [k, { ...EMPTY_DAY }])),
               }); }}>
               {L("+ New pattern", "+ Corak baharu")}
@@ -2476,7 +2512,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
           {editP && (
             <div className="border-border mt-2 rounded-xl border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
                 <SubR t={L("Pattern name", "Nama corak")} className="sm:col-span-2">
                   <input className={inputClass} value={editP.name} maxLength={60}
                     placeholder={L("e.g. Late shift (11:00-19:00)", "cth. Syif lewat (11:00-19:00)")}
@@ -2486,6 +2522,16 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                   <input type="time" className={inputClass} value={editP.half}
                     title={L("Arriving after this counts the day as a half day", "Tiba selepas ini dikira sebagai separuh hari")}
                     onChange={(e) => setEditP({ ...editP, half: e.target.value })} />
+                </SubR>
+                {/* v1.81.0 (CEO: "this one should exclude of lunch time of 1
+                    hour") — the totals on every row below are NET of this, so
+                    a 10:00-18:00 day reads 7h, which is what the person is
+                    owed and what the short-day scan measures against. */}
+                <SubR t={L("Unpaid break (min)", "Rehat tanpa gaji (min)")}>
+                  <input type="number" min={0} max={240} step={15} className={inputClass}
+                    value={editP.brk}
+                    title={L("Lunch. Taken off a day ONCE, and only when a block runs longer than five hours — Employment Act 1955 s.60A(1)(a). A two-hour evening block earns none.", "Makan tengah hari. Ditolak SEKALI sehari, dan hanya apabila satu blok melebihi lima jam — Akta Kerja 1955 s.60A(1)(a). Blok malam dua jam tidak mendapatnya.")}
+                    onChange={(e) => setEditP({ ...editP, brk: Math.max(0, Math.min(240, Number(e.target.value || 0))) })} />
                 </SubR>
               </div>
               {/* v1.80.0 (CEO: "bulk choose day for me to update easily") —
@@ -2565,7 +2611,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 </div>
                 {bulk.start && bulk.end && (
                   <p className="text-muted-foreground mt-1.5 text-[11px]">
-                    {L(`Each ticked day becomes ${hLabel(dayMinutes({ ...bulk }))}.`, `Setiap hari yang ditanda menjadi ${hLabel(dayMinutes({ ...bulk }))}.`)}
+                    {L(`Each ticked day becomes ${hLabel(dayMinutes({ ...bulk }, editP.brk))} of work${dayMinutes({ ...bulk }, editP.brk) < daySpan({ ...bulk }) ? ` (${hLabel(daySpan({ ...bulk }))} less the ${editP.brk}-minute break)` : ""}.`,
+                        `Setiap hari yang ditanda menjadi ${hLabel(dayMinutes({ ...bulk }, editP.brk))} kerja${dayMinutes({ ...bulk }, editP.brk) < daySpan({ ...bulk }) ? ` (${hLabel(daySpan({ ...bulk }))} tolak rehat ${editP.brk} minit)` : ""}.`)}
                   </p>
                 )}
               </div>
@@ -2584,7 +2631,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                   const d = editP.days[k] ?? EMPTY_DAY;
                   const set = (patch: Partial<DayEdit>) =>
                     setEditP({ ...editP, days: { ...editP.days, [k]: { ...EMPTY_DAY, ...d, ...patch } } });
-                  const mins = dayMinutes(d);
+                  const mins = dayMinutes(d, editP.brk);
                   return (
                     <div key={k} className="grid grid-cols-1 items-center gap-x-2 gap-y-1 text-xs sm:grid-cols-[3rem_1fr_1fr_3.5rem]">
                       <span className="text-muted-foreground font-medium">{label}</span>
@@ -2605,7 +2652,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                           disabled={!d.start}
                           onChange={(e) => set({ end2: e.target.value })} />
                       </span>
-                      <span className={`text-right text-[11px] ${mins > 0 ? "font-medium" : "text-muted-foreground"}`}>
+                      <span className={`text-right text-[11px] ${mins > 0 ? "font-medium" : "text-muted-foreground"}`}
+                        title={mins < daySpan(d) ? L(`${hLabel(daySpan(d))} scheduled, less the ${editP.brk}-minute unpaid break`, `${hLabel(daySpan(d))} berjadual, tolak rehat tanpa gaji ${editP.brk} minit`) : undefined}>
                         {hLabel(mins)}
                       </span>
                     </div>
@@ -2613,10 +2661,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 })}
               </div>
               <p className="text-muted-foreground mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                <span>{L("Leave both boxes empty for a rest day. A second block is for a day worked in two parts — 11:00-17:00, then 20:30-22:30.", "Biarkan kedua-dua kotak kosong untuk hari rehat. Blok kedua untuk hari yang dikerjakan dalam dua bahagian — 11:00-17:00, kemudian 20:30-22:30.")}</span>
+                <span>{L("Leave both boxes empty for a rest day. A second block is for a day worked in two parts — 11:00-17:00, then 20:30-22:30. Totals are hours of WORK: the unpaid break is already taken off.", "Biarkan kedua-dua kotak kosong untuk hari rehat. Blok kedua untuk hari yang dikerjakan dalam dua bahagian — 11:00-17:00, kemudian 20:30-22:30. Jumlah ialah jam KERJA: rehat tanpa gaji sudah ditolak.")}</span>
                 <span className="font-medium whitespace-nowrap">
-                  {L(`Week: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k]), 0))}`,
-                     `Minggu: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k]), 0))}`)}
+                  {L(`Week: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k], editP.brk), 0))}`,
+                     `Minggu: ${hLabel(DAYS.reduce((n, [k]) => n + dayMinutes(editP.days[k], editP.brk), 0))}`)}
                 </span>
               </p>
               <div className="mt-2 flex gap-2">
@@ -2626,6 +2674,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                       ...(editP.id ? { id: editP.id } : {}),
                       name: editP.name.trim(),
                       half_day_minutes: toMins(editP.half) ?? 720,
+                      break_minutes: editP.brk,
                     };
                     for (const [k] of DAYS) {
                       payload[k] = {
@@ -2644,6 +2693,32 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 <button type="button" className={rowBtn} onClick={() => setEditP(null)}>
                   {L("Cancel", "Batal")}
                 </button>
+                {/* v1.80.1 (CEO: "option to remove this pattern") — only for a
+                    pattern that EXISTS: there is nothing to delete about one
+                    being typed. The server refuses the default and refuses any
+                    pattern somebody is still on, and says which people, so the
+                    answer to a refusal is actionable rather than mysterious. */}
+                {editP.id && (
+                  <button type="button" className={`${rowBtnDanger} ml-auto`}
+                    title={L("Remove this pattern. Refused if it is the default, or if anybody is still assigned to it.", "Buang corak ini. Ditolak jika ia lalai, atau jika ada sesiapa masih ditetapkan padanya.")}
+                    onClick={async () => {
+                      const yes = await askPat({
+                        title: L("Remove this pattern?", "Buang corak ini?"),
+                        message: L(
+                          `"${editP.name || L("Untitled", "Tanpa nama")}" will be removed. Anybody still assigned to it must be moved to another pattern first — the system will say so and change nothing if they are.`,
+                          `"${editP.name || "Tanpa nama"}" akan dibuang. Sesiapa yang masih ditetapkan padanya perlu dipindahkan ke corak lain dahulu — sistem akan memberitahu dan tidak mengubah apa-apa jika ada.`,
+                        ),
+                        confirmLabel: L("Remove", "Buang"),
+                        variant: "danger",
+                      });
+                      if (!yes) return;
+                      await act(`/shift-patterns/${editP.id}`, { method: "DELETE" },
+                        L("Pattern removed.", "Corak dibuang."));
+                      setEditP(null);
+                    }}>
+                    {L("Remove pattern", "Buang corak")}
+                  </button>
+                )}
               </div>
             </div>
           )}

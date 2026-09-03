@@ -376,7 +376,15 @@ export function printPayslip(
 
 /* v1.75.0 — a working day with no clock-in, or one clocked well short of
    eight hours. Proposed, never deducted on its own. */
-type AbsenceRow = { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] };
+/* v1.81.0 — `of` and `break_minutes` come from the server, which resolves the
+   person's own pattern. The chip used to print a hard-coded "/8h" beside a
+   figure the server had measured against something else entirely: on a
+   10:00-18:00 day with an hour of lunch the target is SEVEN, and on a
+   part-timer's six-hour day it is six. */
+type AbsenceRow = {
+  user_id: number; name: string; missing: string[];
+  short: { d: string; hours: number; of?: number; break_minutes?: number }[];
+};
 
 /** v1.77.0 — the server's unpaid-leave deduction, and what it is made of. */
 type UnpaidDetail = {
@@ -923,7 +931,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             {L("Days with no clock-in — not deducted unless you say so", "Hari tanpa daftar masuk — tidak dipotong melainkan anda tetapkan")}
           </p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Working days in this month with no clock-in and no approved leave, and days clocked short of 8 hours (break included). Marking one records it as unpaid leave at 1/26 of the monthly wage per day — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada 8 jam (termasuk rehat). Menandakannya merekodkannya sebagai cuti tanpa gaji pada 1/26 gaji bulanan sehari — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
+            {L("Working days in this month with no clock-in and no approved leave, and days clocked short of the hours that person's schedule owes — the unpaid break is already taken off, so a 10:00–18:00 day owes 7 hours, not 8. Marking one records it as unpaid leave at 1/26 of the monthly wage per day — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada jam yang dijadualkan untuk orang itu — rehat tanpa gaji sudah ditolak, jadi hari 10:00–18:00 memerlukan 7 jam, bukan 8. Menandakannya merekodkannya sebagai cuti tanpa gaji pada 1/26 gaji bulanan sehari — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
           </p>
           <div className="mt-2 space-y-2">
             {absences.map((a) => (
@@ -941,9 +949,9 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   {a.short.map((sh) => (
                     <button key={sh.d} type="button" disabled={marking === `${a.user_id}|${sh.d}`}
                       className="border-border hover:bg-secondary rounded-full border bg-white/60 px-2 py-0.5 disabled:opacity-50 dark:bg-transparent"
-                      title={L(`Clocked ${sh.hours}h of 8 — mark the missing hours unpaid`, `Direkod ${sh.hours}j daripada 8 — tanda jam yang kurang sebagai tanpa gaji`)}
+                      title={L(`Clocked ${sh.hours}h of the ${sh.of ?? 8}h this day owes${(sh.break_minutes ?? 0) > 0 ? ` (schedule less a ${sh.break_minutes}-minute unpaid break)` : ""} — mark the missing hours unpaid`, `Direkod ${sh.hours}j daripada ${sh.of ?? 8}j yang diperlukan hari ini${(sh.break_minutes ?? 0) > 0 ? ` (jadual tolak rehat tanpa gaji ${sh.break_minutes} minit)` : ""} — tanda jam yang kurang sebagai tanpa gaji`)}
                       onClick={() => void markUnpaid(a.user_id, sh.d, sh.hours)}>
-                      {sh.d.slice(8)}/{sh.d.slice(5, 7)} · {sh.hours}h/8h
+                      {sh.d.slice(8)}/{sh.d.slice(5, 7)} · {sh.hours}h/{sh.of ?? 8}h
                     </button>
                   ))}
                 </span>

@@ -2,6 +2,63 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.81.0] — 2026-09-03 — lunch is not work
+
+**CEO**, on a short-day chip reading `10/08 · 4.98h/8h`: *"this one should exclude of lunch time of 1 hour"*
+
+The absence scan measured a clocked day against the **elapsed** length of the schedule. An office day of 10:00–18:00 is eight hours on the clock and **seven hours of work**, because an hour of it is lunch and lunch is unpaid. Everybody owed seven was being judged against eight — and the card said so in as many words, *"days clocked short of 8 hours (break included)"*, which was at least honest about being wrong.
+
+Migration `0103` puts the break on the pattern, defaulting to sixty minutes, which applies to every pattern that already exists. **When** it applies is not stored, because it is law rather than policy: Employment Act 1955 s.60A(1)(a) — no employee shall work more than five consecutive hours without a period of leisure of not less than thirty minutes. So the break comes off a day only when one of its blocks runs longer than five hours, and it comes off **once**: a six-hour afternoon earns it, and the two-hour evening block beside it does not earn a second one.
+
+`scheduledMinutes` stays the elapsed schedule, because that is what the register prints. `workMinutes` is the new number anybody is measured against. Conflating the two is what produced `4.98h/8h`.
+
+### The charge was worse than the display
+
+Marking a short day unpaid charged a fraction of a **flat eight hours**, whatever the person's schedule said. Somebody on a seven-hour day who worked six was billed 2/8 of a day instead of 1/7 — **over-charged by more than double**, on a line that reads as a plain fraction and looks right.
+
+It now resolves the day's owed hours from that person's own pattern, **server-side**. The browser sends what it displayed; what a payslip deducts is not something a request body gets to decide.
+
+The chip itself had a third version of the same mistake: it printed a hard-coded `/8h` beside a figure the server had measured against something else entirely. It shows the day's real target now, and says on hover what the break took off.
+
+### Elsewhere
+
+The pattern editor gains an **Unpaid break** field. Every day total and the week total are now hours of **work**, net of it, with the gross on hover — so a 10:00–18:00 row reads 7h, which is the number that decides whether somebody is short. The attendance export carries `break_minutes` and `work_minutes` as their own columns, so a deduction can be traced without knowing the rule.
+
+A database that has not applied `0103` deducts **no** break at all. Inventing an hour the schedule never mentioned would charge people for lunch they were not given.
+
+### Guarded
+
+Guard #24 gained eleven checks — that the break is earned by the five-hour rule rather than assumed, that it comes off once, that the elapsed schedule and the owed hours stay different numbers, that the charge uses the day's own denominator, and that the browser's copy of the rule matches the worker's.
+
+Two existing checks had to be corrected, and both for the same reason as the four before them this week: they named an implementation rather than a behaviour. One pinned `scheduledMinutes` in the short-day scan and went red when the scan correctly moved to `workMinutes`; the other pinned `WORK_DAY_MINUTES` as the divisor of the quarter-day rounding and went red when the divisor correctly became the day's own hours. **That is six guards in one week failing on a correct change.** Both now assert the property and leave the specific rule pinned where that rule lives.
+
+## [1.80.1] — 2026-09-03 — a pattern you can remove, and the error you could not see
+
+**CEO:** *"option to remove this pattern since there is a issue to update pattern name!"*
+
+### Why the rename looked broken
+
+There was a real failure behind that sentence, and the card was reporting it **in green, above the fold, while he was working below it**.
+
+Every action on this card routes through one helper. On success it raised the portal's toast; on failure it did not — it only set a message that renders as a single green line near the **top** of the card. Working hours sits several screens below that now. So a rejected save — a missing migration, an expired session, a name the server would not take — looked exactly like nothing happening at all: no toast, and the only explanation rendered in the colour of success, out of sight.
+
+Failures now raise the same toast as successes, which appears where the eye is regardless of scroll, carrying the server's own reason. And the inline line is red when it is bad news.
+
+Worth naming the likely cause of his particular failure: **migrations `0101` and `0102` are not applied yet**. Saving a pattern writes the second block's columns, which do not exist until `0102` runs, and the server says so — it has been saying so, in green, off-screen.
+
+### Removing a pattern
+
+A pattern created by mistake had no way out. It sat in the chip row permanently, and the only thing to do with it was open it and try to rename it into something useful.
+
+**Remove pattern** is in the editor now, on saved patterns only, behind a confirm. Two refusals, both about history rather than tidiness:
+
+- **The default pattern stays.** It is what everybody without their own schedule is measured against, and what a new joiner starts on. Deleting it drops the whole company onto the hard-coded 10:00–18:00 fallback — the exact constant `0099` existed to remove.
+- **An assigned pattern stays.** Assignments are effective-dated: they *are* the record of which hours each month was flagged against. Delete the pattern and `shiftOn` finds nothing on the join and falls through to the default, silently re-flagging months that have already been paid.
+
+The second refusal **names the people still on it**, because "reassign them first" is only useful advice if you know who they are.
+
+Guard #24 gained eight checks covering both refusals, the confirm, and the two feedback fixes — each negative-tested.
+
 ## [1.80.0] — 2026-09-03 — a working day in two blocks
 
 **CEO:** *"I want minimalist interface for me to easier to choose which area that I want to update. If user clock in after working hour need to check if their task is assigned to work at 8pm above? if yes, then it is consider their working time. this one need to change since it is not working correctly flow which is require 8 hours, 11:00am to 5:00pm then continue work at 8:30pm to 10:30pm and bulk choose day for me to update easily"*

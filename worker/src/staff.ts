@@ -178,6 +178,33 @@ export interface DayShift {
   pattern: string;
   /** Every scheduled block of the day, in order. Empty on a rest day. */
   windows: ShiftWindow[];
+  /** v1.81.0 - unpaid break, in minutes, from the pattern (0103). */
+  breakMinutes: number;
+}
+
+/** THE STATUTORY TRIGGER for an unpaid break - Employment Act 1955
+    s.60A(1)(a): no employee shall work more than five consecutive hours
+    without a period of leisure of not less than thirty minutes. */
+const BREAK_AFTER_MINUTES = 5 * 60;
+
+/** The break this day actually earns. ONCE, and only if a block runs past
+    five hours: a six-hour afternoon earns it, and the two-hour evening block
+    beside it does not earn a second one. A short day earns none - there is
+    nothing to break. */
+export function breakFor(sh: DayShift): number {
+  if (sh.breakMinutes <= 0) return 0;
+  return sh.windows.some((w) => w.end - w.start > BREAK_AFTER_MINUTES) ? sh.breakMinutes : 0;
+}
+
+/** WHAT THE DAY IS ACTUALLY OWED - v1.81.0.
+ *
+ * The CEO, on a short-day chip reading 4.98h/8h: *"this one should exclude of
+ * lunch time of 1 hour."* An office day of 10:00-18:00 is eight hours on the
+ * clock and seven hours of work. `scheduledMinutes` is the elapsed schedule
+ * and stays that, because that is what the register prints; this is the
+ * number anybody is measured against. */
+export function workMinutes(sh: DayShift): number {
+  return Math.max(0, scheduledMinutes(sh) - breakFor(sh));
 }
 
 /** The block a moment falls in, or null if it falls in none of them.
@@ -249,6 +276,9 @@ function shiftFallback(dow: number): DayShift {
     kind: weekday ? "workday" : "rest_day",
     pattern: SHIFT.label,
     windows: weekday ? [{ start: SHIFT.startMinutes, end: SHIFT.endMinutes }] : [],
+    /* The same hour the seeded office pattern carries, so a database that
+       cannot be read at all still measures a day the way the company does. */
+    breakMinutes: 60,
   };
 }
 
@@ -262,6 +292,10 @@ function dayShiftFrom(
     /** v1.80.0 - the optional second block. Absent on a pre-0102 database,
         which reads as a day with one block, exactly as before. */
     s2?: number | null; e2?: number | null;
+    /** v1.81.0 - absent on a pre-0103 database, where NO break was deducted
+        from anybody: `?? 0` keeps that database behaving as it did rather
+        than inventing an hour the schedule never said. */
+    brk?: number | null;
   },
 ): DayShift {
   /* A block needs BOTH ends to exist. A start with no end is a half-typed
@@ -286,6 +320,7 @@ function dayShiftFrom(
     kind: row.s === null || row.s === undefined ? "rest_day" : "workday",
     pattern: row.name,
     windows,
+    breakMinutes: row.brk ?? 0,
   };
 }
 
@@ -299,7 +334,7 @@ export async function shiftOn(env: Env, userId: number, iso: string): Promise<Da
   const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
   const col = DOW_COL[dow]!;
   const fallback = (): DayShift => shiftFallback(dow);
-  type Row = { name: string; half_day_minutes: number; s: number | null; e: number | null; s2?: number | null; e2?: number | null };
+  type Row = { name: string; half_day_minutes: number; s: number | null; e: number | null; s2?: number | null; e2?: number | null; brk?: number | null };
   /* v1.80.0 — THE DEPLOY WINDOW. The worker publishes BEFORE the migrations
      run, so for a few minutes this code asks a database that has no
      `mon_start2` for `mon_start2`. Naming the columns explicitly (which
@@ -310,8 +345,11 @@ export async function shiftOn(env: Env, userId: number, iso: string): Promise<Da
      separately, and a database that cannot answer simply gets the one-block
      reading it had before - the correct answer for it. */
   const withBlocks = async (two: boolean): Promise<Row | null> => {
-    const cols2 = two ? `, p.${col}_start2 AS s2, p.${col}_end2 AS e2` : "";
-    const dcols2 = two ? `, ${col}_start2 AS s2, ${col}_end2 AS e2` : "";
+    /* 0102 and 0103 land together, so one flag covers both: a database that
+       cannot answer for the second block cannot answer for the break either,
+       and both absences mean the same thing - read it the old way. */
+    const cols2 = two ? `, p.${col}_start2 AS s2, p.${col}_end2 AS e2, p.break_minutes AS brk` : "";
+    const dcols2 = two ? `, ${col}_start2 AS s2, ${col}_end2 AS e2, break_minutes AS brk` : "";
     /* The assignment that had started by this date, newest first. A change
        made in March cannot alter what January was flagged against. */
     const row = await env.DB.prepare(
@@ -404,6 +442,7 @@ export async function shiftResolver(env: Env): Promise<ShiftLookup> {
       e: (p[`${col}_end`] as number | null) ?? null,
       s2: (p[`${col}_start2`] as number | null) ?? null,
       e2: (p[`${col}_end2`] as number | null) ?? null,
+      brk: (p.break_minutes as number | null) ?? null,
     });
   };
 }
@@ -2642,6 +2681,8 @@ export async function handleStaff(
            the CEO can see the eight hours rather than infer them. */
         shift_label: shiftLabel(shR),
         scheduled_minutes: scheduledMinutes(shR),
+        break_minutes: breakFor(shR),
+        work_minutes: workMinutes(shR),
         pending: r.pending_approval === 1,
         /* What vouched for a punch outside the pattern, by name — the client
            whose broadcast it was, or the task on the roster. */
@@ -6280,6 +6321,11 @@ export async function handleStaff(
       vals2.push(st2, en2);
     }
     const halfV = typeof body?.half_day_minutes === "number" ? Math.round(body.half_day_minutes) : 720;
+    /* v1.81.0 - the unpaid break, in minutes. Clamped rather than rejected:
+       a negative break would ADD hours to the day, and a break longer than
+       the day would make every attendance a short day. */
+    const brkV = typeof body?.break_minutes === "number"
+      ? Math.max(0, Math.min(240, Math.round(body.break_minutes))) : 60;
     try {
       if (method === "PATCH") {
         const idS = Number(body?.id);
@@ -6293,9 +6339,9 @@ export async function handleStaff(
              mon_start2 = ?18, mon_end2 = ?19, tue_start2 = ?20, tue_end2 = ?21,
              wed_start2 = ?22, wed_end2 = ?23, thu_start2 = ?24, thu_end2 = ?25,
              fri_start2 = ?26, fri_end2 = ?27, sat_start2 = ?28, sat_end2 = ?29,
-             sun_start2 = ?30, sun_end2 = ?31
+             sun_start2 = ?30, sun_end2 = ?31, break_minutes = ?32
            WHERE id = ?17`,
-        ).bind(nameS, ...vals, halfV, idS, ...vals2).run();
+        ).bind(nameS, ...vals, halfV, idS, ...vals2, brkV).run();
         await audit(env, user.id, "shift_pattern.update", "shift_patterns", String(idS), { name: nameS });
         return json({ ok: true, id: idS });
       }
@@ -6306,17 +6352,71 @@ export async function handleStaff(
             sun_start, sun_end, half_day_minutes, created_by,
             mon_start2, mon_end2, tue_start2, tue_end2, wed_start2, wed_end2,
             thu_start2, thu_end2, fri_start2, fri_end2, sat_start2, sat_end2,
-            sun_start2, sun_end2)
+            sun_start2, sun_end2, break_minutes)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                 ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
+                 ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
          RETURNING id`,
-      ).bind(nameS, ...vals, halfV, user.id, ...vals2).first<{ id: number }>();
+      ).bind(nameS, ...vals, halfV, user.id, ...vals2, brkV).first<{ id: number }>();
       await audit(env, user.id, "shift_pattern.create", "shift_patterns", String(res?.id), { name: nameS });
       return json({ ok: true, id: res?.id }, 201);
     } catch (eS) {
       const msgS = String(eS);
       if (!msgS.includes("no such table") && !msgS.includes("no such column")) throw eS;
-      return err("migration_missing", `Migration ${msgS.includes("no such column") ? "0102" : "0099"} is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.`, 500);
+      return err("migration_missing", `Migration ${msgS.includes("no such column") ? "0102/0103" : "0099"} is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.`, 500);
+    }
+  }
+
+  /* v1.80.1 (CEO: "option to remove this pattern since there is a issue to
+     update pattern name!") - a pattern created by mistake had no way out. It
+     sat in the chip row forever, and the only thing to do with it was open it
+     and try to rename it into something useful.
+   *
+   * TWO REFUSALS, BOTH ABOUT HISTORY RATHER THAN TIDINESS:
+   *
+   *   THE DEFAULT PATTERN STAYS. It is what everybody with no assignment is
+   *   measured against, and what a new joiner starts on. Deleting it drops
+   *   the whole company onto the hard-coded 10:00-18:00 fallback - the exact
+   *   constant 0099 existed to get rid of.
+   *
+   *   AN ASSIGNED PATTERN STAYS. Assignments are effective-dated: they are
+   *   the record of which hours a month was flagged against. Delete the
+   *   pattern and `shiftOn` finds no row on the JOIN and falls through to the
+   *   default, silently re-flagging months that have already been paid. So
+   *   this refuses and NAMES the people, because "reassign them first" is
+   *   only useful advice if you know who they are.
+   */
+  const patDel = path.match(/^\/shift-patterns\/(\d+)$/);
+  if (patDel && method === "DELETE") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const idD = Number(patDel[1]);
+    try {
+      const row = await env.DB.prepare(
+        `SELECT name, is_default FROM shift_patterns WHERE id = ?1`,
+      ).bind(idD).first<{ name: string; is_default: number }>();
+      if (!row) return err("not_found", "That pattern no longer exists", 404);
+      if (row.is_default === 1) {
+        return err("invalid_input", "This is the default pattern - everybody without their own schedule is measured against it. Make another pattern the default before removing this one.", 400);
+      }
+      const { results: users } = await env.DB.prepare(
+        `SELECT DISTINCT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM staff_shifts s JOIN users u ON u.id = s.user_id
+          WHERE s.pattern_id = ?1 ORDER BY name`,
+      ).bind(idD).all<{ name: string }>();
+      if ((users ?? []).length > 0) {
+        const who = (users ?? []).map((u) => u.name).slice(0, 6).join(", ");
+        const more = (users ?? []).length > 6 ? ` and ${(users ?? []).length - 6} more` : "";
+        return err(
+          "invalid_input",
+          `${who}${more} ${(users ?? []).length === 1 ? "is" : "are"} still on this pattern. Assign them to another one first - removing it now would re-flag the months they have already been paid for.`,
+          400,
+        );
+      }
+      await env.DB.prepare(`DELETE FROM shift_patterns WHERE id = ?1`).bind(idD).run();
+      await audit(env, user.id, "shift_pattern.delete", "shift_patterns", String(idD), { name: row.name });
+      return json({ ok: true });
+    } catch (eD) {
+      if (!String(eD).includes("no such table")) throw eD;
+      return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
     }
   }
 
@@ -6472,9 +6572,18 @@ export async function handleStaff(
        worth the trust it costs. */
     let daysU = 1;
     if (typeof body?.hours_worked === "number" && Number.isFinite(body.hours_worked)) {
-      const worked = Math.max(0, Math.min(8, body.hours_worked));
-      const shortMins = WORK_DAY_MINUTES - Math.round(worked * 60);
-      daysU = Math.round((shortMins / WORK_DAY_MINUTES) * 4) / 4;
+      /* v1.81.0 — AGAINST THE HOURS THAT DAY OWED, not a flat eight.
+         This charged every short day as a fraction of 8h, so somebody on a
+         seven-hour day who worked six was billed 2/8 of a day instead of
+         1/7 — over-charged by more than double. The requirement is resolved
+         here from the person's own pattern rather than taken from the
+         request: the browser sends what it displayed, and what a payslip
+         deducts is not something a request body gets to decide. */
+      const shU = await shiftOn(env, body.user_id as number, dateU);
+      const owed = workMinutes(shU) || WORK_DAY_MINUTES;
+      const worked = Math.max(0, Math.min(owed / 60, body.hours_worked));
+      const shortMins = owed - Math.round(worked * 60);
+      daysU = Math.round((shortMins / owed) * 4) / 4;
     } else if (typeof body?.days === "number" && Number.isFinite(body.days)) {
       daysU = Math.round(body.days * 4) / 4;
     }
@@ -7683,7 +7792,7 @@ export async function handleStaff(
       if (isHourlyUser(u.role, u.employment_status)) continue;
       const mineDays = employedDays(dayList, u.joined_on, u.left_on, u.rejoined_on).filter((d) => d <= todayMyt);
       const missing: string[] = [];
-      const short: { d: string; hours: number; of: number }[] = [];
+      const short: { d: string; hours: number; of: number; break_minutes: number }[] = [];
       for (const d of mineDays) {
         if (lv.some((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d)) continue;
         /* v1.76.0 — THEIR hours, not one company constant. A person on a
@@ -7696,7 +7805,11 @@ export async function handleStaff(
            only: 11:00-17:00 of an 11:00-17:00 plus 20:30-22:30 day, so the
            scan measured a six-hour day against somebody who owed eight and
            found nobody short, ever. */
-        const scheduled = scheduledMinutes(shD) || WORK_DAY_MINUTES;
+        /* v1.81.0 (CEO: "this one should exclude of lunch time of 1 hour") -
+           the hours OWED, which is the schedule minus the unpaid break. An
+           office day of 10:00-18:00 is eight hours on the clock and seven of
+           work, and everybody owed seven was being judged against eight. */
+        const scheduled = workMinutes(shD) || WORK_DAY_MINUTES;
         const c = clocked.get(`${u.id}|${d}`);
         if (!c || !c.i) { missing.push(d); continue; }
         if (!c.o) continue; // still open or never clocked out - not a pay question
@@ -7717,7 +7830,14 @@ export async function handleStaff(
            below that this becomes a list of people who left ten minutes
            early, which is a conversation, not a payroll line. */
         if (mins > 0 && scheduled - mins >= scheduled / 4) {
-          short.push({ d, hours: Math.round((mins / 60) * 100) / 100, of: Math.round((scheduled / 60) * 100) / 100 });
+          short.push({
+            d,
+            hours: Math.round((mins / 60) * 100) / 100,
+            of: Math.round((scheduled / 60) * 100) / 100,
+            /* Sent so the chip can say WHY the target is seven and not eight
+               without the browser re-deriving a rule the server owns. */
+            break_minutes: breakFor(shD),
+          });
         }
       }
       if (missing.length || short.length) {
@@ -8160,9 +8280,10 @@ export async function handleStaff(
         : "ok";
       rows.push([r.employee_id ?? "", r.name, r.email, date, myt.toISOString().slice(11, 16),
                  r.type, flag, shE.kind, shE.pattern, shiftLabel(shE), scheduledMinutes(shE),
+                 breakFor(shE), workMinutes(shE),
                  asgE ? `${asgE.kind}: ${asgE.what}` : ""]);
     }
-    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag", "day_kind", "pattern", "shift_hours", "scheduled_minutes", "assigned_work"];
+    const header = ["employee_id", "name", "email", "date_myt", "time_myt", "event", "shift_flag", "day_kind", "pattern", "shift_hours", "scheduled_minutes", "break_minutes", "work_minutes", "assigned_work"];
     const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     const csv = [header, ...rows].map((row) => row.map((c) => esc(String(c))).join(",")).join("\r\n");
     await audit(env, user.id, "attendance.export", "attendance_records", month);

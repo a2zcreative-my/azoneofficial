@@ -1,0 +1,29 @@
+-- 0103 - v1.81.0: lunch is not work.
+--
+-- The CEO, 03-09-2026, on the short-day list reading 4.98h/8h:
+--   this one should exclude of lunch time of 1 hour
+--
+-- The absence scan measured a clocked day against the ELAPSED length of the
+-- schedule. An office day of 10:00-18:00 is eight hours on the clock and
+-- seven hours of work, because an hour of it is lunch and lunch is unpaid.
+-- So everybody owed seven hours was being judged against eight, and the card
+-- said so in as many words - days clocked short of 8 hours, break included -
+-- which was honest about being wrong.
+--
+-- ON THE PATTERN, NOT A CONSTANT. The office takes an hour. A shift that runs
+-- 20:30-22:30 takes none, because there is nothing to break. Sixty minutes is
+-- the default because it is what this company does, and it applies to every
+-- pattern that already exists, which is the answer the CEO asked for.
+--
+-- WHEN IT APPLIES is not stored, because it is law rather than policy.
+-- Employment Act 1955 s.60A(1)(a): no employee shall work more than five
+-- consecutive hours without a period of leisure of not less than thirty
+-- minutes. So the break comes off a day only when one of its blocks runs
+-- longer than five hours, and it comes off ONCE - an afternoon block of six
+-- hours earns the break, and the two-hour evening block beside it does not
+-- earn a second one.
+--
+-- One statement, and its default makes it safe to replay in the sense that
+-- matters: no row is left half-changed if it fails.
+
+ALTER TABLE shift_patterns ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 60;

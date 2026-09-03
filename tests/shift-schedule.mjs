@@ -93,8 +93,13 @@ const ok = (label, cond, extra = "") => {
   ok("the export shows the evening block, not just the first one",
      /"scheduled_minutes"/.test(staff) && /"assigned_work"/.test(staff),
      "a split day exported as 11:00-17:00 hides the two hours that make it eight");
+  /* v1.81.0 — this named `scheduledMinutes` verbatim, and went red when the
+     scan correctly moved to `workMinutes` (schedule minus lunch). The
+     property is that the scan reads the day's own length from the pattern,
+     not that it calls one particular function; the break-specific check
+     lower down pins which one. */
   ok("the short-day scan measures against the person's scheduled length",
-     /const scheduled = scheduledMinutes\(shD\) \|\| WORK_DAY_MINUTES/.test(staff),
+     /const scheduled = \w+\(shD\) \|\| WORK_DAY_MINUTES/.test(staff),
      "somebody on 11:00-19:00 is not short at 18:00, and a split day owes both blocks");
   ok("the short-day scan compares like with like",
      /const inside = minutesInWindows\(shD, fromD, fromD \+ span\);/.test(staff),
@@ -303,6 +308,70 @@ const ok = (label, cond, extra = "") => {
      "the CEO: I want minimalist interface for me to easier to choose which area that I want to update");
   ok("the register can filter to assigned-work punches",
      /<option value="assigned">/.test(panels));
+
+  /* ---- removing a pattern (v1.80.1) ----
+     The CEO could create a pattern and never get rid of it. Delete is easy;
+     the two refusals are the point, because both would rewrite history
+     rather than merely lose a row. */
+  ok("a pattern can be removed", /if \(patDel && method === "DELETE"\)/.test(staff));
+  ok("the default pattern cannot be removed",
+     /if \(row\.is_default === 1\)/.test(staff),
+     "everybody without their own schedule is measured against it - deleting it drops the company onto the hard-coded 10:00-18:00 that 0099 existed to remove");
+  ok("a pattern somebody is still on cannot be removed",
+     /FROM staff_shifts s JOIN users u ON u\.id = s\.user_id[\s\S]{0,80}?WHERE s\.pattern_id = \?1/.test(staff),
+     "assignments are effective-dated history - deleting the pattern makes shiftOn fall through to the default and silently re-flags months already paid");
+  ok("the refusal names the people",
+     /still on this pattern\. Assign them to another one first/.test(staff),
+     "reassign them first is only useful advice if you know who they are");
+  ok("removing a pattern asks first",
+     /await askPat\(\{/.test(panels) && /variant: "danger"/.test(panels));
+  ok("the remove button only exists for a saved pattern",
+     /\{editP\.id && \(\s*<button type="button" className=\{`\$\{rowBtnDanger\}/.test(panels),
+     "there is nothing to delete about a pattern being typed");
+
+  /* ---- the unpaid break (v1.81.0) ----
+     The CEO, on a chip reading 4.98h/8h: "this one should exclude of lunch
+     time of 1 hour". A 10:00-18:00 day is eight hours on the clock and seven
+     of work, and everybody owed seven was being judged against eight. */
+  ok("a day carries its unpaid break", /breakMinutes: number;/.test(staff));
+  ok("the break is earned by law, not by policy",
+     /const BREAK_AFTER_MINUTES = 5 \* 60;/.test(staff) &&
+     /sh\.windows\.some\(\(w\) => w\.end - w\.start > BREAK_AFTER_MINUTES\)/.test(staff),
+     "Employment Act 1955 s.60A(1)(a) - five consecutive hours is what earns a break, so a two-hour evening block earns none");
+  ok("the break comes off ONCE",
+     /export function breakFor\(sh: DayShift\): number \{[\s\S]{0,300}?\? sh\.breakMinutes : 0;/.test(staff),
+     "a six-hour afternoon earns the break and the evening block beside it must not earn a second one");
+  ok("the elapsed schedule and the hours owed are different numbers",
+     /export function workMinutes\(sh: DayShift\): number \{[\s\S]{0,160}?scheduledMinutes\(sh\) - breakFor\(sh\)/.test(staff),
+     "the register prints the schedule; payroll measures against the schedule minus lunch - conflating them is what produced 4.98h/8h");
+  ok("the short-day scan measures against the hours owed",
+     /const scheduled = workMinutes\(shD\) \|\| WORK_DAY_MINUTES;/.test(staff));
+  ok("a pre-0103 database deducts no break at all",
+     /breakMinutes: row\.brk \?\? 0,/.test(staff),
+     "inventing an hour the schedule never said would charge people for lunch they were not given");
+  ok("a short day is charged against ITS OWN owed hours",
+     /const owed = workMinutes\(shU\) \|\| WORK_DAY_MINUTES;/.test(staff) &&
+     /daysU = Math\.round\(\(shortMins \/ owed\) \* 4\) \/ 4;/.test(staff),
+     "charging a fraction of a flat 8h billed a seven-hour day at 2/8 instead of 1/7 - more than double");
+  ok("the requirement is resolved server-side, not taken from the request",
+     /const shU = await shiftOn\(env, body\.user_id as number, dateU\);/.test(staff),
+     "what a payslip deducts is not something a request body gets to decide");
+  ok("the browser mirrors the same break rule",
+     /const BREAK_AFTER_MINUTES = 5 \* 60;/.test(panels) &&
+     /blockSpan\(d\?\.start \?\? "", d\?\.end \?\? ""\) > BREAK_AFTER_MINUTES/.test(panels),
+     "the editor's day totals and the payroll's requirement must be the same number");
+  ok("the chip stops claiming every day owes eight hours",
+     /\{sh\.hours\}h\/\{sh\.of \?\? 8\}h/.test(read("components/portal/payroll-panel.tsx")),
+     "a hard-coded /8h beside a figure the server measured against seven is a number nobody can check");
+
+  /* THE BUG BEHIND THE REQUEST. His rename WAS failing; the card told him in
+     green, near the top, while he was in Working hours below the fold. */
+  ok("a refused action says so where the eye is",
+     /showToast\(L\("Not saved", "Tidak disimpan"\), why, "notice"\)/.test(panels),
+     "setting a message near the top of a long card is not telling somebody working at the bottom of it");
+  ok("a failure is not painted the colour of success",
+     /msgBad \? "text-danger" : "text-green-700"/.test(panels),
+     "every error this card produced rendered in green");
   /* THE DEPLOY WINDOW. The worker publishes before the migrations run, and
      shiftOn names its columns explicitly - so for a few minutes it asks a
      database with no mon_start2 for mon_start2. The outer catch would have
@@ -323,6 +392,7 @@ for (const [name, probe] of [
   ["0099_shift_patterns", "0099 \\(working-hour schedules\\)"],
   ["0100_attendance_pending", "0100 \\(a forgotten punch waits for approval\\)"],
   ["0102_split_shifts", "0102 \\(a working day in two blocks\\)"],
+  ["0103_unpaid_break", "0103 \\(an unpaid break comes off the day\\)"],
 ]) {
   ok(`${name} is in EXPECTED_MIGRATIONS`, index.includes(`"${name}",`));
   ok(`${name} has a health probe`, new RegExp(probe).test(index));

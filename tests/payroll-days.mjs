@@ -315,8 +315,15 @@ const AUG = (() => {
      "that expression is the bug — it charged approved paid leave as absence");
   ok("the payslip prints the server's figure rather than deriving its own",
      /incompAdj = hourlySlip \? 0 : \(x\?\.incomplete_deduction_cents \?\? 0\)/.test(read("components/portal/payroll-panel.tsx")));
+  /* v1.81.0 — this pinned the DIVISOR as `WORK_DAY_MINUTES`, so correcting
+     the charge to use the day's own owed hours (a seven-hour day was being
+     billed at 2/8 instead of 1/7) failed a check about rounding. The
+     property is the quarter-day rounding — a payslip line reading
+     "0.708333 DAYS" is a line nobody can check. Which denominator it is
+     measured against is pinned in tests/shift-schedule.mjs, where the
+     owed-hours rule lives. */
   ok("the worker turns hours short into quarter days the same way",
-     /Math\.round\(\(shortMins \/ WORK_DAY_MINUTES\) \* 4\) \/ 4/.test(staff));
+     /Math\.round\(\(shortMins \/ \w+\) \* 4\) \/ 4/.test(staff));
   ok("a whole day is the most one row can be",
      /!\(daysU > 0\) \|\| daysU > 1/.test(staff),
      "without the cap a typo in hours could deduct a week");
