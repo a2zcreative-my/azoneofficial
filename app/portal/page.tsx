@@ -149,7 +149,7 @@ import {
   TikTokOrdersCard,
 } from "@/components/portal/role-panels";
 import { StaffDirectory } from "@/components/staff/staff-directory";
-import { LeaveReviewCard } from "@/components/staff/leave-review-card"; // v1.78.0
+import { RestDayCreditCard } from "@/components/portal/rest-day-credits"; // v1.86.0 - on the Leave tab now
 import {
   card,
   rowHead,
@@ -6318,6 +6318,14 @@ function Leave({ user }: { user: User }) {
         </div>
       </div>
 
+      {/* v1.86.0 (CEO: "leave to review should inside the leave") — rest-day
+          work waiting to become replacement leave. It is the one half of the
+          old "Leave to review" card that is NOT a leave record: the other
+          half listed unpaid days the register below already carries, which is
+          what made the two cards look like the same function. CEO-only, and
+          it renders nothing for anyone else. */}
+      <RestDayCreditCard role={user.role} />
+
       {canApprove &&
         (() => {
           /* v1.21.0 — the whole approval chain sees the whole board. */
@@ -6342,14 +6350,14 @@ function Leave({ user }: { user: User }) {
             <div className={card}>
               <p className="text-sm font-semibold">
                 {L(
-                  "Leave applications — whole company",
-                  "Permohonan cuti — seluruh syarikat"
+                  "Leave — whole company",
+                  "Cuti — seluruh syarikat"
                 )}
               </p>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {L(
-                  "Every application in progress, and whose approval it is waiting on. Action buttons appear on the ones waiting on you.",
-                  "Setiap permohonan yang sedang diproses, dan kelulusan siapa yang ditunggu. Butang tindakan muncul pada yang menunggu anda."
+                  "Everything in progress and whose approval it waits on, then every decided record — including unpaid days recorded from Attendance. Action buttons appear on the ones waiting on you.",
+                  "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Butang tindakan muncul pada yang menunggu anda."
                 )}
               </p>
               {/* v1.77.0 — skeleton until the first fetch lands. */}
@@ -6466,7 +6474,7 @@ function Leave({ user }: { user: User }) {
                           <p className="min-w-0 text-xs">
                             <span className="font-medium">{who(l)}</span>
                             <span className="text-muted-foreground">
-                              {" · "}{leaveTypeL(l.type)}
+                              {" · "}<span className={l.type === "unpaid" ? "text-danger font-medium" : ""}>{leaveTypeL(l.type)}</span>
                               {" · "}{dmy(l.start_date)}{l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}
                               {" · "}{l.days === 1 ? L("1 day", "1 hari") : l.days === 0.5 ? L("half day", "setengah hari") : `${l.days} ${L("days", "hari")}`}
                               {" · "}{stageL(l.stage ?? l.status)}
@@ -13091,7 +13099,7 @@ export default function PortalPage() {
         activeTab === "Dashboard" ? <ContextPanel lang={lang} /> : undefined
       }
       rightRail={
-        activeTab === "Dashboard" ? <RightRail lang={lang} /> : undefined
+        activeTab === "Dashboard" ? <RightRail lang={lang} go={(t) => setTab(t as TabName)} /> : undefined
       }
     >
       <CommandPalette
@@ -13884,15 +13892,6 @@ export default function PortalPage() {
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
             <div className="space-y-4 md:space-y-6">
-              {/* v1.78.0 (CEO: "in Staff table should appear a list of
-                  replacement leave for the staff that working on weekend" and
-                  "Unpaid leave should not appear all the list of during that
-                  month ... the record should be recorded into staff table").
-                  Above the directory, because both lists are worked down once
-                  a month across everybody — expanding eight records to credit
-                  eight Saturdays is not a review. CEO-only; it renders
-                  nothing for anyone else, matching the server. */}
-              <LeaveReviewCard role={user.role} />
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}

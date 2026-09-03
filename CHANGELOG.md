@@ -2,6 +2,84 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.88.0] — 2026-09-03 — a number you can open
+
+**CEO:** *"Audit all the tabs and ensure that all the tabs have a function of clickable data without me need to open another new tabs. Additionally, make it minimalist interface for the clumsy interface for better UI/UX without change any major designed!"*
+
+He had asked the narrow version of this at v1.21.5, about the stock chips: *"data will appear when click without go to the tabs/table"*. That was built — and then every card added since printed its figures as text again.
+
+An audit of all 24 tabs found **forty dead ends** in thirteen files: a number the interface asks you to act on and gives you no way to open. *3 overdue. 12 unpaid invoices. 7 not acknowledged.* You read it, then you go and find the rows yourself on another tab.
+
+### Two structural causes, not forty separate mistakes
+
+- **`StatTile` had no `onClick` at all** — so all twenty-two of its call sites were dead by construction. Its sibling `StatCard` has accepted one since v1.13.0; the two halves of the same idea disagreed about whether a number is a door. It takes one now, and a tile *without* an action still renders as a plain div: a tile that looks pressable and does nothing is worse than one that never offered.
+- **Rows of count chips where some are buttons and the rest are spans**, in the same `.map()`. A chip that opens beside one that does not is worse than neither opening — it teaches you the row is inert.
+
+### What now opens where it stands
+
+- **Company task progress** — Open / Pending / Closed / Overdue / Not acknowledged each list their tasks underneath. The card's own v1.42.0 comment calls two of them *"the numbers that demand a manager's action"*, and neither could be opened. The list is filtered by the **same tests the server counted with**, because a tile of 3 that opens 4 rows is worse than one that opens nothing.
+- **Stock status** — the quiet chips now expand like the low/out-of-stock ones have since v1.21.5.
+- **Asset counts** → filter the asset table. Keyed on the status **code**, not the translated label, or the filter would break the moment you switch to BM.
+- **ELFIA state chips** → scope the consented-customer list. Every state on the map above has been a button since v1.43.0; the matching chip row was spans.
+- **Open POs** → narrows the table. **Suppliers** → does what the Suppliers button beside it already did; it was that button's inert twin.
+- **The claims summary strip** — Approved / paid / Pending / Rejected each scope the claim list below.
+- **The right rail's red badges** → open the Leave and Tasks tabs. The badge is the rail's whole point — how many things are waiting on you — and it was a span.
+
+### Guarded
+
+New **guard #31**, deliberately narrow: *should this number be clickable* is a judgement, and a linter that guesses would cry wolf until it was ignored. It checks the two things that are not judgement — that the figure components can carry an action at all, and that each fixed dead end has not silently reverted, every one named with what it opens.
+
+Guard #28 caught a *"Loading…"* I had written into the new task list — a sentence about waiting where a skeleton in the shape of the count belongs. Corrected.
+
+Twenty-nine of the forty findings remain, mostly single figures on Dashboard tiles that need a destination decided rather than a mechanism. The mechanism is there now; say the word and I will work through the rest.
+
+## [1.87.0] — 2026-09-03 — a leaver leaves the lists
+
+**CEO:** *"If staff already resigned after that day, the day after it no more listed the staff on task, payroll after their payroll released and etc except staff tabs which is for recording purposes."*
+
+Offboarding sets `left_on`, kills every session and clears 2FA — but **deliberately leaves `is_active = 1`**, with a comment saying why: flipping it would drop the leaver from their own final payroll run and they would not be paid for their last month.
+
+That decision was right and its cost was never paid down. A leaver stayed in every staff list **forever** — still an option in the task assignee dropdown, still in the attendance picker, still counted in "staff total", still sent notifications, still offered a shift, months after they left.
+
+`is_active` says *the account exists*. There was nothing that said *they work here today*, which is what a people-picker means. Now there is, in both the worker and the browser:
+
+- **The last day is a working day.** `left_on` is the last paid day — the offboard dialog says so — so somebody leaving on the 30th is on staff on the 30th and gone on the 1st.
+- **A re-joiner is back.** `rejoined_on` has meant that since v1.4.101 and the payroll honours it; a list that did not would hide somebody sitting in the office.
+
+Applied to thirteen places: the staff pickers, the birthday lists, the headcount, the notification fan-outs — and to the **assignment checks**, because hiding somebody from a dropdown is not the same as refusing the assignment.
+
+### The exception he named himself
+
+*"payroll after their payroll released"* — a leaver must stay on the payroll of every month they **actually worked**, which is what pays their final salary, and drop off once the run moves past it. That is a different question from "do they work here today", so it has its own predicate keyed to the month being processed.
+
+Deliberately **not** keyed on whether the payslip was released: a released month still gets recomputed, reprinted and queried, and a person vanishing from a month they were paid for is a payslip nobody can reproduce.
+
+The month is spliced into that SQL rather than bound, because each caller has its own `?1..?n` numbering and threading one more parameter through a dozen queries by hand is how a bind lands on the wrong placeholder. That is only safe because the helper validates the month itself and **throws** on anything else. Which turned up a small bug of its own: on `/payroll/day-fill` the month reached three queries straight from the query string, unchecked, and it decides which month's salary is computed.
+
+### And the exception that is the point
+
+**The Staff tab keeps everyone.** A record you cannot look up is not a record. `/users` feeds both the directory and the pickers, so it still returns leavers and the *picker* filters — the record stays whole and the dropdown stays current.
+
+Eleven checks added to guard #29, negative-tested. One existing check had pinned the absence scan's `WHERE` clause verbatim and went red when the leaver rule joined it — the eighth this week, and corrected the same way.
+
+## [1.86.0] — 2026-09-03 — one place a leave record lives
+
+**CEO:** *"leave to review should inside the leave and also why looks like Leave applications — whole company like having same function as leave to review? make it minimalist please!"*
+
+Because by this release they nearly did, and the duplication was mine.
+
+**Leave to review** shipped at v1.78.0 with two halves, because at the time both were homeless: rest-day work waiting to be credited, and the month's unpaid days as a row of chips. Then **v1.83.0 gave the Leave tab a real register** — the whole decided history, filtered by month, with Edit and Remove on every row. An unpaid day *is* a decided leave record, so from that release the chips were a second view of rows the register already listed, with a second way to delete one. Two lists of the same records is how two screens start disagreeing about what was deducted.
+
+So the chips are gone. The register is the one place a leave record lives, and an unpaid row is marked red in it — the chips were the only thing making an unpaid day stand out, and that job had to go somewhere.
+
+What is left is the half that is **not** a leave record: work that happened and has not become one yet. It moves to the Leave tab as **Rest days worked — credit replacement leave**, sitting above the register, because crediting is what turns work into a leave record and the register is where that record then appears. On the Staff tab it had been sitting beside a directory that has nothing to do with leave.
+
+**Leave applications — whole company** is now just **Leave — whole company**, and says what it holds: everything in progress and whose approval it waits on, then every decided record including the unpaid days recorded from Attendance.
+
+Net effect: one card fewer, one list fewer, one delete path fewer, and the Staff tab is a staff directory again.
+
+Three checks in guard #29 updated and negative-tested — that the card is on the Leave tab above the register, that the chips have not come back, and that the register still makes an unpaid record visible.
+
 ## [1.85.0] — 2026-09-03 — the payslips that never got the memo
 
 **CEO**, on his August payslip: *"payslip capture AZ ONE OFFICIAL instead of A2Z Creative Marketing"*

@@ -58,7 +58,10 @@ const { ROLE_RANK, bySeniority, staffRank, positionRank } = await import(`file:/
 const staff = read("worker/src/staff.ts");
 const payroll = read("components/portal/payroll-panel.tsx");
 const dir = read("components/staff/staff-directory.tsx");
-const card = read("components/staff/leave-review-card.tsx");
+/* v1.86.0 - the card moved to components/portal/ and lost its unpaid
+   half: an unpaid day is a leave record, and leave records live in the
+   register on the Leave tab. */
+const card = read("components/portal/rest-day-credits.tsx");
 const page = read("app/portal/page.tsx");
 
 /* ---- 1. the order the CEO named, RUN rather than read ---- */
@@ -236,15 +239,34 @@ const page = read("app/portal/page.tsx");
   ok("the client agrees about who is staff",
      /export const NON_STAFF_ROLES: readonly string\[\] = \["customer", "super_admin"\];/.test(read("lib/staff-order.ts"))
        && /\.filter\(\(u\) => isStaffRole\(u\.role\)\)/.test(dir));
+  /* v1.87.0 — this pinned the scan's WHERE clause verbatim, so adding the
+     leaver rule to it failed a check about the SYSTEM ACCOUNT. The property
+     is that the scan's people query filters on staffRolesSql; what else it
+     filters on is another check's business. */
   ok("the absence scan cannot propose a day for the system account",
-     /FROM users WHERE \$\{staffRolesSql\(\)\} AND is_active = 1`,\n\s*\)\.all<\{ id: number; name: string; full_name/.test(staff),
+     /FROM users WHERE \$\{staffRolesSql\(\)\}[^`]{0,200}`,\n\s*\)\.all<\{ id: number; name: string; full_name/.test(staff),
      "this is the query behind the Super Admin block the CEO was looking at");
 }
 
 /* ---- 5. the review card, and what left the attendance panel ---- */
 {
-  ok("the card is on the Staff tab, above the directory",
-     /<LeaveReviewCard role=\{user\.role\} \/>[\s\S]{0,200}?<StaffDirectory/.test(page));
+  /* v1.86.0 (CEO: "leave to review should inside the leave and also why looks
+     like Leave applications — whole company like having same function as
+     leave to review?") — it was on the Staff tab and it had TWO halves. The
+     unpaid half listed rows the Leave register already carried, with a second
+     way to delete one, which is what made the two cards read as one function.
+     The chips are gone and the rest-day half moved to the Leave tab, ABOVE
+     the register, because crediting is what turns work into a leave record
+     and the register is where that record then appears. */
+  ok("the card is on the Leave tab, above the whole-company register",
+     /<RestDayCreditCard role=\{user\.role\} \/>[\s\S]{0,2000}?Leave — whole company/.test(page),
+     "on the Staff tab it sat beside a directory that has nothing to do with leave");
+  ok("the unpaid chips are gone from it",
+     !/Unpaid days recorded this month/.test(card) && !/undoUnpaid/.test(card),
+     "two lists of the same records is how two screens start disagreeing about what was deducted");
+  ok("and the register is where an unpaid record is now managed",
+     /l\.type === "unpaid" \? "text-danger font-medium"/.test(page),
+     "the chips were the only thing making an unpaid day stand out - the register has to do that job now");
   ok("it is CEO-only on the client too",
      /const canReview = \["ceo", "super_admin"\]\.includes\(role\);/.test(card)
        && /if \(!canReview\) return null;/.test(card),
@@ -260,6 +282,55 @@ const page = read("app/portal/page.tsx");
      "the CEO asked for it to move to the staff table, and two copies of a list is two places to undo from");
   ok("the attendance panel says where it went",
      /Recorded days are listed on the Staff tab/.test(read("components/portal/role-panels.tsx")));
+}
+
+/* ---- v1.87.0: a leaver leaves the lists ----
+   The CEO: "If staff already resigned after that day, the day after it no
+   more listed the staff on task, payroll after their payroll released and etc
+   except staff tabs which is for recording purposes."
+
+   Offboarding sets left_on and kills every session but DELIBERATELY leaves
+   is_active = 1 — flipping it would drop the leaver from their own final
+   payroll run and they would not be paid for their last month. That decision
+   was never paid down: a leaver stayed in every picker forever. */
+{
+  const w = read("worker/src/staff.ts");
+  ok("there is one predicate for who works here today",
+     /export const currentStaffSql = \(alias = ""\) =>/.test(w));
+  ok("the last day is a working day",
+     /left_on >= date\('now', '\+8 hours'\)/.test(w),
+     "left_on is the last PAID day, so somebody leaving on the 30th is on staff on the 30th");
+  ok("a re-joiner is back on the list",
+     /rejoined_on IS NOT NULL AND \$\{alias\}rejoined_on <= date\('now', '\+8 hours'\)/.test(w),
+     "rejoined_on has meant that since v1.4.101 and the payroll honours it - a list that did not would hide somebody sitting in the office");
+  const uses = (w.match(/\$\{currentStaffSql\(\)\}/g) ?? []).length;
+  ok("every picker and fan-out uses it", uses >= 10,
+     `${uses} uses — the task assignee check, the staff pickers, the birthday lists, the counts and the notification fan-outs`);
+  ok("work cannot be assigned to somebody who has left",
+     /WHERE id = \?1 AND is_active = 1 AND \$\{currentStaffSql\(\)\} AND role NOT IN \('customer'\)/.test(w),
+     "hiding them from the dropdown is not the same as refusing the assignment");
+
+  /* THE EXCEPTION THE CEO NAMED HIMSELF. */
+  ok("payroll asks a different question",
+     /export function payrollMonthStaffSql\(month: string, alias = ""\): string \{/.test(w));
+  ok("a leaver stays on the payroll of every month they worked",
+     /substr\(\$\{alias\}left_on, 1, 7\) >= '\$\{month\}'/.test(w),
+     "their final salary depends on it - dropping them the day they leave means they are not paid for their last month");
+  ok("the spliced month is validated where it is spliced, and throws otherwise",
+     /if \(!\/\^\\d\{4\}-\\d\{2\}\$\/\.test\(month\)\) \{[\s\S]{0,160}?throw new Error/.test(w),
+     "every caller has its own ?1..?n numbering, so the month is spliced rather than bound - which is only safe if nothing else can get through");
+  ok("the payroll month that reached three queries unchecked is checked",
+     /const mA = urlA\.searchParams\.get\("month"\)[\s\S]{0,320}?test\(mA\)\) return err\("invalid_input"/.test(w),
+     "it decides which month's salary is computed");
+
+  /* THE EXCEPTION THAT IS THE WHOLE POINT: the record stays readable. */
+  ok("the Staff tab still carries leavers",
+     /WHERE \$\{staffRolesSql\("u\."\)\} AND \(u\.is_active = 1 OR u\.left_on IS NOT NULL\)/.test(w) &&
+     !/\/users" && method === "GET"[\s\S]{0,900}?currentStaffSql/.test(w),
+     "a record you cannot look up is not a record - and /users feeds BOTH the directory and the pickers, so it is filtered in the picker, not at the source");
+  ok("the browser has the same rule for the one list it must filter itself",
+     /export function isCurrentStaff\(/.test(read("lib/staff-order.ts")) &&
+     /isCurrentStaff\(x\)/.test(read("components/portal/role-panels.tsx")));
 }
 
 console.log(

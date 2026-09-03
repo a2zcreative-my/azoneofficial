@@ -104,3 +104,28 @@ export function bySeniority<T extends Rankable & { name?: string | null; full_na
   return staffRank(a) - staffRank(b)
     || (a.full_name || a.name || "").localeCompare(b.full_name || b.name || "");
 }
+
+/** STILL ON STAFF TODAY — v1.87.0.
+ *
+ * CEO, 03-09-2026: *"If staff already resigned after that day, the day after
+ * it no more listed the staff on task, payroll after their payroll released
+ * and etc except staff tabs which is for recording purposes."*
+ *
+ * The worker has the matching predicate (`currentStaffSql`), and most lists
+ * are filtered there. `/users` cannot be: it feeds BOTH the Staff directory,
+ * which must keep every leaver because it is the record, and the people
+ * pickers, which must not. So that one list is filtered here, at the two
+ * places that pick a person rather than read a record.
+ *
+ * THE LAST DAY IS A WORKING DAY — `left_on` is the last paid day, so somebody
+ * leaving on the 30th is on staff on the 30th and gone on the 1st. And a
+ * re-joiner is back: `rejoined_on` has meant that since v1.4.101.
+ */
+export function isCurrentStaff(
+  u: { left_on?: string | null; rejoined_on?: string | null },
+  today: string = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
+): boolean {
+  if (!u.left_on) return true;
+  if (u.left_on.slice(0, 10) >= today) return true;
+  return Boolean(u.rejoined_on && u.rejoined_on.slice(0, 10) <= today);
+}

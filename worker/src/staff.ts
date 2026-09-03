@@ -172,6 +172,65 @@ export function employedDays(
   });
 }
 
+/** STILL ON STAFF TODAY — v1.87.0.
+ *
+ * CEO, 03-09-2026: *"If staff already resigned after that day, the day after
+ * it no more listed the staff on task, payroll after their payroll released
+ * and etc except staff tabs which is for recording purposes."*
+ *
+ * Offboarding sets `left_on` and kills every session, but DELIBERATELY leaves
+ * `is_active = 1` — flipping it would drop the leaver from their own final
+ * payroll run and they would not be paid for their last month. The cost of
+ * that decision was never paid down: a leaver stayed in every staff list
+ * forever, so months later they were still an option in the task assignee
+ * dropdown, still counted in "staff total", still offered a shift.
+ *
+ * This is the missing half. `is_active` still says "the account exists";
+ * THIS says "they work here today", which is what a people-picker means.
+ *
+ * THE LAST DAY IS A WORKING DAY. `left_on` is the last paid day - the
+ * offboard dialog says so - so somebody leaving on the 30th is on staff on
+ * the 30th and gone on the 1st. `>=`, not `>`.
+ *
+ * A RE-JOINER IS BACK. `rejoined_on` has meant that since v1.4.101 and the
+ * payroll honours it; a list that did not would hide somebody who is sitting
+ * in the office.
+ *
+ * NOT FOR PAYROLL, and not for the staff record. Payroll asks a different
+ * question - "were they employed in THIS month" - which `employedDays` and
+ * `payrollMonthStaffSql` answer. The Staff tab asks none of this: it is the
+ * record, and a record you cannot look up is not a record. */
+export const currentStaffSql = (alias = "") =>
+  `(${alias}left_on IS NULL
+     OR ${alias}left_on >= date('now', '+8 hours')
+     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
+
+/** EMPLOYED IN A GIVEN PAYROLL MONTH — v1.87.0.
+ *
+ * The CEO's own exception: *"payroll after their payroll released"*. A leaver
+ * must stay on the payroll of every month they actually worked, which is what
+ * pays their final salary; once the run moves past that month they are gone
+ * from it. Bound to ?1 = the month being processed, YYYY-MM.
+ *
+ * Deliberately NOT keyed on whether the payslip was released: a released
+ * month still gets recomputed, reprinted and queried, and a person vanishing
+ * from a month they were paid for is a payslip nobody can reproduce. */
+export function payrollMonthStaffSql(month: string, alias = ""): string {
+  /* THE MONTH IS SPLICED IN, NOT BOUND. Every caller sits in a query with its
+     own ?1..?n numbering, and threading one more parameter through each would
+     be renumbering by hand in a dozen places - which is how a bind ends up on
+     the wrong placeholder and a payroll query silently answers about the
+     wrong thing. Splicing is only safe because the value is checked HERE,
+     against the same shape every route already validates, and throws rather
+     than passing anything else through. */
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new Error(`payrollMonthStaffSql: month must be YYYY-MM, got ${JSON.stringify(month)}`);
+  }
+  return `(${alias}left_on IS NULL
+     OR substr(${alias}left_on, 1, 7) >= '${month}'
+     OR (${alias}rejoined_on IS NOT NULL AND substr(${alias}rejoined_on, 1, 7) <= '${month}'))`;
+}
+
 export const STAFF_ORDER_SQL = `
   (CASE u.role
      WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30
@@ -572,7 +631,7 @@ export async function shiftsOn(env: Env, iso: string): Promise<Map<number, DaySh
   try {
     const at = await shiftResolver(env);
     const { results } = await env.DB.prepare(
-      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()}`,
     ).all<{ id: number }>();
     for (const u of results) out.set(u.id, at(u.id, iso));
   } catch { /* fallback handled per call */ }
@@ -1523,7 +1582,7 @@ export async function handleStaff(
     // available to every staff role, nothing sensitive.
     const { results } = await env.DB.prepare(
       `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
-       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND birthday IS NOT NULL`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin') AND birthday IS NOT NULL`,
     ).all();
     return json({ birthdays: results });
   }
@@ -1567,7 +1626,7 @@ export async function handleStaff(
         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
       ) WHERE t > '10:00'`),
-      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`),
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
       outstanding_invoices: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
       // Cash flow proxy for the month: cash IN (paid invoices) - cash OUT (expenses).
       cash_in_cents: await n(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
@@ -1583,7 +1642,7 @@ export async function handleStaff(
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
-       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')
+       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')
        ORDER BY 2`,
     ).all();
     return json({ staff: results });
@@ -2720,6 +2779,7 @@ export async function handleStaff(
               u.joined_on, u.left_on, u.rejoined_on
          FROM users u
         WHERE ${staffRolesSql("u.")} AND (u.is_active = 1 OR u.left_on IS NOT NULL)
+          AND ${payrollMonthStaffSql(monthV, "u.")}
         ORDER BY ${STAFF_ORDER_SQL}`,
     ).all<{
       id: number; name: string; email: string | null; employee_id: string | null;
@@ -3267,7 +3327,7 @@ export async function handleStaff(
     // Ring the bell: every active staff member gets a notification (and the
     // off-platform relay, when configured). The poster already knows.
     const { results: recipients } = await env.DB.prepare(
-      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND id != ?1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()} AND id != ?1`,
     ).bind(user.id).all();
     for (const r of recipients as { id: number }[]) {
       await notify(env, r.id, "announcement", `New announcement: ${body.title as string}`, `announcement:${res?.id}`);
@@ -3388,7 +3448,7 @@ export async function handleStaff(
     const d = String(body.event_date);
     const dmy = `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
     const { results: recipients } = await env.DB.prepare(
-      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND id != ?1`,
+      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()} AND id != ?1`,
     ).bind(user.id).all();
     for (const r of recipients as { id: number }[]) {
       await notify(env, r.id, "event", `Upcoming ${category}: ${body.title as string} on ${dmy}`, `event:${res?.id}`);
@@ -3434,7 +3494,7 @@ export async function handleStaff(
         : ["coo", "cco"].includes(role) ? "exec" : "top";
   const notifyRoles = async (roles: string[], excludeId: number, message: string, ref: string) => {
     const { results } = await env.DB.prepare(
-      `SELECT id FROM users WHERE role IN (${roles.map(() => "?").join(",")}) AND is_active = 1`,
+      `SELECT id FROM users WHERE role IN (${roles.map(() => "?").join(",")}) AND is_active = 1 AND ${currentStaffSql()}`,
     ).bind(...roles).all<{ id: number }>();
     for (const r of results) if (r.id !== excludeId) await notify(env, r.id, "claim", message, ref);
   };
@@ -3530,7 +3590,7 @@ export async function handleStaff(
     let newPayee: number | null = null;
     if (pid > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer')`,
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer')`,
       ).bind(pid).first<{ id: number }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       newPayee = pu.id;
@@ -3765,7 +3825,7 @@ export async function handleStaff(
     let payeeRole: string | null = null; // v1.4.175: drives conflict rerouting
     if (typeof body?.payee_user_id === "number" && body.payee_user_id > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer')`,
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer')`,
       ).bind(body.payee_user_id).first<{ id: number; role: string }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       payeeId = pu.id;
@@ -6174,7 +6234,7 @@ export async function handleStaff(
   const entitlementStaff = async (): Promise<{ id: number; name: string; role: string }[]> => {
     const { results } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
-       WHERE is_active = 1 AND ${staffRolesSql()}
+       WHERE is_active = 1 AND ${currentStaffSql()} AND ${staffRolesSql()}
        ORDER BY 2`,
     ).all<{ id: number; name: string; role: string }>();
     return results;
@@ -7057,7 +7117,7 @@ export async function handleStaff(
 
     const { results: peopleR } = await env.DB.prepare(
       `SELECT id, name, full_name, role, employment_status, position FROM users
-       WHERE ${staffRolesSql()} AND is_active = 1`,
+       WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()}`,
     ).all<{ id: number; name: string; full_name: string | null; role: string; employment_status: string | null; position: string | null }>();
     const byId = new Map(peopleR.map((u) => [u.id, u]));
 
@@ -7997,7 +8057,7 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id AS user_id, base_salary_cents FROM users
-       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1`,
+       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1 AND ${currentStaffSql()}`,
     ).all();
     return json({ base: results });
   }
@@ -8022,6 +8082,9 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const urlA = new URL(request.url);
     const mA = urlA.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    /* v1.87.0 — this month reached three queries straight from the query
+       string, unchecked. It decides which month's salary is computed. */
+    if (!/^\d{4}-\d{2}$/.test(mA)) return err("invalid_input", "month must be YYYY-MM", 400);
     const notPendingA = await notPendingSql(env);
     const { results } = await env.DB.prepare(
       `SELECT user_id, COUNT(DISTINCT date(created_at, '+8 hours')) AS days
@@ -8061,7 +8124,11 @@ export async function handleStaff(
        what was deducting approved paid leave. */
     const dayListA = await workingDayList(mA);
     const { results: peopleA } = await env.DB.prepare(
-      `SELECT id, joined_on, left_on, rejoined_on FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
+      /* v1.87.0 — a leaver stays on the payroll of every month they worked
+         (their final salary depends on it) and drops off the moment the run
+         moves past it. The CEO: "payroll after their payroll released". */
+      `SELECT id, joined_on, left_on, rejoined_on FROM users
+        WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA)}`,
     ).all<{ id: number; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
     const employed = peopleA.map((u) => ({
       user_id: u.id,
@@ -8081,7 +8148,8 @@ export async function handleStaff(
     const unpaidAtA = await unpaidResolver(mA);
     const phAtA = await phWorkResolver(mA);
     const { results: basesA } = await env.DB.prepare(
-      `SELECT id, base_salary_cents, role, employment_status FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
+      `SELECT id, base_salary_cents, role, employment_status FROM users
+        WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA)}`,
     ).all<{ id: number; base_salary_cents: number | null; role: string; employment_status: string | null }>();
     const baseMapA = new Map(basesA.map((b) => [b.id, b.base_salary_cents ?? 0]));
     const hourlyA = new Set(basesA.filter((b) => b.role === "live_host" && b.employment_status === "part_time").map((b) => b.id));
@@ -8137,7 +8205,7 @@ export async function handleStaff(
 
     const { results: staffA } = await env.DB.prepare(
       `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status
-       FROM users WHERE ${staffRolesSql()} AND is_active = 1`,
+       FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA2)}`,
     ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null }>();
 
     /* One row per person per day, with the minutes actually clocked. */
@@ -8715,7 +8783,7 @@ export async function handleStaff(
     // PATCH /users/:id (birthday field).
     const { results } = await env.DB.prepare(
       `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
-       WHERE birthday IS NOT NULL AND is_active = 1 AND ${staffRolesSql()}
+       WHERE birthday IS NOT NULL AND is_active = 1 AND ${currentStaffSql()} AND ${staffRolesSql()}
        ORDER BY substr(birthday, 6)`,
     ).all();
     return json({ birthdays: results });
@@ -11340,7 +11408,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
 
     const { results: staff } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, photo_key FROM users
-       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`,
     ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
 
     let earners = 0;

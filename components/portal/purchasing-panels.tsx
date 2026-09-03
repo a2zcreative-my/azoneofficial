@@ -78,6 +78,8 @@ export function PurchasingPanel() {
   useEffect(() => { void load(); }, [load]);
 
   const open = pos.filter((p) => ["draft", "sent"].includes(p.status));
+  /* v1.88.0 — the Open POs tile scopes the table below. */
+  const [openOnly, setOpenOnly] = useState(false);
   const openValue = open.reduce((a, p) => a + p.total_cents, 0);
 
   const addSupplier = async () => {
@@ -134,9 +136,16 @@ export function PurchasingPanel() {
         {!loaded ? <SkelTileStrip /> : (
           <StatStrip>
             <StatTile tone="info" label={L("Purchase orders", "Pesanan pembelian")} value={pos.length} icon="≡" />
-            <StatTile tone="brand" label={L("Open POs", "PO terbuka")} value={open.length} icon="◷" />
+            {/* v1.88.0 — Open POs now narrows the table below to them. */}
+            <StatTile tone="brand" label={L("Open POs", "PO terbuka")} value={open.length} icon="◷"
+              active={openOnly} onClick={() => setOpenOnly((v) => !v)}
+              title={L("Show only the purchase orders still open", "Tunjuk hanya pesanan pembelian yang masih terbuka")} />
             <StatTile tone="gold" label={L("Open value", "Nilai terbuka")} value={fmtRM(openValue)} icon="$" />
-            <StatTile tone="muted" label={L("Suppliers", "Pembekal")} value={suppliers.filter((s) => s.active).length} icon="⌂" />
+            {/* The Suppliers button above already reveals this list; the tile
+                was its inert twin, which is the confusing pair. */}
+            <StatTile tone="muted" label={L("Suppliers", "Pembekal")} value={suppliers.filter((s) => s.active).length} icon="⌂"
+              active={showSuppliers} onClick={() => setShowSuppliers((v) => !v)}
+              title={L("Show the supplier list", "Tunjukkan senarai pembekal")} />
           </StatStrip>
         )}
       </div>
@@ -207,7 +216,7 @@ export function PurchasingPanel() {
           the table below. */}
       {!loaded ? <SkelTable rows={5} cols={5} /> : (
       <DataTable
-        rows={pos}
+        rows={openOnly ? open : pos}
         searchText={(p) => `${p.po_no} ${p.supplier_name}`}
         defaultSort="id"
         columns={[

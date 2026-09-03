@@ -87,6 +87,7 @@ const GUARDS = [
   ["api-routes", "every path the portal calls is one the worker answers at (the Offboard 404)"],
   ["skeleton-loading", "nothing loads without a skeleton in its own shape — no words, no spinners, no blank cards"],
   ["staff-order", "one company order on every payroll surface, and a rest day cannot be credited twice"],
+  ["clickable-data", "a figure worth acting on can be opened where it stands - no trip to another tab to find the rows behind a count"],
   ["render-stability", "no component is declared inside another - React would rebuild the subtree every render and any input inside it would lose focus mid-keystroke"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],

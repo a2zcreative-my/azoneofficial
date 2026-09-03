@@ -54,6 +54,8 @@ export function ElfiaTrafficPanel() {
   const [orders, setOrders] = useState<WebOrder[] | null>(null);
   const [marketing, setMarketing] = useState<MarketingData | null>(null);
   const [showList, setShowList] = useState(false);
+  /* v1.88.0 — which state the consented-customer list is scoped to. */
+  const [stateF, setStateF] = useState("");
   const [copied, setCopied] = useState(false);
   /* v1.77.0 — true once the first summary request settles (ok or not), so
      the skeleton ends even when the request fails. */
@@ -496,16 +498,30 @@ export function ElfiaTrafficPanel() {
               {copied ? L("Copied ✓", "Disalin ✓") : L("Copy phone numbers", "Salin nombor telefon")}
             </button>
           </div>
+          {/* v1.88.0 (CEO: "clickable data without me need to open another new
+              tabs") — every state on the MAP above has been a button since
+              v1.43.0, and this row of the same states was spans. Clicking one
+              opens the list and scopes it to that state, so a count is a
+              question you can answer where you are standing. */}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {marketingByState.map(([st, list]) => (
-              <span key={st} className="bg-secondary rounded-full px-2.5 py-1 text-[11px]">
-                {st} <span className="font-semibold tabular-nums">{list.length}</span>
-              </span>
+              <button key={st} type="button" aria-pressed={stateF === st}
+                className={`bg-secondary rounded-full px-2.5 py-1 text-[11px] transition hover:brightness-95 ${stateF === st ? "ring-primary ring-2" : ""}`}
+                title={L(`Show the ${list.length} customer(s) in ${st}`, `Tunjuk ${list.length} pelanggan di ${st}`)}
+                onClick={() => { const next = stateF === st ? "" : st; setStateF(next); if (next) setShowList(true); }}>
+                {st} <span className="font-semibold tabular-nums">{list.length}</span>{stateF === st ? " ✕" : ""}
+              </button>
             ))}
+            {stateF && (
+              <button type="button" className="text-muted-foreground text-[11px] underline"
+                onClick={() => setStateF("")}>
+                {L("all states", "semua negeri")}
+              </button>
+            )}
           </div>
           {showList && (
             <div className="mt-3 space-y-3">
-              {marketingByState.map(([st, list]) => (
+              {marketingByState.filter(([st]) => !stateF || st === stateF).map(([st, list]) => (
                 <div key={st}>
                   <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{st}</p>
                   <div className="mt-1 space-y-1">

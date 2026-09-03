@@ -111,7 +111,14 @@ export function AssetsPanel() {
     }
   };
 
-  const counts = STATUSES.map(([k, label, labelMs]) => [L(label, labelMs), assets.filter((a) => a.status === k).length] as const);
+  /* v1.88.0 (CEO: "ensure that all the tabs have a function of clickable data
+     without me need to open another new tabs") — these chips were spans while
+     the identical chip row in content-panel.tsx has filtered its table since
+     v1.21.x. Clicking one narrows the table below; clicking it again clears.
+     The KEY is the status code, not the translated label, or the filter would
+     stop working the moment somebody switches to BM. */
+  const counts = STATUSES.map(([k, label, labelMs]) => [k, L(label, labelMs), assets.filter((a) => a.status === k).length] as const);
+  const [statusF, setStatusF] = useState<string>("");
   const totalValue = assets.filter((a) => a.status !== "disposed" && a.status !== "lost")
     .reduce((s, a) => s + (a.purchase_price_cents ?? 0), 0);
   const sub = "text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide";
@@ -128,7 +135,14 @@ export function AssetsPanel() {
           {/* v1.77.0 — skeleton until the first fetch lands: three count
               chips and the value chip, same height as the real pills. */}
           {!loaded && Array.from({ length: 4 }, (_, i) => <Skel key={i} className="h-5 w-20 rounded-full" />)}
-          {loaded && counts.map(([label, n]) => n > 0 && <span key={label} className="border-border rounded-full border px-2 py-0.5">{label} <span className="font-semibold">{n}</span></span>)}
+          {loaded && counts.map(([k, label, n]) => n > 0 && (
+            <button key={k} type="button" aria-pressed={statusF === k}
+              className={`border-border rounded-full border px-2 py-0.5 transition hover:bg-secondary ${statusF === k ? "ring-primary bg-secondary ring-2" : ""}`}
+              title={L(`Show only ${label.toLowerCase()} assets`, `Tunjuk aset ${label.toLowerCase()} sahaja`)}
+              onClick={() => setStatusF(statusF === k ? "" : k)}>
+              {label} <span className="font-semibold">{n}</span>{statusF === k ? " ✕" : ""}
+            </button>
+          ))}
           {totalValue > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">{L("Value", "Nilai")} {rm(totalValue)}</span>}
         </div>
       </div>
@@ -245,7 +259,7 @@ export function AssetsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {[...assets].sort((a, b) => {
+                {[...assets].filter((a) => !statusF || a.status === statusF).sort((a, b) => {
                   const dir = assetSort.asc ? 1 : -1;
                   switch (assetSort.col) {
                     case "tag": return dir * a.asset_tag.localeCompare(b.asset_tag);

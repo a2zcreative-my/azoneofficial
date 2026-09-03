@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { SkelText } from "@/components/ui/skeleton";
+import { Skel, SkelText } from "@/components/ui/skeleton";
 
 import { makeApi } from "@/lib/api";
 import { card, td, th } from "@/lib/ui-styles";
@@ -43,36 +43,116 @@ function useOverview(): OverviewData | null {
 }
 
 /** Company-wide task load — Tasks tab, management roles. */
+/** One task, as this card needs it. */
+interface MonTask {
+  id: number; title: string; status: string; deadline?: string | null;
+  assignee?: string | null; acknowledged_at?: string | null;
+}
+
+/** v1.88.0 — the tile that opens what it counts.
+ *
+ * MODULE SCOPE, per guard #30: a component declared inside the card would be
+ * a new type on every render. */
+function CountTile({ n, label, tone, active, onPick }: {
+  n: number; label: string; tone: string; active: boolean; onPick: () => void;
+}) {
+  return (
+    <button type="button" aria-pressed={active}
+      className={`rounded-lg border py-2 text-center transition hover:brightness-95 ${tone} ${active ? "ring-primary ring-2" : ""}`}
+      title={L("Show these", "Tunjukkan ini")}
+      onClick={onPick}>
+      <p className="text-xl font-semibold tabular-nums">{n}</p>
+      <p className="text-muted-foreground text-[11px]">{label}{active ? " ✕" : ""}</p>
+    </button>
+  );
+}
+
 export function TaskProgressCard() {
   const data = useOverview();
+  /* v1.88.0 (CEO: "ensure that all the tabs have a function of clickable data
+     without me need to open another new tabs") — every figure on this card
+     was plain text, including the two its own v1.42.0 comment calls "the
+     numbers that demand a manager's action". A number that demands action and
+     cannot be opened sends you to another tab to find out which rows it means.
+     The same answer the CEO already asked for on the stock chips at v1.21.5:
+     "data will appear when click without go to the tabs/table". */
+  const [pick, setPick] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<MonTask[] | null>(null);
+  useEffect(() => {
+    if (!pick || tasks) return;
+    void api<{ tasks: MonTask[] }>(`/tasks?all=1`)
+      .then((r) => { if (r.ok && r.data) setTasks(r.data.tasks ?? []); });
+  }, [pick, tasks]);
   if (!data?.task_summary) return null;
   const staff = [...(data.task_by_staff ?? [])].sort((a, b) => b.open_tasks - a.open_tasks);
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  /* The same tests the server counted with, so a tile of 3 opens 3 rows. A
+     list that disagrees with the number above it is worse than no list. */
+  const matches = (t: MonTask): boolean =>
+    pick === "overdue" ? Boolean(t.deadline && t.deadline.slice(0, 10) < today && t.status !== "completed")
+    : pick === "unacked" ? (!t.acknowledged_at && t.status !== "completed")
+    : pick === null ? false
+    : t.status === pick;
+  const shown = (tasks ?? []).filter(matches);
+  const pickLabel = pick === "overdue" ? L("overdue", "tertunggak")
+    : pick === "unacked" ? L("not acknowledged", "belum diakui")
+    : pick === "in_progress" ? L("pending", "menunggu")
+    : pick === "completed" ? L("closed", "ditutup") : L("open", "terbuka");
   return (
     <div className={card}>
       <p className="text-sm font-semibold">{L("Task progress — company-wide", "Kemajuan tugasan — seluruh syarikat")}</p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-center sm:grid-cols-5">
         {([["open", "Open", "Terbuka"], ["in_progress", "Pending", "Menunggu"], ["completed", "Closed", "Ditutup"]] as const).map(([k, lbl, lblMs]) => (
-          <div key={k} className="border-border rounded-lg border py-2">
-            <p className="text-xl font-semibold tabular-nums">{data.task_summary?.find((t) => t.status === k)?.n ?? 0}</p>
-            <p className="text-muted-foreground text-[11px]">{L(lbl, lblMs)}</p>
-          </div>
+          <CountTile key={k} n={data.task_summary?.find((t) => t.status === k)?.n ?? 0}
+            label={L(lbl, lblMs)} tone="border-border" active={pick === k}
+            onPick={() => setPick(pick === k ? null : k)} />
         ))}
         {/* v1.42.0 (CEO: "monitor closely"): the two numbers that demand a
             manager's action — deadlines already missed, and assignments
             nobody has confirmed seeing. Red/amber when above zero. */}
         {typeof data.task_overdue === "number" && (
-          <div className={`rounded-lg border py-2 ${data.task_overdue > 0 ? "border-danger bg-danger-soft" : "border-border"}`}>
-            <p className={`text-xl font-semibold tabular-nums ${data.task_overdue > 0 ? "text-danger" : ""}`}>{data.task_overdue}</p>
-            <p className="text-muted-foreground text-[11px]">{L("Overdue", "Tertunggak")}</p>
-          </div>
+          <CountTile n={data.task_overdue} label={L("Overdue", "Tertunggak")}
+            tone={data.task_overdue > 0 ? "border-danger bg-danger-soft text-danger" : "border-border"}
+            active={pick === "overdue"} onPick={() => setPick(pick === "overdue" ? null : "overdue")} />
         )}
         {typeof data.task_unacked === "number" && (
-          <div className={`rounded-lg border py-2 ${data.task_unacked > 0 ? "border-warning bg-warning-soft" : "border-border"}`}>
-            <p className={`text-xl font-semibold tabular-nums ${data.task_unacked > 0 ? "text-warning" : ""}`}>{data.task_unacked}</p>
-            <p className="text-muted-foreground text-[11px]">{L("Not acknowledged", "Belum diakui")}</p>
-          </div>
+          <CountTile n={data.task_unacked} label={L("Not acknowledged", "Belum diakui")}
+            tone={data.task_unacked > 0 ? "border-warning bg-warning-soft text-warning" : "border-border"}
+            active={pick === "unacked"} onPick={() => setPick(pick === "unacked" ? null : "unacked")} />
         )}
       </div>
+
+      {/* The rows behind the figure, right under it. */}
+      {pick && (
+        <div className="border-border mt-3 rounded-lg border">
+          {/* Guard #28: a skeleton in the SHAPE of what is coming, never a
+              sentence about waiting. The count is what lands here, so a short
+              bar the width of a count is what waits here. */}
+          <div className="border-border border-b px-2.5 py-1.5">
+            {tasks === null
+              ? <Skel className="h-3 w-24" />
+              : <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
+                  {shown.length} {pickLabel}
+                </p>}
+          </div>
+          {tasks === null ? (
+            <div className="px-2.5 py-2"><SkelText lines={3} /></div>
+          ) : shown.length === 0 ? (
+            <p className="text-muted-foreground px-2.5 py-2 text-xs">{L("Nothing here.", "Tiada apa-apa di sini.")}</p>
+          ) : (
+            <ul className="divide-border max-h-56 divide-y overflow-y-auto">
+              {shown.map((t) => (
+                <li key={t.id} className="px-2.5 py-1.5 text-xs">
+                  <span className="font-medium">{t.title}</span>
+                  {t.assignee && <span className="text-muted-foreground"> · {t.assignee}</span>}
+                  {t.deadline && <span className="text-muted-foreground"> · {L("due", "tarikh akhir")} {t.deadline.slice(0, 10)}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {staff.length > 0 && (
         <div className="mt-4 max-h-64 overflow-x-auto overflow-y-auto">
           <table className="w-full border-collapse text-sm">
@@ -123,12 +203,23 @@ export function InventoryStatusCard() {
         <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Stock status", "Status stok")}</span>
         {data.inventory_status.map((r) => {
           const alert = ALERT[r.status] && r.n > 0;
-          if (!alert) return (
-            <span key={r.status} className="bg-secondary rounded-full px-2.5 py-0.5 text-xs">
-              <b className="tabular-nums">{r.n}</b>{" "}
-              <span className="text-muted-foreground capitalize">{stockLabel(r.status)}</span>
-            </span>
-          );
+          /* v1.88.0 — the non-alert chips were the inert branch of a control
+             that already worked: its sibling below has expanded its items
+             since v1.21.5. Same behaviour, quieter colours — a chip that
+             opens next to one that does not is the confusing case. */
+          if (!alert) {
+            const isOpenQ = open === r.status;
+            return (
+              <button key={r.status} type="button" aria-expanded={isOpenQ}
+                onClick={() => setOpen(isOpenQ ? null : r.status)}
+                className={`bg-secondary hover:brightness-95 rounded-full px-2.5 py-0.5 text-xs transition ${isOpenQ ? "ring-primary ring-2" : ""}`}
+                title={L("Tap to see which items", "Tekan untuk lihat barang yang terlibat")}>
+                <b className="tabular-nums">{r.n}</b>{" "}
+                <span className="text-muted-foreground capitalize">{stockLabel(r.status)}</span>
+                <span aria-hidden className="ml-1 text-[10px]">{isOpenQ ? "▲" : "▼"}</span>
+              </button>
+            );
+          }
           const isOpen = open === r.status;
           return (
             <button key={r.status} type="button" aria-expanded={isOpen}

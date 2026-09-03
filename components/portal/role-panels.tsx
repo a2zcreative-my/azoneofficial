@@ -24,6 +24,7 @@ import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
 import { properName, firstName, displayName } from "@/lib/names";
+import { isCurrentStaff } from "@/lib/staff-order"; // v1.87.0 - a picker offers people who work here
 import { compressImage } from "@/lib/compress-image";
 import { SITE_CONFIG } from "@/constants/site";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -2012,6 +2013,13 @@ type ShiftAssignment = {
 };
 type PendingPunch = { id: number; user_id: number; name: string; type: string; created_at: string };
 
+/* v1.87.0 — a person a dropdown can offer. `left_on`/`rejoined_on` ride along
+   so the picker can drop somebody who has left without a second request. */
+type StaffPick = {
+  id: number; name: string; full_name?: string | null; role: string;
+  left_on?: string | null; rejoined_on?: string | null;
+};
+
 /* v1.82.0 (CEO: "find and filter should include UPL and also Leave on that
    month which is for me easier to pull the data") — one row per person-day,
    the same shape as a punch, so leave can be filtered, counted and exported
@@ -2086,7 +2094,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
   const [leave, setLeave] = useState<LeaveDay[]>([]);
-  const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null }[]>([]);
+  const [staff, setStaff] = useState<StaffPick[]>([]);
   const [edit, setEdit] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [add, setAdd] = useState({ user_id: 0, type: "clock_in", date: "", time: "" });
@@ -2215,11 +2223,15 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     void loadShifts();
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[]; leave?: LeaveDay[] }>(`/attendance/report?month=${month}`),
-      api<{ users?: { id: number; name: string; full_name?: string | null; role: string }[]; staff?: { id: number; name: string; full_name?: string | null; role: string }[] }>(`/users`),
+      api<{ users?: StaffPick[]; staff?: StaffPick[] }>(`/users`),
     ]);
     if (r.data) { setRows(r.data.records ?? []); setLeave(r.data.leave ?? []); }
     const list = u.data?.users ?? u.data?.staff ?? [];
-    setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin"));
+    /* v1.87.0 (CEO: "If staff already resigned after that day, the day after
+       it no more listed the staff on task ... except staff tabs") — /users
+       carries leavers because the Staff directory is the RECORD and must.
+       This is a picker: it offers the people who work here. */
+    setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin" && isCurrentStaff(x)));
     setLoaded(true);
   }, [month, loadShifts]);
   useEffect(() => {
@@ -3273,6 +3285,8 @@ const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "acc
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
 export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?: string }) {
+  /* v1.88.0 — which figure in the summary strip the list is scoped to. */
+  const [claimF, setClaimF] = useState("");
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
@@ -3842,10 +3856,22 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           return (
             <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
               <span className="font-semibold">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
-              <span className="text-green-800">{L("Approved", "Diluluskan")} {approved.length} · {fmt(sum(approved))}</span>
-              <span className="text-green-800">{L("— of which paid", "— daripadanya dibayar")} {paid.length} · {fmt(sum(paid))}</span>
-              <span className="text-amber-700">{L("Pending", "Menunggu")} {pending.length} · {fmt(sum(pending))}</span>
-              {rejected.length > 0 && <span className="text-red-700">{L("Rejected", "Ditolak")} {rejected.length} · {fmt(sum(rejected))}</span>}
+              {/* v1.88.0 (CEO: "clickable data without me need to open another
+                  new tabs") — these were four figures you could read and not
+                  follow, above a list of every claim. Each one now scopes the
+                  list below to what it counts. */}
+              {([["approved", L("Approved", "Diluluskan"), approved, "text-green-800"],
+                 ["paid", L("— of which paid", "— daripadanya dibayar"), paid, "text-green-800"],
+                 ["pending", L("Pending", "Menunggu"), pending, "text-amber-700"],
+                 ...(rejected.length > 0 ? [["rejected", L("Rejected", "Ditolak"), rejected, "text-red-700"] as const] : []),
+               ] as [string, string, typeof mine, string][]).map(([k, lbl, list, tone]) => (
+                <button key={k} type="button" aria-pressed={claimF === k}
+                  className={`${tone} rounded px-1 transition hover:underline ${claimF === k ? "ring-primary bg-card ring-2" : ""}`}
+                  title={L("Show only these claims", "Tunjuk tuntutan ini sahaja")}
+                  onClick={() => setClaimF(claimF === k ? "" : k)}>
+                  {lbl} {list.length} · {fmt(sum(list))}{claimF === k ? " ✕" : ""}
+                </button>
+              ))}
               <span className="text-muted-foreground">{L("by claim date — matches the Expenses month figure", "ikut tarikh tuntutan — sepadan dengan angka bulan Perbelanjaan")}</span>
             </div>
           );
@@ -3854,7 +3880,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {/* v1.77.0 — skeleton until the first fetch lands. */}
           {!loaded && <SkelRows rows={4} />}
           {loaded && (canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
-          {(canDecide ? decided : mainList).map((c) => claimRow(c, false))}
+          {(canDecide ? decided : mainList)
+            .filter((c) => !claimF
+              || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
+            .map((c) => claimRow(c, false))}
         </div>
       </div>
 

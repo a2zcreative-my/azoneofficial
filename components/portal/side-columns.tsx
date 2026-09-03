@@ -190,13 +190,25 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
    one would reset, and an input placed in one would lose focus mid-keystroke.
    Nothing here holds focus today, which is exactly why it went unnoticed —
    guard #30 now fails the build on the pattern rather than on its symptoms. */
-function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+function Section({ title, count, children, onCount, countHint }: {
+  title: string; count?: number; children: React.ReactNode;
+  /* v1.88.0 (CEO: "clickable data without me need to open another new tabs")
+     — the red badge is the rail's whole point: it says how many things are
+     waiting on you. It was a span, so the only way to act on it was to find
+     the tab yourself. Given an `onCount` it becomes the door. Without one it
+     stays a span, because a badge that looks pressable and is not is worse
+     than one that never offered. */
+  onCount?: () => void; countHint?: string;
+}) {
+  const badge = "bg-danger-soft text-danger rounded-full px-2 py-0.5 text-[11px] font-semibold";
   return (
     <section className="border-border bg-card rounded-card border p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-semibold">{title}</h2>
         {count !== undefined && count > 0 && (
-          <span className="bg-danger-soft text-danger rounded-full px-2 py-0.5 text-[11px] font-semibold">{count}</span>
+          onCount
+            ? <button type="button" className={`${badge} transition hover:brightness-95`} title={countHint} onClick={onCount}>{count} →</button>
+            : <span className={badge}>{count}</span>
         )}
       </div>
       {children}
@@ -204,7 +216,11 @@ function Section({ title, count, children }: { title: string; count?: number; ch
   );
 }
 
-export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
+export function RightRail({ lang = "en", go }: {
+  lang?: "en" | "ms";
+  /** v1.88.0 — how the rail opens the tab a badge counts for. */
+  go?: (t: string) => void;
+}) {
   const [leave, setLeave] = useState<Leave[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [anns, setAnns] = useState<Ann[]>([]);
@@ -239,7 +255,9 @@ export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
 
   return (
     <>
-      <Section title={lang === "ms" ? "Cuti menunggu" : "Leave pending"} count={leave.length}>
+      <Section title={lang === "ms" ? "Cuti menunggu" : "Leave pending"} count={leave.length}
+        onCount={go ? () => go("Leave") : undefined}
+        countHint={lang === "ms" ? "Buka tab Cuti" : "Open the Leave tab"}>
         {!loaded ? skelRows(2) : leave.length === 0 ? (
           <p className="text-muted-foreground text-[12px]">{lang === "ms" ? "Tiada permohonan." : "Nothing waiting."}</p>
         ) : leave.slice(0, 4).map((l) => (
@@ -252,7 +270,9 @@ export function RightRail({ lang = "en" }: { lang?: "en" | "ms" }) {
         ))}
       </Section>
 
-      <Section title={lang === "ms" ? "Tugasan terbuka" : "Open tasks"} count={tasks.length}>
+      <Section title={lang === "ms" ? "Tugasan terbuka" : "Open tasks"} count={tasks.length}
+        onCount={go ? () => go("Tasks") : undefined}
+        countHint={lang === "ms" ? "Buka tab Tugasan" : "Open the Tasks tab"}>
         {!loaded ? skelRows(3) : tasks.length === 0 ? (
           <p className="text-muted-foreground text-[12px]">{lang === "ms" ? "Semua selesai." : "All clear."}</p>
         ) : tasks.map((t) => (
