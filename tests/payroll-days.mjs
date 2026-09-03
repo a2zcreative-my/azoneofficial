@@ -324,6 +324,20 @@ const AUG = (() => {
      owed-hours rule lives. */
   ok("the worker turns hours short into quarter days the same way",
      /Math\.round\(\(shortMins \/ \w+\) \* 4\) \/ 4/.test(staff));
+  /* v1.81.1 (CEO: "unpaid should have option half day unpaid or full day
+     unpaid") — the server has taken a fractional `days` since v1.75.0 and the
+     Staff tab already printed the fraction; the form had no way to say it and
+     always sent a whole day. */
+  ok("the unpaid form can say half a day",
+     /<option value=\{0\.5\}>\{L\("Half day"/.test(read("components/portal/role-panels.tsx")) &&
+     /days: ul\.days/.test(read("components/portal/role-panels.tsx")),
+     "a select that does not reach the request body is a setting that does nothing");
+  ok("the button says which amount it will record",
+     /ul\.days === 0\.5 \? L\("Mark half day unpaid"/.test(read("components/portal/role-panels.tsx")),
+     "this press cannot be taken back, so it must not be ambiguous about what it does");
+  ok("the person is told in words, not decimals",
+     /daysU === 0\.5 \? "half a day"/.test(staff),
+     "0.5 of a day is not how anybody says it, and this is the first a person hears their pay is being cut");
   ok("a whole day is the most one row can be",
      /!\(daysU > 0\) \|\| daysU > 1/.test(staff),
      "without the cap a typo in hours could deduct a week");

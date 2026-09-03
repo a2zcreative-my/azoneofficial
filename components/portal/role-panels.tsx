@@ -2153,7 +2153,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const canUnpaid = ["ceo", "super_admin"].includes(role);
   /* v1.78.0 — the month's recorded unpaid days moved to the Staff tab, so this
      card no longer holds (or fetches) a list it does not show. */
-  const [ul, setUl] = useState({ user_id: 0, date: "", reason: "" });
+  /* v1.81.1 (CEO: "unpaid should have option half day unpaid or full day
+     unpaid") — the form always sent a whole day. The server has taken a
+     fractional `days` since v1.75.0, and the Staff tab already prints the
+     fraction; there was simply no way to say it. */
+  const [ul, setUl] = useState({ user_id: 0, date: "", reason: "", days: 1 });
   /* v1.76.0 — schedules, and the forgotten punches waiting on the CEO. */
   const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
@@ -2413,11 +2417,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           </span>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "Mark a day nobody applied for — absent, or agreed unpaid time off. The payslip deducts one day at the statutory rate (monthly wage ÷ 26, Employment Act 1955 s.60I), shows it as its own line, and leaves Basic full. The staff member is notified the moment you record it, and the day is excluded from the incomplete-month proration so nothing is deducted twice. Undo removes it from that month's pay.",
-              "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui. Slip gaji memotong satu hari pada kadar statutori (gaji bulanan ÷ 26, Akta Kerja 1955 s.60I), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
+              "Mark a day nobody applied for — absent, or agreed unpaid time off, a full day or half of one. The payslip deducts it at the statutory rate (monthly wage ÷ 26 per full day, Employment Act 1955 s.60I), shows it as its own line, and leaves Basic full. The staff member is notified the moment you record it, and the day is excluded from the incomplete-month proration so nothing is deducted twice. Undo removes it from that month's pay.",
+              "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui, sehari penuh atau setengah hari. Slip gaji memotong pada kadar statutori (gaji bulanan ÷ 26 sehari penuh, Akta Kerja 1955 s.60I), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
             )}
           </p>
-          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <SubR t={L("Staff", "Kakitangan")}>
               <select className={inputClass} value={ul.user_id}
                 onChange={(e) => setUl((d) => ({ ...d, user_id: Number(e.target.value) }))}>
@@ -2429,6 +2433,19 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               <input type="date" className={inputClass} value={ul.date}
                 onChange={(e) => setUl((d) => ({ ...d, date: e.target.value }))} />
             </SubR>
+            {/* v1.81.1 (CEO: "unpaid should have option half day unpaid or
+                full day unpaid"). A SELECT rather than two buttons: the
+                amount is a property of the record being made, and it must be
+                visible while the date is chosen — two buttons would put the
+                decision in the click, where nobody can check it first. */}
+            <SubR t={L("How much", "Berapa banyak")}>
+              <select className={inputClass} value={ul.days}
+                title={L("A full day is deducted at monthly wage ÷ 26. A half day is half of that.", "Sehari penuh dipotong pada gaji bulanan ÷ 26. Setengah hari ialah separuh daripadanya.")}
+                onChange={(e) => setUl((d) => ({ ...d, days: Number(e.target.value) }))}>
+                <option value={1}>{L("Full day", "Sehari penuh")}</option>
+                <option value={0.5}>{L("Half day", "Setengah hari")}</option>
+              </select>
+            </SubR>
             <SubR t={L("Reason (optional)", "Sebab (pilihan)")}>
               <input className={inputClass} value={ul.reason}
                 placeholder={L("Reason (optional)", "Sebab (pilihan)")}
@@ -2438,14 +2455,19 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               <button type="button"
                 className={btnClass}
                 disabled={!ul.user_id || !ul.date}
+                /* The button says WHICH — the one control whose setting the
+                   press cannot be taken back from. */
                 onClick={() => {
+                  const half = ul.days === 0.5;
                   void act(`/attendance/unpaid`, {
                     method: "POST",
-                    body: JSON.stringify({ user_id: ul.user_id, date: ul.date, reason: ul.reason || undefined }),
-                  }, L("Recorded as unpaid leave — payroll will deduct it.", "Direkod sebagai cuti tanpa gaji — gaji akan dipotong."));
-                  setUl({ user_id: 0, date: "", reason: "" });
+                    body: JSON.stringify({ user_id: ul.user_id, date: ul.date, days: ul.days, reason: ul.reason || undefined }),
+                  }, half
+                    ? L("Recorded as HALF a day unpaid — payroll will deduct it.", "Direkod sebagai SETENGAH hari tanpa gaji — gaji akan dipotong.")
+                    : L("Recorded as a FULL day unpaid — payroll will deduct it.", "Direkod sebagai SEHARI PENUH tanpa gaji — gaji akan dipotong."));
+                  setUl({ user_id: 0, date: "", reason: "", days: 1 });
                 }}>
-                {L("Mark unpaid", "Tanda tanpa gaji")}
+                {ul.days === 0.5 ? L("Mark half day unpaid", "Tanda setengah hari") : L("Mark unpaid", "Tanda tanpa gaji")}
               </button>
             </div>
           </div>

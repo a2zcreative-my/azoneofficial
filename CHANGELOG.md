@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.81.1] — 2026-09-03 — half a day unpaid
+
+**CEO:** *"unpaid should have option half day unpaid or full day unpaid"*
+
+The server has accepted a fractional `days` since v1.75.0 — it rounds to quarter days, the payslip multiplies it, and the Staff tab already prints the fraction beside the date. The form on the attendance card simply never sent one, so every record was a whole day whatever had actually happened.
+
+**How much** now sits between Date and Reason: Full day or Half day. A select rather than two buttons, because the amount is a property of the record being made and has to be visible while the date is chosen — two buttons would hide the decision inside the click, where nobody can check it before pressing.
+
+The button says which one it will record, since this is a press that cannot be taken back. And the notification the staff member receives says **"half a day"** rather than *"0.5 of a day"* — that message is the first they hear that their pay is being cut, and it should read like something a person wrote.
+
+Three checks added to guard #20, negative-tested: that the select reaches the request body (a setting that never leaves the browser is a setting that does nothing), that the button names the amount, and that the notification uses words.
+
 ## [1.81.0] — 2026-09-03 — lunch is not work
 
 **CEO**, on a short-day chip reading `10/08 · 4.98h/8h`: *"this one should exclude of lunch time of 1 hour"*

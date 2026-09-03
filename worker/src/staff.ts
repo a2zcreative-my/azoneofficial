@@ -6607,8 +6607,17 @@ export async function handleStaff(
     await stampIssuer(env, "leave_requests", idU);
     /* Told, not discovered on the payslip. A deduction a person first hears
        about on pay day is how trust in a payroll system ends. */
+    /* v1.81.1 - "0.5 of a day" is not how anybody says it, and this message
+       is the first a person hears that their pay is being cut. Named
+       fractions for the ones the form can produce, and the decimal only for
+       an odd value that came from the hours-short path. */
+    const amountU = daysU === 1 ? "a full day"
+      : daysU === 0.5 ? "half a day"
+      : daysU === 0.25 ? "a quarter of a day"
+      : daysU === 0.75 ? "three quarters of a day"
+      : `${daysU} of a day`;
     await notify(env, body.user_id, "leave",
-      `${dateU} has been recorded as UNPAID LEAVE (${daysU === 1 ? "full day" : `${daysU} of a day`}). It will be deducted from that month pay.`,
+      `${dateU} has been recorded as UNPAID LEAVE (${amountU}). It will be deducted from that month pay.`,
       `unpaid:${dateU}`);
     await audit(env, user.id, "leave.unpaid_record", "leave_requests", String(idU), {
       user_id: body.user_id, date: dateU, days: daysU, reason: reasonU,
