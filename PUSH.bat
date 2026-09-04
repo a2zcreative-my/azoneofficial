@@ -23,6 +23,11 @@ REM  the portal kept showing the OLD carousel card with no way to
 REM  reposition a photo, even though the feature was live in the
 REM  engine underneath. This file always does all four, portal
 REM  first (the shop reads from it), and checks the result itself.
+REM
+REM  v1.90.1: it also (a) puts the Threads app secrets on the ENGINE
+REM  worker if they are missing - asked for on screen, never stored in
+REM  this file - (b) compiles each engine before publishing it, and
+REM  (c) retries an upload that lost its connection.
 REM ============================================================
 
 REM  Which folder am I sitting in? The portal has a wrangler.toml at its
@@ -53,18 +58,42 @@ echo.
 echo   ========== PORTAL (a2zcreative.my) ==========
 cd /d "%PORTAL%"
 
-echo   [1/5] Checking the Cloudflare login...
+echo   [1/7] Checking the Cloudflare login...
 cd worker
 call npx wrangler whoami >nul 2>&1
 if errorlevel 1 goto :nologin
 cd ..
 echo         signed in.
 
-echo   [2/5] Installing what the build needs...
+REM  v1.90.1 - THE THREADS SECRETS, ON THE RIGHT WORKER. The CEO set them
+REM  from the repo root, which is the WEBSITE worker (azoneofficial); the
+REM  engine (azoneofficial-api, worker\) never saw them and the Threads tab
+REM  kept saying "not set". This step runs inside worker\ so the target
+REM  cannot be wrong, asks Cloudflare which secrets the engine holds, and
+REM  prompts only for the ones missing. Nothing you paste is written to
+REM  any file or shown on screen - wrangler sends it straight to Cloudflare.
+echo   [2/7] Threads app credentials on the ENGINE...
+cd worker
+call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+findstr /C:"THREADS_APP_ID" "%TEMP%\azone-secrets.txt" >nul
+if errorlevel 1 (call :asksecret THREADS_APP_ID) else (echo         THREADS_APP_ID is set.)
+findstr /C:"THREADS_APP_SECRET" "%TEMP%\azone-secrets.txt" >nul
+if errorlevel 1 (call :asksecret THREADS_APP_SECRET) else (echo         THREADS_APP_SECRET is set.)
+del "%TEMP%\azone-secrets.txt" >nul 2>&1
+cd ..
+
+echo   [3/7] Installing what the build needs...
 call pnpm install
 if errorlevel 1 goto :failed
 
-echo   [3/5] Database columns...
+REM  v1.90.1 - the engine is COMPILED before it is published (the 19-08
+REM  outage: wrangler bundles without checking types, so a line naming
+REM  something that does not exist goes live and every request 500s).
+echo   [4/7] Checking the ENGINE code compiles...
+call node tests\worker-compile-gate.mjs
+if errorlevel 1 goto :failed
+
+echo   [5/7] Database columns...
 set CI=true
 cd worker
 call npx wrangler d1 migrations apply azoneofficial --remote
@@ -72,18 +101,18 @@ if errorlevel 1 goto :failedpop
 cd ..
 set CI=
 
-echo   [4/5] Publishing the ENGINE (azoneofficial-api)...
+echo   [6/7] Publishing the ENGINE (azoneofficial-api)...
 cd worker
-call npx wrangler deploy
+call :deployretry
 if errorlevel 1 goto :failedpop
 cd ..
 
-echo   [5/5] Building and publishing the WEBSITE (azoneofficial)...
+echo   [7/7] Building and publishing the WEBSITE (azoneofficial)...
 echo         ^(this is the half that was missing^)
 call pnpm build
 if errorlevel 1 goto :failed
 if not exist "out\index.html" goto :nobuild
-call npx wrangler deploy
+call :deployretry
 if errorlevel 1 goto :sitefailed
 
 REM ============================================================
@@ -93,11 +122,15 @@ echo.
 echo   ========== STORE (elfiaofficialstore.my) ==========
 cd /d "%STORE%"
 
-echo   [1/5] Installing what the build needs...
+echo   [1/6] Installing what the build needs...
 call npm install --no-audit --no-fund
 if errorlevel 1 goto :failed
 
-echo   [2/5] Database columns...
+echo   [2/6] Checking the ENGINE code compiles...
+call node tests\worker-compile-gate.mjs
+if errorlevel 1 goto :failed
+
+echo   [3/6] Database columns...
 set CI=true
 cd worker
 call npx wrangler d1 migrations apply elfia-store --remote
@@ -105,18 +138,18 @@ if errorlevel 1 goto :failedpop
 cd ..
 set CI=
 
-echo   [3/5] Publishing the ENGINE (elfia-api)...
+echo   [4/6] Publishing the ENGINE (elfia-api)...
 cd worker
-call npx wrangler deploy
+call :deployretry
 if errorlevel 1 goto :failedpop
 cd ..
 
-echo   [4/5] Building the shop...
+echo   [5/6] Building the shop...
 call npx next build
 if errorlevel 1 goto :failed
 if not exist "out\index.html" goto :nobuild
 
-echo   [5/5] Publishing the WEBSITE (elfia-store)...
+echo   [6/6] Publishing the WEBSITE (elfia-store)...
 call npx wrangler pages deploy out --project-name=elfia-store --commit-dirty=true
 if errorlevel 1 goto :sitefailed
 
@@ -155,14 +188,44 @@ echo   ============================================
 echo.
 echo    IMPORTANT: your browser is still holding the old pages.
 echo    Open each one and press Ctrl+F5 (hold Ctrl, tap F5):
-echo      1. https://a2zcreative.my/portal  - the carousel card
-echo         should now show "Change photo", "Whole photo" and
-echo         "click the photo to aim".
-echo      2. https://elfiaofficialstore.my  - discounted items
-echo         show the old price crossed out with a SALE badge.
+echo      1. https://a2zcreative.my/portal
+echo      2. https://elfiaofficialstore.my
 echo.
 pause
 exit /b 0
+
+REM ------------------------------------------------------------
+REM  helpers
+REM ------------------------------------------------------------
+
+:asksecret
+REM  %1 = the secret name. Runs INSIDE worker\, so it lands on the engine.
+echo.
+echo         %~1 is NOT set on azoneofficial-api.
+echo         Paste the value from the Meta app dashboard
+echo         ^(Use cases - Threads API - Settings^) and press Enter.
+echo         Nothing is shown while you paste. Press Enter alone
+echo         to skip for now - the Threads tab will keep saying so.
+call npx wrangler secret put %~1
+if errorlevel 1 (
+  echo         %~1 was NOT saved ^(skipped or refused^).
+) else (
+  echo         %~1 saved on azoneofficial-api.
+)
+exit /b 0
+
+:deployretry
+REM  v1.90.1 - a lost connection mid-upload ("fetch failed", 04-09) is not
+REM  a code error. Three attempts, fifteen seconds apart, before giving up.
+set "TRY=0"
+:deployagain
+set /a TRY+=1
+call npx wrangler deploy
+if not errorlevel 1 exit /b 0
+if %TRY% GEQ 3 exit /b 1
+echo         upload failed ^(attempt %TRY% of 3^) - waiting 15 seconds, then again...
+timeout /t 15 /nobreak >nul
+goto :deployagain
 
 :nologin
 cd /d "%~dp0"

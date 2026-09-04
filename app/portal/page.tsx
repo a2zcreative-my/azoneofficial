@@ -29,6 +29,7 @@ import {
   ALL_TABS,
   SALES_ROLES,
   canSeeTab,
+  type PersonAccess,
   type TabName,
 } from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
 import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
@@ -138,6 +139,7 @@ import { ElfiaTrafficPanel } from "@/components/portal/elfia-traffic-panel"; // 
 import { ElfiaStorePanel } from "@/components/portal/elfia-store-panel"; // v1.45.0
 import { DocumentsPanel } from "@/components/portal/documents-panel";
 import { TabAccessCard } from "@/components/portal/tab-access-card";
+import { AccessReviewCard } from "@/components/portal/access-review-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 import {
@@ -5962,9 +5964,42 @@ function Leave({ user }: { user: User }) {
   }, [load]);
   useLiveRefresh(["leave"], load);
 
+  /* v1.90.2 — CEO, 04-09-2026: *"One of my staff unable to update their
+     leave application, please check any bug?"* Her screenshot: start date
+     filled, END DATE EMPTY, days 1, Submit pressed - and nothing. This
+     function used to `return` in silence whenever the end date was blank,
+     so a one-day leave, the commonest kind, needed a second date typed
+     that nobody said was required. Three changes: a blank end date means
+     the same day; a bad request is SAID, not swallowed; the server's answer
+     is reported either way (guard #25 - every mutation reports). */
   const apply = async () => {
-    if (!draft.start_date || !draft.end_date || draft.days <= 0) return;
-    await api(`/staff/leave`, { method: "POST", body: JSON.stringify(draft) });
+    const start = draft.start_date;
+    const end = draft.end_date || draft.start_date;
+    if (!start) {
+      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Pick the first day of the leave", "Pilih hari pertama cuti"), "notice");
+      return;
+    }
+    if (end < start) {
+      showLeaveToast(L("Not sent", "Tidak dihantar"), L("The end date is before the start date", "Tarikh tamat lebih awal daripada tarikh mula"), "notice");
+      return;
+    }
+    if (!(draft.days > 0)) {
+      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Days must be at least 0.5", "Hari mestilah sekurang-kurangnya 0.5"), "notice");
+      return;
+    }
+    const res = await api<{ id?: number; error?: { message?: string } }>(`/staff/leave`, {
+      method: "POST",
+      body: JSON.stringify({ ...draft, start_date: start, end_date: end }),
+    });
+    if (!res.ok) {
+      showLeaveToast(L("Not sent", "Tidak dihantar"),
+        res.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "notice");
+      return;
+    }
+    showLeaveToast(
+      L("Leave requested", "Cuti dimohon"),
+      `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${L("waiting for HR", "menunggu HR")}`,
+    );
     setDraft({
       type: "annual",
       start_date: "",
@@ -6164,7 +6199,13 @@ function Leave({ user }: { user: User }) {
                   className={inputClass}
                   value={draft.start_date}
                   onChange={(e) =>
-                    setDraft((d) => ({ ...d, start_date: e.target.value }))
+                    setDraft((d) => ({
+                      ...d,
+                      start_date: e.target.value,
+                      /* a one-day leave is the common case: the end follows
+                         the start until somebody moves it later */
+                      end_date: !d.end_date || d.end_date < e.target.value ? e.target.value : d.end_date,
+                    }))
                   }
                 />
               </Sub>
@@ -12631,14 +12672,19 @@ export default function PortalPage() {
   const [tabOverrides, setTabOverrides] = useState<Record<string, string[]>>(
     {}
   );
+  /* v1.90.0 — this person's own grants and refusals, above the role. */
+  const [myTabAccess, setMyTabAccess] = useState<PersonAccess | null>(null);
   useEffect(() => {
     void fetch("/api/v1/staff/tabs/access", { credentials: "include" })
       .then(async (r) => (r.ok ? await r.json() : null))
       .then((d) => {
-        if (d && typeof d === "object" && "overrides" in d)
+        if (d && typeof d === "object" && "overrides" in d) {
           setTabOverrides(
             (d as { overrides: Record<string, string[]> }).overrides ?? {}
           );
+          const mine = (d as { mine?: PersonAccess | null }).mine;
+          setMyTabAccess(mine && typeof mine === "object" ? mine : null);
+        }
       })
       .catch(() => {
         /* old worker: defaults apply */
@@ -12897,7 +12943,7 @@ export default function PortalPage() {
      Rails: Dashboard + Profile always visible; super_admin ignores
      overrides entirely (the escape hatch); fetch failure (old worker) =
      defaults, so a split deploy can never blank the tab strip. */
-  const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides));
+  const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides, myTabAccess));
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
     if (!tabs.includes(tab)) setTab("Dashboard");
@@ -14004,6 +14050,7 @@ export default function PortalPage() {
           {activeTab === "Users" && (
             <div className="space-y-4 md:space-y-6">
               {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
+              {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard />}
               {["super_admin", "ceo", "coo"].includes(user.role) && (
                 <GeofenceCard />
               )}

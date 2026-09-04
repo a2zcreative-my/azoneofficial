@@ -91,6 +91,7 @@ const GUARDS = [
   ["clickable-data", "a figure worth acting on can be opened where it stands - no trip to another tab to find the rows behind a count"],
   ["render-stability", "no component is declared inside another - React would rebuild the subtree every render and any input inside it would lose focus mid-keystroke"],
   ["threads-guard", "the Threads credential never leaves the worker, every action on it is audited, and a sync tick spends a budget it cannot exceed"],
+  ["person-access", "one person can be granted or refused a tab above the role - deny beats allow, Dashboard and Profile cannot be refused, and only the CEO can do it"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

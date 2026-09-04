@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.90.2] — 2026-09-04 — a leave request that said nothing
+
+**CEO:** *"One of my staff unable to update their leave application, please check any bug?"* — with her screenshot: leave type annual, start date 10-09-2026, **end date empty**, days 1, reason typed, Submit pressed. Nothing happened.
+
+That is the bug, and it is in the button. `apply()` began with `if (!start || !end || days <= 0) return;` — a bare return, no message. A one-day leave is the commonest kind and needed a second date typed that nothing said was required, and a person who did not type it got no answer at all. It also swallowed the server's reply: an insert the worker refused looked identical to one it accepted.
+
+Three changes. A blank end date now means the same day, and the end date follows the start date as it is typed until somebody moves it later. A request that cannot be sent says why — no start date, end before start, days under 0.5 — instead of doing nothing. And the server's answer is reported either way: *Leave requested · annual · 1 day · 10-09-2026 · waiting for HR*, or *Not sent* with the worker's own message. Guard #25 already said every mutation reports; this one had slipped in before it.
+
+`tests/action-feedback.mjs` gains three named cases for the apply button — success, a refused request, and the no-date case — negative-tested by putting the bare return back.
+
+Editing a leave after it is submitted is unchanged and deliberate (v1.83.0): amending a decided leave is the CEO's, because it can move a day between payroll months or turn a paid day unpaid. A staff member who needs a change asks HR, who can reject it, and applies again.
+
+## [1.90.1] — 2026-09-04 — PUSH.bat puts the secrets where the engine reads them
+
+**CEO:** *"I want PUSH to update for this: cd …\worker · npx wrangler secret list · npx wrangler secret put THREADS_APP_ID · npx wrangler secret put THREADS_APP_SECRET"*
+
+The Threads tab kept reporting the two app secrets unset after they had been entered. The portal folder has two `wrangler.toml` files — the root one is the **website** worker, `worker\` is the **engine** — and `wrangler secret put` run from the root stores the secret on the website, which never reads it.
+
+`PUSH.bat` now has a step for this, and it runs **inside `worker\`** so the target cannot be wrong: it asks Cloudflare which secrets `azoneofficial-api` holds (`wrangler secret list`), and prompts — on screen, hidden while pasting — only for `THREADS_APP_ID` or `THREADS_APP_SECRET` if missing. Enter alone skips. No value is ever written to the file or to disk; wrangler sends it straight to Cloudflare. Once both are set the step prints two lines and moves on.
+
+Two more things the same file now does, both offered earlier in the week: each engine is **compiled before it is published** (`tests\worker-compile-gate.mjs`, the 19-08 outage class — wrangler bundles without checking types), and an upload that loses its connection mid-way (`fetch failed`, the store engine on 04-09) is **retried three times, fifteen seconds apart**, before the run is declared failed.
+
+## [1.90.0] — 2026-09-04 — who sees what
+
+**CEO**, a screenshot of a staff phone with Dashboard, Attendance, Ecommerce and Inventory on its bottom bar: *"for some of the access I want to also review what they can see and what they cant see which is for me to authorize them to access it in users tabs."*
+
+The 🔐 card governs tabs by **role**. It answers "who sees Payroll" and cannot answer "what does Aina see" — you would have to read all twenty-six rows and know her role. And it cannot give one marketing person the Sales tab without giving it to every marketing person.
+
+### One person, above the role
+
+A person may now carry tabs **granted** to them and tabs **refused**, kept in `system_meta` under `tab_access_people`, keyed by user id. Deny beats allow; both beat the role. The two rails of the role rule are unchanged: Dashboard and Profile cannot be refused (clocking in and reading a payslip are not permissions), and `super_admin` is not governed (the escape hatch must survive a refusal aimed at it). `canSeeTab` in `lib/portal-tabs.ts` takes the person's entry as a fourth argument, and a new `accessOf` says, for every tab, whether the person sees it and *why* — always, role, granted, refused, or hidden by the role.
+
+The portal's tab strip — and therefore the phone bottom bar, which is the first four tabs the strip shows — reads the person's entry from `GET /tabs/access` (`mine`), which returns only the caller's own entry; the whole map is a CEO read on `/tabs/access/people`.
+
+### The card
+
+**Who sees what**, on the Users tab under the 🔐 card, CEO only. Pick a person; two rows of chips, *Can see* and *Cannot see*, and a line naming their phone bar. Press a chip to move it to the other row — for that person only; the toast says so by name. A chip that sits where it does because of a personal grant or refusal is marked + or −, and pressing it again returns the tab to the role's rule. Dashboard and Profile are shown and cannot be pressed. **Back to role defaults** clears the person's entry. One line under the chips says what the card does not do: a granted tab is drawn, and the data inside it still needs the role's server permission (AUDIT M13) — the card says this rather than pretending otherwise.
+
+`POST /tabs/access/person` (`user_id`, `tab`, `mode` = allow / deny / clear / reset) is CEO-only, validates the tab against the governable list and the mode against the four, refuses a customer or a super_admin as target, removes an emptied entry rather than storing two empty lists, and audits every change as `tabs.person_access` with the person, the tab and the resulting lists.
+
+### Guard #34, `tests/person-access.mjs` — 29 checks, every one negative-tested
+
+This guard **runs** the rule rather than reading it: it imports `lib/portal-tabs.ts` and calls `canSeeTab` / `accessOf` with real inputs — a grant shows a hidden tab, a refusal hides a shown one, deny beats allow, a grant beats a role override, the always-visible tabs cannot be refused, super_admin is not governed, a redundant grant reads as the role (a + on a tab the role already shows would teach that + means nothing), and `accessOf` agrees with `canSeeTab` on every tab. The worker half checks the gate, the validation, the two target refusals, the audit, the emptied-entry removal, and that a staff member receives only their own entry. The portal half checks the strip passes the entry through and the card asks `accessOf` rather than carrying its own copy of the rule.
+
 ## [1.89.1] — 2026-09-04 — show me what you sent
 
 **CEO**, pressing Connect on the new Threads tab and landing on Meta's page: `{"error_message":"An unknown error has occurred.","error_code":1}`.

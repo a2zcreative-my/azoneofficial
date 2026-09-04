@@ -4615,12 +4615,63 @@ export async function handleStaff(
   const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Threads", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
+  /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
+     One JSON map in system_meta: { "<user id>": { allow: [...], deny: [...] } }.
+     Every staff member receives ONLY their own entry with the role map;
+     the whole map is a CEO read. */
+  type PersonAccess = { allow: string[]; deny: string[] };
+  const readPeople = async (): Promise<Record<string, PersonAccess>> => {
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access_people'`).first<{ value: string }>();
+    try {
+      const raw = row?.value ? (JSON.parse(row.value) as Record<string, Partial<PersonAccess>>) : {};
+      const out: Record<string, PersonAccess> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        out[k] = { allow: Array.isArray(v?.allow) ? v.allow.map(String) : [], deny: Array.isArray(v?.deny) ? v.deny.map(String) : [] };
+      }
+      return out;
+    } catch { return {}; }
+  };
+
   if (path === "/tabs/access" && method === "GET") {
     // Every staff member needs this to compute their own tab strip.
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>();
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
-    return json({ overrides });
+    const people = await readPeople();
+    return json({ overrides, mine: people[String(user.id)] ?? null });
+  }
+
+  if (path === "/tabs/access/people" && method === "GET") {
+    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO reviews tab access", 403);
+    return json({ people: await readPeople() });
+  }
+
+  if (path === "/tabs/access/person" && method === "POST") {
+    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO manages tab access", 403);
+    const targetId = Number(body?.user_id);
+    if (!Number.isInteger(targetId) || targetId <= 0) return err("invalid_input", "user_id is required", 400);
+    const mode = typeof body?.mode === "string" ? body.mode : "";
+    if (!["allow", "deny", "clear", "reset"].includes(mode)) return err("invalid_input", "mode must be allow, deny, clear or reset", 400);
+    const tabName = typeof body?.tab === "string" ? body.tab : "";
+    if (mode !== "reset" && !TAB_ACCESS_TABS.includes(tabName)) return err("invalid_input", `tab must be one of: ${TAB_ACCESS_TABS.join(", ")}`, 400);
+    const target = await env.DB.prepare(`SELECT id, role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`).bind(targetId).first<{ id: number; role: string; name: string }>();
+    if (!target || target.role === "customer") return err("not_found", "No such staff member", 404);
+    if (target.role === "super_admin") return err("invalid_input", "super_admin bypasses tab access and cannot be governed", 400);
+    const people = await readPeople();
+    const cur = people[String(targetId)] ?? { allow: [], deny: [] };
+    const without = (xs: string[]) => xs.filter((t) => t !== tabName);
+    let next: PersonAccess;
+    if (mode === "reset") next = { allow: [], deny: [] };
+    else if (mode === "allow") next = { allow: [...without(cur.allow), tabName], deny: without(cur.deny) };
+    else if (mode === "deny") next = { allow: without(cur.allow), deny: [...without(cur.deny), tabName] };
+    else next = { allow: without(cur.allow), deny: without(cur.deny) };
+    if (next.allow.length === 0 && next.deny.length === 0) delete people[String(targetId)];
+    else people[String(targetId)] = next;
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('tab_access_people', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(people)).run();
+    await audit(env, user.id, "tabs.person_access", "users", String(targetId), { name: target.name, role: target.role, tab: tabName || null, mode, allow: next.allow, deny: next.deny });
+    return json({ ok: true, person: people[String(targetId)] ?? null });
   }
 
   if (path === "/tabs/access" && method === "POST") {

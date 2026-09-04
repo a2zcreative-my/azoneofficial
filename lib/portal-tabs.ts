@@ -218,14 +218,67 @@ export function canSeeTab(
   role: string | null | undefined,
   tab: string,
   overrides: Record<string, string[]> = {},
+  person: PersonAccess | null = null,
 ): boolean {
   if (!role) return true; // pre-auth render: the strip is skeleton anyway
   if (ALWAYS_VISIBLE.includes(tab)) return true;
   // The escape hatch: an override that locks everyone out (even the CEO)
   // must still leave one account able to undo it.
   if (role === "super_admin") return true;
+  /* v1.90.0 — a person's own grant or refusal sits above the role. Deny
+     wins over allow, so a tab can be taken from one person without
+     touching the eight others who share the role, and given to one
+     person without giving it to the role. */
+  if (person?.deny?.includes(tab)) return false;
+  if (person?.allow?.includes(tab)) return true;
   const ov = overrides[tab];
   if (ov !== undefined) return ov.includes(role);
   const allowed = defaultRolesFor(tab);
   return !allowed || allowed.includes(role);
+}
+
+/**
+ * v1.90.0 — ONE PERSON, ABOVE THE ROLE.
+ *
+ * CEO, 04-09-2026, a screenshot of a staff phone: *"for some of the access I
+ * want to also review what they can see and what they cant see which is for
+ * me to authorize them to access it in users tabs."*
+ *
+ * The 🔐 card governs tabs by ROLE, which answers "who sees Payroll" and
+ * cannot answer "what does Aina see" — you would have to read all
+ * twenty-six rows and know her role. And it cannot give ONE marketing
+ * person the Sales tab without giving it to every marketing person.
+ *
+ * So a person may carry a list of tabs granted to them and a list refused,
+ * kept in system_meta under tab_access_people, keyed by user id. Deny beats
+ * allow; both beat the role. Dashboard and Profile cannot be refused, and
+ * super_admin cannot be governed — the same two rails as the role rule.
+ *
+ * This decides what is DRAWN. The data inside a tab is still gated by the
+ * worker per role (AUDIT M13): a person granted a tab beyond their role
+ * sees the tab and gets "access required" on anything the server does not
+ * let that role read. The review card says so.
+ */
+export interface PersonAccess {
+  allow: string[];
+  deny: string[];
+}
+
+/** What a person's tab strip is, and why each tab is where it is. */
+export type TabReason = "always" | "role" | "granted" | "refused" | "role_hidden";
+
+export function accessOf(
+  role: string | null | undefined,
+  overrides: Record<string, string[]> = {},
+  person: PersonAccess | null = null,
+): { tab: TabName; sees: boolean; reason: TabReason }[] {
+  return ALL_TABS.map((tab) => {
+    const sees = canSeeTab(role, tab, overrides, person);
+    let reason: TabReason;
+    if (ALWAYS_VISIBLE.includes(tab)) reason = "always";
+    else if (role !== "super_admin" && person?.deny?.includes(tab)) reason = "refused";
+    else if (role !== "super_admin" && person?.allow?.includes(tab) && !canSeeTab(role, tab, overrides, null)) reason = "granted";
+    else reason = sees ? "role" : "role_hidden";
+    return { tab, sees, reason };
+  });
 }
