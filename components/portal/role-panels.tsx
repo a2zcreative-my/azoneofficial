@@ -2105,6 +2105,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      and the 1/26 statutory rate were already there, waiting for a day to
      count. CEO only, matching the server. */
   const canUnpaid = ["ceo", "super_admin"].includes(role);
+  /* v1.91.0 — the card opened to COO, CCO and HR admin (attendance_correct).
+     Working-hour patterns are written under hr_manage on the worker, so the
+     Hours area follows THAT list; the unpaid area stays the CEO's. */
+  const canHours = ["ceo", "super_admin", "admin", "hr_admin"].includes(role);
   /* v1.78.0 — the month's recorded unpaid days moved to the Staff tab, so this
      card no longer holds (or fetches) a list it does not show. */
   /* v1.81.1 (CEO: "unpaid should have option half day unpaid or full day
@@ -2292,8 +2296,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         {([
           ["find", L("Find & filter", "Cari & tapis")],
           ["add", L("Add record", "Tambah rekod")],
-          ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const,
-                           ["hours", L("Working hours", "Waktu bekerja")] as const] : []),
+          ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const] : []),
+          ...(canHours ? [["hours", L("Working hours", "Waktu bekerja")] as const] : []),
         ] as [typeof section, string][]).map(([key, label]) => (
           <button key={key} type="button"
             className={section === key
@@ -2470,7 +2474,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           change that had already happened by announcement and that the code
           never knew about. Assignments carry the date they start, so fixing
           somebody's hours today does not re-flag a month already paid. */}
-      {canUnpaid && section === "hours" && (
+      {canHours && section === "hours" && (
         <>
           <span className="text-muted-foreground mt-4 block text-[11px] font-semibold tracking-wide uppercase">
             {L("Working hours", "Waktu bekerja")}

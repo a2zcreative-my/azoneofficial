@@ -93,6 +93,16 @@ const ok = (label, cond, extra = "") => {
      /onCount\s*\n?\s*\? <button/, "the badge is the rail's whole point - how many things are waiting on you"],
     ["a rail badge with nowhere to go stays a span", "components/portal/side-columns.tsx",
      /: <span className=\{badge\}>\{count\}<\/span>/, "same rule as the tile: never promise an action that is not there"],
+    /* v1.91.0 — CEO: "Leave — whole company I want to have a clickable to
+       see the details of the leave application!" The name is the door, on
+       the in-progress rows AND the decided ones, and both open the same
+       detail with the approval trail. */
+    ["a company-board leave in progress opens on its name", "app/portal/page.tsx",
+     /aria-expanded=\{openAll === l\.id\}[\s\S]{0,400}?\{who\(l\)\}[\s\S]{0,3000}?\{openAll === l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
+    ["a decided leave opens the same way", "app/portal/page.tsx",
+     /\{openAll === l\.id && editLeave\?\.id !== l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "one detail for both halves of the board, not two"],
+    ["the detail carries the approval trail", "app/portal/page.tsx",
+     /function LeaveDetail\([\s\S]{0,2500}?L\("HR reviewed"[\s\S]{0,600}?L\("Pre-approved"[\s\S]{0,600}?L\("Final"/, "who decided it, and when, is what a manager opens a leave to see"],
   ];
   for (const [label, file, re, why] of cases) {
     ok(label, re.test(read(file)), why);

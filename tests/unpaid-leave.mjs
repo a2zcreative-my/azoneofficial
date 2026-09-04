@@ -260,6 +260,34 @@ ok("the attendance panel is actually given the role",
      /L\("Not amended", "Tidak dipinda"\)/.test(page) && /L\("Not removed", "Tidak dibuang"\)/.test(page));
 }
 
+/* ---- v1.91.0: the corrections tier is a SET, and the CEO powers survive it ----
+   CEO, 04-09-2026: *"Staff attendance — corrections & back-entry I want hr
+   admin has access on it which is ceo, coo, cco and hr admin has this
+   authorized to access."* Opening the card to four roles must not carry the
+   two pay-creating actions with it. */
+{
+  const m = perms.match(/\n\s*attendance_correct: \[([^\]]*)\]/);
+  ok("attendance_correct exists in the permission matrix", Boolean(m));
+  const roles = m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort() : [];
+  ok("attendance_correct is exactly CEO, COO, CCO, HR admin and the admin tier",
+     JSON.stringify(roles) === JSON.stringify(["admin", "cco", "ceo", "coo", "hr_admin", "super_admin"]),
+     `admits ${roles.join(", ")}`);
+  ok("the corrections routes read the permission, not a list of role names",
+     /const ATT_ADMIN = can\(user\.role, "attendance_correct"\);/.test(staff) && !/const ATT_ADMIN = user\.role ===/.test(staff));
+  ok("every corrections route is behind it", [...staff.matchAll(/if \(!ATT_ADMIN\) return err\("forbidden"/g)].length >= 5,
+     "manual entry, pending list, amend, delete and the unpaid list must all be behind ATT_ADMIN");
+  ok("whoever may correct a register may read it",
+     /const forUser = targetUser && \(can\(user\.role, "hr_manage"\) \|\| can\(user\.role, "attendance_correct"\)\)/.test(staff),
+     "COO and CCO would be handed the card and shown their own punches");
+  ok("approving a forgotten punch is still the CEO's",
+     /"\/attendance\/pending\/decide" && method === "POST"[\s\S]{0,400}?can\(user\.role, "unpaid_leave"\)/.test(staff));
+  ok("the page draws the card for the same tier",
+     /\["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"\]\.includes\(user\.role\) \? \(\s*\n?\s*<AttendanceAdminPanel/.test(page));
+  const panels = read("components/portal/role-panels.tsx");
+  ok("the unpaid area of the card stays the CEO's",
+     /const canUnpaid = \["ceo", "super_admin"\]\.includes\(role\);/.test(panels) && /\{canUnpaid && section === "unpaid"/.test(panels));
+}
+
 console.log(
   fails.length === 0
     ? `PASS — CEO-only powers are CEO-only, the cascade is complete, and one unpaid day is deducted once (${pass} checks)`

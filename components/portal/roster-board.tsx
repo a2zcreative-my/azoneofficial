@@ -11,6 +11,7 @@ import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, inputClassSm, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
+import { bySeniority } from "@/lib/staff-order";
 import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
 import { MiniCalendar } from "@/components/portal/mini-calendar";
@@ -35,6 +36,51 @@ interface UnscheduledTask {
   id: number; title: string; priority: string; deadline: string | null;
   assigned_to: number; assignee: string;
 }
+interface UnschedDraft { id: number; title: string; assigned_to: string; priority: string; deadline: string }
+
+/** v1.91.0 — the compact editor under an unscheduled card. Module scope
+    (guard #30): it holds an input, and a component declared inside the board
+    would drop the caret on every keystroke. */
+/* Module-scope components cannot see the board's live `L`; this reads the
+   same stored language. */
+const Lm = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }: {
+  draft: UnschedDraft;
+  staff: { id: number; name: string }[];
+  busy: boolean;
+  onChange: (d: UnschedDraft) => void;
+  onSave: () => void;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="border-border space-y-1.5 border-t px-2.5 py-2">
+      <input className={inputClassSm + " w-full"} value={draft.title} maxLength={200}
+        aria-label={Lm("Title", "Tajuk")} onChange={(e) => onChange({ ...draft, title: e.target.value })} />
+      <div className="grid grid-cols-2 gap-1.5">
+        <select className={inputClassSm} value={draft.assigned_to} aria-label={Lm("Assigned to", "Ditugaskan kepada")}
+          onChange={(e) => onChange({ ...draft, assigned_to: e.target.value })}>
+          {staff.map((u) => <option key={u.id} value={u.id}>{u.name.split(" ").slice(0, 2).join(" ")}</option>)}
+        </select>
+        <select className={inputClassSm} value={draft.priority} aria-label={Lm("Priority", "Keutamaan")}
+          onChange={(e) => onChange({ ...draft, priority: e.target.value })}>
+          {(["low", "normal", "high", "urgent"] as const).map((p) => (
+            <option key={p} value={p}>{p === "low" ? Lm("Low", "Rendah") : p === "normal" ? Lm("Normal", "Biasa") : p === "high" ? Lm("High", "Tinggi") : Lm("Urgent", "Segera")}</option>
+          ))}
+        </select>
+        <input type="date" className={`${inputClassSm} col-span-2`} value={draft.deadline} aria-label={Lm("Deadline", "Tarikh akhir")}
+          onChange={(e) => onChange({ ...draft, deadline: e.target.value })} />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="button" className={btnSm + " bg-primary text-primary-foreground border-primary"} disabled={busy} onClick={onSave}>{Lm("Save", "Simpan")}</button>
+        <button type="button" className={btnSm} disabled={busy} onClick={onDone}>{Lm("Mark done", "Tanda selesai")}</button>
+        <button type="button" className="text-muted-foreground ml-auto text-xs underline" onClick={onCancel}>{Lm("Cancel", "Batal")}</button>
+      </div>
+    </div>
+  );
+}
+
 interface RosterData {
   week_start: string; days: string[]; manager: boolean;
   sessions: RosterSession[];
@@ -106,7 +152,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   const [week, setWeek] = useState<string>("");           // "" = server default (this week)
   const [openSession, setOpenSession] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [staff, setStaff] = useState<{ id: number; name: string }[]>([]);
+  const [staff, setStaff] = useState<{ id: number; name: string; role?: string; position?: string | null; employment_status?: string | null }[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "" });
   const [saving, setSaving] = useState(false);
   /* v1.21.0 (CEO: "the data of leave applied date should be shown on the
@@ -134,7 +180,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   useLiveRefresh(["live-sessions", "task-blocks", "tasks", "leave"], reload);
   useEffect(() => {
     if (!canManage) return;
-    void api<{ staff: { id: number; name: string }[] }>(`/staff-list`).then((r) => { if (r.ok && r.data?.staff) setStaff(r.data.staff); });
+    /* v1.91.0 (CEO: "ascending by position which is starting by CEO, COO,
+       CCO, hr_admin, sales marketing, designer and live host") — the grid
+       rows, the pickers and the rail all read this list, and it arrives
+       alphabetical. Sorted once, here, by the ONE company order every
+       payroll surface already uses (lib/staff-order.ts). */
+    void api<{ staff: { id: number; name: string; role?: string; position?: string | null; employment_status?: string | null }[] }>(`/staff-list`)
+      .then((r) => { if (r.ok && r.data?.staff) setStaff([...r.data.staff].sort(bySeniority)); });
   }, [canManage]);
 
   const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -169,6 +221,35 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     });
     setEditBlock(b);
     setOpenBlock(null);
+  };
+  /* v1.91.0 — the unscheduled card's editor. One PATCH, the Tasks tab's. */
+  const [editTask, setEditTask] = useState<UnschedDraft | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const saveUnsched = async (status?: "completed") => {
+    if (!editTask) return;
+    if (!editTask.title.trim()) {
+      showToast(L("Not saved", "Tidak disimpan"), L("The task needs a title", "Tugasan perlukan tajuk"), "notice");
+      return;
+    }
+    setEditBusy(true);
+    const r = await api<{ ok?: boolean; error?: { message?: string } }>(`/tasks/${editTask.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: editTask.title.trim(),
+        assigned_to: Number(editTask.assigned_to) || undefined,
+        priority: editTask.priority,
+        deadline: editTask.deadline,
+        ...(status ? { status } : {}),
+      }),
+    });
+    setEditBusy(false);
+    if (!r.ok) {
+      showToast(L("Not saved", "Tidak disimpan"), r.data?.error?.message ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+      return;
+    }
+    showToast(status ? L("Task completed", "Tugasan selesai") : L("Task updated", "Tugasan dikemas kini"), editTask.title.trim());
+    setEditTask(null);
+    reload();
   };
   const [taskOpen, setTaskOpen] = useState(false);
   const [tDraft, setTDraft] = useState({
@@ -1313,22 +1394,48 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 )}
                 {unsched.map((t) => {
                   const late = t.deadline != null && t.deadline < todayS;
+                  /* v1.91.0 (CEO: "for Unscheduled work I can clickable on it
+                     and update the task accordingly") — two doors on one
+                     card. The card itself still arms placement (tap, then a
+                     day); the pencil opens the task where it stands, on the
+                     same PATCH /tasks/:id the Tasks tab uses, so there is one
+                     way to change a task and two places to reach it. */
                   return (
-                    <button key={t.id} type="button" disabled={placing}
-                      onClick={() => setArmed(armed?.id === t.id ? null : t)}
-                      className={`mt-1.5 block w-full rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors ${armed?.id === t.id ? "border-gold bg-gold-soft" : "border-border hover:bg-secondary"}`}>
-                      <span className="block truncate font-medium">
-                        {t.priority === "urgent" ? "❗ " : ""}{t.title}
-                      </span>
-                      <span className="text-muted-foreground block truncate">
-                        {t.assignee.split(" ").slice(0, 2).join(" ")}
-                        {t.deadline && (
-                          <span className={late ? "text-danger font-semibold" : ""}>
-                            {" · "}{late ? L("overdue", "lewat") : L("due", "tarikh akhir")} {dmy(t.deadline)}
+                    <div key={t.id} className={`mt-1.5 rounded-lg border text-xs transition-colors ${armed?.id === t.id ? "border-gold bg-gold-soft" : editTask?.id === t.id ? "border-primary" : "border-border"}`}>
+                      <div className="flex items-start">
+                        <button type="button" disabled={placing}
+                          onClick={() => { setEditTask(null); setArmed(armed?.id === t.id ? null : t); }}
+                          className="hover:bg-secondary min-w-0 flex-1 rounded-l-lg px-2.5 py-1.5 text-left"
+                          title={L("Tap, then tap the day it should happen", "Tekan, kemudian tekan hari ia patut berlaku")}>
+                          <span className="block truncate font-medium">
+                            {t.priority === "urgent" ? "❗ " : ""}{t.title}
                           </span>
+                          <span className="text-muted-foreground block truncate">
+                            {t.assignee.split(" ").slice(0, 2).join(" ")}
+                            {t.deadline && (
+                              <span className={late ? "text-danger font-semibold" : ""}>
+                                {" · "}{late ? L("overdue", "lewat") : L("due", "tarikh akhir")} {dmy(t.deadline)}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        {data.manager && (
+                          <button type="button" className="text-muted-foreground hover:text-foreground shrink-0 px-2 py-1.5"
+                            aria-expanded={editTask?.id === t.id}
+                            title={L("Update the task", "Kemas kini tugasan")}
+                            onClick={() => { setArmed(null); setEditTask(editTask?.id === t.id ? null : { id: t.id, title: t.title, assigned_to: String(t.assigned_to), priority: t.priority, deadline: t.deadline ?? "" }); }}>
+                            ✎
+                          </button>
                         )}
-                      </span>
-                    </button>
+                      </div>
+                      {editTask?.id === t.id && (
+                        <UnschedEdit draft={editTask} staff={staff} busy={editBusy}
+                          onChange={setEditTask}
+                          onSave={() => void saveUnsched()}
+                          onDone={() => void saveUnsched("completed")}
+                          onCancel={() => setEditTask(null)} />
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -1359,7 +1466,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               <p className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground">{L("Available today", "Tersedia hari ini")}</p>
               {data.available_today.length === 0
                 ? <p className="text-muted-foreground mt-1.5 text-xs">{L("Nobody free today.", "Tiada siapa lapang hari ini.")}</p>
-                : data.available_today.map((a) => (
+                : [...data.available_today].sort(bySeniority).map((a) => (
                   <p key={a.id} className="mt-1.5 flex items-center gap-2 text-xs">
                     <span className="bg-bull inline-block h-2 w-2 rounded-full" aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{a.name}</span>

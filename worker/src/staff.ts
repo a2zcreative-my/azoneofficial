@@ -1648,7 +1648,7 @@ export async function handleStaff(
     // Sales-person dropdown — available to every staff role, exposes nothing
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, employment_status FROM users
        WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')
        ORDER BY 2`,
     ).all();
@@ -2676,7 +2676,9 @@ export async function handleStaff(
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
     const targetUser = url.searchParams.get("user_id");
-    const forUser = targetUser && can(user.role, "hr_manage") ? Number(targetUser) : user.id;
+    /* v1.91.0 — whoever may correct a register may read it: COO and CCO
+       were handed the corrections card and then shown their own punches. */
+    const forUser = targetUser && (can(user.role, "hr_manage") || can(user.role, "attendance_correct")) ? Number(targetUser) : user.id;
     // v1.9.1: the selfie step was replaced by the office geofence, so
     // selfie_key no longer rides along (nothing in the UI rendered it).
     // Selfies already in R2 stay behind the owner/HR media gate.
@@ -6634,10 +6636,12 @@ export async function handleStaff(
      Manual entries cover days worked before the system existed; amendments
      fix wrong punches. Every action names its actor and is audit-logged. */
 
-  const ATT_ADMIN = user.role === "super_admin" || user.role === "admin" || user.role === "ceo";
+  /* v1.91.0 — the tier is a permission now (attendance_correct: CEO, COO,
+     CCO, HR admin, admin tier), not three roles typed here. */
+  const ATT_ADMIN = can(user.role, "attendance_correct");
 
   if (path === "/attendance/manual" && method === "POST") {
-    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     const types = ["clock_in", "clock_out"];
     const myt = str(body?.myt, 16) ? (body!.myt as string) : ""; // "YYYY-MM-DD HH:MM" Malaysia time
     if (!body || typeof body.user_id !== "number" || typeof body.type !== "string" ||
@@ -6665,7 +6669,7 @@ export async function handleStaff(
      a rejected claim is not a record of anything, and leaving it in the table
      as a zombie row is how a day gets counted twice later. */
   if (path === "/attendance/pending" && method === "GET") {
-    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     try {
       const { results } = await env.DB.prepare(
         `SELECT a.id, a.user_id, a.type, a.created_at,
@@ -6927,7 +6931,7 @@ export async function handleStaff(
 
   const attMatch = path.match(/^\/attendance\/(\d+)$/);
   if (attMatch && method === "PATCH") {
-    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     const myt = str(body?.myt, 16) ? (body!.myt as string) : "";
     if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(myt)) {
       return err("invalid_input", "myt (YYYY-MM-DD HH:MM, Malaysia time) is required", 400);
@@ -6942,7 +6946,7 @@ export async function handleStaff(
     return json({ ok: true });
   }
   if (attMatch && method === "DELETE") {
-    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
     await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1]);
@@ -6970,7 +6974,7 @@ export async function handleStaff(
      table to drift out of step with the first. Nothing in payroll had to
      change to make this count, which is the point. */
   if (path === "/attendance/unpaid" && method === "GET") {
-    if (!ATT_ADMIN) return err("forbidden", "CEO or admin access required", 403);
+    if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     const urlU = new URL(request.url);
     const mU = urlU.searchParams.get("month") ??
       new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);

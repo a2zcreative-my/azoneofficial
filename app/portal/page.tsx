@@ -172,7 +172,7 @@ import {
   btnHdrDesktop,
   PORTAL_WIDTH,
 } from "@/lib/ui-styles";
-import { dmy, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
+import { dmy, dmyMYT, mytToday, mytDateOf, fmtRM, ym } from "@/lib/format";
 
 interface User {
   id: number;
@@ -5075,6 +5075,53 @@ function printLeaveForm(l: LeaveReq, meName: string) {
 
 /* v1.4.249: the same number the printed form and the PDF carry, so a row, a
    printout and a shared file all name the record identically. */
+/**
+ * v1.91.0 — one leave, opened. CEO, 04-09-2026: *"Leave — whole company I
+ * want to have a clickable to see the details of the leave application!"*
+ *
+ * The company board printed one line per leave and nothing could be opened:
+ * the reason, who reviewed it and when, and the note a reviewer left were
+ * all in the row the worker already returns and nowhere on the screen. The
+ * name is the door now, on the in-progress rows and the decided ones alike,
+ * and it opens the same grid the person sees on their own history plus the
+ * approval trail. Module scope, per guard #30.
+ */
+function LeaveDetail({ l, meName }: { l: LeaveReq; meName: string }) {
+  const whoAt = (name?: string | null, full?: string | null, at?: string | null) =>
+    name || full ? `${properName(full || name || "")}${at ? ` · ${dmyMYT(at)}` : ""}` : "";
+  return (
+    <div className="mt-1">
+      <DetailGrid
+        items={[
+          {
+            label: L("Applicant", "Pemohon"),
+            wide: true,
+            value: [properName(l.user_full || l.user_name || ""), l.user_position, l.user_department].filter(Boolean).join(" · "),
+          },
+          { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
+          { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
+          { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
+          { label: L("Days", "Hari"), value: `${l.days}` },
+          { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
+          { label: L("Status", "Status"), value: stageL(l.stage ?? l.status) },
+          { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
+          { label: L("HR reviewed", "Disemak HR"), wide: true, value: whoAt(l.hr_by_name, null, l.hr_at) },
+          { label: L("Pre-approved", "Pra-lulus"), wide: true, value: whoAt(l.preapp_by_name, l.preapp_by_full, l.preapp_at) },
+          { label: L("Final", "Akhir"), wide: true, value: whoAt(l.final_by_name, l.final_by_full, l.final_at) },
+          { label: L("Reviewer note", "Catatan penyemak"), wide: true, value: l.review_comment ?? "" },
+        ]}
+      />
+      <div className="mt-1.5">
+        <button type="button" className={rowBtn}
+          title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")}
+          onClick={() => printLeaveForm(l, meName)}>
+          {L("Print form", "Cetak borang")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function leaveNoOf(l: {
   created_at?: string | null;
   day_seq?: number | null;
@@ -5930,6 +5977,8 @@ function Leave({ user }: { user: User }) {
      if necessary or to remove if require. filter by month") — the decided
      list was five lines of plain text with no way to reach any of them. */
   const [leaveMonth, setLeaveMonth] = useState("");
+  /* v1.91.0 — which company-board row is open. */
+  const [openAll, setOpenAll] = useState<number | null>(null);
   const [editLeave, setEditLeave] = useState<{
     id: number; type: string; start_date: string; end_date: string; days: number; reason: string;
   } | null>(null);
@@ -6418,12 +6467,15 @@ function Leave({ user }: { user: User }) {
                       l.applicant_role ?? ""
                     ) && l.user_id !== user.id;
                   return (
-                    <div
-                      key={l.id}
-                      className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
-                    >
+                    <div key={l.id} className="border-border border-b py-2 text-sm last:border-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="min-w-0">
-                        <span className="font-medium">{who(l)}</span> ·{" "}
+                        <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
+                          aria-expanded={openAll === l.id}
+                          title={L("Open the application", "Buka permohonan")}
+                          onClick={() => setOpenAll(openAll === l.id ? null : l.id)}>
+                          {who(l)}
+                        </button> ·{" "}
                         {leaveTypeL(l.type)} · {dmy(l.start_date)} →{" "}
                         {dmy(l.end_date)} ({l.days}d)
                         <span
@@ -6477,6 +6529,8 @@ function Leave({ user }: { user: User }) {
                         </span>
                       )}
                     </div>
+                    {openAll === l.id && <LeaveDetail l={l} meName={user.name} />}
+                    </div>
                   );
                 })}
               </div>
@@ -6514,7 +6568,12 @@ function Leave({ user }: { user: User }) {
                       <div key={l.id} className="px-2.5 py-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                           <p className="min-w-0 text-xs">
-                            <span className="font-medium">{who(l)}</span>
+                            <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
+                              aria-expanded={openAll === l.id}
+                              title={L("Open the application", "Buka permohonan")}
+                              onClick={() => setOpenAll(openAll === l.id ? null : l.id)}>
+                              {who(l)}
+                            </button>
                             <span className="text-muted-foreground">
                               {" · "}<span className={l.type === "unpaid" ? "text-danger font-medium" : ""}>{leaveTypeL(l.type)}</span>
                               {" · "}{dmy(l.start_date)}{l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}
@@ -6539,9 +6598,10 @@ function Leave({ user }: { user: User }) {
                             </span>
                           )}
                         </div>
-                        {l.reason && editLeave?.id !== l.id && (
+                        {l.reason && editLeave?.id !== l.id && openAll !== l.id && (
                           <p className="text-muted-foreground mt-0.5 text-[11px]">{l.reason}</p>
                         )}
+                        {openAll === l.id && editLeave?.id !== l.id && <LeaveDetail l={l} meName={user.name} />}
                         {/* v1.83.0 — the amendment form, on the row it amends.
                             A modal would hide the record being changed at the
                             moment it matters most. */}
@@ -13887,7 +13947,8 @@ export default function PortalPage() {
                   title={L("OT Approvals", "Kelulusan OT")}
                 />
               )}
-              {["ceo", "super_admin", "admin"].includes(user.role) ? (
+              {/* v1.91.0 — mirrors attendance_correct in the worker. */}
+              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) ? (
                 <AttendanceAdminPanel role={user.role} />
               ) : (
                 <PermissionPlaceholder

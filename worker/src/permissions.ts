@@ -49,6 +49,14 @@ export const PERMS: Record<string, readonly Role[]> = {
      as claims_decide. Admin and hr_admin keep every other correction on the
      Attendance tab. */
   unpaid_leave: ["super_admin", "ceo"],
+  /* v1.91.0 (CEO: "Staff attendance — corrections & back-entry I want hr
+     admin has access on it which is ceo, coo, cco and hr admin has this
+     authorized to access") — adding a missed punch, moving a wrong one,
+     removing a duplicate, and reading anyone's register to do it. It was
+     CEO + admin tier since v1.4.28. Still NOT unpaid days (unpaid_leave)
+     or approving a forgotten punch: those create or remove pay and stay
+     with the CEO. */
+  attendance_correct: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
 
   // === erp.ts (v1.18.0 — programme phases 4–7). The client's TAB_ROLES
   // mirrors these; this matrix is the one that is actually enforced. ===

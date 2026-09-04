@@ -217,6 +217,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
   const page = readFileSync(path.join(root, "app/portal/page.tsx"), "utf8");
   const panels = readFileSync(path.join(root, "components/portal/role-panels.tsx"), "utf8");
   const dir = readFileSync(path.join(root, "components/staff/staff-directory.tsx"), "utf8");
+  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8");
   for (const [what, src, re] of [
     ["deleting a task", page, /showTaskToast\(L\("Task deleted"/],
     ["a task delete that failed", page, /showTaskToast\(L\("Not deleted"/],
@@ -224,6 +225,9 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     /* v1.90.2 — the apply button used to `return` in silence on a blank end
        date; a staff member pressed Submit and nothing happened. */
     ["applying for leave", page, /showLeaveToast\(\s*\n?\s*L\("Leave requested"/],
+    /* v1.91.0 — the unscheduled-work card's editor on the roster. */
+    ["updating a task from the roster rail", roster, /showToast\(status \? L\("Task completed", "Tugasan selesai"\) : L\("Task updated"/],
+    ["a task update the server refused", roster, /const saveUnsched = async[\s\S]{0,1200}?if \(!r\.ok\) \{\s*\n?\s*showToast\(L\("Not saved"/],
     ["a leave request the server refused", page, /const apply = async[\s\S]{0,1200}?if \(!res\.ok\) \{\s*\n?\s*showLeaveToast\(L\("Not sent"/],
     ["a leave request with no date says so instead of doing nothing", page, /const apply = async[\s\S]{0,400}?if \(!start\) \{\s*\n?\s*showLeaveToast\(/],
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],

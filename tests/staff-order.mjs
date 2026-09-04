@@ -146,6 +146,32 @@ const page = read("app/portal/page.tsx");
      "company order is the resting state, not a cage");
 }
 
+/* ---- 3b. v1.91.0 — the roster reads the same order ----
+   CEO, 04-09-2026: *"for this table, need to ascending by position which is
+   starting by CEO, COO, CCO, hr_admin, sales marketing, designer and live
+   host."* The grid rows, the pickers and the Available-today rail all come
+   from lists the worker hands over alphabetically. */
+{
+  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8");
+  ok("the roster's staff list is sorted by the company comparator once, where it arrives",
+     /setStaff\(\[\.\.\.r\.data\.staff\]\.sort\(bySeniority\)\)/.test(roster),
+     "the grid rows and every picker on the board read this list");
+  ok("Available today reads the same order",
+     /\[\.\.\.data\.available_today\]\.sort\(bySeniority\)\.map/.test(roster));
+  ok("the roster keeps no private rank map", !/const RANK\b|ceo: 1, coo: 2/.test(roster));
+  ok("the worker's staff list carries what the comparator needs",
+     /SELECT id, COALESCE\(NULLIF\(TRIM\(full_name\), ''\), name\) AS name, role, position, employment_status FROM users/.test(staff),
+     "without position and employment_status a designer and a part-timer sort as their role alone");
+  ok("the CEO's sequence is the comparator's", (() => {
+    const order = [
+      { role: "ceo" }, { role: "coo" }, { role: "cco" }, { role: "hr_admin" },
+      { role: "sales_marketing" }, { role: "marketing", position: "Designer" }, { role: "live_host" },
+    ];
+    const shuffled = [...order].reverse().sort(bySeniority);
+    return JSON.stringify(shuffled) === JSON.stringify(order);
+  })(), "CEO, COO, CCO, hr_admin, sales marketing, designer, live host — in that order");
+}
+
 /* ---- 4. crediting a rest day cannot invent a paid day ---- */
 {
   ok("the rest-day list exists", /path === "\/rest-day-work" && method === "GET"/.test(staff));

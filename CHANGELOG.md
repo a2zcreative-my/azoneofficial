@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.91.0] — 2026-09-04 — three doors the CEO asked for
+
+### Attendance corrections open to the HR tier
+
+**CEO:** *"Staff attendance — corrections & back-entry I want hr admin has access on it which is ceo, coo, cco and hr admin has this authorized to access."*
+
+The card had been CEO + admin tier since v1.4.28, as three role names typed into the worker. It is a permission now — `attendance_correct`: CEO, COO, CCO, HR admin and the admin tier — read by every corrections route (manual entry, the pending list, amend, delete, the unpaid list) and mirrored by the page. Whoever may correct a register may now read one: the `/attendance` register used to let only `hr_manage` name another person, so a COO handed the card would have been shown their own punches.
+
+What did **not** open with it, on purpose: recording an unpaid day and approving a forgotten punch both create or remove pay and stay with the CEO (`unpaid_leave`); working-hour patterns follow `hr_manage` as the worker already enforced. `tests/unpaid-leave.mjs` gains eight checks — the tier asserted as an exact set, the routes reading the permission rather than role names, the register read, the two CEO powers surviving, the page and the card's unpaid area — negative-tested by adding `marketing` to the set and by putting the decide route behind the wider gate.
+
+### Leave — whole company: the name opens the application
+
+**CEO:** *"Leave — whole company I want to have a clickable to see the details of the leave application!"*
+
+The company board printed one line per leave and nothing could be opened, though the reason, the reviewer's note and who reviewed it and when were all in the row the worker returns. The applicant's name is a door now, on the in-progress rows and the decided ones alike, and it opens one detail: applicant with position and department, leave number, type, period, days, when it was applied, status, reason, the three-stage approval trail (HR reviewed · pre-approved · final, each with who and when), the reviewer's note, and Print form. Guard #31 gains three cases for it.
+
+### Schedule & Roster: company order, and a task you can update where it waits
+
+**CEO:** *"for this table, need to ascending by position which is starting by CEO, COO, CCO, hr_admin, sales marketing, designer and live host. for Unscheduled work I can clickable on it and update the task accordingly and check if there is any duplication module or function of it."*
+
+The staff grid, every picker on the board and the Available-today rail read the worker's staff list, which arrives alphabetical. It is sorted once, where it arrives, by the one company comparator every payroll surface already uses (`lib/staff-order.ts`) — the worker's `/staff-list` now carries `position` and `employment_status` so a designer and a part-timer sort as themselves and not as their role alone. The staff-order guard gains five checks, including the CEO's sequence run through the comparator.
+
+An unscheduled card has two doors: the card still arms placement (tap, then a day), and a pencil opens the task where it stands — title, assignee, priority, deadline, Save or Mark done — on the same `PATCH /tasks/:id` the Tasks tab uses. Every save reports either way (guard #25, two new cases).
+
+**On duplication, checked:** there is no second module. Unscheduled work is a *view* — open tasks with no block this week, computed once in the worker's `/roster` — over the same `tasks` table the Tasks tab lists and the company monitor counts; there is one create route (`POST /tasks`, reached from the Tasks tab and the roster's "Assign a task") and one update route (`PATCH /tasks/:id`, reached from the Tasks tab's editor and now this pencil). Two ways to reach one function is the intent; two functions would have been the bug.
+
 ## [1.90.2] — 2026-09-04 — a leave request that said nothing
 
 **CEO:** *"One of my staff unable to update their leave application, please check any bug?"* — with her screenshot: leave type annual, start date 10-09-2026, **end date empty**, days 1, reason typed, Submit pressed. Nothing happened.
