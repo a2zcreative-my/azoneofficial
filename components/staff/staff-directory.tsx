@@ -437,8 +437,74 @@ const ROLE_MS: Record<string, string> = {
  *
  * Module scope, per guard #30.
  */
-function StaffBubble({ u, open, selectMode, selected, delayMs, onPress }: {
+/**
+ * v1.93.0 — the birthday lives on the person. CEO, 04-09-2026: *"the
+ * birthday should be embedded into the staff card!"* The separate
+ * Birthdays card listed everyone with a date box each; the date is already a
+ * field on the record, so what the card was FOR — knowing whose day is
+ * coming — is now a cake on the face when it is within a fortnight, and a
+ * line on the open record with the age they turn.
+ */
+export function birthdayInfo(birthday: string | null | undefined, todayIso: string): { days: number; turns: number; next: string } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(birthday ?? "");
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const [ty, tm, td] = todayIso.split("-").map(Number) as [number, number, number];
+  const today = Date.UTC(ty, tm - 1, td);
+  let next = Date.UTC(ty, mo - 1, d);
+  if (next < today) next = Date.UTC(ty + 1, mo - 1, d);
+  const days = Math.round((next - today) / 86400000);
+  const nextYear = new Date(next).getUTCFullYear();
+  return { days, turns: nextYear - y, next: `${String(d).padStart(2, "0")}-${String(mo).padStart(2, "0")}` };
+}
+
+/**
+ * v1.93.0 — THE CIRCLE. CEO, 04-09-2026, a frame from the LazyThreads video
+ * of its Circle screen: *"Staff tabs content should be like this."*
+ *
+ * The company as orbits. The most senior person sits at the centre; the
+ * next tier on the first ring, the floor on the second, hosts and part-time
+ * on the third, and leavers on the outermost ring, faded. Each ring's
+ * people are spread evenly round it, offset so no two rings line up, and
+ * every face drifts a little on its own clock — the video's field, without
+ * the video's forty grey ghosts. Positions are percentages of the field, so
+ * the field can be any size; the phone keeps the wrapping row, because a
+ * 360px-wide orbit is a pile.
+ */
+function circleLayout(list: Staff[]): { u: Staff; left: number; top: number; ring: number }[] {
+  const tier = (u: Staff): number => {
+    if (["resigned", "terminated"].includes(u.employment_status ?? "")) return 4;
+    if (u.employment_status === "part_time" || u.role === "live_host") return 3;
+    if (["coo", "cco"].includes(u.role)) return 1;
+    if (u.role === "ceo") return 0;
+    return 2;
+  };
+  const groups = new Map<number, Staff[]>();
+  for (const u of list) { const t = tier(u); groups.set(t, [...(groups.get(t) ?? []), u]); }
+  /* The centre is one person; if nobody is CEO, the first in company order. */
+  if (!groups.has(0) && list.length > 0) {
+    const first = list[0]!;
+    groups.set(0, [first]);
+    const t = tier(first);
+    groups.set(t, (groups.get(t) ?? []).filter((x) => x.id !== first.id));
+  }
+  const RX = [0, 17, 30, 41, 48];   // % of width
+  const RY = [0, 26, 40, 46, 49];   // % of height
+  const out: { u: Staff; left: number; top: number; ring: number }[] = [];
+  for (const [ring, members] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+    const n = members.length;
+    members.forEach((u, i) => {
+      if (ring === 0) { out.push({ u, left: 50, top: 50, ring }); return; }
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n + ring * 0.6;
+      out.push({ u, left: 50 + RX[ring]! * Math.cos(angle), top: 50 + RY[ring]! * Math.sin(angle), ring });
+    });
+  }
+  return out;
+}
+
+function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "md", cake = null, faded = false }: {
   u: Staff; open: boolean; selectMode: boolean; selected: boolean; delayMs: number; onPress: () => void;
+  size?: "md" | "lg"; cake?: { days: number; turns: number } | null; faded?: boolean;
 }) {
   const lang = getLang();
   const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
@@ -450,20 +516,28 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress }: {
     : open ? "ring-primary ring-4 scale-105" : gone ? "ring-danger ring-2" : "ring-transparent ring-2";
   return (
     <button type="button"
-      className="sd-bubble group flex w-[88px] shrink-0 flex-col items-center gap-1.5 text-center"
-      style={{ animationDelay: `${delayMs}ms` }}
+      className={`sd-bubble group flex w-[88px] shrink-0 flex-col items-center gap-1.5 text-center ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
+      style={{ animationDelay: `${delayMs}ms`, ["--sd-drift" as string]: `${4 + (delayMs % 7) * 0.4}s` }}
       aria-pressed={selectMode ? selected : open}
       title={selectMode
         ? (selected ? L("Ticked for badge printing — press to untick", "Ditanda untuk cetakan lencana — tekan untuk nyahtanda") : L("Press to tick for badge printing", "Tekan untuk tanda bagi cetakan lencana"))
         : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
       onClick={onPress}>
-      <span className={`relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : "bg-brand text-white"}`}>
+      <span className="relative">
+      <span className={`relative inline-flex ${size === "lg" ? "h-20 w-20" : "h-16 w-16"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
         {photo
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={photo} alt="" className="h-full w-full object-cover" />
-          : <span className="text-lg font-bold">{initials}</span>}
+          : <span className={size === "lg" ? "text-xl font-bold" : "text-lg font-bold"}>{initials}</span>}
+      </span>
         {selectMode && selected && (
-          <span className="bg-primary text-primary-foreground absolute right-0 bottom-0 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold" aria-hidden>✓</span>
+          <span className="bg-primary text-primary-foreground absolute -right-0.5 -bottom-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold" aria-hidden>✓</span>
+        )}
+        {!selectMode && cake && (
+          <span className="bg-card absolute -top-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm shadow"
+            title={cake.days === 0 ? L(`Birthday today — turns ${cake.turns}`, `Hari lahir hari ini — genap ${cake.turns}`) : L(`Birthday in ${cake.days} day(s) — turns ${cake.turns}`, `Hari lahir dalam ${cake.days} hari — genap ${cake.turns}`)}>
+            🎂
+          </span>
         )}
       </span>
       <span className="block w-full truncate text-xs leading-tight font-medium">{givenNames(displayName(u))}</span>
@@ -489,6 +563,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
   /* v1.92.0 — pressing a circle opens the record, or ticks it for printing. */
   const [selectMode, setSelectMode] = useState(false);
+  const todayS = todayIso();
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
 
@@ -826,32 +901,89 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           record cards (checkbox · name · role, chevron on the right), the
           exact row each staff member renders as below. */}
       <style>{`@keyframes sd-pop { from { opacity: 0; transform: translateY(6px) scale(.9) } to { opacity: 1; transform: none } }
+        @keyframes sd-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
         .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both }
-        @media (prefers-reduced-motion: reduce) { .sd-bubble { animation: none } }`}</style>
-      {/* v1.92.0 — the row of faces. Skeleton: the same circles. */}
-      <div className="flex flex-wrap gap-x-2 gap-y-4 py-2">
-        {!loaded && Array.from({ length: 8 }, (_, i) => (
-          <div key={`skel-${i}`} className="flex w-[88px] flex-col items-center gap-1.5" aria-hidden>
-            <Skel className="h-16 w-16 rounded-full" />
-            <Skel className="h-3 w-14" />
-            <Skel className="h-2.5 w-10" />
-          </div>
-        ))}
-        {loaded && (sortBy === "rank"
+        .sd-orbit .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both, sd-drift var(--sd-drift, 5s) ease-in-out .4s infinite }
+        @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble { animation: none } }`}</style>
+      {(() => {
+        const ordered = sortBy === "rank"
           ? staff
-          : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
-        ).map((u, i) => (
-          <StaffBubble key={u.id} u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 35}
-            onPress={() => {
-              if (selectMode) { toggleSelect(u.id); return; }
-              /* one record open at a time; pressing the open one closes it */
-              setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])));
-            }} />
-        ))}
-        {loaded && staff.length === 0 && !loadError && (
-          <p className="text-muted-foreground text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
-        )}
-      </div>
+          : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
+        const cakeFor = (u: Staff) => {
+          const b = birthdayInfo(u.birthday, todayS);
+          return b && b.days <= 14 && !["resigned", "terminated"].includes(u.employment_status ?? "") ? b : null;
+        };
+        const press = (u: Staff) => {
+          if (selectMode) { toggleSelect(u.id); return; }
+          /* one record open at a time; pressing the open one closes it */
+          setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])));
+        };
+        const gone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
+        /* v1.93.0 — whose day is next, in one line under the field. */
+        const upcoming = staff.filter((u) => !gone(u)).map((u) => ({ u, b: birthdayInfo(u.birthday, todayS) }))
+          .filter((x): x is { u: Staff; b: NonNullable<ReturnType<typeof birthdayInfo>> } => Boolean(x.b))
+          .sort((a, b) => a.b.days - b.b.days).slice(0, 3);
+        return (
+          <>
+            {/* the circle — desktop and tablet */}
+            <div className="sd-orbit relative hidden h-[460px] overflow-hidden rounded-2xl sm:block">
+              {/* the rings, faint */}
+              {([[17, 26], [30, 40], [41, 46], [48, 49]] as [number, number][]).map(([rx, ry], i) => (
+                <span key={i} aria-hidden className="border-border/60 pointer-events-none absolute rounded-[50%] border"
+                  style={{ left: `${50 - rx}%`, top: `${50 - ry}%`, width: `${rx * 2}%`, height: `${ry * 2}%` }} />
+              ))}
+              {!loaded && Array.from({ length: 8 }, (_, i) => {
+                const a = -Math.PI / 2 + (2 * Math.PI * i) / 8;
+                return (
+                  <div key={`skel-${i}`} className="absolute -translate-x-1/2 -translate-y-1/2" aria-hidden
+                    style={{ left: `${50 + 30 * Math.cos(a)}%`, top: `${50 + 40 * Math.sin(a)}%` }}>
+                    <Skel className="h-16 w-16 rounded-full" />
+                  </div>
+                );
+              })}
+              {!loaded && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" aria-hidden><Skel className="h-20 w-20 rounded-full" /></div>}
+              {loaded && circleLayout(ordered).map(({ u, left, top, ring }, i) => (
+                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) ? "z-20" : ring === 0 ? "z-10" : "z-0"}`}
+                  style={{ left: `${left}%`, top: `${top}%` }}>
+                  <StaffBubble u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 45}
+                    size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={ring === 4} onPress={() => press(u)} />
+                </div>
+              ))}
+              {loaded && staff.length === 0 && !loadError && (
+                <p className="text-muted-foreground absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
+              )}
+            </div>
+            {/* the row — phones, where an orbit is a pile */}
+            <div className="flex flex-wrap gap-x-2 gap-y-4 py-2 sm:hidden">
+              {!loaded && Array.from({ length: 6 }, (_, i) => (
+                <div key={`skel-${i}`} className="flex w-[88px] flex-col items-center gap-1.5" aria-hidden>
+                  <Skel className="h-16 w-16 rounded-full" />
+                  <Skel className="h-3 w-14" />
+                  <Skel className="h-2.5 w-10" />
+                </div>
+              ))}
+              {loaded && ordered.map((u, i) => (
+                <StaffBubble key={u.id} u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 35}
+                  cake={cakeFor(u)} faded={gone(u)} onPress={() => press(u)} />
+              ))}
+            </div>
+            {loaded && upcoming.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                🎂 {L("Next birthdays", "Hari lahir seterusnya")}:{" "}
+                {upcoming.map((x, i) => (
+                  <span key={x.u.id}>
+                    {i > 0 && " · "}
+                    <button type="button" className="underline decoration-dotted underline-offset-2" onClick={() => press(x.u)}>
+                      {givenNames(displayName(x.u))}
+                    </button>{" "}{x.b.next}{" "}
+                    {x.b.days === 0 ? L("today", "hari ini") : `${L("in", "dalam")} ${x.b.days} ${L("day(s)", "hari")}`}
+                  </span>
+                ))}
+              </p>
+            )}
+          </>
+        );
+      })()}
       {(sortBy === "rank"
         ? staff
         : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
@@ -910,6 +1042,17 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   </span>
                 )}
                 {" "}<span className="text-muted-foreground">· {L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}</span>
+                {/* v1.93.0 — the birthday on the card, not in a card of its own. */}
+                {(() => {
+                  const b = birthdayInfo(u.birthday, todayS);
+                  if (!b) return null;
+                  return (
+                    <span className={`ml-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${b.days <= 14 ? "bg-gold-soft text-gold-deep" : "bg-secondary text-muted-foreground"}`}
+                      title={L("Birth date on the record below", "Tarikh lahir pada rekod di bawah")}>
+                      🎂 {b.next} · {b.days === 0 ? L(`turns ${b.turns} today`, `genap ${b.turns} hari ini`) : `${L("turns", "genap")} ${b.turns} ${L("in", "dalam")} ${b.days} ${L("day(s)", "hari")}`}
+                    </span>
+                  );
+                })()}
                 {!open.has(u.id) && (u.employee_id || u.position) && (
                   <span className="text-muted-foreground hidden text-xs sm:inline">
                     · {[u.employee_id, u.position].filter(Boolean).join(" · ")}

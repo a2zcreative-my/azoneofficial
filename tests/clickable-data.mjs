@@ -102,8 +102,14 @@ const ok = (label, cond, extra = "") => {
     ["a decided leave opens the same way", "app/portal/page.tsx",
      /\{openAll === l\.id && editLeave\?\.id !== l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "one detail for both halves of the board, not two"],
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
+    /* v1.93.0 — the circle and the phone row both press through one
+       handler, and that handler opens the record. */
     ["a staff face opens the record", "components/staff/staff-directory.tsx",
-     /<StaffBubble key=\{u\.id\}[\s\S]{0,600}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
+     /const press = \(u: Staff\) => \{[\s\S]{0,300}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
+    ["every face on the circle and on the phone row presses that handler", "components/staff/staff-directory.tsx",
+     /<StaffBubble u=\{u\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}[\s\S]{0,2500}?<StaffBubble key=\{u\.id\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}/, "two layouts, one door"],
+    ["a face within a fortnight of a birthday carries the cake", "components/staff/staff-directory.tsx",
+     /return b && b\.days <= 14 && !\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null;/, "the separate Birthdays card was retired for this"],
     ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",
      /if \(!open\.has\(u\.id\)\) return null;/, "the cards were the clutter the faces replace"],
     ["the face says which mode it is in", "components/staff/staff-directory.tsx",

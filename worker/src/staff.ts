@@ -107,6 +107,17 @@ export const PART_TIME_LH_RATE_CENTS = 1500;
 export const isHourlyUser = (role: string | null | undefined, emp: string | null | undefined) =>
   role === "live_host" && emp === "part_time";
 
+/** v1.93.0 (CEO, 04-09-2026: "part time live host should not entitle any
+    leave or medical leave since they are part time staff") — the one
+    question every leave route asks about a person. Paid by the clock means
+    no annual, no medical, no emergency: there is no salaried day for a leave
+    to replace. */
+export async function isHourlyUserId(env: Env, userId: number): Promise<boolean> {
+  const r = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
+    .bind(userId).first<{ role: string; employment_status: string | null }>();
+  return Boolean(r && isHourlyUser(r.role, r.employment_status));
+}
+
 /** WHO COUNTS AS STAFF — v1.78.0.
  *
  * CEO, 31-08-2026: *"Take note, super_Admin is not a staff. Super_admin is
@@ -3023,6 +3034,12 @@ export async function handleStaff(
   /* ---- leave ---- */
 
   if (path === "/leave" && method === "POST") {
+    /* v1.93.0 — a part-time host has no leave to apply for. Said here, so
+       the form cannot create a request the balance would then show as
+       over-taken. */
+    if (await isHourlyUserId(env, user.id)) {
+      return err("forbidden", "Part-time hosts are paid by the hour and have no leave entitlement", 403);
+    }
     if (
       !body || typeof body.type !== "string" || !LEAVE_TYPES.includes(body.type as never) ||
       !str(body.start_date, 10) || !str(body.end_date, 10) ||
@@ -3079,6 +3096,12 @@ export async function handleStaff(
        v1.62.0 adds the CEO's `adjust` and `used_adjust` on top. */
     const monthMYT = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
     const balances: Record<string, { entitled: number; used: number; accrued: number; adjust: number }> = {};
+    /* v1.93.0 — a part-time host: every type reads zero, and the response
+       says why, so the tab can say it instead of showing five empty tiles. */
+    if (await isHourlyUserId(env, user.id)) {
+      for (const t of LEAVE_TYPES) balances[t] = { entitled: 0, used: 0, accrued: 0, adjust: 0 };
+      return json({ year, month: monthMYT, balances, hourly: true });
+    }
     for (const t of LEAVE_TYPES) {
       const row = await leaveBalanceRow(env, user.id, year, t);
       const used = await env.DB.prepare(
@@ -6294,13 +6317,15 @@ export async function handleStaff(
   const EDITABLE_TYPES = ["annual", "emergency"] as const;
 
   /** Every active staff member, in the order the table shows them. */
-  const entitlementStaff = async (): Promise<{ id: number; name: string; role: string }[]> => {
+  const entitlementStaff = async (): Promise<{ id: number; name: string; role: string; employment_status: string | null; hourly: boolean }[]> => {
     const { results } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, employment_status FROM users
        WHERE is_active = 1 AND ${currentStaffSql()} AND ${staffRolesSql()}
        ORDER BY 2`,
-    ).all<{ id: number; name: string; role: string }>();
-    return results;
+    ).all<{ id: number; name: string; role: string; employment_status: string | null }>();
+    /* v1.93.0 — a part-time host is listed (they are staff) and marked, so
+       the table can say "no leave" on the row instead of offering boxes. */
+    return results.map((p) => ({ ...p, hourly: isHourlyUser(p.role, p.employment_status) }));
   };
 
   /* The whole table in one call: every staff member, and what each is owed
@@ -6353,7 +6378,8 @@ export async function handleStaff(
         ...p,
         entitlement: Object.fromEntries(EDITABLE_TYPES.map((t) => {
           const row = rows.get(`${p.id}:${t}`);
-          const entitled = row?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
+          /* v1.93.0 — hourly: zero, whatever a row says. */
+          const entitled = p.hourly ? 0 : (row?.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0);
           const adjust = row?.adjust ?? 0;
           const used = (usedMap.get(`${p.id}:${t}`) ?? 0) + (row?.used_adjust ?? 0);
           const accrued = leaveAccrual(t, entitled, year, month, adjust);
@@ -6444,6 +6470,9 @@ export async function handleStaff(
     if (!uid) return err("invalid_input", "user_id is required", 400);
     const parsed = readEntitlementInput(body?.year, body?.type, body?.entitled);
     if (parsed instanceof Response) return parsed;
+    if (await isHourlyUserId(env, uid)) {
+      return err("invalid_input", "A part-time host has no leave entitlement to set", 400);
+    }
     const { before } = await writeEntitlement(uid, parsed.year, parsed.type, parsed.days);
     await audit(env, user.id, "leave.entitlement", "users", String(uid),
       { year: parsed.year, type: parsed.type, from: before, to: parsed.days });
@@ -6477,6 +6506,9 @@ export async function handleStaff(
     }
     const uid = Number(body?.user_id);
     if (!uid) return err("invalid_input", "user_id is required", 400);
+    if (await isHourlyUserId(env, uid)) {
+      return err("invalid_input", "A part-time host has no leave entitlement to adjust", 400);
+    }
     const year = Number(body?.year ?? new Date().getFullYear());
     if (!Number.isFinite(year) || year < 2000 || year > 2100) {
       return err("invalid_input", "year must be a real calendar year", 400);
@@ -6570,7 +6602,8 @@ export async function handleStaff(
     const wanted = Array.isArray(body?.user_ids)
       ? new Set((body!.user_ids as unknown[]).map(Number).filter((n) => Number.isFinite(n)))
       : null;
-    const targets = wanted ? staff.filter((p) => wanted.has(p.id)) : staff;
+    /* v1.93.0 — "everyone" means everyone with an entitlement. */
+    const targets = (wanted ? staff.filter((p) => wanted.has(p.id)) : staff).filter((p) => !p.hourly);
     if (targets.length === 0) return err("invalid_input", "No staff to update", 400);
     let changed = 0;
     for (const p of targets) {

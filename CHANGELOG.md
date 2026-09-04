@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.93.0] — 2026-09-04 — the circle, the cake, and the hosts who are paid by the hour
+
+### Staff: the company as orbits
+
+**CEO**, a frame from the LazyThreads video of its Circle screen: *"Staff tabs content should be like this."*
+
+The row of faces from v1.92.0 is now a field. The most senior person sits at the centre, larger and gold; the next tier on the first ring, the floor on the second, hosts and part-time on the third, and leavers on the outermost ring, faded. Each ring's people are spread evenly round it, offset so no two rings line up, and every face drifts a little on its own clock — the video's field, without the video's forty grey ghosts. Faint rings are drawn behind. Positions are percentages of the field, so it fits any width; phones keep the wrapping row, because a 360px-wide orbit is a pile. Pressing a face still opens the record below, one at a time; Select for printing still ticks. Everything stands still under reduced-motion.
+
+### The birthday lives on the person
+
+**CEO:** *"the birthday should be embedded into the staff card!"* The separate Birthdays card listed everyone with a date box each; the date is already a field on the record. What the card was *for* — knowing whose day is coming — is now a 🎂 on the face when it is within a fortnight (with the age they turn on hover), a chip on the open record (*🎂 12-09 · turns 29 in 8 days*), and one line under the circle naming the next three, each a door to the record. The card is gone from the Staff tab; `birthdayInfo()` is one function so the three read the same date the same way.
+
+### Part-time hosts have no leave
+
+**CEO:** *"part time live host should not entitle any leave or medical leave since they are part time staff."*
+
+One predicate — `isHourlyUser` (live host + part-time), the one payroll already uses to pay by the clock — is now asked at every leave door: applying for leave is refused with the reason; the personal balance reads zero for every type and says why, so the Leave tab shows one line instead of five empty tiles and no form; the entitlement table lists them (they are staff) but shows one quiet cell across the row instead of boxes; setting or adjusting an hourly entitlement is refused by the worker; and *Apply to all* means everyone with an entitlement. Nine checks in `tests/unpaid-leave.mjs`, negative-tested by removing the refusal from the apply route.
+
 ## [1.92.0] — 2026-09-04 — four screens, each asked for by name
 
 ### Targets: this month's people, and a Save button

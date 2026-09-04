@@ -288,6 +288,28 @@ ok("the attendance panel is actually given the role",
      /const canUnpaid = \["ceo", "super_admin"\]\.includes\(role\);/.test(panels) && /\{canUnpaid && section === "unpaid"/.test(panels));
 }
 
+/* ---- v1.93.0: a part-time host has no leave ----
+   CEO, 04-09-2026: *"part time live host should not entitle any leave or
+   medical leave since they are part time staff."* One predicate
+   (isHourlyUser: live_host + part_time) and every leave door asks it. */
+{
+  ok("the question is asked by one helper", /export async function isHourlyUserId\(env: Env, userId: number\)/.test(staff)
+     && /return Boolean\(r && isHourlyUser\(r\.role, r\.employment_status\)\);/.test(staff));
+  ok("applying for leave is refused for an hourly host",
+     /path === "\/leave" && method === "POST"[\s\S]{0,600}?if \(await isHourlyUserId\(env, user\.id\)\) \{\s*\n?\s*return err\("forbidden"/.test(staff));
+  ok("the balance reads zero for every type, and says why",
+     /if \(await isHourlyUserId\(env, user\.id\)\) \{\s*\n?\s*for \(const t of LEAVE_TYPES\) balances\[t\] = \{ entitled: 0, used: 0, accrued: 0, adjust: 0 \};\s*\n?\s*return json\(\{ year, month: monthMYT, balances, hourly: true \}\);/.test(staff));
+  ok("the entitlement table zeroes an hourly row whatever is stored",
+     /const entitled = p\.hourly \? 0 : \(row\?\.entitled \?\? DEFAULT_ENTITLEMENT\[t\] \?\? 0\);/.test(staff));
+  ok("setting one hourly entitlement is refused", /has no leave entitlement to set", 400\)/.test(staff));
+  ok("adjusting one hourly balance is refused", /has no leave entitlement to adjust", 400\)/.test(staff));
+  ok("apply-to-all skips hourly hosts", /\.filter\(\(p\) => !p\.hourly\);/.test(staff));
+  ok("the Leave tab hides the form and the tiles from an hourly host and says why",
+     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*\n?\s*<div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">\s*\n?\s*<div className=\{card\}>\s*\n?\s*<p className="text-sm font-semibold">\s*\n?\s*\{L\("Apply for leave"/.test(page));
+  ok("the entitlement table shows one quiet cell for an hourly row instead of boxes",
+     /\{p\.hourly && \(\s*\n?\s*<td className=\{`\$\{td\} text-muted-foreground text-xs`\} colSpan=\{ENT_TYPES\.length \+ 1\}>/.test(page) && /\{!p\.hourly && ENT_TYPES\.map/.test(page));
+}
+
 console.log(
   fails.length === 0
     ? `PASS — CEO-only powers are CEO-only, the cascade is complete, and one unpaid day is deducted once (${pass} checks)`

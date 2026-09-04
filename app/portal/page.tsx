@@ -145,7 +145,6 @@ import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 import {
   AttendanceAdminPanel,
-  BirthdaysPanel,
   HrPanel,
   InventoryPanel,
   ClaimsPanel,
@@ -5591,6 +5590,8 @@ interface EntRow {
   id: number;
   name: string;
   role: string;
+  /* v1.93.0 — a part-time host: listed, but with no entitlement to edit. */
+  hourly?: boolean;
   entitlement: Record<EntType, EntCell>;
 }
 
@@ -5803,9 +5804,19 @@ function LeaveEntitlement() {
                 <tr className="border-border/60 border-b">
                   <td className={td}>
                     <div className="font-medium">{p.name}</div>
-                    <div className="text-muted-foreground text-xs uppercase">{p.role}</div>
+                    <div className="text-muted-foreground text-xs uppercase">{p.role}{p.hourly ? ` · ${L("part-time", "sambilan")}` : ""}</div>
                   </td>
-                  {ENT_TYPES.map((t) => {
+                  {/* v1.93.0 (CEO: "part time live host should not entitle any
+                      leave or medical leave since they are part time staff") —
+                      one quiet cell across the row instead of boxes that the
+                      server would refuse. */}
+                  {p.hourly && (
+                    <td className={`${td} text-muted-foreground text-xs`} colSpan={ENT_TYPES.length + 1}>
+                      {L("Paid by the hour — no annual, medical or emergency leave. Days not worked are simply not billed.",
+                         "Dibayar mengikut jam — tiada cuti tahunan, perubatan atau kecemasan. Hari tidak bekerja tidak dibilkan.")}
+                    </td>
+                  )}
+                  {!p.hourly && ENT_TYPES.map((t) => {
                     const key = `${p.id}:${t}`;
                     const stored = p.entitlement[t];
                     const dirty = draft[key] !== String(stored?.days ?? 0);
@@ -5836,7 +5847,7 @@ function LeaveEntitlement() {
                   {/* v1.62.0 — what each person can actually take TODAY, and
                       the way in to changing it. Shown per type on one line so
                       the table stays one row per person. */}
-                  <td className={tdR2}>
+                  {!p.hourly && <td className={tdR2}>
                     <div className="flex items-center justify-end gap-2">
                       <div className="text-right">
                         {ENT_TYPES.map((t) => (
@@ -5856,9 +5867,9 @@ function LeaveEntitlement() {
                         {openRow === p.id ? L("Close", "Tutup") : L("Adjust", "Laras")}
                       </button>
                     </div>
-                  </td>
+                  </td>}
                 </tr>
-                {openRow === p.id && (
+                {openRow === p.id && !p.hourly && (
                   <tr className="border-border/60 border-b last:border-0">
                     <td className="px-3 pt-0 pb-3" colSpan={ENT_TYPES.length + 2}>
                       <div className="bg-secondary/40 grid gap-3 rounded-xl p-3 sm:grid-cols-2">
@@ -5957,6 +5968,8 @@ function Leave({ user }: { user: User }) {
   >({});
   const [mine, setMine] = useState<LeaveReq[]>([]);
   const [all, setAll] = useState<LeaveReq[]>([]);
+  /* v1.93.0 — a part-time host: no entitlement, no form; one line says why. */
+  const [hourly, setHourly] = useState(false);
   const [draft, setDraft] = useState({
     type: "annual",
     start_date: "",
@@ -5994,8 +6007,9 @@ function Leave({ user }: { user: User }) {
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const b = await api<{ balances: typeof balances }>(`/staff/leave/balance`);
+    const b = await api<{ balances: typeof balances; hourly?: boolean }>(`/staff/leave/balance`);
     setBalances(b.data?.balances ?? {});
+    setHourly(Boolean(b.data?.hourly));
     const m = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
     setMine(m.data?.leave ?? []);
     if (!canApprove) setLoaded(true);
@@ -6194,7 +6208,16 @@ function Leave({ user }: { user: User }) {
           ))}
         </div>
       )}
-      {loaded && (
+      {loaded && hourly && (
+        <div className={card}>
+          <p className="text-sm font-semibold">{L("Leave", "Cuti")}</p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {L("You are a part-time host, paid by the hour, so there is no annual, medical or emergency leave entitlement and nothing to apply for here. Days you do not work are simply not billed.",
+               "Anda hos sambilan yang dibayar mengikut jam, jadi tiada kelayakan cuti tahunan, perubatan atau kecemasan dan tiada apa yang perlu dimohon di sini. Hari yang anda tidak bekerja tidak dibilkan.")}
+          </p>
+        </div>
+      )}
+      {loaded && !hourly && (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {LEAVE_TYPES.map((t) => {
           const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
@@ -6224,6 +6247,7 @@ function Leave({ user }: { user: User }) {
       </div>
       )}
 
+      {!hourly && (
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <div className={card}>
           <p className="text-sm font-semibold">
@@ -6412,6 +6436,7 @@ function Leave({ user }: { user: User }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* v1.86.0 (CEO: "leave to review should inside the leave") — rest-day
           work waiting to become replacement leave. It is the one half of the
@@ -14102,9 +14127,11 @@ export default function PortalPage() {
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}
               />
-              {/* v1.19.0 C1: the Birthdays tab folded in here — one staff-record
-                surface. Same component, same single-field PATCH. */}
-              <BirthdaysPanel />
+              {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
+                  "the birthday should be embedded into the staff card!") — and
+                  then into the record itself: a cake on the face within a
+                  fortnight, the age they turn on the open card, and the next
+                  three under the circle. The date is set on the record form. */}
             </div>
           )}
           {activeTab === "Inventory" && (
