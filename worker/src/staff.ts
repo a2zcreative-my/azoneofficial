@@ -11520,9 +11520,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const c = await env.DB.prepare(`SELECT target_cents FROM sales_targets WHERE month = ?1`).bind(month).first<{ target_cents: number }>();
       company = c?.target_cents ?? null;
     } catch { /* pre-0068 */ }
+    /* v1.92.0 (CEO: "Per-person targets (RM) should not listed the staff
+       that in active!") — a target is for a month, so the list is the people
+       employed in THAT month: a leaver drops off from the month after their
+       last day, a joiner appears from their first. Same predicate payroll
+       uses, so the two screens name the same people. */
     const { results: staff } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users
-       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') ORDER BY 2`,
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, employment_status FROM users
+       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month)} ORDER BY 2`,
     ).all();
     return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
   }

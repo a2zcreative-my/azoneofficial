@@ -101,6 +101,13 @@ const ok = (label, cond, extra = "") => {
      /aria-expanded=\{openAll === l\.id\}[\s\S]{0,400}?\{who\(l\)\}[\s\S]{0,3000}?\{openAll === l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
     ["a decided leave opens the same way", "app/portal/page.tsx",
      /\{openAll === l\.id && editLeave\?\.id !== l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "one detail for both halves of the board, not two"],
+    /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
+    ["a staff face opens the record", "components/staff/staff-directory.tsx",
+     /<StaffBubble key=\{u\.id\}[\s\S]{0,600}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
+    ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",
+     /if \(!open\.has\(u\.id\)\) return null;/, "the cards were the clutter the faces replace"],
+    ["the face says which mode it is in", "components/staff/staff-directory.tsx",
+     /aria-pressed=\{selectMode \? selected : open\}/, "a face that ticks when you expected it to open teaches distrust"],
     ["the detail carries the approval trail", "app/portal/page.tsx",
      /function LeaveDetail\([\s\S]{0,2500}?L\("HR reviewed"[\s\S]{0,600}?L\("Pre-approved"[\s\S]{0,600}?L\("Final"/, "who decided it, and when, is what a manager opens a leave to see"],
   ];

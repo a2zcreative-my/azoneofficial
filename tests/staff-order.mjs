@@ -172,6 +172,22 @@ const page = read("app/portal/page.tsx");
   })(), "CEO, COO, CCO, hr_admin, sales marketing, designer, live host — in that order");
 }
 
+/* ---- 3c. v1.92.0 — the targets grid: this month's people, in company order ----
+   CEO: *"Per-person targets (RM) should not listed the staff that in
+   active!"* A target is for a month, so the list is who is employed in it. */
+{
+  const page = readFileSync(path.join(root, "app/portal/page.tsx"), "utf8");
+  const i = page.indexOf("function TargetsCommissionCard(");
+  const targets = i < 0 ? "" : page.slice(i, i + 12000);
+  ok("the targets card sorts its people by the company comparator", /setStaff\(\[\.\.\.r\.data\.staff\]\.sort\(bySeniority\)\)/.test(targets));
+  const j = staff.indexOf('path === "/targets" && method === "GET"');
+  const route = j < 0 ? "" : staff.slice(j, j + 3000);
+  ok("the targets route lists the people employed in THAT month, not everyone ever active",
+     /FROM users\s*\n?\s*WHERE is_active = 1 AND role NOT IN \('customer', 'super_admin', 'admin'\) AND \$\{payrollMonthStaffSql\(month\)\}/.test(route),
+     "a leaver stayed on the targets grid for months after their last day");
+  ok("the month is validated before it reaches the splice", /if \(!\/\^\\d\{4\}-\\d\{2\}\$\/\.test\(month\)\) return err\("invalid_input"/.test(route));
+}
+
 /* ---- 4. crediting a rest day cannot invent a paid day ---- */
 {
   ok("the rest-day list exists", /path === "\/rest-day-work" && method === "GET"/.test(staff));

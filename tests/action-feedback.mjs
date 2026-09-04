@@ -225,6 +225,10 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     /* v1.90.2 — the apply button used to `return` in silence on a blank end
        date; a staff member pressed Submit and nothing happened. */
     ["applying for leave", page, /showLeaveToast\(\s*\n?\s*L\("Leave requested"/],
+    /* v1.92.0 — targets save from one button, and say how many. */
+    ["saving the targets grid", page, /const saveTargets = async[\s\S]{0,1500}?showToast\(L\("Saved", "Disimpan"\), `\$\{list\.length\}/],
+    ["a targets save that partly failed says which", page, /showToast\(L\("Partly saved", "Disimpan sebahagian"\)/],
+    ["no field on the targets grid saves itself on blur any more", page, !/void saveTarget\("user"|void saveTarget\("team"/.test(page) ? /./ : /(?!)/],
     /* v1.91.0 — the unscheduled-work card's editor on the roster. */
     ["updating a task from the roster rail", roster, /showToast\(status \? L\("Task completed", "Tugasan selesai"\) : L\("Task updated"/],
     ["a task update the server refused", roster, /const saveUnsched = async[\s\S]{0,1200}?if \(!r\.ok\) \{\s*\n?\s*showToast\(L\("Not saved"/],

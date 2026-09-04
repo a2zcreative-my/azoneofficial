@@ -13,6 +13,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { givenNames } from "@/lib/names";
 
 const api = makeApi("/staff");
 /* EN/BM at the display point only — getLang() re-reads per call, and the
@@ -137,7 +138,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold">{s.client ?? s.platform}</span>
-                    <span className="text-muted-foreground block truncate text-xs">{s.host_name.split(" ").slice(0, 2).join(" ")}</span>
+                    <span className="text-muted-foreground block truncate text-xs">{givenNames(s.host_name)}</span>
                   </span>
                   {chipFor(s)}
                 </div>
@@ -158,7 +159,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
                       <span className="bg-brand mr-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" aria-hidden>
                         {s.host_name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
                       </span>
-                      {s.host_name.split(" ")[0]}
+                      {givenNames(s.host_name)}
                     </td>
                     <td className={td}><span className={chipNeutral}>{s.client ?? s.platform}</span></td>
                     <td className={`${td} tabular-nums whitespace-nowrap`}>{s.start_time}{s.end_time ? `–${s.end_time}` : ""}</td>

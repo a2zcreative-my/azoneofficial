@@ -2,6 +2,36 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.92.0] — 2026-09-04 — four screens, each asked for by name
+
+### Targets: this month's people, and a Save button
+
+**CEO:** *"Per-person targets (RM) should not listed the staff that in active! and it should have a save button."*
+
+The grid listed everyone whose account was active, so a person who resigned on the 31st was still offered a September target. A target is for a month, so the worker now lists the people employed in **that** month — the same `payrollMonthStaffSql` predicate payroll uses, so the two screens name the same people — in company order.
+
+Every box used to save itself on blur, which is a form nobody can review before it commits. Each box is a draft now; the ones that differ from what is stored are ringed amber, and one **Save targets (n)** button writes exactly those, then reports — *3 target(s) set for September 2026*, or *Partly saved* naming the ones the server refused. A blank box is not a change: nothing here removes a target.
+
+### Assignments today: the given name, whole
+
+**CEO:** *"I should be able to see their first and middle name so that I can know."* The card printed the first word — "NUR" three times for one host. `givenNames()` in `lib/names.ts` takes every word before *bin / binti / a/l / a/p*, or the first two words when there is no connector: Nur Nasuha, Mohd Alif Farhan, Nurul Fasehah. The phone rows and the desktop table both use it.
+
+### Staff: a row of faces
+
+**CEO:** *"for Staff tabs content I want the table change to circle avatar which is minimalist the interface so that I can clickable to the staff bubbles circle like an animation."*
+
+A closed record is a circle now — the photo when one is on file, initials on the brand colour when not, the given name under it, the role under that — in a wrapping row, popping in one after another (and standing still under reduced-motion). Press a face and the record opens below the row, one at a time; press it again and it closes. A leaver keeps a red ring and their last day, because the Staff tab is the one place they are still listed (v1.87.0). Printing badges for several people needs a selection, so **Select for printing** turns the row into a picker — a face ticks instead of opening, and each face says which mode it is in (`aria-pressed`). Sort by rank or name is unchanged; the skeleton is the same circles.
+
+### Leave: the CEO's own half first
+
+**CEO:** *"Leave entitlement and Leave — whole company should be in the minimalist interface and below of the table mine eligible leave and Apply for leave."*
+
+The entitlement editor sat **above** the CEO's own balances and form — a table for the whole company before the four boxes he came to use. Both management areas now sit below the personal half, behind one chooser — *Leave — whole company* with a badge of how many are in progress, and *Leave entitlement* — one open at a time, the board first because it is the one with things waiting. Nothing inside either changed.
+
+### Guards
+
+staff-order +3 (the targets card sorts by the comparator; the route is month-scoped; the month is validated before the splice), action-feedback +3 (the targets save reports, a partial save names the failures, no box saves on blur any more), clickable-data +3 (a face opens its record, a closed record draws only its face, a face says its mode). Negative-tested by dropping the month predicate, restoring a blur save, and making a face tick instead of open.
+
 ## [1.91.0] — 2026-09-04 — three doors the CEO asked for
 
 ### Attendance corrections open to the HR tier

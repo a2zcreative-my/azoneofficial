@@ -28,7 +28,7 @@ const apiRoot = makeApi("");
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { esc, safeUrl } from "@/lib/escape-html";
 import { dmy } from "@/lib/format";
-import { properName, displayName } from "@/lib/names";
+import { properName, displayName, givenNames } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -414,6 +414,67 @@ const ROLE_MS: Record<string, string> = {
   hr_admin: "admin HR", sales_marketing: "jualan & pemasaran",
 };
 
+/**
+ * v1.92.0 — THE DIRECTORY IS A ROW OF FACES. CEO, 04-09-2026: *"for Staff
+ * tabs content I want the table change to circle avatar which is minimalist
+ * the interface so that I can clickable to the staff bubbles circle like an
+ * animation."*
+ *
+ * The list drew one full-width card per person, closed — six rows of
+ * checkbox · name · role · id before the first record could be opened, and
+ * the record itself (the form, the badge, the vault, the exit) is what the
+ * tab is for. A closed record is now a circle: the photo when one is on
+ * file, initials on the brand colour when not, the given name under it,
+ * the role under that. Press one and the record opens below the row — one
+ * at a time, because two open records was never a thing anybody did on
+ * purpose. A leaver keeps a red ring and their last day, because the Staff
+ * tab is the one place they are still listed (v1.87.0).
+ *
+ * Printing badges for several people needs a selection, so a Select toggle
+ * turns the row into a picker: pressing a circle ticks it instead of
+ * opening it. The mode is visible on every circle so nobody presses a face
+ * expecting one thing and getting the other.
+ *
+ * Module scope, per guard #30.
+ */
+function StaffBubble({ u, open, selectMode, selected, delayMs, onPress }: {
+  u: Staff; open: boolean; selectMode: boolean; selected: boolean; delayMs: number; onPress: () => void;
+}) {
+  const lang = getLang();
+  const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
+  const gone = ["resigned", "terminated"].includes(u.employment_status ?? "");
+  const initials = displayName(u).split(" ").filter((w) => !/^(bin|binti|bt\.?|b\.|a\/l|a\/p)$/i.test(w)).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
+  const photo = u.photo_key ? `/api/v1/media/file/${encodeURIComponent(u.photo_key)}` : "";
+  const ring = selectMode
+    ? selected ? "ring-primary ring-4" : "ring-border ring-2"
+    : open ? "ring-primary ring-4 scale-105" : gone ? "ring-danger ring-2" : "ring-transparent ring-2";
+  return (
+    <button type="button"
+      className="sd-bubble group flex w-[88px] shrink-0 flex-col items-center gap-1.5 text-center"
+      style={{ animationDelay: `${delayMs}ms` }}
+      aria-pressed={selectMode ? selected : open}
+      title={selectMode
+        ? (selected ? L("Ticked for badge printing — press to untick", "Ditanda untuk cetakan lencana — tekan untuk nyahtanda") : L("Press to tick for badge printing", "Tekan untuk tanda bagi cetakan lencana"))
+        : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
+      onClick={onPress}>
+      <span className={`relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : "bg-brand text-white"}`}>
+        {photo
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={photo} alt="" className="h-full w-full object-cover" />
+          : <span className="text-lg font-bold">{initials}</span>}
+        {selectMode && selected && (
+          <span className="bg-primary text-primary-foreground absolute right-0 bottom-0 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold" aria-hidden>✓</span>
+        )}
+      </span>
+      <span className="block w-full truncate text-xs leading-tight font-medium">{givenNames(displayName(u))}</span>
+      <span className="text-muted-foreground block w-full truncate text-[10px] leading-tight">
+        {gone ? <span className="text-danger font-medium">{L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}</span>
+              : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
+      </span>
+    </button>
+  );
+}
+
 export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
@@ -426,6 +487,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   // v1.4.74 minimalist view: records are COLLAPSED by default — one line each.
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
+  /* v1.92.0 — pressing a circle opens the record, or ticks it for printing. */
+  const [selectMode, setSelectMode] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
 
@@ -724,12 +787,26 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         </button>
         <button
           type="button"
-          className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs hover:bg-secondary"
-          onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
+          className={`inline-flex h-8 items-center rounded-lg border px-3 text-xs ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"}`}
+          aria-pressed={selectMode}
+          onClick={() => { setSelectMode((m) => !m); if (selectMode) setSelected(new Set()); }}
         >
-          {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}
+          {selectMode ? L("Done selecting", "Selesai memilih") : L("Select for printing", "Pilih untuk cetakan")}
         </button>
-        <span className="text-muted-foreground text-xs">{L("Individual printing stays on each record.", "Cetakan individu kekal pada setiap rekod.")}</span>
+        {selectMode && (
+          <button
+            type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs hover:bg-secondary"
+            onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
+          >
+            {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}
+          </button>
+        )}
+        <span className="text-muted-foreground text-xs">
+          {selectMode
+            ? L("Press a face to tick it.", "Tekan wajah untuk menandanya.")
+            : L("Press a face to open the record.", "Tekan wajah untuk buka rekod.")}
+        </span>
         <select
           className="border-input bg-background ml-auto h-8 rounded-lg border px-2 text-xs"
           value={sortBy}
@@ -748,27 +825,46 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       {/* v1.77.0 — skeleton until the first fetch lands: five collapsed
           record cards (checkbox · name · role, chevron on the right), the
           exact row each staff member renders as below. */}
-      {!loaded && Array.from({ length: 5 }, (_, i) => (
-        <div key={`skel-${i}`} className={card} aria-hidden>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <Skel className="h-4 w-4 rounded" />
-              <Skel className="h-4 w-36" />
-              <Skel className="h-3 w-20" />
-            </span>
-            <Skel className="h-7 w-7 rounded-lg" />
+      <style>{`@keyframes sd-pop { from { opacity: 0; transform: translateY(6px) scale(.9) } to { opacity: 1; transform: none } }
+        .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both }
+        @media (prefers-reduced-motion: reduce) { .sd-bubble { animation: none } }`}</style>
+      {/* v1.92.0 — the row of faces. Skeleton: the same circles. */}
+      <div className="flex flex-wrap gap-x-2 gap-y-4 py-2">
+        {!loaded && Array.from({ length: 8 }, (_, i) => (
+          <div key={`skel-${i}`} className="flex w-[88px] flex-col items-center gap-1.5" aria-hidden>
+            <Skel className="h-16 w-16 rounded-full" />
+            <Skel className="h-3 w-14" />
+            <Skel className="h-2.5 w-10" />
           </div>
-        </div>
-      ))}
+        ))}
+        {loaded && (sortBy === "rank"
+          ? staff
+          : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
+        ).map((u, i) => (
+          <StaffBubble key={u.id} u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 35}
+            onPress={() => {
+              if (selectMode) { toggleSelect(u.id); return; }
+              /* one record open at a time; pressing the open one closes it */
+              setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])));
+            }} />
+        ))}
+        {loaded && staff.length === 0 && !loadError && (
+          <p className="text-muted-foreground text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
+        )}
+      </div>
       {(sortBy === "rank"
         ? staff
         : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
       ).map((u) => {
         const merged = { ...u, ...draft[u.id] } as Staff;
+        /* v1.92.0 — a closed record is its circle above; only an open one
+           draws the card. */
+        if (!open.has(u.id)) return null;
         return (
           <div key={u.id} className={card}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-sm font-medium">
+                {selectMode && (
                 <input
                   type="checkbox"
                   className="h-4 w-4 accent-[#1a2946]"
@@ -776,6 +872,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                   onChange={() => toggleSelect(u.id)}
                   title={L("Select for multi-badge printing", "Pilih untuk cetakan berbilang lencana")}
                 />
+                )}
                 {/* v1.4.256: the staff member's name opens the record — the
                     same affordance as every other list. That also frees a slot
                     in this row, which v1.4.209 had to teach to wrap because it

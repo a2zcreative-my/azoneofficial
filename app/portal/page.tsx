@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { properName, firstName } from "@/lib/names";
+import { bySeniority } from "@/lib/staff-order"; // v1.92.0 - targets in company order
 import {
   ALL_TABS,
   SALES_ROLES,
@@ -5977,6 +5978,8 @@ function Leave({ user }: { user: User }) {
      if necessary or to remove if require. filter by month") — the decided
      list was five lines of plain text with no way to reach any of them. */
   const [leaveMonth, setLeaveMonth] = useState("");
+  /* v1.92.0 — which management area is open below the personal half. */
+  const [mgmt, setMgmt] = useState<"" | "company" | "entitlement">("company");
   /* v1.91.0 — which company-board row is open. */
   const [openAll, setOpenAll] = useState<number | null>(null);
   const [editLeave, setEditLeave] = useState<{
@@ -6170,13 +6173,14 @@ function Leave({ user }: { user: User }) {
      `leave_entitlement` permission exactly; the API refuses anyone else
      regardless of what the client renders. */
   const canSetEntitlement = ["ceo", "super_admin"].includes(user.role);
+  /* the badge on the chooser: how many applications are still in progress */
+  const mgmtPending = all.filter((l) => !["approved", "rejected", "cancelled"].includes(l.stage ?? l.status)).length;
 
   return (
     <div className="space-y-4 md:space-y-6">
       {overrideConfirmNode}
       {removeLeaveNode}
       {leaveToastNode}
-      {canSetEntitlement && <LeaveEntitlement />}
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
           type in the same grid, so the row is the same height either way. */}
       {!loaded && (
@@ -6417,7 +6421,39 @@ function Leave({ user }: { user: User }) {
           it renders nothing for anyone else. */}
       <RestDayCreditCard role={user.role} />
 
-      {canApprove &&
+      {/* v1.92.0 — CEO, 04-09-2026: *"Leave entitlement and Leave — whole
+          company should be in the minimalist interface and below of the
+          table mine eligible leave and Apply for leave."* The entitlement
+          editor used to sit ABOVE the CEO's own balances and form — a table
+          for the whole company before the four boxes he came to use. Both
+          management areas now sit below, behind one chooser, one open at a
+          time: the board first, because it is the one with things waiting. */}
+      {(canApprove || canSetEntitlement) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {canApprove && (
+            <button type="button" aria-pressed={mgmt === "company"}
+              className={mgmt === "company"
+                ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
+                : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+              onClick={() => setMgmt(mgmt === "company" ? "" : "company")}>
+              {L("Leave — whole company", "Cuti — seluruh syarikat")}
+              {mgmtPending > 0 && <span className="bg-bear ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{mgmtPending}</span>}
+            </button>
+          )}
+          {canSetEntitlement && (
+            <button type="button" aria-pressed={mgmt === "entitlement"}
+              className={mgmt === "entitlement"
+                ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
+                : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+              onClick={() => setMgmt(mgmt === "entitlement" ? "" : "entitlement")}>
+              {L("Leave entitlement", "Kelayakan cuti")}
+            </button>
+          )}
+        </div>
+      )}
+      {canSetEntitlement && mgmt === "entitlement" && <LeaveEntitlement />}
+
+      {canApprove && mgmt === "company" &&
         (() => {
           /* v1.21.0 — the whole approval chain sees the whole board. */
           const TERMINAL = ["approved", "rejected", "cancelled"];
@@ -12313,10 +12349,17 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
     .toISOString()
     .slice(0, 7);
   const [staff, setStaff] = useState<
-    { id: number; name: string; role: string }[]
+    { id: number; name: string; role: string; position?: string | null; employment_status?: string | null }[]
   >([]);
   const [userTargets, setUserTargets] = useState<Record<number, number>>({});
   const [teamTargets, setTeamTargets] = useState<Record<string, number>>({});
+  /* v1.92.0 (CEO: "it should have a save button") — what is typed, kept
+     apart from what is stored. A field used to save itself on blur, which
+     is a form nobody can review before it commits; now every box is a draft
+     and one button writes the ones that changed. */
+  const [draftU, setDraftU] = useState<Record<number, string>>({});
+  const [draftT, setDraftT] = useState<Record<string, string>>({});
+  const [savingT, setSavingT] = useState(false);
   const [rules, setRules] = useState<CommRule[] | null>(null);
   const [draft, setDraft] = useState({
     name: "",
@@ -12337,17 +12380,13 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
       team_targets: { team: string; target_cents: number }[];
     }>(`/staff/targets?month=${month}`).then((r) => {
       if (r.ok && r.data) {
-        setStaff(r.data.staff);
-        setUserTargets(
-          Object.fromEntries(
-            r.data.user_targets.map((t) => [t.user_id, t.target_cents])
-          )
-        );
-        setTeamTargets(
-          Object.fromEntries(
-            r.data.team_targets.map((t) => [t.team, t.target_cents])
-          )
-        );
+        setStaff([...r.data.staff].sort(bySeniority));
+        const u = Object.fromEntries(r.data.user_targets.map((t) => [t.user_id, t.target_cents]));
+        const tt = Object.fromEntries(r.data.team_targets.map((t) => [t.team, t.target_cents]));
+        setUserTargets(u);
+        setTeamTargets(tt);
+        setDraftU(Object.fromEntries(Object.entries(u).map(([k, v]) => [k, String(v / 100)])));
+        setDraftT(Object.fromEntries(Object.entries(tt).map(([k, v]) => [k, String(v / 100)])));
       }
       setLoaded(true);
     });
@@ -12367,34 +12406,50 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
   useLiveRefresh(["targets"], loadTargets);
   useLiveRefresh(["commission"], loadRules);
 
-  const saveTarget = async (
-    scope: "user" | "team",
-    id: number | string,
-    rm: string
-  ) => {
-    const cents = Math.round(Number(rm) * 100);
-    if (!Number.isFinite(cents) || cents < 0) {
-      showToast(
-        L("No change", "Tiada perubahan"),
-        L("Enter an amount first", "Masukkan amaun dahulu"),
-        "notice"
-      );
+  /* The boxes whose draft differs from what is stored. An emptied box is
+     not a change: a target is set or raised here, and nothing here removes
+     one, so a blank stays whatever the server holds. */
+  const changed = (): { scope: "user" | "team"; id: number | string; cents: number; label: string }[] => {
+    const out: { scope: "user" | "team"; id: number | string; cents: number; label: string }[] = [];
+    for (const p of staff) {
+      const v = (draftU[p.id] ?? "").trim();
+      if (!v) continue;
+      const cents = Math.round(Number(v) * 100);
+      if (!Number.isFinite(cents) || cents < 0) continue;
+      if (cents !== (userTargets[p.id] ?? -1)) out.push({ scope: "user", id: p.id, cents, label: firstName(p.name) });
+    }
+    for (const team of ["sales", "live"]) {
+      const v = (draftT[team] ?? "").trim();
+      if (!v) continue;
+      const cents = Math.round(Number(v) * 100);
+      if (!Number.isFinite(cents) || cents < 0) continue;
+      if (cents !== (teamTargets[team] ?? -1)) out.push({ scope: "team", id: team, cents, label: team });
+    }
+    return out;
+  };
+  const pendingTargets = changed();
+  const saveTargets = async () => {
+    const list = changed();
+    if (list.length === 0) {
+      showToast(L("No change", "Tiada perubahan"), L("Nothing differs from what is saved", "Tiada yang berbeza daripada yang disimpan"), "notice");
       return;
     }
-    const res = await api(`/staff/targets`, {
-      method: "POST",
-      body: JSON.stringify({ scope, id, month, target_cents: cents }),
-    });
-    if (res.ok) {
-      showToast(
-        L("Saved", "Disimpan"),
-        L(
-          `Target set for ${ym(month)}`,
-          `Sasaran ditetapkan untuk ${ym(month)}`
-        )
-      );
-      loadTargets();
+    setSavingT(true);
+    const failed: string[] = [];
+    for (const c of list) {
+      const res = await api<{ error?: { message?: string } }>(`/staff/targets`, {
+        method: "POST",
+        body: JSON.stringify({ scope: c.scope, id: c.id, month, target_cents: c.cents }),
+      });
+      if (!res.ok) failed.push(`${c.label}${res.data?.error?.message ? ` (${res.data.error.message})` : ""}`);
     }
+    setSavingT(false);
+    if (failed.length) {
+      showToast(L("Partly saved", "Disimpan sebahagian"), `${L("Not saved", "Tidak disimpan")}: ${failed.join(", ")}`, "notice");
+    } else {
+      showToast(L("Saved", "Disimpan"), `${list.length} ${L("target(s) set for", "sasaran ditetapkan untuk")} ${ym(month)}`);
+    }
+    loadTargets();
   };
 
   return (
@@ -12444,17 +12499,10 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
                 type="number"
                 min={0}
                 step="100"
-                className={`${inputClass} h-8 text-xs`}
-                defaultValue={
-                  userTargets[s.id] != null
-                    ? (userTargets[s.id]! / 100).toString()
-                    : ""
-                }
+                className={`${inputClass} h-8 text-xs ${pendingTargets.some((c) => c.scope === "user" && c.id === s.id) ? "ring-warning ring-2" : ""}`}
+                value={draftU[s.id] ?? ""}
                 placeholder={L("e.g. 8000", "cth. 8000")}
-                onBlur={(e) => {
-                  if (e.target.value)
-                    void saveTarget("user", s.id, e.target.value);
-                }}
+                onChange={(e) => setDraftU((d) => ({ ...d, [s.id]: e.target.value }))}
               />
             </label>
           ))}
@@ -12488,21 +12536,24 @@ function TargetsCommissionCard({ bare }: { bare?: boolean } = {}) {
                 type="number"
                 min={0}
                 step="100"
-                className={`${inputClass} h-8 w-32 text-xs`}
-                defaultValue={
-                  teamTargets[team] != null
-                    ? (teamTargets[team]! / 100).toString()
-                    : ""
-                }
+                className={`${inputClass} h-8 w-32 text-xs ${pendingTargets.some((c) => c.scope === "team" && c.id === team) ? "ring-warning ring-2" : ""}`}
+                value={draftT[team] ?? ""}
                 placeholder={L("team goal", "sasaran pasukan")}
-                onBlur={(e) => {
-                  if (e.target.value)
-                    void saveTarget("team", team, e.target.value);
-                }}
+                onChange={(e) => setDraftT((d) => ({ ...d, [team]: e.target.value }))}
               />
               )}
             </label>
           ))}
+          {/* v1.92.0 — one button for every box above; it says how many
+              will be written, and the boxes that will be are ringed. */}
+          {loaded && (
+            <button type="button" className={btnClass} disabled={savingT || pendingTargets.length === 0}
+              onClick={() => void saveTargets()}>
+              {savingT ? <Skel className="inline-block h-3 w-16" /> : pendingTargets.length
+                ? `${L("Save targets", "Simpan sasaran")} (${pendingTargets.length})`
+                : L("Save targets", "Simpan sasaran")}
+            </button>
+          )}
         </div>
       </div>
 
