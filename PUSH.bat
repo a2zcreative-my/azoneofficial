@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 title ELFIA + PORTAL - deploy everything
 REM ============================================================
 REM  ONE FILE. DOUBLE-CLICK IT. IT PUTS EVERYTHING LIVE.
@@ -41,6 +41,7 @@ if exist "%~dp0wrangler.toml" set "STORE=%~dp0..\elfiaofficialstore"
 echo.
 echo   DEPLOY EVERYTHING
 echo   =================
+if /I "%~1"=="secrets" echo   ^(secrets mode: the Threads credentials will be asked for again^)
 echo   Portal: %PORTAL%
 echo   Store : %STORE%
 echo.
@@ -72,14 +73,44 @@ REM  kept saying "not set". This step runs inside worker\ so the target
 REM  cannot be wrong, asks Cloudflare which secrets the engine holds, and
 REM  prompts only for the ones missing. Nothing you paste is written to
 REM  any file or shown on screen - wrangler sends it straight to Cloudflare.
+REM  v1.95.1 - REPLACING a secret, not just setting a missing one.
+REM  Cloudflare returns secret NAMES, never values, so this step cannot tell
+REM  a good secret from a stale, wrong or rotated one - only that something
+REM  is stored under that name. It therefore prompts for what is MISSING and
+REM  skips what exists, which left no way to replace a secret after a
+REM  rotation. Run this file as:   PUSH.bat secrets
+REM  and it prompts for both regardless, before deploying as usual.
 echo   [2/7] Threads app credentials on the ENGINE...
 cd worker
-call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
-findstr /C:"THREADS_APP_ID" "%TEMP%\azone-secrets.txt" >nul
-if errorlevel 1 (call :asksecret THREADS_APP_ID) else (echo         THREADS_APP_ID is set.)
-findstr /C:"THREADS_APP_SECRET" "%TEMP%\azone-secrets.txt" >nul
-if errorlevel 1 (call :asksecret THREADS_APP_SECRET) else (echo         THREADS_APP_SECRET is set.)
-del "%TEMP%\azone-secrets.txt" >nul 2>&1
+if /I "%~1"=="secrets" (
+  echo         Replacing both - paste the CURRENT values from the Meta app
+  echo         ^(Use cases - Threads API - Customize - Settings^).
+  call :asksecret THREADS_APP_ID
+  call :asksecret THREADS_APP_SECRET
+) else (
+  call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+  set "TH_MISSING="
+  findstr /C:"THREADS_APP_ID" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 (set "TH_MISSING=1" & call :asksecret THREADS_APP_ID) else (echo         THREADS_APP_ID is set.)
+  findstr /C:"THREADS_APP_SECRET" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 (set "TH_MISSING=1" & call :asksecret THREADS_APP_SECRET) else (echo         THREADS_APP_SECRET is set.)
+  del "%TEMP%\azone-secrets.txt" >nul 2>&1
+  REM  v1.95.2 - THE OFFER, on a timer. Cloudflare returns secret NAMES and
+  REM  never values, so a secret that is set may still be stale, wrong, or
+  REM  one you have just rotated - and this file is double-clicked, so
+  REM  "run it with an argument" was no use. It asks once, waits five
+  REM  seconds, and carries on by itself if nobody answers. A deploy left
+  REM  running in another window still finishes on its own.
+  if "!TH_MISSING!"=="" (
+    choice /C YN /N /T 5 /D N /M "        Replace the Threads credentials now? [y/N] (continuing in 5s) "
+    if errorlevel 2 (
+      echo         Keeping the stored values.
+    ) else (
+      call :asksecret THREADS_APP_ID
+      call :asksecret THREADS_APP_SECRET
+    )
+  )
+)
 cd ..
 
 echo   [3/7] Installing what the build needs...

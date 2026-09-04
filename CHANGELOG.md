@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.95.2] — 2026-09-04 — the offer, on a timer
+
+**CEO:** *"update the PUSH.bat for me to re-insert the THREADS_APP_ID is set / THREADS_APP_SECRET is set 1 more time."*
+
+v1.95.1 added `PUSH.bat secrets` for exactly this, and it was the wrong shape: this file is **double-clicked**, so "run it with an argument" is a command line he does not open. The argument still works, but the ordinary run now offers it too.
+
+When both credentials are already stored, the step asks once — *"Replace the Threads credentials now? [y/N]"* — waits **five seconds**, and carries on by itself if nobody answers. Press Y and it prompts for both; press nothing and the deploy proceeds as it always did. A deploy left running in another window still finishes unattended, which is the property that made a plain prompt unacceptable here.
+
+It never asks twice in one run: if either credential was missing and has just been typed in, the offer is skipped.
+
+## [1.95.1] — 2026-09-04 — replacing a secret, not just setting a missing one
+
+**CEO**, on the deploy step that was supposed to help: *"THREADS_APP_ID is set. THREADS_APP_SECRET is set. why PUSH.bat already detected this??!"*
+
+Because they were set an hour earlier, in the previous run of the same step, and a Wrangler secret lives on the Worker permanently — every deploy after that finds it there. The step asks Cloudflare which secret **names** exist and prompts only for the missing ones. Cloudflare never returns a value, so nothing in that check can tell a good secret from a stale, wrong, or rotated one; it can only see that something is stored under that name.
+
+Skipping what exists is right — a deploy must not stop to re-ask for credentials it already has — but it left no way to put a NEW value in after rotating one, which is exactly what a leaked secret requires. So:
+
+```
+PUSH.bat secrets
+```
+
+prompts for both regardless, then deploys as usual. The ordinary run now says so in one line when it skips, instead of leaving the door closed and unmarked.
+
 ## [1.95.0] — 2026-09-04 — one order, on every list in the portal
 
 **CEO:** *"review all the tabs and ensure that the list is ascending by roles which is CEO, COO, CCO, admin, hr_admin, Sales and Marketing, Designer, Live Host."*
