@@ -2,6 +2,54 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.89.0] — 2026-09-04 — the Threads workspace, phase 1: connect and import
+
+**CEO**, after a walkthrough video of LazyThreads, a content tool for one social network: *"for Threads I want new tabs all in 1 tabs for the Threads with minimalist interface"*.
+
+Every screen in that video is built on the same two ingredients: the account's own post history and metrics pulled from the Threads API, and rules on top that turn the numbers into advice. This release is the first ingredient, because once the history and the numbers are in our own database every later phase is reading our own rows.
+
+### One tab, three sections
+
+A new **Threads** tab, after Content. It opens on a section chooser — the pattern the attendance card uses — with Overview, Library and Connection, and nothing else. Not the video's eleven analytics sub-tabs; most of those are a model's opinion dressed as a screen, and the ask was minimalist.
+
+**Overview** is the 30-day brief: followers, views, views per post and posts published, each against the 30 days before; the five posts that did best, each with its *× baseline*; and views by publishing hour in Malaysia time, which is where "publish around 1–3 PM" comes from without anyone guessing. Every tile with rows behind it opens them — Views opens the library sorted by views, Posts opens the last 30 days newest first — and the one tile without rows (followers is a number, not a list) stays a plain tile, per guard #31.
+
+**Library** is every post the account has ever published, imported from Threads. A chip row (all · last 30 days · ≥ 2× baseline · with media · text only), a month select, newest-or-most-viewed, a text search, and a CSV that holds exactly the rows on screen, because the worker filters and the export never re-filters. A row opens to the whole text and a link to the post on Threads.
+
+**Connection** is the account: who connected it and when, how many posts are in, how far an import has got, when the token runs out (amber inside ten days), and the three buttons that need a manager — Connect, Sync now, Disconnect.
+
+### "× baseline" is arithmetic, not opinion
+
+The video shows "17.7× above baseline" on a post and never says what baseline is. Here it is the median views of the thirty posts published before that one on the same account, computed by the worker over the whole history in order — so a post from March is judged against the account of March, not against the bigger audience of September. A post with fewer than five posts before it has no baseline and says so.
+
+### The token never leaves the worker
+
+Connecting is two browser redirects: a manager is sent to Meta with a state cookie, Meta sends them back with a code, and `worker/src/threads.ts` turns the code into a 60-day token that is written to `integration_tokens` — the shelf the TikTok Shop token already sits on — and read by nothing but the functions that call Threads. The routes select the account list column by column; none of them can name the token column. The redirect URI is derived from the request origin the same way the Google sign-in derives its own, so no domain enters a committed file and connect and callback always agree.
+
+The two secrets, `THREADS_APP_ID` and `THREADS_APP_SECRET`, go in with `wrangler secret put` and are listed in `wrangler.toml` with the others. Until they are set the tab says so and connects nothing. Each account you own is added as a Threads Tester on the Meta app — no App Review, no business verification, for accounts you own.
+
+### Work is a tick with a budget
+
+A first import of a large account is thousands of posts and one insights call per post, and a Worker invocation has a ceiling on subrequests. So a sync is a *tick*: it refreshes any token inside its last 35 days, fetches up to two pages of history, files today's follower count, and snapshots the posts with no snapshot for today — the last 30 days daily, older posts weekly, newest first — and stops when the budget is spent, recording where it got to. The 30-minute cron runs one tick for every account; the Sync button runs a bigger one for one account. "Nightly metrics" is therefore not a separate job that can fall over on its own; it is whatever the ticks get round to, and they get round to all of it. The budget defaults to 24 for the free Workers plan and is one plain var (`THREADS_TICK_BUDGET`) on a paid one.
+
+Snapshots are append-only, keyed by the day of capture, so views at day 1, day 7 and day 30 remain answerable later. The post row carries a denormalised copy of the newest one so the library sorts without a join.
+
+### What is deliberately not here yet
+
+Composing, scheduling and publishing (phase 2, v1.90.0); the rule-based "why this worked" and "today we recommend" cards (phase 3, v1.91.0); AI-assisted drafting on Workers AI (phase 4, the CEO's choice); and images, which need a public URL and are text-only until then. The Circle map — a per-person record of everyone who replied — is out of scope by decision, for the same reason OD-20a keeps shopper tracking anonymous.
+
+### Migration 0105 — four tables, triple bump
+
+`threads_accounts`, `threads_posts` (with trait columns computed at import so phase 3 is SQL over these columns and not a model with an opinion), `threads_post_metrics`, `threads_account_metrics`. `LATEST_MIGRATION`, `EXPECTED_MIGRATIONS` and a health probe on `threads_posts`. Migration-safety, sql-schema-check (822 queries verified, threads.ts now in its list) and registry-parity all green.
+
+### Guards
+
+**Guard #33, `tests/threads-guard.mjs`** — 45 checks, every one negative-tested: no route names the token column and the only route statement on `integration_tokens` is the disconnect DELETE; the secret is read in one file; sync, disconnect and relabel are audited and gated on `threads_manage`, which is a subset of `threads_view`; the OAuth pair derives the same URI and names no domain; each tick helper pays for every Graph call it makes and both loops stop at the budget; snapshots are never deleted and disconnecting keeps the posts; the door in `staff.ts` is there and hands over the query string; the CSV reads the same rows as the table; the followers tile makes no promise; every mutation reports; no loading state is spelled out.
+
+**`tests/api-routes.mjs`** learned the second door: `/threads/` in `staff.ts` is excluded like the `/staff/` door and the routes are read from `threads.ts` with their own base, so a path the module never answers still fails. Negative-tested with a misspelt `/sumary`.
+
+Permissions `threads_view` and `threads_manage` in `worker/src/permissions.ts`; the tab in `lib/portal-tabs.ts`, the worker access list, the icon map (AtSign — a handle is what an account is) and the i18n dictionary, and registry-parity confirms all four agree.
+
 ## [1.88.2] — 2026-09-03 — one shell, one width
 
 **CEO:** *"on /admin the UI/UX should same width as /portal. same goes to other. everything must follow like /portal UI/UX"*

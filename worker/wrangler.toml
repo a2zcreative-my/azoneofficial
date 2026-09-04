@@ -70,6 +70,11 @@ GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleu
 # is an public identifier — it travels in query strings on every API call — so
 # it lives here; the app SECRET never does.
 TIKTOK_APP_KEY     = "6kraboau1veif"
+# v1.89.0 — optional: how many subrequests one Threads sync tick may spend.
+# Unset = 24, sized for the free Workers plan (50 per invocation, D1 calls
+# included). On a paid plan set it to 200 and a first import finishes in a
+# few ticks instead of a day.
+# THREADS_TICK_BUDGET = "24"
 #
 # Secrets (set via `wrangler secret put <NAME>`, never commit):
 #   SESSION_PEPPER          — random 32+ chars mixed into password hashing
@@ -87,6 +92,9 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 #   VAPID_PRIVATE_KEY         silently off while any of the three is unset
 #   VAPID_SUBJECT           — mailto: contact for the push service
 #   NOTIFY_WEBHOOK          — optional; relays every notification as JSON
+#   THREADS_APP_ID          — v1.89.0: the Meta app behind the Threads tab
+#   THREADS_APP_SECRET        (both secrets; unset = the tab says so and
+#                             connects nothing)
 # (v1.35.0: this list was missing the last five — every secret the code
 #  reads is now on the record here, the one place people look.)
 

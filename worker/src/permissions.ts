@@ -61,6 +61,13 @@ export const PERMS: Record<string, readonly Role[]> = {
   adsfund_claim: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
   purchasing_manage: ["super_admin", "admin", "ceo", "coo"],
   accounting_manage: ["super_admin", "admin", "ceo"],
+
+  // === threads.ts (v1.89.0 — the Threads workspace). The client's
+  // TAB_ROLES.Threads mirrors threads_view. Connecting, syncing and
+  // disconnecting an account is handling a credential, so it sits with the
+  // management tier that authorises TikTok Shop.
+  threads_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor"],
+  threads_manage: ["super_admin", "admin", "ceo", "coo"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

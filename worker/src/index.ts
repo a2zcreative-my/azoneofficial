@@ -10,6 +10,7 @@ import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, 
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
+import { threadsAuthUrl, threadsCompleteAuth, threadsConfigured, threadsTick } from "./threads";
 
 /**
  * A2Z CREATIVE MARKETING — Admin/API Worker (Phase 3, v0)
@@ -52,6 +53,14 @@ export interface Env {
   /** TikTok Shop Partner Center app credentials (v1.4.44). */
   TIKTOK_APP_KEY?: string;
   TIKTOK_APP_SECRET?: string;
+  /** v1.89.0 — the Meta app behind the Threads workspace. Both are secrets
+      (`wrangler secret put`); unset = the Threads tab says so and connects
+      nothing. THREADS_TICK_BUDGET is an optional plain var: how many
+      subrequests one sync tick may spend (default 24, sized for the free
+      Workers plan — raise it on a paid one). */
+  THREADS_APP_ID?: string;
+  THREADS_APP_SECRET?: string;
+  THREADS_TICK_BUDGET?: string;
   /** Web-push (v1.6.0) — generate with `npx web-push generate-vapid-keys`.
       PUBLIC is safe to expose (the browser needs it to subscribe); PRIVATE
       and SUBJECT (a mailto: or https: contact) are secrets. All optional:
@@ -265,7 +274,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0104_payslip_employer";
+const LATEST_MIGRATION = "0105_threads";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1937,6 +1946,16 @@ export default {
     if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
       await logError(env, "tiktok_cron", res.message);
     }
+    /* v1.89.0 — one tick of Threads work: tokens due for refresh, history
+       pages still to import, posts with no snapshot for today. Budgeted, so
+       it can never eat the invocation; caught, so it can never take the
+       low-stock sweep below down with it. */
+    try {
+      const t = await threadsTick(env);
+      if (t.errors.length) await logError(env, "threads_cron", t.errors.slice(0, 3).join(" | "));
+    } catch (e) {
+      await logError(env, "threads_cron", e instanceof Error ? e.message : String(e));
+    }
     /* v1.4.191 LOW-STOCK SWEEP (CEO gap list): after every sync, alert on
        items at ≤5 units — protects lives from selling out mid-stream. The
        low_alerted column stops repeats; recovery above 5 resets it. Covers
@@ -2988,6 +3007,61 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ).bind(rawStatus.includes("delivered") || rawStatus.includes("complete") ? "delivered" : rawStatus.includes("ship") ? "shipped" : "preparing", existing.id).run();
     }
     return json({ ok: true, status: rawStatus });
+  }
+
+  /* ---- Threads account connection (v1.89.0) ----
+     Two browser redirects, not API calls: /connect sends a signed-in manager
+     to Meta with a state cookie, Meta sends them back to /callback with a
+     code, and threads.ts turns the code into a long-lived token that never
+     leaves the Worker. Both sides derive the redirect URI the same way the
+     Google sign-in does — from the request origin, never a literal — so the
+     pair always agrees and no domain enters this file. */
+  if (path === "/api/v1/integrations/threads/connect" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !can(me.role, "threads_manage")) {
+      return errorResponse("forbidden", "Management sign-in required", 403);
+    }
+    if (!threadsConfigured(env)) {
+      return errorResponse("not_configured", "Threads app credentials are not set", 503);
+    }
+    const u = new URL(request.url);
+    const origin = `${u.protocol}//${u.host}`;
+    const base = allowedOrigins(env).includes(origin) ? origin : primaryOrigin(env);
+    const state = randomHex(16);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: threadsAuthUrl(env, `${base}/api/v1/integrations/threads/callback`, state),
+        "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+      },
+    });
+  }
+  if (path === "/api/v1/integrations/threads/callback" && method === "GET") {
+    const me = await getSessionUser(request, env);
+    if (!me || !can(me.role, "threads_manage")) {
+      return errorResponse("forbidden", "Management sign-in required", 403);
+    }
+    const u = new URL(request.url);
+    const code = u.searchParams.get("code");
+    const state = u.searchParams.get("state");
+    const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
+    const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+    const page = (title: string, line: string) => new Response(
+      `<!doctype html><meta charset="utf-8"><body style="font-family:Arial;padding:40px">
+       <h2>${title}</h2><p>${line}</p><p><a href="/portal">Back to the staff portal</a></p></body>`,
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Set-Cookie": clearState } },
+    );
+    if (!code || !state || !cookieState || state !== cookieState) {
+      return page("Threads was not connected", "The sign-in did not come back the way it left. Open the Threads tab and press Connect again.");
+    }
+    const origin = `${u.protocol}//${u.host}`;
+    const base = allowedOrigins(env).includes(origin) ? origin : primaryOrigin(env);
+    const done = await threadsCompleteAuth(env, code, `${base}/api/v1/integrations/threads/callback`, me.id);
+    if (!done.ok) {
+      await logError(env, "threads_connect", done.reason, path);
+      return page("Threads was not connected", done.reason);
+    }
+    return page("Threads connected", `@${done.username} is connected. The history import has started and continues in the background; the Threads tab shows its progress.`);
   }
 
   /* ---- TikTok seller authorization callback (v1.4.44) ----
@@ -4295,6 +4369,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0101 (a rest day worked, credited as leave)", `SELECT work_date, days FROM replacement_credits LIMIT 1`],
       ["0102 (a working day in two blocks)", `SELECT mon_start2, fri_end2 FROM shift_patterns LIMIT 1`],
       ["0103 (an unpaid break comes off the day)", `SELECT break_minutes FROM shift_patterns LIMIT 1`],
+      ["0105 (the Threads workspace)", `SELECT media_id, char_count FROM threads_posts LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4418,6 +4493,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0102_split_shifts",
       "0103_unpaid_break",
       "0104_payslip_employer",
+      "0105_threads",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

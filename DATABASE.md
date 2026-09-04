@@ -331,3 +331,20 @@ badge grid.
 | Version | Change |
 |---|---|
 | v1.4.51 | 0022 — ic_number. |
+
+## v1.89.0 — migration 0105_threads.sql
+The Threads workspace, phase 1. threads_accounts (one row per connected
+Threads account: username, who connected it, token expiry, import cursor and
+state — the token itself lives in integration_tokens under provider
+threads:<user id>), threads_posts (every post the account has published,
+imported from the Threads API, with trait columns computed at import:
+char_count, number/question hook, CTA, media, language guess, plus a
+denormalised copy of the newest metrics), threads_post_metrics (a daily,
+append-only snapshot per post: views, likes, replies, reposts, quotes,
+shares, keyed by post and day) and threads_account_metrics (followers per
+day). Nothing here is written by a person; drafts and publishing arrive in
+0106.
+
+| Version | Change |
+|---|---|
+| v1.89.0 | 0105 — four Threads tables; the token stays in integration_tokens. |

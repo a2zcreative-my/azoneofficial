@@ -5,6 +5,7 @@
 
 import type { Env } from "./index";
 import { handleErp } from "./erp";
+import { handleThreads } from "./threads";
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
@@ -1345,6 +1346,12 @@ export async function handleStaff(
      commission, ads fund, purchasing, accounting — see erp.ts ---- */
   if (path.startsWith("/erp/")) {
     return handleErp(env, path.slice("/erp".length), method, body, user);
+  }
+
+  /* ---- Threads workspace (v1.89.0) — see threads.ts. A door, not a
+     route: tests/api-routes.mjs reads threads.ts for what lies behind it. ---- */
+  if (path === "/threads" || path.startsWith("/threads/")) {
+    return handleThreads(env, path.slice("/threads".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- me / profile ---- */
@@ -4605,7 +4612,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
+  const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Threads", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   if (path === "/tabs/access" && method === "GET") {

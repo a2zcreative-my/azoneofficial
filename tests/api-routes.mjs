@@ -65,6 +65,10 @@ const routesOf = (src, base) => {
        the offboard 404 through in the first draft. Staff paths are checked
        against staff.ts and nowhere else. */
     if (m[1] === "/api/v1/staff/") continue;
+    /* v1.89.0: the same door, one level down. staff.ts hands everything
+       under /threads/ to threads.ts; the routes are read from THAT file with
+       its own base, below, so a path the module never answers still fails. */
+    if (m[1] === "/threads/") continue;
     patterns.push(new RegExp(`^${esc(base + m[1])}`));
   }
   /* /^\/inventory\/(\d+)\/adjust$/ and friends — anchored path regexes. */
@@ -79,13 +83,17 @@ const index = read("worker/src/index.ts");
 const staffSrc = read("worker/src/staff.ts");
 const rootRoutes = routesOf(index, "");
 const staffRoutes = routesOf(staffSrc, "/api/v1/staff");
+const threadsRoutes = routesOf(read("worker/src/threads.ts"), "/api/v1/staff/threads");
 
 ok("the worker's own routes were found", rootRoutes.exact.size > 30,
    `${rootRoutes.exact.size} exact routes in index.ts — if this collapses, every check below passes vacuously`);
 ok("the staff portal's routes were found", staffRoutes.exact.size > 50,
    `${staffRoutes.exact.size} exact routes in staff.ts`);
 
-const served = (full) => rootRoutes.serves(full) || staffRoutes.serves(full);
+ok("the Threads module's routes were found", threadsRoutes.exact.size >= 3,
+   `${threadsRoutes.exact.size} exact routes in threads.ts — the door in staff.ts is excluded on purpose, so these must be seen here`);
+
+const served = (full) => rootRoutes.serves(full) || staffRoutes.serves(full) || threadsRoutes.serves(full);
 
 /* ------------------------------------------------------------------ *
  * 2. What the client sends.

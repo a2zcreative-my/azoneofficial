@@ -48,6 +48,7 @@ export const ALL_TABS = [
   "Finance",
   "Tasks",
   "Content",
+  "Threads",
   "Reconciliation",
   "Commission",
   "Ads Fund",
@@ -127,6 +128,10 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
   Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
+  /* v1.89.0 — the Threads workspace. Mirrors threads_view in
+     worker/src/permissions.ts; connecting an account is threads_manage
+     (management tier) and is gated inside the tab, not here. */
+  Threads: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
   /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
      worker matrix is the one actually enforced. */
@@ -187,6 +192,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Payroll: { en: "salaries — keep tight", ms: "gaji — kawal ketat" },
   Finance: { en: "cash flow + P&L", ms: "aliran tunai + P&L" },
   Content: { en: "production pipeline", ms: "saluran produksi" },
+  Threads: { en: "posts + insights", ms: "hantaran + analisis" },
   Reconciliation: { en: "channel settlements", ms: "penyelesaian saluran" },
   Purchasing: { en: "suppliers + POs", ms: "pembekal + PO" },
   Accounting: { en: "GL — keep tight", ms: "GL — kawal ketat" },

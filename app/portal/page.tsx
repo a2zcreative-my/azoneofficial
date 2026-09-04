@@ -55,6 +55,7 @@ import { ConnectionStatusCard } from "@/components/portal/connection-status-card
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AssetsPanel } from "@/components/portal/assets-panel";
+import { ThreadsPanel } from "@/components/portal/threads-panel";
 import { VerificationCard } from "@/components/portal/verification-card"; // v1.84.0 - the month, reconciled
 import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
@@ -13999,6 +14000,7 @@ export default function PortalPage() {
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
           {activeTab === "Assets" && <AssetsPanel />}
+          {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Users" && (
             <div className="space-y-4 md:space-y-6">
               {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}

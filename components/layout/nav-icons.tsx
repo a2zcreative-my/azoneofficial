@@ -22,7 +22,7 @@
  */
 
 import {
-  Banknote, Cake, CalendarClock, Clapperboard, ClipboardList, FileText,
+  AtSign, Banknote, Cake, CalendarClock, Clapperboard, ClipboardList, FileText,
   Globe, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
@@ -53,6 +53,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Stokis: Store,
   Ecommerce: ShoppingCart,
   Assets: Video,
+  Threads: AtSign, // v1.89.0: the Threads workspace — a handle is what an account is; unused on every rail.
   Birthdays: Cake,
   Profile: UserRound,
   Users: ShieldCheck,
