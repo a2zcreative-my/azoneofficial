@@ -105,6 +105,38 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
   })(), "a role that can connect an account must at least be able to see the tab");
 }
 
+/* ---- 3b. v1.94.0: the authorise host, and clean credentials ----
+   (negative-tested by pointing AUTH_URL back at threads.net and by dropping
+   the trims) */
+{
+  ok("the browser is sent straight to the host that serves the page",
+     /const AUTH_URL = "https:\/\/www\.threads\.com\/oauth\/authorize";/.test(threads),
+     "threads.net forwards to threads.com, and a forward is where a query string goes to die - the authorise page then sees no client_id and answers with an error that names nothing");
+  ok("every credential is trimmed at the point it is read",
+     /export const threadsAppId = \(env: Env\)[^=]*=> \(env\.THREADS_APP_ID \?\? ""\)\.trim\(\);/.test(threads)
+     && /export const threadsAppSecret = \(env: Env\)[^=]*=> \(env\.THREADS_APP_SECRET \?\? ""\)\.trim\(\);/.test(threads),
+     "a pasted secret very often carries a trailing newline, and client_id=1234%0A is not an app id");
+  ok("nothing reads the raw env value except the trims and the setup report",
+     [...threads.matchAll(/env\.THREADS_APP_(?:ID|SECRET)/g)].length === 4,
+     "one place to trim is one place to get it wrong");
+  /* Scoped to the REPORT, because the token exchange legitimately sends the
+     secret to Meta a few lines away — a file-wide ban would have failed on
+     the one place that is supposed to use it. */
+  {
+    const i = threads.indexOf("export function threadsSetupReport(");
+    /* The whole function, header AND body: `\n}` first closes the RETURN
+       TYPE object, which is 190 characters in and would have made this
+       check pass on nothing. */
+    const report = i < 0 ? "" : threads.slice(i, i + 1200);
+    ok("the setup report says whether the secret is set, never what it is",
+       report.length > 200 && /secret_set: Boolean\(rawSecret\.trim\(\)\)/.test(report)
+       && !/secret: rawSecret|client_secret/.test(report),
+       "a diagnostic that prints the value it is diagnosing is a leak with a helpful label");
+  }
+  ok("the report lives with the secret, not at the route",
+     /export function threadsSetupReport\(env: Env\)/.test(threads) && /\.\.\.threadsSetupReport\(env\)/.test(index));
+}
+
 /* ---- 4. the OAuth pair agrees with itself and names no domain ----
    (negative-tested by hardcoding the callback URL) */
 {

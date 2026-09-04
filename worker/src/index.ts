@@ -10,7 +10,7 @@ import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, 
 // v1.36.0–v1.38.0: feeds B and C — movements in, orders pulled, housekeeping.
 // v1.43.0: feed D — anonymous traffic aggregates for the ELFIA Traffic map.
 import { handleElfiaMovements, pollElfiaOrders, pollElfiaTraffic, bridgeHousekeeping, bridgeHealth } from "./bridge";
-import { threadsAuthUrl, threadsCompleteAuth, threadsConfigured, threadsTick } from "./threads";
+import { threadsAuthUrl, threadsCompleteAuth, threadsConfigured, threadsSetupReport, threadsTick } from "./threads";
 
 /**
  * A2Z CREATIVE MARKETING — Admin/API Worker (Phase 3, v0)
@@ -3037,11 +3037,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        Nothing here is secret: the app id is public and the secret is never
        in any URL. */
     if (u.searchParams.get("show") === "1") {
+      /* v1.94.0 — the raw stored value tells you things the trimmed one
+         hides: a pasted newline, a space, letters where an app id is all
+         digits. Reported ABOUT the value, never as a second copy of a
+         secret — this is the public app id only. */
       return json({
         authorize_url: authorize,
-        client_id: env.THREADS_APP_ID,
+        ...threadsSetupReport(env),
         redirect_uri: `${base}/api/v1/integrations/threads/callback`,
-        note: "Compare client_id with the THREADS App ID (Use cases > Threads API > Settings, not the Meta App ID) and redirect_uri with the Redirect Callback URLs list on the same page.",
+        note: "client_id must be the THREADS App ID (Use cases > Threads API > Customize > Settings) - NOT the Meta App ID on Settings > Basic. redirect_uri must appear character-for-character in that page's Redirect Callback URLs, and its Uninstall and Delete callback fields must not be empty.",
       });
     }
     return new Response(null, {

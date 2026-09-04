@@ -2,6 +2,28 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.94.0] — 2026-09-04 — the forward that ate the question, and the Staff circle on a phone
+
+### Threads: we were sending the browser to the wrong host
+
+**CEO**, three attempts, each landing on the same page: `{"error_message":"An unknown error has occurred.","error_code":1}`.
+
+Look at **where** that page is: `threads.**com**/oauth/authorize/error.json`. We were sending the browser to `threads.**net**/oauth/authorize`. Threads moved to threads.com in April 2025 and .net forwards — so every attempt made a redirect hop before reaching Meta's page, and a redirect is where a query string goes to die. An authorise page that receives no `client_id` answers exactly this way: an error that names nothing, because from its side nothing was asked. That is why the message never named a parameter, however many dashboard fields were checked.
+
+The authorise URL now points straight at `https://www.threads.com/oauth/authorize`. No hop, no lost parameters. If it still fails after this, it fails **on the real page with the real parameters**, and the error will finally say which one.
+
+**Two more things that produce the identical error.** `wrangler secret put` stores exactly what was pasted, and a paste out of a browser often carries a trailing newline — `client_id=1234%0A` is not an app id, and Meta rejects a malformed one as anonymously as a missing one. Both credentials are trimmed at every read now.
+
+And **Check setup**, a button on the Threads tab beside Connect: it prints the `client_id` and `redirect_uri` this worker actually sends, flags stray whitespace in either credential, says whether a Threads App ID looks like one (they are all digits — a value with letters is usually the Meta App ID or the secret), and confirms the secret is set. Nothing secret is shown: the app id travels in every authorise URL, and the secret is reported only as set-or-not.
+
+**Guard #33 refused my own first draft of this**, and was right: the `?show=1` route read `THREADS_APP_SECRET` in `index.ts`, breaking its "exactly one file reads the secret" rule. The report moved into `threads.ts` where the secret lives. Five checks added — the host, the trims, the count of raw env reads, and the report never carrying the value it describes — the last one scoped to the report, because the token exchange twelve lines away legitimately sends the secret to Meta.
+
+### Staff on a phone
+
+**CEO**, a phone screenshot: names cut to *"Mohd Alif Far…"*, *"Mohamad Iz…"*, and the last row's roles sliced in half.
+
+Three causes, all fixed. The faces sat in a wrap row of fixed 88px cells, so a three-word Malay given name never fit — they are a three-column **grid** now, each cell a third of the screen, with the name wrapping to two lines instead of truncating. The card's inner scroller (`max-h-[30rem] overflow-y-auto`) is what sliced the bottom row; it is a desktop convenience and a phone bug, so it is desktop-only and the page scrolls the way a phone expects. And the first thing on the screen was a disabled full-width *"Print selected badges (0) — up to 9 per A4"* — it appears now only when something is selected, and says *"Print badges (2)"*. Faces are a little larger to suit the wider cells; the desktop circle is untouched.
+
 ## [1.93.0] — 2026-09-04 — the circle, the cake, and the hosts who are paid by the hour
 
 ### Staff: the company as orbits

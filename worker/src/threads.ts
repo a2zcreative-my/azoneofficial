@@ -47,7 +47,22 @@ import type { StaffUser } from "./staff";
 import { json, err, audit, logError } from "./shared";
 import { can } from "./permissions";
 
-const AUTH_URL = "https://threads.net/oauth/authorize";
+/* v1.94.0 — THE AUTHORISE HOST IS threads.com, NOT threads.net.
+ *
+ * CEO, 04-09-2026, three attempts, each landing on
+ *   threads.com/oauth/authorize/error.json?error_message=An+unknown+error+has+occurred&error_code=1
+ *
+ * Note WHERE that page is: threads.COM. We sent the browser to threads.NET,
+ * so a redirect happened on the way — Threads moved to threads.com in April
+ * 2025 and .net forwards. A forward is where a query string goes to die: the
+ * hop can drop or re-encode it, and an authorise page with no client_id
+ * answers with exactly this error, which names nothing because from its side
+ * nothing was asked. Sending the browser straight to the host that serves the
+ * page removes the hop and the question.
+ *
+ * If the next attempt still fails, it fails ON the real page with the real
+ * parameters, and /connect?show=1 prints what they were. */
+const AUTH_URL = "https://www.threads.com/oauth/authorize";
 const GRAPH = "https://graph.threads.net";
 const SCOPES = "threads_basic,threads_content_publish,threads_manage_insights";
 const PAGE = 100;
@@ -64,8 +79,40 @@ const POST_METRICS = "views,likes,replies,reposts,quotes,shares";
 const DEFAULT_BUDGET = 24;
 const PAGES_PER_TICK = 2;
 
+/* v1.94.0 — `wrangler secret put` stores exactly what was pasted, and a
+   paste out of a browser very often carries a trailing newline or a stray
+   space. `client_id=1234%0A` is not an app id, and Meta answers a bad one
+   with the same unnamed error as a missing one. Trimmed at every read. */
+export const threadsAppId = (env: Env): string => (env.THREADS_APP_ID ?? "").trim();
+export const threadsAppSecret = (env: Env): string => (env.THREADS_APP_SECRET ?? "").trim();
+
 export function threadsConfigured(env: Env): boolean {
-  return Boolean(env.THREADS_APP_ID && env.THREADS_APP_SECRET);
+  return Boolean(threadsAppId(env) && threadsAppSecret(env));
+}
+
+/**
+ * v1.94.0 — what the worker will send, and whether the stored values look
+ * like what Meta expects. Reported ABOUT the secret, never as a copy of it:
+ * set or not, and whether a paste left whitespace on the end. Lives HERE
+ * because guard #33 holds that exactly one file reads the secret — index.ts
+ * asked for these three facts and the guard was right to refuse.
+ */
+export function threadsSetupReport(env: Env): {
+  client_id: string; client_id_looks_right: boolean; client_id_had_whitespace: boolean;
+  secret_set: boolean; secret_had_whitespace: boolean;
+} {
+  const rawId = env.THREADS_APP_ID ?? "";
+  const rawSecret = env.THREADS_APP_SECRET ?? "";
+  const id = rawId.trim();
+  return {
+    client_id: id,
+    /* A Threads App ID is a long run of digits. Anything else is very often
+       the Meta App ID's neighbour on the dashboard, or the secret. */
+    client_id_looks_right: /^\d{8,}$/.test(id),
+    client_id_had_whitespace: rawId !== id,
+    secret_set: Boolean(rawSecret.trim()),
+    secret_had_whitespace: rawSecret !== rawSecret.trim(),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -106,7 +153,7 @@ const q = (base: string, params: Record<string, string | number | undefined>): s
 
 export function threadsAuthUrl(env: Env, redirectUri: string, state: string): string {
   return q(AUTH_URL, {
-    client_id: env.THREADS_APP_ID,
+    client_id: threadsAppId(env),
     redirect_uri: redirectUri,
     scope: SCOPES,
     response_type: "code",
@@ -121,8 +168,8 @@ export async function threadsCompleteAuth(
 ): Promise<{ ok: true; username: string } | { ok: false; reason: string }> {
   if (!threadsConfigured(env)) return { ok: false, reason: "Threads app credentials are not set" };
   const form = new URLSearchParams({
-    client_id: env.THREADS_APP_ID!,
-    client_secret: env.THREADS_APP_SECRET!,
+    client_id: threadsAppId(env),
+    client_secret: threadsAppSecret(env),
     grant_type: "authorization_code",
     redirect_uri: redirectUri,
     code,
@@ -144,7 +191,7 @@ export async function threadsCompleteAuth(
   const longR = await graph<{ access_token: string; expires_in: number }>(
     q(`${GRAPH}/access_token`, {
       grant_type: "th_exchange_token",
-      client_secret: env.THREADS_APP_SECRET,
+      client_secret: threadsAppSecret(env),
       access_token: shortTok.access_token,
     }),
   );

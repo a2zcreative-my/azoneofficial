@@ -516,7 +516,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
     : open ? "ring-primary ring-4 scale-105" : gone ? "ring-danger ring-2" : "ring-transparent ring-2";
   return (
     <button type="button"
-      className={`sd-bubble group flex w-[88px] shrink-0 flex-col items-center gap-1.5 text-center ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
+      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[88px] ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
       style={{ animationDelay: `${delayMs}ms`, ["--sd-drift" as string]: `${4 + (delayMs % 7) * 0.4}s` }}
       aria-pressed={selectMode ? selected : open}
       title={selectMode
@@ -524,7 +524,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
         : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
       onClick={onPress}>
       <span className="relative">
-      <span className={`relative inline-flex ${size === "lg" ? "h-20 w-20" : "h-16 w-16"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
+      <span className={`relative inline-flex ${size === "lg" ? "h-20 w-20" : "h-[4.5rem] w-[4.5rem] sm:h-16 sm:w-16"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
         {photo
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={photo} alt="" className="h-full w-full object-cover" />
@@ -540,8 +540,11 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
           </span>
         )}
       </span>
-      <span className="block w-full truncate text-xs leading-tight font-medium">{givenNames(displayName(u))}</span>
-      <span className="text-muted-foreground block w-full truncate text-[10px] leading-tight">
+      {/* v1.94.0 — a phone cell is wider than 88px and a Malay given name is
+          three words, so the name wraps to two lines there rather than
+          becoming "Mohd Alif Far…". The circle at sm+ keeps one line. */}
+      <span className="line-clamp-2 w-full text-xs leading-tight font-medium sm:line-clamp-none sm:truncate">{givenNames(displayName(u))}</span>
+      <span className="text-muted-foreground line-clamp-2 w-full text-[10px] leading-tight sm:line-clamp-none sm:truncate">
         {gone ? <span className="text-danger font-medium">{L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}</span>
               : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
       </span>
@@ -850,16 +853,23 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
       </div>
       )}
 
-      <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
+      {/* v1.94.0 — the inner scroller is a desktop convenience and a phone
+          bug: a scroll area inside the page scroll cut the last row of faces
+          in half and trapped the flick. */}
+      <div className="space-y-3 sm:max-h-[30rem] sm:overflow-y-auto sm:pr-1">
       <div className="flex flex-wrap items-center gap-2">
+        {/* v1.94.0 — a disabled full-width button reading "Print selected
+            badges (0)" was the first thing on the phone, every time. It
+            appears when there is something to print. */}
+        {selected.size > 0 && (
         <button
           type="button"
-          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50"
-          disabled={selected.size === 0}
+          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
           onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
         >
-          {L("Print selected badges", "Cetak lencana dipilih")} ({selected.size}) — {L("up to 9 per A4", "sehingga 9 setiap A4")}
+          {L("Print badges", "Cetak lencana")} ({selected.size}) <span className="hidden sm:inline">&nbsp;— {L("up to 9 per A4", "sehingga 9 setiap A4")}</span>
         </button>
+        )}
         <button
           type="button"
           className={`inline-flex h-8 items-center rounded-lg border px-3 text-xs ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"}`}
@@ -877,13 +887,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}
           </button>
         )}
-        <span className="text-muted-foreground text-xs">
+        <span className="text-muted-foreground hidden text-xs sm:inline">
           {selectMode
             ? L("Press a face to tick it.", "Tekan wajah untuk menandanya.")
             : L("Press a face to open the record.", "Tekan wajah untuk buka rekod.")}
         </span>
         <select
-          className="border-input bg-background ml-auto h-8 rounded-lg border px-2 text-xs"
+          className="border-input bg-background h-8 rounded-lg border px-2 text-xs sm:ml-auto"
           value={sortBy}
           title={L("Sort staff records", "Susun rekod kakitangan")}
           onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
@@ -954,10 +964,16 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               )}
             </div>
             {/* the row — phones, where an orbit is a pile */}
-            <div className="flex flex-wrap gap-x-2 gap-y-4 py-2 sm:hidden">
+            {/* v1.94.0 — CEO, a phone screenshot: names cut to "Mohd Alif
+                Far…", the last row's roles sliced in half by the card's inner
+                scroller. A three-column GRID (not a wrap row) gives each face
+                a third of the screen instead of a fixed 88px, and the inner
+                scroller is desktop-only now, so the page scrolls the way a
+                phone expects and nothing is cut. */}
+            <div className="grid grid-cols-3 gap-x-2 gap-y-4 py-2 sm:hidden">
               {!loaded && Array.from({ length: 6 }, (_, i) => (
-                <div key={`skel-${i}`} className="flex w-[88px] flex-col items-center gap-1.5" aria-hidden>
-                  <Skel className="h-16 w-16 rounded-full" />
+                <div key={`skel-${i}`} className="flex w-full flex-col items-center gap-1.5" aria-hidden>
+                  <Skel className="h-[4.5rem] w-[4.5rem] rounded-full" />
                   <Skel className="h-3 w-14" />
                   <Skel className="h-2.5 w-10" />
                 </div>

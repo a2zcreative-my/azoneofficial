@@ -294,6 +294,19 @@ export function ThreadsPanel() {
     await loadAccounts();
   };
 
+  /* v1.94.0 — the setup check, on the screen instead of in a typed URL. It
+     prints what the worker actually sends to Meta, so the two lines that
+     have to match the dashboard can be read side by side. Nothing here is
+     secret: the app id travels in every authorise URL, and the secret is
+     reported only as set-or-not. */
+  const [setup, setSetup] = useState<Record<string, unknown> | null>(null);
+  const checkSetup = async () => {
+    const r = await fetch("/api/v1/integrations/threads/connect?show=1", { credentials: "include" });
+    const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+    if (d) setSetup(d);
+    else toast(L("Could not read the setup", "Tetapan tidak dapat dibaca"), L("The worker did not answer", "Pelayan tidak menjawab"), "notice");
+  };
+
   const connect = () => {
     /* A browser redirect to Meta, not an API call: the worker sets the state
        cookie and sends the manager to the authorisation page. */
@@ -553,14 +566,50 @@ export function ThreadsPanel() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">{L("Connected accounts", "Akaun yang disambungkan")}</p>
             {canManage && configured && !pending && (
-              <button type="button" className={rowBtnPrimary} onClick={connect}>
-                {L("Connect a Threads account", "Sambungkan akaun Threads")}
-              </button>
+              <span className="flex flex-wrap gap-1.5">
+                <button type="button" className={rowBtn} onClick={() => void checkSetup()}>
+                  {L("Check setup", "Semak tetapan")}
+                </button>
+                <button type="button" className={rowBtnPrimary} onClick={connect}>
+                  {L("Connect a Threads account", "Sambungkan akaun Threads")}
+                </button>
+              </span>
             )}
           </div>
           <p className="text-muted-foreground mt-1 text-xs">
             {L("Each account is a Threads Tester on the Meta app. The token lasts 60 days and is refreshed by the worker inside its last 35; if it ever lapses, connect the account again here.", "Setiap akaun ialah Threads Tester pada aplikasi Meta. Token bertahan 60 hari dan disegarkan oleh pelayan dalam 35 hari terakhirnya; jika ia luput, sambungkan semula akaun di sini.")}
           </p>
+          {setup && (
+            <div className="bg-secondary/40 mt-3 rounded-lg p-3 text-xs">
+              <p className="font-medium">{L("What this worker sends to Meta", "Apa yang pelayan ini hantar ke Meta")}</p>
+              <dl className="mt-1.5 space-y-1">
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground w-28 shrink-0">client_id</dt>
+                  <dd className="font-mono break-all">
+                    {String(setup.client_id ?? "")}
+                    {setup.client_id_had_whitespace ? <span className="text-danger font-sans font-medium"> · {L("has stray whitespace — set it again", "ada ruang tersasar — tetapkan semula")}</span> : null}
+                    {setup.client_id_looks_right === false ? <span className="text-warning font-sans font-medium"> · {L("a Threads App ID is all digits — this may be the wrong value", "ID Aplikasi Threads semuanya digit — ini mungkin nilai yang salah")}</span> : null}
+                  </dd>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground w-28 shrink-0">redirect_uri</dt>
+                  <dd className="font-mono break-all">{String(setup.redirect_uri ?? "")}</dd>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground w-28 shrink-0">{L("secret", "rahsia")}</dt>
+                  <dd>
+                    {setup.secret_set ? L("set", "ditetapkan") : <span className="text-danger">{L("NOT set", "TIDAK ditetapkan")}</span>}
+                    {setup.secret_had_whitespace ? <span className="text-danger"> · {L("has stray whitespace — set it again", "ada ruang tersasar — tetapkan semula")}</span> : null}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-muted-foreground mt-2">
+                {L("Both lines must match Use cases → Threads API → Customize → Settings — the Threads App ID (not the Meta App ID), and the Redirect Callback URLs list. The Uninstall and Delete callback fields on that page must not be empty.",
+                   "Kedua-dua baris mesti sepadan dengan Use cases → Threads API → Customize → Settings — ID Aplikasi Threads (bukan ID Aplikasi Meta), dan senarai Redirect Callback URLs. Medan Uninstall dan Delete pada halaman itu tidak boleh kosong.")}
+              </p>
+              <button type="button" className="text-primary mt-1.5 underline" onClick={() => setSetup(null)}>{L("Hide", "Sembunyi")}</button>
+            </div>
+          )}
           {!accLoaded ? (
             <div className="mt-3 space-y-2">{Array.from({ length: 2 }, (_, i) => <Skel key={i} className="h-16" />)}</div>
           ) : accounts.length === 0 ? (
