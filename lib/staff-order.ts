@@ -30,13 +30,13 @@ export const ROLE_RANK: Record<string, number> = {
   ceo: 10,
   coo: 20,
   cco: 30,
+  /* v1.95.0 — the CEO's order, given in full on 04-09-2026: *"CEO, COO,
+     CCO, admin, hr_admin, Sales and Marketing, Designer, Live Host"*. He
+     has now placed `admin` himself, above hr_admin; v1.78.0 had left it
+     after sales_marketing precisely because nobody had said where it went. */
+  admin: 35,
   hr_admin: 40,
   sales_marketing: 50,
-  /* `admin` is a system tier rather than a job title, and it sat here — after
-     sales_marketing — in the order this replaces. Left where it was: nobody
-     asked for it to move, and a reshuffle nobody asked for is how a list
-     stops matching what the person expects to see. */
-  admin: 55,
   marketing: 60,
   editor: 70,
   live_host: 80,

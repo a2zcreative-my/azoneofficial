@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.95.0] — 2026-09-04 — one order, on every list in the portal
+
+**CEO:** *"review all the tabs and ensure that the list is ascending by roles which is CEO, COO, CCO, admin, hr_admin, Sales and Marketing, Designer, Live Host."*
+
+Two things in that sentence. He has **placed `admin` himself** — above hr_admin, where v1.78.0 had deliberately left it further down because nobody had said where it went. And "all the tabs" is an audit, so this is an audit.
+
+### The rank
+
+`admin` moves from 55 to 35, between CCO and hr_admin, in `lib/staff-order.ts` **and** in the worker's `STAFF_ORDER_SQL`. Those two are the same order written twice — once for the browser, once for SQL, because the worker cannot import the module — and the parity guard fails the build if they ever disagree. The rest of the sequence was already his: Sales and Marketing, then Designer (a marketing person whose position says design), then Live Host, with part-timers after their own role.
+
+### The lists
+
+Nine routes handed people to a screen or a picker in alphabetical order, which puts the CEO in the middle of the alphabet. All nine now end in `ORDER BY ${STAFF_ORDER_SQL}`: the leave entitlement table (his screenshot), `/staff-list` — which is every picker in the portal — the per-person targets grid, who is available today, the attendance monitor, the attendance CSV, who is on each working-hour pattern, the staff directory and its pre-0059 fallback, and the commission host picker in `erp.ts`. Each needed a `u.` alias to reach role, position and employment_status; all 820 queries still PREPARE clean against the real schema.
+
+Two orderings are deliberately left alone: staff birthdays sort by month and day, which is what that list is *for*, and the pattern-delete warning is a `DISTINCT` of names with no other column to sort on. The guard allows exactly one such query and names it.
+
+### Guards
+
+Five checks added, including the CEO's full eight-role sequence run through the comparator, and one that no person-listing query is left on `ORDER BY name`. Negative-tested by moving admin back, by desyncing the SQL from the module, and by putting one route back on `ORDER BY 2`.
+
+**Two of my own guards went red on this change and were wrong to** — both pinned the exact SQL text of a query rather than the property, so they failed the moment a query correctly gained an alias. Rewritten to assert what matters: that the row carries the three columns the comparator reads, and that the targets route is month-scoped. That is the rule at the top of `run-guards.mjs`, and this is the ninth time it has earned its place.
+
+## [1.94.1] — 2026-09-04 — a circle needs a square
+
+**CEO**, a desktop screenshot of the new Staff field: *"it is looks shorter."*
+
+He is right, and the cause is arithmetic. The layout placed each face at a percentage of the field's width and a percentage of its height — two radii, one per axis. That is a circle only when the field is square, and the field was the full width of the canvas by 460px tall. On his 1600px monitor that made every ring a 3.5:1 ellipse: flat, stretched, and wide enough that the outer ring's faces landed on the labels of the ring inside it — Nur Nasuha's photo sitting on top of Mohamad Izzudin's name at the bottom of the shot.
+
+**The field is a centred square now**, capped at 34rem, so one radius per ring does both axes and a ring is a ring at any window width. The rings redraw as true circles, each ring starts a little further round than the one inside it so no two put a face on the same spoke, and the whole thing reads as one glance instead of a horizon. Checked against the current floor: the tightest gap is 359px between faces on a 104px cell, so nothing can collide.
+
+Two things that came with it. The outermost ring's labels need room outside the square — half a cell reaches past 49% — so the field sits in its own gutter. And desktop names wrap to two lines like the phone's do: *"Mohd Alif Far…"* on a wide monitor was the phone bug wearing a bigger screen.
+
 ## [1.94.0] — 2026-09-04 — the forward that ate the question, and the Staff circle on a phone
 
 ### Threads: we were sending the browser to the wrong host

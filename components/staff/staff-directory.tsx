@@ -488,15 +488,22 @@ function circleLayout(list: Staff[]): { u: Staff; left: number; top: number; rin
     const t = tier(first);
     groups.set(t, (groups.get(t) ?? []).filter((x) => x.id !== first.id));
   }
-  const RX = [0, 17, 30, 41, 48];   // % of width
-  const RY = [0, 26, 40, 46, 49];   // % of height
+  /* v1.94.1 — ONE radius per ring, not two. The first draft used separate
+     percentages of width and height, which is only a circle when the field
+     is square; on a 1600x460 canvas it drew a flat ellipse ("it is looks
+     shorter") and the outer ring ran people into each other's labels at the
+     bottom. The field is a centred square now, so one number does both. */
+  const R = [0, 21, 34, 44, 49];   // % of the square's side
   const out: { u: Staff; left: number; top: number; ring: number }[] = [];
   for (const [ring, members] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
     const n = members.length;
     members.forEach((u, i) => {
       if (ring === 0) { out.push({ u, left: 50, top: 50, ring }); return; }
-      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n + ring * 0.6;
-      out.push({ u, left: 50 + RX[ring]! * Math.cos(angle), top: 50 + RY[ring]! * Math.sin(angle), ring });
+      /* Each ring starts a little further round than the one inside it, so
+         no two rings put a face on the same spoke. */
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n + ring * 0.55;
+      const r = R[ring]!;
+      out.push({ u, left: 50 + r * Math.cos(angle), top: 50 + r * Math.sin(angle), ring });
     });
   }
   return out;
@@ -516,7 +523,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
     : open ? "ring-primary ring-4 scale-105" : gone ? "ring-danger ring-2" : "ring-transparent ring-2";
   return (
     <button type="button"
-      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[88px] ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
+      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[104px] ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
       style={{ animationDelay: `${delayMs}ms`, ["--sd-drift" as string]: `${4 + (delayMs % 7) * 0.4}s` }}
       aria-pressed={selectMode ? selected : open}
       title={selectMode
@@ -543,8 +550,10 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
       {/* v1.94.0 — a phone cell is wider than 88px and a Malay given name is
           three words, so the name wraps to two lines there rather than
           becoming "Mohd Alif Far…". The circle at sm+ keeps one line. */}
-      <span className="line-clamp-2 w-full text-xs leading-tight font-medium sm:line-clamp-none sm:truncate">{givenNames(displayName(u))}</span>
-      <span className="text-muted-foreground line-clamp-2 w-full text-[10px] leading-tight sm:line-clamp-none sm:truncate">
+      {/* v1.94.1 — two lines on the circle too. "Mohd Alif Far…" on a
+          desktop was the phone bug wearing a bigger screen. */}
+      <span className="line-clamp-2 w-full text-xs leading-tight font-medium">{givenNames(displayName(u))}</span>
+      <span className="text-muted-foreground line-clamp-2 w-full text-[10px] leading-tight">
         {gone ? <span className="text-danger font-medium">{L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}</span>
               : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
       </span>
@@ -936,17 +945,25 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         return (
           <>
             {/* the circle — desktop and tablet */}
-            <div className="sd-orbit relative hidden h-[460px] overflow-hidden rounded-2xl sm:block">
+            {/* v1.94.1 — a CENTRED SQUARE field. Percentages of a 1600x460
+                strip are an ellipse; percentages of a square are a circle.
+                Capped so it stays one glance on a wide monitor instead of
+                a horizon. */}
+            {/* The wrapper's padding is where the outermost ring's LABELS
+                live: a face centred at 47% of the square still puts half a
+                104px cell outside it. */}
+            <div className="hidden px-12 py-2 sm:block">
+            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[34rem]">
               {/* the rings, faint */}
-              {([[17, 26], [30, 40], [41, 46], [48, 49]] as [number, number][]).map(([rx, ry], i) => (
-                <span key={i} aria-hidden className="border-border/60 pointer-events-none absolute rounded-[50%] border"
-                  style={{ left: `${50 - rx}%`, top: `${50 - ry}%`, width: `${rx * 2}%`, height: `${ry * 2}%` }} />
+              {[21, 34, 44, 49].map((r, i) => (
+                <span key={i} aria-hidden className="border-border/50 pointer-events-none absolute rounded-full border"
+                  style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
               ))}
               {!loaded && Array.from({ length: 8 }, (_, i) => {
                 const a = -Math.PI / 2 + (2 * Math.PI * i) / 8;
                 return (
                   <div key={`skel-${i}`} className="absolute -translate-x-1/2 -translate-y-1/2" aria-hidden
-                    style={{ left: `${50 + 30 * Math.cos(a)}%`, top: `${50 + 40 * Math.sin(a)}%` }}>
+                    style={{ left: `${50 + 34 * Math.cos(a)}%`, top: `${50 + 34 * Math.sin(a)}%` }}>
                     <Skel className="h-16 w-16 rounded-full" />
                   </div>
                 );
@@ -962,6 +979,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               {loaded && staff.length === 0 && !loadError && (
                 <p className="text-muted-foreground absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
               )}
+            </div>
             </div>
             {/* the row — phones, where an orbit is a pile */}
             {/* v1.94.0 — CEO, a phone screenshot: names cut to "Mohd Alif

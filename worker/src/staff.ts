@@ -246,8 +246,9 @@ export function payrollMonthStaffSql(month: string, alias = ""): string {
 export const STAFF_ORDER_SQL = `
   (CASE u.role
      WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30
+     WHEN 'admin' THEN 35
      WHEN 'hr_admin' THEN 40 WHEN 'sales_marketing' THEN 50
-     WHEN 'admin' THEN 55 WHEN 'marketing' THEN 60
+     WHEN 'marketing' THEN 60
      WHEN 'editor' THEN 70 WHEN 'live_host' THEN 80 ELSE 90 END
    + CASE WHEN u.employment_status = 'part_time' THEN 5 ELSE 0 END) * 10
   + CASE
@@ -1659,9 +1660,9 @@ export async function handleStaff(
     // Sales-person dropdown — available to every staff role, exposes nothing
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, employment_status FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')
-       ORDER BY 2`,
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
+       WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+       ORDER BY ${STAFF_ORDER_SQL}`,
     ).all();
     return json({ staff: results });
   }
@@ -1696,18 +1697,18 @@ export async function handleStaff(
     let results: unknown[];
     try {
       ({ results } = await env.DB.prepare(
-        `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
-                address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no,
-                CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users ORDER BY name`,
+        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
+                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
       ).all());
     } catch (e) {
       if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
       await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
       ({ results } = await env.DB.prepare(
-        `SELECT id, name, full_name, email, role, employee_id, position, department, phone, employment_status, is_active, id_issued_on, birthday, blood_type, photo_key, bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on,
-                CASE WHEN totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users ORDER BY name`,
+        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
       ).all());
     }
     return json({ users: results, staff: results });
@@ -2465,7 +2466,7 @@ export async function handleStaff(
                                AND s2.session_date = ?1 AND s2.status != 'cancelled')
              AND NOT EXISTS (SELECT 1 FROM leave_requests l2 WHERE l2.user_id = u.id
                                AND l2.status = 'approved' AND l2.start_date <= ?1 AND l2.end_date >= ?1)
-           ORDER BY 2 LIMIT 12`,
+           ORDER BY ${STAFF_ORDER_SQL} LIMIT 12`,
         ).bind(todayS).all();
         available = results;
       }
@@ -2750,7 +2751,7 @@ export async function handleStaff(
        WHERE u.is_active = 1
          AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')
          AND COALESCE(u.employment_status, 'permanent') NOT IN ('resigned','terminated')
-       ORDER BY u.name`,
+       ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(todayM).all();
     // v1.21.0: ship the fence with the list so management screens flag
     // "outside office" against the REAL configured fence (not a client
@@ -6319,9 +6320,9 @@ export async function handleStaff(
   /** Every active staff member, in the order the table shows them. */
   const entitlementStaff = async (): Promise<{ id: number; name: string; role: string; employment_status: string | null; hourly: boolean }[]> => {
     const { results } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, employment_status FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND ${staffRolesSql()}
-       ORDER BY 2`,
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
+       WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND ${staffRolesSql("u.")}
+       ORDER BY ${STAFF_ORDER_SQL}`,
     ).all<{ id: number; name: string; role: string; employment_status: string | null }>();
     /* v1.93.0 — a part-time host is listed (they are staff) and marked, so
        the table can say "no leave" on the row instead of offering boxes. */
@@ -6785,7 +6786,7 @@ export async function handleStaff(
            FROM staff_shifts s
            JOIN shift_patterns p ON p.id = s.pattern_id
            JOIN users u ON u.id = s.user_id
-          ORDER BY name, s.effective_from DESC`,
+          ORDER BY ${STAFF_ORDER_SQL}, s.effective_from DESC`,
       ).all();
       return json({ patterns: results, assignments: asg });
     } catch {
@@ -8797,7 +8798,7 @@ export async function handleStaff(
     const { results } = await env.DB.prepare(
       `SELECT a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
        FROM attendance_records a JOIN users u ON u.id = a.user_id
-       WHERE a.created_at LIKE ?1 || '%'${notPendingE} ORDER BY u.name, a.created_at`,
+       WHERE a.created_at LIKE ?1 || '%'${notPendingE} ORDER BY ${STAFF_ORDER_SQL}, a.created_at`,
     ).bind(month).all();
     // Convert each event to Malaysia time and flag against the shift, so the
     // CSV that goes to payroll already reflects local working hours.
@@ -11559,8 +11560,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
        last day, a joiner appears from their first. Same predicate payroll
        uses, so the two screens name the same people. */
     const { results: staff } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, employment_status FROM users
-       WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month)} ORDER BY 2`,
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
+       WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month, "u.")} ORDER BY ${STAFF_ORDER_SQL}`,
     ).all();
     return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
   }

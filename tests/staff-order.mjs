@@ -159,9 +159,18 @@ const page = read("app/portal/page.tsx");
   ok("Available today reads the same order",
      /\[\.\.\.data\.available_today\]\.sort\(bySeniority\)\.map/.test(roster));
   ok("the roster keeps no private rank map", !/const RANK\b|ceo: 1, coo: 2/.test(roster));
-  ok("the worker's staff list carries what the comparator needs",
-     /SELECT id, COALESCE\(NULLIF\(TRIM\(full_name\), ''\), name\) AS name, role, position, employment_status FROM users/.test(staff),
-     "without position and employment_status a designer and a part-timer sort as their role alone");
+  /* v1.95.0 — asserted as a PROPERTY, not as the SQL's exact wording: the
+     first draft pinned the whole SELECT and went red the day the query
+     correctly gained a `u.` alias. What matters is that the three columns
+     the comparator reads travel with the row. */
+  {
+    const i = staff.indexOf('path === "/staff-list" && method === "GET"');
+    const route = i < 0 ? "" : staff.slice(i, i + 900);
+    ok("the staff-list route was found", route.length > 200);
+    ok("the worker's staff list carries what the comparator needs",
+       ["role", "position", "employment_status"].every((c) => new RegExp(`\\b(?:u\\.)?${c}\\b`).test(route)),
+       "without position and employment_status a designer and a part-timer sort as their role alone");
+  }
   ok("the CEO's sequence is the comparator's", (() => {
     const order = [
       { role: "ceo" }, { role: "coo" }, { role: "cco" }, { role: "hr_admin" },
@@ -183,9 +192,50 @@ const page = read("app/portal/page.tsx");
   const j = staff.indexOf('path === "/targets" && method === "GET"');
   const route = j < 0 ? "" : staff.slice(j, j + 3000);
   ok("the targets route lists the people employed in THAT month, not everyone ever active",
-     /FROM users\s*\n?\s*WHERE is_active = 1 AND role NOT IN \('customer', 'super_admin', 'admin'\) AND \$\{payrollMonthStaffSql\(month\)\}/.test(route),
+     /FROM users[\s\S]{0,200}?payrollMonthStaffSql\(month/.test(route),
      "a leaver stayed on the targets grid for months after their last day");
   ok("the month is validated before it reaches the splice", /if \(!\/\^\\d\{4\}-\\d\{2\}\$\/\.test\(month\)\) return err\("invalid_input"/.test(route));
+}
+
+/* ---- 3d. v1.95.0 — the CEO's order in full, on every list ----
+   CEO, 04-09-2026: *"review all the tabs and ensure that the list is
+   ascending by roles which is CEO, COO, CCO, admin, hr_admin, Sales and
+   Marketing, Designer, Live Host."* He has now placed `admin` himself. */
+{
+  ok("admin sits between CCO and hr_admin, where the CEO put it",
+     ROLE_RANK.cco < ROLE_RANK.admin && ROLE_RANK.admin < ROLE_RANK.hr_admin,
+     `cco ${ROLE_RANK.cco}, admin ${ROLE_RANK.admin}, hr_admin ${ROLE_RANK.hr_admin}`);
+  ok("the whole sequence is the one he named", (() => {
+    const order = [
+      { role: "ceo" }, { role: "coo" }, { role: "cco" }, { role: "admin" }, { role: "hr_admin" },
+      { role: "sales_marketing" }, { role: "marketing", position: "Designer" }, { role: "live_host" },
+    ];
+    return JSON.stringify([...order].reverse().sort(bySeniority)) === JSON.stringify(order);
+  })(), "CEO, COO, CCO, admin, hr_admin, Sales and Marketing, Designer, Live Host");
+
+  /* Every route that hands a LIST OF PEOPLE to a screen or a picker. Named
+     one by one, because a list left on ORDER BY name is a tab that
+     disagrees with the other eleven. */
+  const erp = readFileSync(path.join(root, "worker/src/erp.ts"), "utf8");
+  const listings = [
+    ['path === "/staff-list"', staff, "every picker in the portal"],
+    ["const entitlementStaff = async", staff, "the leave entitlement table"],
+    ['path === "/targets" && method === "GET"', staff, "the per-person targets grid"],
+    ['path === "/attendance/monitor"', staff, "who is in today"],
+    ['path === "/hosts"', erp, "the commission host picker"],
+  ];
+  for (const [marker, src, what] of listings) {
+    const i = src.indexOf(marker);
+    const win = i < 0 ? "" : src.slice(i, i + 2600);
+    ok(`${what} reads the one order`, win.length > 100 && /ORDER BY \$\{STAFF_ORDER_SQL\}/.test(win),
+       `${marker} orders by something else — one list on ORDER BY name is one tab disagreeing with the rest`);
+  }
+  ok("no person-listing query is left ordering by name alone", (() => {
+    /* The exceptions are deliberate and named: birthdays sort by month and
+       day, and the pattern-delete warning is a DISTINCT of names only. */
+    const offenders = [...staff.matchAll(/ORDER BY (?:u\.)?name\b/g)].length;
+    return offenders <= 1;
+  })(), "each one is a screen that puts the CEO in the middle of the alphabet — the one allowed is the DISTINCT list of names in the pattern-delete warning, which has no other column to sort on");
 }
 
 /* ---- 4. crediting a rest day cannot invent a paid day ---- */

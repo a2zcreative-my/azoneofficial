@@ -108,6 +108,13 @@ const ok = (label, cond, extra = "") => {
      /const press = \(u: Staff\) => \{[\s\S]{0,300}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
     ["every face on the circle and on the phone row presses that handler", "components/staff/staff-directory.tsx",
      /<StaffBubble u=\{u\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}[\s\S]{0,2500}?<StaffBubble key=\{u\.id\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}/, "two layouts, one door"],
+    /* v1.94.1 — the field is a square, so a ring is a circle. Percentages
+       of a 1600x460 strip drew a flat ellipse and ran the outer ring into
+       the labels below it. */
+    ["the circle is laid out on a square field", "components/staff/staff-directory.tsx",
+     /aspect-square w-full max-w-\[34rem\]/, "percentages of a wide strip are an ellipse, not a circle"],
+    ["one radius per ring, not one per axis", "components/staff/staff-directory.tsx",
+     /const R = \[0, 21, 34, 44, 49\];/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
     ["a face within a fortnight of a birthday carries the cake", "components/staff/staff-directory.tsx",
      /return b && b\.days <= 14 && !\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null;/, "the separate Birthdays card was retired for this"],
     ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",

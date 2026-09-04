@@ -18,6 +18,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
 import { can } from "./permissions";
+import { STAFF_ORDER_SQL } from "./staff"; // v1.95.0 - one company order, everywhere
 
 /* Doc numbering, same shape as sales_documents: PREFIX-YYYY-NNNN. The count
    query and the insert are not atomic; at this company's write volume (a few
@@ -311,7 +312,7 @@ export async function handleErp(
          uses). This endpoint therefore 500'd on every call since it was
          written, so the commission host picker was always empty. */
       const rows = await env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND is_active = 1 ORDER BY 2`,
+        `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name FROM users u WHERE u.role IN ('live_host', 'sales_marketing', 'marketing', 'editor') AND u.is_active = 1 ORDER BY ${STAFF_ORDER_SQL}`,
       ).all();
       return json({ hosts: rows.results ?? [] });
     }
