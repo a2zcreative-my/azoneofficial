@@ -1,7 +1,14 @@
 "use client";
 
+import Link from "next/link";
+import { AppShell } from "@/components/layout/app-shell";
 
-
+/* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same goes
+   to other. everything must follow like /portal UI/UX") — this page had NO
+   shell at all: a bare centred column on the page background, no navy rail,
+   no canvas, and its own max-w-6xl cap. Reached from the admin console, it
+   looked like leaving the product. It sits in the same shell now, full
+   width, with a way back. The matrix itself is untouched. */
 export default function PermissionsPage() {
   const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
   
@@ -21,12 +28,23 @@ export default function PermissionsPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 md:p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">Permission Matrix</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          A read-only overview of which roles have access to which actions across the platform.
-        </p>
+    <AppShell
+      rail={
+        <div className="flex h-full flex-col items-center gap-1 py-3">
+          <Link href="/admin" className="mb-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/90 text-xs font-bold text-slate-900" title="Back to the admin console">A</Link>
+          <Link href="/admin" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white/80 hover:bg-white/20" title="Admin console" aria-label="Admin console">←</Link>
+        </div>
+      }
+    >
+    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Permission Matrix</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            A read-only overview of which roles have access to which actions across the platform.
+          </p>
+        </div>
+        <Link href="/admin" className="border-border hover:bg-secondary rounded-lg border px-3 py-1.5 text-sm">← Admin console</Link>
       </div>
       
       <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-x-auto">
@@ -74,5 +92,6 @@ export default function PermissionsPage() {
         </table>
       </div>
     </div>
+    </AppShell>
   );
 }

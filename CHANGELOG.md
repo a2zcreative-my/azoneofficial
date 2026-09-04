@@ -2,6 +2,38 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.88.2] — 2026-09-03 — one shell, one width
+
+**CEO:** *"on /admin the UI/UX should same width as /portal. same goes to other. everything must follow like /portal UI/UX"*
+
+`/portal` has filled the window since v1.74.0 — the CEO's own request then: *"I want it full fit to the website width"*. The other app views never followed. `/admin` was capped at 1152px, `/account` at 896px, and `/admin/permissions` had **no shell at all** — a bare centred column on the page background, no navy rail, no canvas, so reaching it from the console looked like leaving the product. On one monitor the consoles were three different widths and read as three products.
+
+All four app views now render the same `AppShell` at the same width, with the same content-column padding. The caps came off both the canvas and the inner column — lifting one and leaving the other would only have moved the gutters inside the canvas. `/admin/permissions` gains the rail and a way back to the console; the matrix itself is untouched.
+
+The public pages are deliberately **not** in this set: `/doc` and `/report` are documents a customer opens from a WhatsApp link, and `/login` is the sign-in page. Putting a staff shell around any of them would be the wrong kind of consistency.
+
+Twelve checks added to guard #32: every app view renders the shell, none caps the canvas, none caps its column. Negative-tested by putting the `/admin` cap back.
+
+## [1.88.1] — 2026-09-03 — the page underneath the app
+
+**CEO**, a screenshot of the Leave tab: the app canvas ending two-thirds down the window, a white void beneath it, and a **second scrollbar on the page itself**. *"Still got bug and defects!"*
+
+The v1.21.1 model is that the shell is fixed to the viewport on desktop and the content column is the only thing that scrolls. That model had two holes.
+
+**The canvas was `overflow-hidden` but not `relative`.** An absolutely positioned descendant with no positioned ancestor is laid out against the *document*, not the canvas — so it grows the document's scrollable area straight through a clip that never sees it. That is the mechanism the screenshot points at: the canvas clipped correctly, and the page grew anyway. `relative` makes the canvas that element's containing block, and then the clip does its job.
+
+**Nothing actually forbade the document from scrolling.** The model relied on nothing ever escaping, which is a hope rather than a rule. While the shell is mounted at desktop widths, `html` and `body` are now locked; the rule ships inside the shell component rather than in a stylesheet elsewhere, behind a media query so the phone layout — which scrolls the document by design — is untouched.
+
+Both on purpose: the first is the mechanism this screenshot implicates, the second makes the symptom impossible whatever the next mechanism turns out to be.
+
+### A fix for a bug I could not reproduce carries its own evidence
+
+I could not see his browser. So the portal's overflow self-report — built at v1.23.8 for phones, for *width* — now also runs on desktop, for *height*: if the document is still taller than the viewport after the page settles, the elements whose bottom edge pokes past it are named and written to the error_log, once per tab per session per build. Content below the fold *inside* the shell's scroller is ignored, because that is normal; content below the *canvas* is the bug. The worker records which axis a report is about, so the two kinds of overflow are not read as one.
+
+If this ever recurs, the next report arrives with the culprit's tag, classes and position attached.
+
+New guard #32, eight checks, negative-tested.
+
 ## [1.88.0] — 2026-09-03 — a number you can open
 
 **CEO:** *"Audit all the tabs and ensure that all the tabs have a function of clickable data without me need to open another new tabs. Additionally, make it minimalist interface for the clumsy interface for better UI/UX without change any major designed!"*

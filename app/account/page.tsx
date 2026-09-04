@@ -54,13 +54,12 @@ const LIVE_STATUS_MS: Record<string, string> = { scheduled: "dijadualkan", compl
 
 /* v1.77.0 — the client area's first paint while /auth/me answers (and while
    a redirect to /login, /admin or /portal is on its way). Pure presentational:
-   the SAME shell (md:max-w-4xl canvas, navy rail, header row, the Account
+   the SAME shell (full-width canvas since v1.88.2, navy rail, header row, the Account
    tab's two-column card grid, bottom nav on phones), so nothing jumps when
    the real page takes over. No hooks, no fetch. */
 function AccountPageSkeleton() {
   return (
     <AppShell
-      maxWidth="md:max-w-4xl"
       rail={
         <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
           <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
@@ -70,7 +69,7 @@ function AccountPageSkeleton() {
         </div>
       }
     >
-    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div className="space-y-1.5">
           <Skel className="hidden h-3 w-64 md:block" />
@@ -181,7 +180,6 @@ export default function AccountPage() {
      is retired; phones keep the bottom navigation. */
   return (
     <AppShell
-      maxWidth="md:max-w-4xl"
       rail={
         <SidebarNav
           items={(["Account", "Orders", "Enquiries"] as const).map((t) => ({ name: t, label: t === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : t === "Orders" ? L("Orders", "Pesanan") : L("Account", "Akaun") }))}
@@ -195,7 +193,7 @@ export default function AccountPage() {
         />
       }
     >
-    <div className="mx-auto w-full max-w-4xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {toastNode}
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}

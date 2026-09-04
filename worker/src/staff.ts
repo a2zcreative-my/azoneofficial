@@ -2089,10 +2089,13 @@ export async function handleStaff(
     const vw = Number(body?.vw) || 0;
     const dw = Number(body?.dw) || 0;
     const els = Array.isArray(body?.els) ? (body.els as unknown[]).slice(0, 5).map((x) => String(x).slice(0, 180)) : [];
+    /* v1.88.1 - the desktop report measures HEIGHT; say which axis so the two
+       kinds of overflow are not read as one. */
+    const axis = body?.axis === "y" ? "y" : "x";
     try {
       await env.DB.prepare(
         `INSERT INTO error_log (source, message, path) VALUES ('ui_overflow', ?1, ?2)`,
-      ).bind(`v${v} ${user.email} tab=${tab} vw=${vw} dw=${dw} :: ${els.join(" | ") || "(document wider than viewport, no single element found)"}`, "/portal").run();
+      ).bind(`v${v} ${user.email} tab=${tab} axis=${axis} viewport=${vw} document=${dw} :: ${els.join(" | ") || (axis === "y" ? "(document taller than viewport, no element outside the shell found)" : "(document wider than viewport, no single element found)")}`, "/portal").run();
     } catch { /* pre-error_log schema — diagnostics never fail the request */ }
     return json({ ok: true });
   }

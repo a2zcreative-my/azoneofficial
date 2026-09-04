@@ -1028,13 +1028,12 @@ const TAB_HELP_MS: Record<Tab, string> = {
 
 /* v1.77.0 — the console's first paint while /auth/me answers (and while a
    redirect to /login, /portal or /account is on its way). Pure presentational:
-   the SAME shell (md:max-w-6xl canvas, navy rail, header row, house cards in
+   the SAME shell (full-width canvas since v1.88.2, navy rail, header row, house cards in
    the Dashboard's own layout, bottom nav on phones), so nothing jumps when the
    real console takes over. No hooks, no fetch. */
 function AdminPageSkeleton() {
   return (
     <AppShell
-      maxWidth="md:max-w-6xl"
       rail={
         <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
           <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
@@ -1044,7 +1043,7 @@ function AdminPageSkeleton() {
         </div>
       }
     >
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
         <div className="space-y-1.5">
           <Skel className="hidden h-3 w-64 md:block" />
@@ -1188,8 +1187,13 @@ export default function AdminPage() {
      like /portal); phones keep the bottom navigation. */
   const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
   return (
+    /* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same
+       goes to other. everything must follow like /portal UI/UX") — the canvas
+       was capped at max-w-6xl (1152px) while /portal has filled the window
+       since v1.74.0, so on the same monitor the two consoles were different
+       widths and read as two products. The cap is gone here and on the inner
+       column; nothing else about the layout changes. */
     <AppShell
-      maxWidth="md:max-w-6xl"
       rail={
         <SidebarNav
           items={visibleTabs.map((t) => ({ name: t, label: tabLabel(t) }))}
@@ -1199,7 +1203,7 @@ export default function AdminPage() {
         />
       }
     >
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">

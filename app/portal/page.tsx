@@ -12973,6 +12973,53 @@ export default function PortalPage() {
     return () => window.clearTimeout(t);
   }, [tab]);
 
+  /* v1.88.1 — THE SAME SELF-REPORT, FOR HEIGHT, ON DESKTOP. The CEO sent a
+     screenshot of the canvas ending two-thirds down the window with a white
+     void beneath it and a second scrollbar on the page: something had grown
+     the document past the viewport, straight through the shell's clip. The
+     shell now forbids that (app-shell.tsx, v1.88.1) — but "forbids" is a
+     claim, and this is how the claim is checked on every real screen rather
+     than on mine. If the document is still taller than the viewport, the
+     elements whose bottom edge pokes past it are named and written to the
+     error_log, once per tab per session per build, so the next occurrence
+     arrives with its own cause attached. Same rails as the phone version:
+     try-wrapped, and never allowed to break the page. */
+  useEffect(() => {
+    if (typeof window === "undefined" || window.innerWidth < 768) return;
+    const t = window.setTimeout(() => {
+      try {
+        const vh = window.innerHeight;
+        const dh = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        if (dh <= vh + 2) return;
+        const bad: string[] = [];
+        document.querySelectorAll("body *").forEach((el) => {
+          if (bad.length >= 5) return;
+          const h = el as HTMLElement;
+          const cs = getComputedStyle(h);
+          if (cs.display === "none" || cs.position === "fixed") return;
+          const r = h.getBoundingClientRect();
+          /* Past the viewport bottom AND not inside the shell's own scroller —
+             content scrolled below the fold inside #shell-scroll is normal;
+             content below the CANVAS is the bug. */
+          if (r.height <= 0 || r.bottom <= vh + 1) return;
+          if (h.closest("#shell-scroll")) return;
+          bad.push(`${h.tagName}.${String(h.className).slice(0, 90)}|B${Math.round(r.bottom)}|${cs.position}`);
+        });
+        const key = `azone-ovfy:${APP_VERSION}:${tab}`;
+        if (!window.sessionStorage.getItem(key)) {
+          window.sessionStorage.setItem(key, "1");
+          void api(`/staff/debug/overflow`, {
+            method: "POST",
+            body: JSON.stringify({ tab, v: APP_VERSION, axis: "y", vw: vh, dw: dh, els: bad }),
+          });
+        }
+      } catch {
+        /* never break the page for a diagnostic */
+      }
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [tab]);
+
   /* v1.25.0 (CEO: "a dead skeleton waiting for my website like a Threads
      so that my staff wont see any loading"): this used to be `return null`
      — and because the site is a static export, THAT NULL WAS THE HTML FILE.

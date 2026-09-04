@@ -31,9 +31,31 @@
  * dance entirely (rail/columns are simply full-height flex children), so
  * `overflow-hidden` on the canvas is now safe — and needed, to clip the
  * scrolling content to the rounded corners.
+ *
+ * v1.88.1 (CEO, screenshot of the Leave tab: the canvas ending two-thirds
+ * down the window with a white void below it and a SECOND scrollbar on the
+ * page itself). Two holes in the v1.21.1 model, closed here:
+ *
+ *   1. The canvas was `overflow-hidden` but NOT `relative`. An absolutely
+ *      positioned descendant with no positioned ancestor is laid out against
+ *      the initial containing block — the document — so it grows the
+ *      document's scrollable area straight through the clip. The clip never
+ *      saw it. `relative` makes the canvas that element's containing block,
+ *      and then the clip does its job.
+ *   2. Nothing actually FORBADE the document from scrolling on desktop; the
+ *      model relied on nothing ever escaping. `html.shell-locked` now does
+ *      forbid it while the shell is mounted at md+, and is removed on unmount
+ *      so the marketing pages and the phone layout are untouched.
+ *
+ * Both are belt and braces on purpose: (1) is the mechanism this screenshot
+ * points at, (2) makes the symptom impossible whatever the next mechanism
+ * turns out to be. And because "impossible" is a claim, the portal's
+ * overflow self-report (v1.23.8, phones) now runs on desktop too, for HEIGHT:
+ * if the document is still taller than the viewport it names the element and
+ * writes it to the error_log, so the next occurrence carries its own cause.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 export function AppShell({
   rail, contextPanel, rightRail, children,
@@ -56,8 +78,18 @@ export function AppShell({
   children: ReactNode;
   maxWidth?: string;
 }) {
+  /* v1.88.1 — the document does not scroll while the shell is on screen at
+     md+. The rule lives in the <style> below, WITH the component that needs
+     it: a class whose CSS sits in another file is a class that stops working
+     the day that file is tidied. Behind a media query, so the phone layout
+     (which scrolls the document by design) is untouched. */
+  useEffect(() => {
+    document.documentElement.classList.add("shell-locked");
+    return () => document.documentElement.classList.remove("shell-locked");
+  }, []);
   return (
-    <div className="md:bg-shell-backdrop md:h-dvh md:overflow-hidden md:p-5">
+    <div className="md:bg-shell-backdrop md:relative md:h-dvh md:overflow-hidden md:p-5">
+      <style>{`@media (min-width: 768px) { html.shell-locked, html.shell-locked body { overflow: hidden; height: 100%; } }`}</style>
       <div className={`md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:overflow-hidden ${maxWidth}`}>
         {rail ? (
           <div className="bg-brand rounded-l-shell hidden w-14 shrink-0 md:block">{rail}</div>
