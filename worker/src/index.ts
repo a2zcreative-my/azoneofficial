@@ -3028,10 +3028,26 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const origin = `${u.protocol}//${u.host}`;
     const base = allowedOrigins(env).includes(origin) ? origin : primaryOrigin(env);
     const state = randomHex(16);
+    const authorize = threadsAuthUrl(env, `${base}/api/v1/integrations/threads/callback`, state);
+    /* ?show=1 — v1.89.1: print the URL instead of following it. Meta's
+       authorise page answers a wrong app id or an unregistered redirect with
+       "An unknown error has occurred" and nothing else, and by then the
+       address bar has moved on. This shows a manager the exact client_id
+       and redirect_uri the worker sends, to compare with the dashboard.
+       Nothing here is secret: the app id is public and the secret is never
+       in any URL. */
+    if (u.searchParams.get("show") === "1") {
+      return json({
+        authorize_url: authorize,
+        client_id: env.THREADS_APP_ID,
+        redirect_uri: `${base}/api/v1/integrations/threads/callback`,
+        note: "Compare client_id with the THREADS App ID (Use cases > Threads API > Settings, not the Meta App ID) and redirect_uri with the Redirect Callback URLs list on the same page.",
+      });
+    }
     return new Response(null, {
       status: 302,
       headers: {
-        Location: threadsAuthUrl(env, `${base}/api/v1/integrations/threads/callback`, state),
+        Location: authorize,
         "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
       },
     });

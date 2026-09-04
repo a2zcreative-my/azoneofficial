@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.89.1] — 2026-09-04 — show me what you sent
+
+**CEO**, pressing Connect on the new Threads tab and landing on Meta's page: `{"error_message":"An unknown error has occurred.","error_code":1}`.
+
+That page is Threads refusing the authorisation request before any login screen — a wrong app id, an unregistered redirect URI, a scope the use case has not added, or an account that is not yet a tester — and it says none of that. By the time it appears the address bar has moved on, so there is nothing to compare with the dashboard.
+
+`GET /api/v1/integrations/threads/connect?show=1` (management session) now prints the exact `client_id` and `redirect_uri` the worker sends instead of following them, with a one-line note on where each is checked. Nothing in it is secret: the app id is public and the secret is never in any URL. Guard #33 still holds — the block still derives its URI and still gates on `threads_manage`.
+
 ## [1.89.0] — 2026-09-04 — the Threads workspace, phase 1: connect and import
 
 **CEO**, after a walkthrough video of LazyThreads, a content tool for one social network: *"for Threads I want new tabs all in 1 tabs for the Threads with minimalist interface"*.
