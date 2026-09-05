@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.101.1] - 2026-09-05 - a list that scrolls, and a chart you can edit from
+
+**CEO**, 05-09-2026, with the Hotels tab and the new Organisation view side by side: *"Every state 442 shown show the list too long, should scrollable at least. also for Organisation, I want to edit back if I want to change their reporting to HOD."*
+
+### The hotel list scrolls in its own box
+442 rows is a page fourteen screens deep. By the time you are reading Johor, the search box, the Export CSV button and the map are all somewhere above you, and getting back to them is a long flick.
+
+The rows now scroll inside the card while the toolbar and the map stay put. This is not the two-scrollbar mistake v1.99.4 undid on the staff circle: that was a 30rem box around a 34rem **picture**, which cut a whole thing in half for nothing. A directory is a list you page through by nature. The height is capped against the **viewport** rather than a fixed pixel count, so it fills a big monitor without swallowing a laptop, and `overscroll-contain` means a flick at the bottom of the list stops there instead of running the page away behind it. The count beside the heading now says the list scrolls.
+
+### The reporting line is changed from the box
+v1.101.0 could already do this - from a panel that shipped **collapsed** at the bottom of the page. That the CEO had to ask for it is the clearest possible report that a control behind a "Show" link is a control nobody finds.
+
+- **Every box on the chart now carries a pencil**, and pressing it opens a picker in a bar under the chart. Not a popover pinned to the box: the tree scrolls sideways and a popover would sail off with it, and expanding the branch itself would shift the tree under the hand that just pressed it.
+- **The root has no pencil.** Nobody sits above the top of the chart, so a control there could only ever be refused.
+- **The full "Reporting lines" table starts open.**
+- The card is now a `<span>` holding two buttons rather than a button holding buttons - browsers silently un-nest that, and one of the two presses stops working.
+
+Guard #37 gained seven checks (56 total) and guard #36 four (38), each negative-tested: removing the scroller, restoring the pencil on the root, and re-collapsing the table all fail.
+
 ## [1.101.0] - 2026-09-05 - the organisation chart
 
 **CEO**, 05-09-2026: *"I want to add infographic for each staff reported to who which is either CEO, COO or CCO. I will assigned by myself and organized it based on who is their HOD to make it like organisation."*

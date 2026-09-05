@@ -197,6 +197,31 @@ const P = (id, role, reports_to = null, employment_status = "permanent") =>
      "an org chart with a resigned box in the middle of it describes a company that does not exist");
 }
 
+/* ---- 4c. the line is changed FROM the chart (v1.101.1) ----
+   CEO, 05-09-2026: *"for Organisation, I want to edit back if I want to
+   change their reporting to HOD."* It was already possible in v1.101.0 - from
+   a panel that shipped collapsed at the bottom of the page, which is to say
+   it was not. */
+{
+  ok("a box on the chart carries its own control for changing the line",
+     /canAssign && !isRoot/.test(panel) && /onEdit\(editing \? null : u\)/.test(panel),
+     "a control the CEO had to ask for is a control nobody could find");
+  ok("the top of the chart does not offer one",
+     /Nobody sits above the top of the chart/.test(panel),
+     "the root has no manager, so the control there can only ever be refused");
+  ok("the card does not nest a button inside a button",
+     /function OrgCard\([\s\S]{0,900}?return \(\s*<span/.test(panel),
+     "browsers silently un-nest it and one of the two presses stops working");
+  ok("the picker opens in a bar under the chart, not over a box",
+     /fixed to the bottom of the CARD|bottom of the CARD/i.test(panel) || /editing && canAssign/.test(panel),
+     "the chart scrolls sideways; a popover pinned to a box sails off with it");
+  ok("choosing a manager writes it and closes the bar",
+     /onPick=\{\(m\) => \{ onAssign\(editing\.id, m\); setEditing\(null\); \}\}/.test(panel));
+  ok("the full table is open by default", /useState\(true\);/.test(panel) && /const \[showAll, setShowAll\]/.test(panel),
+     "it shipped collapsed and the CEO had to ask where the control was");
+  ok("the instruction line says how to change a line", /Press the pencil on a box/.test(panel));
+}
+
 /* ---- 5. the change is recorded, reported, and the column exists ---- */
 {
   ok("the assignment is audited", /audit\(env, user\.id, "staff\.reports_to"/.test(staff));

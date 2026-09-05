@@ -335,7 +335,7 @@ export function HotelsPanel() {
           <p className="text-sm font-semibold">
             {state || L("Every state", "Semua negeri")}
             <span className="text-muted-foreground ml-2 text-xs font-normal">
-              {loaded ? `${hotels.length} ${L("shown", "dipaparkan")}` : ""}
+              {loaded ? `${hotels.length} ${L("shown", "dipaparkan")}${hotels.length > 12 ? L(" — scroll the list", " — tatal senarai") : ""}` : ""}
             </span>
           </p>
           <span className="flex flex-wrap items-center gap-1.5">
@@ -454,7 +454,22 @@ export function HotelsPanel() {
                : L("No hotels in this state yet.", "Belum ada hotel di negeri ini.")}
           </p>
         ) : (
-          <ul className="divide-border mt-3 divide-y">
+          /* v1.101.1 - CEO, 05-09-2026: *"Every state 442 shown show the list
+             too long, should scrollable at least."* And he is right: 442 rows
+             is a page fourteen screens deep whose Export CSV button, search
+             box and map are all off the top of it by the time you are reading
+             Johor.
+
+             So the LIST scrolls in its own box, not the page. This is not the
+             two-scrollbar mistake v1.99.4 undid on the staff circle - that was
+             a 30rem box around a 34rem PICTURE, where the scroller cut a whole
+             thing in half for no gain. A directory is a list you page through
+             by nature: the toolbar above stays put, the map stays put, and
+             flicking the rows never loses your place on the page. The height
+             is capped against the VIEWPORT so it fills a big monitor and does
+             not swallow a laptop. */
+          <ul className="divide-border mt-3 divide-y overflow-y-auto overscroll-contain pr-1"
+            style={{ maxHeight: "min(38rem, calc(100svh - 20rem))" }}>
             {hotels.map((h) => (
               <li key={h.id} className="py-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">

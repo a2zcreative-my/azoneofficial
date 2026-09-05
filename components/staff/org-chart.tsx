@@ -91,29 +91,54 @@ function Face({ u, size }: { u: OrgPerson; size: number }) {
 /** One box. The stripe down its left is the division; the number on the right
     is how many people are under it, counting the whole subtree - a manager of
     two who each manage four is not a manager of two. */
-function OrgCard({ node, ink, headcount, onOpen, isRoot }: {
+/* v1.101.1 - CEO, 05-09-2026: *"for Organisation, I want to edit back if I
+   want to change their reporting to HOD."* v1.101.0 could already do it, but
+   only from a collapsed panel at the bottom of the page - which is to say,
+   not really. The line is now changed FROM THE BOX, where you are looking
+   when you decide it is wrong.
+
+   The pencil is a real <button> beside the card rather than inside it,
+   because a button inside a button is invalid HTML that browsers silently
+   un-nest, and the card is already a button that opens the record. Two
+   affordances, two elements, one row. */
+function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onEdit }: {
   node: OrgNode; ink: string; headcount: number; onOpen: (u: OrgPerson) => void; isRoot: boolean;
+  canAssign: boolean; editing: boolean; onEdit: (u: OrgPerson | null) => void;
 }) {
   const u = node.u;
   return (
-    <button type="button" onClick={() => onOpen(u)}
-      title={`${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
-      className={`bg-card border-border/70 relative flex items-center gap-2.5 rounded-xl border py-2 pr-3 pl-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none ${isRoot ? "min-w-[13rem]" : "min-w-[11rem]"}`}>
+    <span className={`bg-card border-border/70 relative flex items-center rounded-xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${editing ? "ring-primary ring-2" : ""} ${isRoot ? "min-w-[13rem]" : "min-w-[11rem]"}`}>
       <span aria-hidden className="absolute inset-y-1.5 left-0 w-1 rounded-full" style={{ background: ink }} />
-      <Face u={u} size={isRoot ? 44 : 34} />
-      <span className="min-w-0">
-        <span className={`block truncate font-semibold ${isRoot ? "text-sm" : "text-xs"}`}>{givenNames(displayName(u))}</span>
-        <span className="text-muted-foreground block truncate text-[10px] leading-4">
-          {u.position || ROLE_LABEL(u.role)}
+      <button type="button" onClick={() => onOpen(u)}
+        title={`${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-2 pr-2 pl-3.5 text-left focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none">
+        <Face u={u} size={isRoot ? 44 : 34} />
+        <span className="min-w-0">
+          <span className={`block truncate font-semibold ${isRoot ? "text-sm" : "text-xs"}`}>{givenNames(displayName(u))}</span>
+          <span className="text-muted-foreground block truncate text-[10px] leading-4">
+            {u.position || ROLE_LABEL(u.role)}
+          </span>
         </span>
-      </span>
+      </button>
       {headcount > 0 && (
-        <span className="bg-secondary text-foreground/75 ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+        <span className="bg-secondary text-foreground/75 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
           title={L(`${headcount} people below`, `${headcount} orang di bawah`)}>
           {headcount}
         </span>
       )}
-    </button>
+      {/* Nobody sits above the top of the chart, so the root has no line to
+          change - offering one there is offering a control that can only be
+          refused. */}
+      {canAssign && !isRoot && (
+        <button type="button" aria-pressed={editing}
+          onClick={() => onEdit(editing ? null : u)}
+          title={L(`Change who ${displayName(u)} reports to`, `Tukar siapa ${displayName(u)} melapor kepada`)}
+          className={`mr-1.5 ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs transition-colors focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none ${editing ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}>
+          <span aria-hidden>&#9998;</span>
+          <span className="sr-only">{L("Change reporting line", "Tukar garis pelaporan")}</span>
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -121,19 +146,22 @@ function OrgCard({ node, ink, headcount, onOpen, isRoot }: {
     this portal recursion is the honest shape. The connector lines are CSS on
     the children (see the <style> block in OrgChart), not SVG, so the tree
     reflows with the text and needs no measuring pass. */
-function OrgBranch({ node, byId, counts, onOpen }: {
+function OrgBranch({ node, byId, counts, onOpen, canAssign, editingId, onEdit }: {
   node: OrgNode; byId: Map<number, OrgPerson>; counts: Map<number, number>; onOpen: (u: OrgPerson) => void;
+  canAssign: boolean; editingId: number | null; onEdit: (u: OrgPerson | null) => void;
 }) {
   const ink = inkFor(divisionOf(node.u, byId));
   return (
     <div className="org-branch">
-      <OrgCard node={node} ink={ink} headcount={counts.get(node.u.id) ?? 0} onOpen={onOpen} isRoot={node.depth === 0} />
+      <OrgCard node={node} ink={ink} headcount={counts.get(node.u.id) ?? 0} onOpen={onOpen} isRoot={node.depth === 0}
+        canAssign={canAssign} editing={editingId === node.u.id} onEdit={onEdit} />
       {node.children.length > 0 && (
         <>
           <span aria-hidden className="org-drop" />
           <div className="org-kids">
             {node.children.map((c) => (
-              <OrgBranch key={c.u.id} node={c} byId={byId} counts={counts} onOpen={onOpen} />
+              <OrgBranch key={c.u.id} node={c} byId={byId} counts={counts} onOpen={onOpen}
+                canAssign={canAssign} editingId={editingId} onEdit={onEdit} />
             ))}
           </div>
         </>
@@ -176,7 +204,14 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
   onAssign: (personId: number, managerId: number | null) => void;
   onOpen: (u: OrgPerson) => void;
 }) {
-  const [showAll, setShowAll] = useState(false);
+  /* v1.101.1 - the full table starts OPEN. It shipped collapsed and the CEO
+     asked for a way to change a line, which is the clearest possible report
+     that a control behind a "Show" link is a control nobody found. */
+  const [showAll, setShowAll] = useState(true);
+  /* Who is being re-pointed right now. One at a time: the picker appears in a
+     bar under the chart rather than inside the branch, so opening it never
+     shifts the tree under the hand that pressed it. */
+  const [editing, setEditing] = useState<OrgPerson | null>(null);
 
   const { root, unassigned } = useMemo(() => buildOrg(people), [people]);
   const byId = useMemo(() => new Map(people.filter(isHere).map((u) => [u.id, u])), [people]);
@@ -254,8 +289,11 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
           <div>
             <p className="text-sm font-semibold">{L("Organisation", "Organisasi")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Who each person answers to. The stripe is the division; the number is how many sit below.",
-                 "Setiap orang melapor kepada siapa. Jalur ialah bahagian; nombor ialah bilangan di bawahnya.")}
+              {canAssign
+                ? L("Who each person answers to. The stripe is the division; the number is how many sit below. Press the pencil on a box to change who they report to.",
+                    "Setiap orang melapor kepada siapa. Jalur ialah bahagian; nombor ialah bilangan di bawahnya. Tekan pensel pada kotak untuk menukar siapa mereka melapor kepada.")
+                : L("Who each person answers to. The stripe is the division; the number is how many sit below.",
+                    "Setiap orang melapor kepada siapa. Jalur ialah bahagian; nombor ialah bilangan di bawahnya.")}
             </p>
           </div>
           <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -280,11 +318,37 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
           /* The tree is as wide as the widest level, which on a growing
              company is wider than a laptop. It scrolls in its own box so the
              page never does. */
-          <div className="mt-4 overflow-x-auto pb-2">
-            <div className="flex min-w-max justify-center px-2">
-              <OrgBranch node={root} byId={byId} counts={counts} onOpen={onOpen} />
+          <>
+            <div className="mt-4 overflow-x-auto pb-2">
+              <div className="flex min-w-max justify-center px-2">
+                <OrgBranch node={root} byId={byId} counts={counts} onOpen={onOpen}
+                  canAssign={canAssign} editingId={editing?.id ?? null}
+                  onEdit={(u) => setEditing(u)} />
+              </div>
             </div>
-          </div>
+            {/* The bar. Fixed to the bottom of the CARD, not floating over the
+                tree: the chart scrolls sideways and a popover pinned to a box
+                would sail off with it. */}
+            {editing && canAssign && (
+              <div className="border-border bg-secondary/40 mt-2 flex flex-wrap items-center gap-2 rounded-xl border p-2.5">
+                <Face u={editing} size={30} />
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-semibold">{displayName(editing)}</span>
+                  <span className="text-muted-foreground block truncate text-[10px] leading-4">
+                    {L("reports to", "melapor kepada")}
+                  </span>
+                </span>
+                <span className="min-w-[12rem] flex-1">
+                  <ManagerPicker person={byId.get(editing.id) ?? editing} people={people}
+                    disabled={saving === editing.id}
+                    onPick={(m) => { onAssign(editing.id, m); setEditing(null); }} />
+                </span>
+                <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setEditing(null)}>
+                  {L("Done", "Selesai")}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <p className="text-muted-foreground mt-4 text-xs">{L("No active staff to chart yet.", "Belum ada kakitangan aktif untuk dicartakan.")}</p>
         )}

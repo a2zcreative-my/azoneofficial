@@ -150,6 +150,19 @@ const { MY_STATES, formatMyPhone, cleanEmail } = await import(pathToFileURL(out)
      "an id in an audit log nobody can resolve to a name is an audit log nobody reads");
   ok("the panel confirms before deleting", /await confirm\(\{[\s\S]{0,700}?variant: "danger"/.test(panel));
   ok("the panel reports either way", /toast\(L\("Removed"[\s\S]{0,200}?toast\(L\("Not removed"/.test(panel));
+  /* v1.101.1 - CEO, 05-09-2026: *"Every state 442 shown show the list too
+     long, should scrollable at least."* 442 rows is fourteen screens with the
+     search box, the Export button and the map all off the top of it. */
+  ok("the rows scroll in their own box",
+     /<ul className="[^"]*overflow-y-auto[^"]*"[\s\S]{0,200}?hotels\.map/.test(panel),
+     "a 442-row list that only the page can scroll loses its own toolbar");
+  ok("the height is capped against the VIEWPORT, not a fixed pixel count",
+     /maxHeight: "min\(38rem, calc\(100svh - 20rem\)\)"/.test(panel),
+     "a fixed cap either swallows a laptop or wastes a monitor");
+  ok("a flick at the end of the list does not scroll the page behind it",
+     /overscroll-contain/.test(panel));
+  ok("the count says the list scrolls", /scroll the list/.test(panel));
+
   ok("the panel uses the portal's own styles, not bespoke buttons",
      /from "@\/components\/ui\/row-button"/.test(panel) && /from "@\/lib\/ui-styles"/.test(panel)
      && !/className="[^"]*bg-\[#/.test(panel),
