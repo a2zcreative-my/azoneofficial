@@ -10,9 +10,11 @@
 
 import Link from "next/link";
 
-import { api, csrfFetch, sendOutboxEntry } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { api, sendOutboxEntry } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { setOutboxScope, startOutbox } from "@/lib/outbox"; // v1.105.0 - kept-on-the-phone writes
 import { InstallCoach } from "@/components/ui/install-coach"; // v1.105.0 - iOS Home Screen coaching
+import { OneDesk } from "@/components/portal/one-desk"; // v1.106.0 - everything waiting on you
+import { WatchersCard } from "@/components/portal/watchers-card"; // v1.108.0 - rules over the company data
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
 // v1.65.0 — live cards: the version store, and the hook that watches it.
@@ -130,7 +132,7 @@ import { RestDayCreditCard } from "@/components/portal/rest-day-credits"; // v1.
 import {
   AccessReviewCard, HrAdminPanel, AssetsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
-  GeofenceCard, HotelsPanel, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
+  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
@@ -215,14 +217,6 @@ const PAY_STATUS_MS: Record<string, string> = {
 };
 const payStatusL = (s: string) =>
   getLang() === "ms" ? (PAY_STATUS_MS[s] ?? s) : s;
-const ENQ_STATUS_MS: Record<string, string> = {
-  new: "baru",
-  contacted: "dihubungi",
-  qualified: "layak",
-  closed: "ditutup",
-};
-const enqStatusL = (s: string) =>
-  getLang() === "ms" ? (ENQ_STATUS_MS[s] ?? s) : s;
 /* daysAway() output is compared against "TODAY" for styling — translate a COPY at display only. */
 const daysAwayL = (s: string) =>
   s === "TODAY"
@@ -1004,6 +998,11 @@ function Dashboard({
         half_day: L("Half day (after 12:00)", "Separuh hari (selepas 12:00)"),
         early_out: L("Early out (before 18:00)", "Keluar awal (sebelum 18:00)"),
         completed: L("Shift completed", "Syif selesai"),
+        /* v1.109.0 - a part-time host is paid by the clock; the punch says so
+           instead of measuring her against hours that do not apply */
+        hourly: L("Counted by the clock", "Dikira mengikut jam"),
+        assigned: L("Assigned work", "Kerja yang ditugaskan"),
+        rest_day: L("Rest day", "Hari rehat"),
       };
       const now = new Date(Date.now() + 8 * 3600 * 1000);
       const hhmm = now.toISOString().slice(11, 16);
@@ -1243,6 +1242,16 @@ function Dashboard({
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
+
+      {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
+          person, from every module, before anything else on the page. It is
+          one quiet line when there is nothing, and the first thing you see
+          when there is. */}
+      <OneDesk go={(t) => go(t as TabName)} />
+      {/* v1.108.0 — WATCHERS, executive tier: what the company's rules find
+          true right now, and (CEO) the rules themselves. One quiet line when
+          nothing is. */}
+      <WatchersCard role={user.role} go={(t) => go(t as TabName)} />
 
       {/* v1.15.0 — personal KPI strip (desktop): my day and my month at a
           glance, from data this component already fetched. Company-wide
@@ -8969,235 +8978,6 @@ function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
   );
 }
 
-function CustomerEnquiriesCard() {
-  interface Enq {
-    id: number;
-    name: string;
-    company?: string | null;
-    phone?: string | null;
-    email: string;
-    message: string;
-    category?: string | null;
-    status: string;
-    reply?: string | null;
-    replied_at?: string | null;
-    created_at: string;
-  }
-  const [enqs, setEnqs] = useState<Enq[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  /* v1.78.0 (CEO: "when I clicked closed it doesnt popup which is not
-     correct!") — changing a status and sending a reply both went to the
-     server in silence. A dropdown is worse than a button for this: the value
-     on screen changes whether or not the server agreed, so a failed PATCH
-     leaves you looking at "closed" while the record still says "new". */
-  const { show: enqToast, node: enqToastNode } = useSaveToast();
-  const CAT: Record<string, string> = {
-    general: L("General", "Umum"),
-    package_pricing: L("Package & pricing", "Pakej & harga"),
-    live_commerce: L("Live commerce", "Jualan LIVE"),
-    order_delivery: L("Order & delivery", "Pesanan & penghantaran"),
-    collaboration: L("Collaboration", "Kerjasama"),
-  };
-  const load = async () => {
-    try {
-      const r = await fetch("/api/v1/enquiries", { credentials: "include" });
-      if (r.ok) {
-        const d = (await r.json()) as { enquiries?: Enq[] };
-        setEnqs(d.enquiries ?? []);
-      }
-    } catch {
-      /* card stays empty */
-    }
-    setLoaded(true);
-  };
-  useEffect(() => {
-    void load();
-  }, []);
-  const setStatus = async (id: number, status: string) => {
-    const res = await csrfFetch(`/api/v1/enquiries/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    enqToast(
-      res.ok ? L("Status saved", "Status disimpan") : L("Not saved", "Tidak disimpan"),
-      res.ok
-        ? L(`Marked ${enqStatusL(status)}.`, `Ditanda ${enqStatusL(status)}.`)
-        : L("The dropdown moved but the record did not — try again", "Menu turun berubah tetapi rekod tidak — cuba lagi"),
-      res.ok ? undefined : "notice",
-    );
-    void load();
-  };
-  /* v1.21.0: the "convert to lead" hop went with the retired Pipeline tab —
-     an enquiry that becomes business is marked qualified here and raised as
-     a quotation in the Sales panel directly below this card. */
-  // v1.4.191: in-app reply — the customer reads it on /account.
-  const [replyDraft, setReplyDraft] = useState<Record<number, string>>({});
-  const [replyOpen, setReplyOpen] = useState<number | null>(null);
-  const sendReply = async (id: number) => {
-    const text = (replyDraft[id] ?? "").trim();
-    if (!text) return;
-    const res = await csrfFetch(`/api/v1/enquiries/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reply: text }),
-    });
-    /* v1.78.0 — the reply went out with no word either way, and the draft
-       was cleared regardless. A reply the customer never received, with the
-       text gone from the box, is the worst of both. */
-    enqToast(
-      res.ok ? L("Reply sent", "Balasan dihantar") : L("Not sent", "Tidak dihantar"),
-      res.ok
-        ? L("The customer can read it on their account page.", "Pelanggan boleh membacanya di halaman akaun mereka.")
-        : L("Your text is still in the box — try again", "Teks anda masih dalam kotak — cuba lagi"),
-      res.ok ? undefined : "notice",
-    );
-    if (!res.ok) return;
-    setReplyOpen(null);
-    setReplyDraft((d) => ({ ...d, [id]: "" }));
-    void load();
-  };
-  /* v1.77.0 — skeleton until the first fetch lands: the same card, heading
-     and description, with enquiry rows where the list will be. */
-  if (!loaded)
-    return (
-      <div className={card}>
-        <p className="text-sm font-semibold">
-          {L("Customer enquiries", "Pertanyaan pelanggan")}
-        </p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L(
-            "Questions from /account customers — you are bell-notified when one lands. Answer directly on WhatsApp or email, then set the status.",
-            "Soalan daripada pelanggan /account — anda dimaklumkan melalui loceng apabila satu diterima. Jawab terus melalui WhatsApp atau e-mel, kemudian tetapkan status."
-          )}
-        </p>
-        <SkelRows rows={3} className="mt-3 max-h-96 pr-1" />
-      </div>
-    );
-  return (
-    <div className={card}>
-      {enqToastNode}
-      <p className="text-sm font-semibold">
-        {L("Customer enquiries", "Pertanyaan pelanggan")}
-      </p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {L(
-          "Questions from /account customers — you are bell-notified when one lands. Answer directly on WhatsApp or email, then set the status.",
-          "Soalan daripada pelanggan /account — anda dimaklumkan melalui loceng apabila satu diterima. Jawab terus melalui WhatsApp atau e-mel, kemudian tetapkan status."
-        )}
-      </p>
-      {enqs.length === 0 ? (
-        <p className="text-muted-foreground mt-3 text-sm">
-          {L("No enquiries yet.", "Tiada pertanyaan lagi.")}
-        </p>
-      ) : (
-        <div className="mt-3 max-h-96 space-y-0 overflow-y-auto pr-1">
-          {enqs.map((e) => (
-            <div
-              key={e.id}
-              className="border-border border-b py-2 text-sm last:border-0"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium">{e.name}</span>
-                  {e.company ? (
-                    <span className="text-muted-foreground text-xs">
-                      {" "}
-                      · {e.company}
-                    </span>
-                  ) : null}
-                  {e.category ? (
-                    <span className="bg-secondary ml-1.5 rounded-full px-2 py-0.5 text-[10px]">
-                      {CAT[e.category] ?? e.category}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
-                  {e.phone && (
-                    <a
-                      className="underline"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      href={`https://wa.me/${e.phone.replace(/[^0-9]/g, "")}`}
-                    >
-                      WhatsApp
-                    </a>
-                  )}
-                  <a className="underline" href={`mailto:${e.email}`}>
-                    {L("Email", "E-mel")}
-                  </a>
-                  <select
-                    className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]"
-                    value={e.status}
-                    onChange={(ev) => void setStatus(e.id, ev.target.value)}
-                  >
-                    {["new", "contacted", "qualified", "closed"].map((st) => (
-                      <option key={st} value={st}>
-                        {enqStatusL(st)}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-              </div>
-              <p className="text-muted-foreground mt-1 text-xs">{e.message}</p>
-              {e.reply && (
-                <p className="mt-1 rounded border border-green-300 bg-green-100 px-2 py-1 text-xs text-green-900">
-                  {L("Replied", "Dibalas")}
-                  {e.replied_at
-                    ? ` ${mytDateTime(e.replied_at)} MYT`
-                    : ""}: {e.reply}
-                </p>
-              )}
-              {replyOpen === e.id ? (
-                <span className="mt-1 flex items-center gap-1.5">
-                  <input
-                    className="border-input bg-background min-w-0 flex-1 rounded border px-2 py-1 text-xs"
-                    placeholder={L(
-                      "Write the reply the customer will see on /account…",
-                      "Tulis balasan yang akan dilihat pelanggan di /account…"
-                    )}
-                    value={replyDraft[e.id] ?? ""}
-                    onChange={(ev) =>
-                      setReplyDraft((d) => ({ ...d, [e.id]: ev.target.value }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="bg-primary text-primary-foreground rounded px-2 py-1 text-xs font-medium"
-                    onClick={() => void sendReply(e.id)}
-                  >
-                    {L("Send", "Hantar")}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs underline"
-                    onClick={() => setReplyOpen(null)}
-                  >
-                    {L("Cancel", "Batal")}
-                  </button>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="mt-1 text-xs underline"
-                  onClick={() => setReplyOpen(e.id)}
-                >
-                  {e.reply
-                    ? L("Update reply", "Kemas kini balasan")
-                    : L("Reply in-app", "Balas dalam aplikasi")}
-                </button>
-              )}
-              <p className="text-muted-foreground mt-0.5 text-[10px]">
-                {e.email} · {mytDateTime(e.created_at)} MYT
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* v1.4.263: word the inventory movement an invoice caused, for the toast.
    Silence would repeat the In+ mistake (v1.4.251) — stock moving with no
    confirmation — and a wrong-SKU line NOT deducting must be said loudest. */
@@ -13470,7 +13250,17 @@ export default function PortalPage() {
           breaks it out of <main>'s padding so it spans the full working area,
           and it stays sticky/bordered instead of dissolving into the page as
           it did before. Every mobile class is unchanged. */}
-        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:py-3 md:backdrop-blur-none">
+        {/* v1.109.1 — CEO, 05-09-2026, the portal installed on his Android
+            Home Screen: the clock, signal and battery drawn straight over the
+            avatar and "Today". The manifest asks for viewport-fit=cover, so
+            an installed app runs edge to edge and the status bar is OURS to
+            clear. The header pads its top by the safe-area inset - zero in a
+            browser tab, the status bar's height when installed - and, being
+            sticky, keeps clearing it as the page scrolls. The bottom bar has
+            done the same for its inset since v1.10.0; the top simply never
+            had to until phones started drawing under it. */}
+        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 pb-2 backdrop-blur [--hdr-pt:0.5rem] md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:pb-3 md:backdrop-blur-none md:[--hdr-pt:0.75rem]"
+          style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
           <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
             {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
@@ -13757,11 +13547,11 @@ export default function PortalPage() {
             <div className="mt-1 max-h-44 overflow-y-auto pr-1">
               {notifs.map((n) => (
                 <p key={n.id} className="mt-2 text-sm">
-                  {n.kind === "announcement" ? (
+                  {n.kind === "announcement" || n.kind === "enquiry" ? (
                     <button
                       type="button"
                       className="text-left underline-offset-2 hover:underline"
-                      onClick={() => setTab("Announcements")}
+                      onClick={() => setTab(n.kind === "enquiry" ? "Enquiries" : "Announcements")}
                     >
                       {n.message}
                     </button>
@@ -14150,11 +13940,15 @@ export default function PortalPage() {
               (role default + tab-access override). The extra role re-check here
               made Sales the only tab where an override granted by the CEO
               rendered a completely blank page. */}
+          {/* v1.112.0: enquiries are their own tab (CEO: staff work that must
+              be answered), one place after Sales. */}
+          {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} />}
           {activeTab === "Sales" && (
             <div className="space-y-4 md:space-y-6">
-              {/* v1.21.0: enquiries moved here from the retired Pipeline tab —
-                the inbound funnel sits with the documents it turns into. */}
-              <CustomerEnquiriesCard />
+              {/* v1.21.0 put the enquiries card here; v1.112.0 moved it to its
+                own tab, one place to the right. v1.113.0: the CEO's sales map
+                leads the tab - where the money is, by state. */}
+              <SalesMap />
               <Sales user={user} />
               {/* v1.7.0: receipts, credit notes & outstanding report */}
               <DocumentsPanel />

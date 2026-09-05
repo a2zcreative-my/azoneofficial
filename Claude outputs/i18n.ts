@@ -22,6 +22,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Payroll": { en: "Payroll", ms: "Gaji" },
   "Expenses": { en: "Expenses", ms: "Perbelanjaan" },
   "Sales": { en: "Sales", ms: "Jualan" },
+  "Enquiries": { en: "Enquiries", ms: "Pertanyaan" },
   "Inventory": { en: "Inventory", ms: "Inventori" },
   "Stokis": { en: "Stokis", ms: "Stokis" },
   "Web Orders": { en: "Web Orders", ms: "Pesanan Web" },

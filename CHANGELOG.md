@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.111.0] - 2026-09-05 - Hotels is the review venture: the pipeline re-spoken, the watchers withdrawn
+
+**CEO**, 05-09-2026, minutes after v1.110.0: *"I think watcher not supposed to include on the hotel since Hotel is another service that I want to do for Hotel review which is upcoming project is Airbnb and Hotel review content for me to upscale my business like a Foodie of Pin Yang."* Asked how the pipeline should read for that business, he chose: reframe it for review outreach.
+
+### What was wrong
+The 05-09 roadmap read the 442 hotels as a sales list and phase 05 built accordingly: stages *quoted / won / lost*, a link from a hotel to a client's quotations and invoices, the map coloured by revenue, and a company Watcher over hotel follow-ups (joining the MOF/Halal certificate watcher from v1.108.0). The hotels are not customers of the operating company. They are the subjects of a separate venture - hotel and Airbnb stays, reviewed and published - and the operating company's rules and money have no business in it.
+
+### Now
+- **The stages speak review outreach**: *Not contacted → Contacted → Stay agreed → Reviewed → Published*, and *Declined*. They still move by what happened - a call, a stay agreed, the stay taken, the review out - forward only by themselves, and a later call revives a decline. The call outcomes are the seven things that actually happen on such a call: spoke, no answer, call back, they declined, a stay is agreed, we stayed and reviewed, the review is published.
+- **Where the review lives.** Logging *the review is published* takes the link; it sits on the hotel as *Read the review* and marks the row *review out*.
+- **The map's second colouring is reviews published per state**, and the side panel reads *N of M contacted · K stays agreed · P published*. The revenue colouring is gone.
+- **The client link, the documents and the money are gone** from the hotel page and the worker module. `hotels.customer_id` stays on the table unread (it carries a foreign key SQLite will not drop; an unused nullable column costs nothing).
+- **No Watcher looks at hotels.** Both `hotel_cert` and `hotel_followup` are removed; their open findings clear themselves on the next hourly run. The Watchers card no longer carries their labels. `tests/watchers.mjs` now asserts that no watcher's key, label, tab or SQL names hotels, and its date test runs on asset warranties instead.
+- The worklist chips are *All · Not contacted · Due for a call · Contacted · Stay agreed · Reviewed · Published · Declined*.
+
+### Under it
+`worker/migrations/0117_hotel_review_pipeline.sql` rebuilds the `stage` column beside itself (SQLite cannot alter a CHECK in place), carries every old word to its nearest new one (quoted→agreed, won→published, lost/dormant→declined; sent_quote/meeting→agreed, not_interested/lost→declined), rebuilds `hotel_calls` with the new outcomes, re-creates the indexes the rebuild loses, and adds `hotels.review_url` - which is also the probe, since every other name is the same before and after. Verified on SQLite 3.45 with seeded rows: old words are refused after, ids continue, both indexes present. Guard #45 (68 checks) re-spoken and negative-tested three more ways, including a watcher reading `hotels` again.
+
+**Deploy note:** run `DEPLOY.bat` once; 0116 and 0117 apply in order whether or not v1.110.0 was ever deployed.
+
 ## [1.110.0] - 2026-09-05 - roadmap phase 05: the hotel directory becomes a pipeline
 
 **CEO**, 05-09-2026: *"what phase left? continue next phase"*. The last of the five phases from the 05-09 roadmap. The roadmap said it plainly: 442 hotels and 690 named contacts on one tab, quotations and invoices on another, nothing connecting them - *"the most valuable asset in the system is currently a phone book."*

@@ -5,8 +5,8 @@
  *
  * The second card on the Dashboard, for the executive tier: every condition
  * the company's watchers currently find true - stock under the line, a paid
- * order not shipped, a claim aged past a week, a hotel certificate about to
- * lapse, a warranty ending - oldest first, each pressable to the tab where it
+ * order not shipped, a claim aged past a week, a warranty ending - oldest
+ * first, each pressable to the tab where it
  * is fixed. Underneath, for the CEO only, the rules themselves: on or off,
  * and the number each watches against. The COO and CCO see the findings and
  * the rules; only the CEO changes a rule.
@@ -40,12 +40,10 @@ const LABEL_MS: Record<string, string> = {
   "Stock below the line": "Stok di bawah garis",
   "Paid web order not shipped": "Pesanan web berbayar belum dihantar",
   "Claim undecided": "Tuntutan belum diputuskan",
-  "Hotel MOF / Halal certificate expiring": "Sijil MOF / Halal hotel akan tamat",
   "Asset warranty ending": "Jaminan aset akan tamat",
   "Leave request waiting too long": "Permohonan cuti menunggu terlalu lama",
-  "Hotel follow-up overdue or gone quiet": "Susulan hotel tertunggak atau senyap",
 };
-const UNIT_MS: Record<string, string> = { units: "unit", days: "hari", "days ahead": "hari ke hadapan", "days quiet": "hari senyap" };
+const UNIT_MS: Record<string, string> = { units: "unit", days: "hari", "days ahead": "hari ke hadapan" };
 
 function since(sqlite: string): string {
   const t = new Date(sqlite.replace(" ", "T") + "Z").getTime();

@@ -3,7 +3,7 @@
  *
  * The roadmap, 05-09-2026: *"Rules over the data you already hold, checked on
  * the cron that already runs: stock below a line, an order not moved in five
- * days, a claim older than a week, a hotel's MOF or Halal validity expiring
+ * days, a claim older than a week, an asset warranty ending
  * ... They arrive as the push from phase 3 and as one morning brief at
  * eight."* A SaaS vendor gives you alerts inside their one product; this
  * gives you alerts across all of them, because all of them are in one place.
@@ -54,8 +54,15 @@ const json = (data: unknown, status = 200) =>
 
 const EXEC = ["ceo", "coo", "cco"];
 
-/** "25.06.2027" or "2027-06-25" -> "2027-06-25"; anything else -> null. The
-    hotel workbook wrote validity dates by hand, in dd.mm.yyyy. */
+/** "25.06.2027" or "2027-06-25" -> "2027-06-25"; anything else -> null.
+    Warranty dates were typed by hand, some in dd.mm.yyyy.
+
+    v1.111.0 - THE WATCHERS DO NOT LOOK AT HOTELS. Two did (MOF/Halal expiry
+    in v1.108.0, follow-up lapses in v1.110.0) and the CEO, 05-09-2026, said
+    no: Hotels is a separate venture - the review-content business, hotel and
+    Airbnb stays - not the operating company these rules watch over. Their
+    open findings clear themselves on the next run (a ref nobody reports is
+    stale). */
 export function isoDate(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const s = raw.trim();
@@ -103,31 +110,6 @@ export const WATCHERS: readonly Watcher[] = [
     },
   },
   {
-    key: "hotel_cert", label: "Hotel MOF / Halal certificate expiring", audience: ["ceo", "cco", "sales_marketing"],
-    thresholdLabel: "days ahead", defaultThreshold: 30, tab: "Hotels",
-    async check(env, t) {
-      const { results } = await env.DB.prepare(
-        `SELECT id, hotel_name, state, mof_validity, halal_validity FROM hotels
-          WHERE is_active = 1 AND (mof_validity IS NOT NULL OR halal_validity IS NOT NULL)`,
-      ).all<{ id: number; hotel_name: string; state: string; mof_validity: string | null; halal_validity: string | null }>();
-      const out: Finding[] = [];
-      for (const h of results) {
-        for (const [kind, raw] of [["MOF", h.mof_validity], ["Halal", h.halal_validity]] as const) {
-          const iso = isoDate(raw);
-          if (!iso) continue;
-          const d = daysUntil(iso);
-          /* already lapsed for more than a year is history, not a watch */
-          if (d > t || d < -365) continue;
-          out.push({
-            ref: `hotel:${h.id}:${kind.toLowerCase()}`,
-            title: d < 0 ? `${h.hotel_name} (${h.state}): ${kind} certificate lapsed ${-d} days ago` : `${h.hotel_name} (${h.state}): ${kind} certificate expires in ${d} days`,
-          });
-        }
-      }
-      return out.slice(0, 80);
-    },
-  },
-  {
     key: "asset_warranty", label: "Asset warranty ending", audience: ["ceo", "hr_admin"],
     thresholdLabel: "days ahead", defaultThreshold: 30, tab: "Assets",
     async check(env, t) {
@@ -144,34 +126,6 @@ export const WATCHERS: readonly Watcher[] = [
         out.push({ ref: `asset:${a.id}`, title: d < 0 ? `${a.asset_tag} ${a.name}: warranty ended ${-d} days ago` : `${a.asset_tag} ${a.name}: warranty ends in ${d} days` });
       }
       return out.slice(0, 50);
-    },
-  },
-  {
-    /* v1.110.0 (roadmap phase 05) - the pipeline's lapses. A follow-up date
-       that has passed, or a hotel that was being worked (contacted or quoted)
-       and has heard nothing for `threshold` days. A never-called lead is NOT a
-       finding: on day one that is 442 of them, and 442 pushes is how a bell
-       gets muted on its first morning. Leads are the worklist on the map. */
-    key: "hotel_followup", label: "Hotel follow-up overdue or gone quiet", audience: ["ceo", "cco", "sales_marketing"],
-    thresholdLabel: "days quiet", defaultThreshold: 90, tab: "Hotels",
-    async check(env, t) {
-      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-      const { results } = await env.DB.prepare(
-        `SELECT id, hotel_name, state, stage, next_at, last_contact_at FROM hotels
-          WHERE is_active = 1 AND (next_at IS NOT NULL OR stage IN ('contacted', 'quoted'))`,
-      ).all<{ id: number; hotel_name: string; state: string; stage: string; next_at: string | null; last_contact_at: string | null }>();
-      const out: Finding[] = [];
-      for (const h of results) {
-        if (h.next_at && h.next_at.slice(0, 10) <= today) {
-          out.push({ ref: `hotel-followup:${h.id}`, title: `${h.hotel_name} (${h.state}): follow-up was due ${h.next_at.slice(0, 10)}` });
-          continue;
-        }
-        if ((h.stage === "contacted" || h.stage === "quoted") && h.last_contact_at) {
-          const quiet = Math.floor((Date.now() - new Date(h.last_contact_at.replace(" ", "T") + "Z").getTime()) / 86_400_000);
-          if (quiet > t) out.push({ ref: `hotel-quiet:${h.id}`, title: `${h.hotel_name} (${h.state}): ${h.stage}, nothing for ${quiet} days` });
-        }
-      }
-      return out.slice(0, 80);
     },
   },
   {

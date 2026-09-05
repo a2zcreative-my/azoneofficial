@@ -276,7 +276,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0116_hotel_pipeline";
+const LATEST_MIGRATION = "0117_hotel_review_pipeline";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4434,6 +4434,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0114 (the outbox)", `SELECT key FROM idempotency_keys LIMIT 1`],
       ["0115 (watchers)", `SELECT ref FROM watcher_open LIMIT 1`],
       ["0116 (the hotel pipeline)", `SELECT stage, customer_id FROM hotels LIMIT 1`],
+      ["0117 (the pipeline re-spoken for review outreach)", `SELECT review_url FROM hotels LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4569,6 +4570,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0114_outbox",
       "0115_watchers",
       "0116_hotel_pipeline",
+      "0117_hotel_review_pipeline",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -11,8 +11,10 @@
  *      first run only. A finding that disappears is cleared; if it returns
  *      it is pushed again. A watcher switched off is not checked. A watcher
  *      that throws is named and the others still run.
- *   2. THE DATES ARE READ. The hotel workbook wrote validity as dd.mm.yyyy
- *      by hand; isoDate reads that, ISO, and refuses everything else.
+ *   2. THE DATES ARE READ. Warranty dates were typed by hand, some as
+ *      dd.mm.yyyy; isoDate reads that, ISO, and refuses everything else.
+ *   2b. NO WATCHER LOOKS AT HOTELS. The CEO, 05-09-2026: Hotels is a separate
+ *      venture (review content), not the operating company these rules watch.
  *   3. THE BRIEF IS PERSONAL. Each executive is told how many things wait
  *      on THEM, from the desk, not a company total.
  *   4. THE WIRING: hourly on the :00 tick, the 08:00 MYT cron in
@@ -159,13 +161,22 @@ function fakeEnv(fixture) {
   ok("free text is null, not a guess", W.isoDate("until renewed") === null && W.isoDate("") === null && W.isoDate(null) === null);
   const soon = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
   const far = new Date(Date.now() + 200 * 86_400_000).toISOString().slice(0, 10);
-  const env = fakeEnv({ users: [{ id: 1, role: "ceo" }], hotels: [
-    { id: 1, hotel_name: "Amari", state: "JOHOR", mof_validity: `${soon.slice(8, 10)}.${soon.slice(5, 7)}.${soon.slice(0, 4)}`, halal_validity: far },
-    { id: 2, hotel_name: "Berjaya", state: "PAHANG", mof_validity: "n/a", halal_validity: null },
+  const env = fakeEnv({ users: [{ id: 1, role: "ceo" }], assets: [
+    { id: 1, asset_tag: "LT-01", name: "MacBook", warranty_until: `${soon.slice(8, 10)}.${soon.slice(5, 7)}.${soon.slice(0, 4)}` },
+    { id: 2, asset_tag: "LT-02", name: "Ring light", warranty_until: far },
+    { id: 3, asset_tag: "LT-03", name: "Tripod", warranty_until: "n/a" },
   ] });
   await W.runWatchers(env);
-  ok("a certificate expiring inside the window is a finding, one far out is not", env._open.has("hotel:1:mof") && !env._open.has("hotel:1:halal"));
-  ok("an unreadable date is skipped, not alarmed", !env._open.has("hotel:2:mof"));
+  ok("a warranty ending inside the window is a finding, one far out is not", env._open.has("asset:1") && !env._open.has("asset:2"));
+  ok("an unreadable date is skipped, not alarmed", !env._open.has("asset:3"));
+}
+
+/* ---- 2b. no watcher looks at hotels ---- */
+{
+  ok("no watcher key, label or tab names hotels", W.WATCHERS.every((w) => !/hotel/i.test(w.key) && !/hotel/i.test(w.label) && w.tab !== "Hotels"),
+     W.WATCHERS.filter((w) => /hotel/i.test(w.key + w.label) || w.tab === "Hotels").map((w) => w.key).join(","));
+  ok("no watcher reads the hotels table", !/FROM hotels\b/.test(src), "Hotels is the review venture, not the operating company");
+  ok("the card carries no hotel label", !/hotel/i.test(card.match(/const LABEL_MS[\s\S]*?\};/)?.[0] ?? "hotel"));
 }
 
 /* ---- 3. the brief is personal ---- */
