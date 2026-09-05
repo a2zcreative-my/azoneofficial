@@ -581,7 +581,7 @@ export function ElfiaStorePanel() {
   };
 
   /* v1.53.0 — ask the shop whether online payment is working. Deliberately
-     NOT part of the tab's first load: it makes the shop call Billplz, and
+     NOT part of the tab's first load: it makes the shop call the gateway, and
      that is a request to somebody else's service on every page view. It runs
      when someone asks. */
   const checkPayment = async () => {
@@ -1122,15 +1122,15 @@ export function ElfiaStorePanel() {
       {/* ---- can customers pay online? (v1.53.0) ----
           The CEO, 26-08, on the live shop: "This appear on the gateway
           payment!" — the customer-facing "Payment gateway unavailable", with
-          nowhere to find out why. The store writes Billplz's own reply down
+          nowhere to find out why. The store writes the gateway's own reply down
           now; this is the window onto it. */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">{L("Online payment (Billplz FPX)", "Pembayaran dalam talian (Billplz FPX)")}</p>
+            <p className="text-sm font-semibold">{L("Online payment (Bayarcash FPX)", "Pembayaran dalam talian (Bayarcash FPX)")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Checks the shop's payment keys against Billplz. Read-only — it creates no bill and moves no money.",
-                 "Menyemak kunci pembayaran kedai dengan Billplz. Baca sahaja — tiada bil dicipta dan tiada wang berpindah.")}
+              {L("Checks the shop's payment token against Bayarcash. Read-only — it creates no payment and moves no money.",
+                 "Menyemak token pembayaran kedai dengan Bayarcash. Baca sahaja — tiada pembayaran dicipta dan tiada wang berpindah.")}
             </p>
           </div>
           <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
@@ -1149,7 +1149,7 @@ export function ElfiaStorePanel() {
                     {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
                   </span>
                   {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
-                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No X-Signature key", "Tiada kunci X-Signature")}</span>}
+                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
                 </p>
                 <p className="text-muted-foreground">{pay.message}</p>
                 {pay.warning && <p className="font-medium text-amber-700 dark:text-amber-400">{pay.warning}</p>}

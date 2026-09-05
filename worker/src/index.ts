@@ -274,7 +274,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0109_threads_intent";
+const LATEST_MIGRATION = "0110_threads_study_only";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1946,9 +1946,10 @@ export default {
     if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
       await logError(env, "tiktok_cron", res.message);
     }
-    /* v1.89.0 — one tick of Threads work: tokens due for refresh, history
-       pages still to import, posts with no snapshot for today. Budgeted, so
-       it can never eat the invocation; caught, so it can never take the
+    /* v1.89.0 — one tick of Threads work; since v1.99.0 that is two things:
+       tokens due for refresh, and the week's-edge purge (found posts older
+       than 7 days, search records older than 8, removed topics). Budgeted,
+       so it can never eat the invocation; caught, so it can never take the
        low-stock sweep below down with it. */
     try {
       const t = await threadsTick(env);
@@ -4389,11 +4390,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0101 (a rest day worked, credited as leave)", `SELECT work_date, days FROM replacement_credits LIMIT 1`],
       ["0102 (a working day in two blocks)", `SELECT mon_start2, fri_end2 FROM shift_patterns LIMIT 1`],
       ["0103 (an unpaid break comes off the day)", `SELECT break_minutes FROM shift_patterns LIMIT 1`],
-      ["0105 (the Threads workspace)", `SELECT media_id, char_count FROM threads_posts LIMIT 1`],
+      ["0105 (the Threads connection)", `SELECT threads_user_id, username FROM threads_accounts LIMIT 1`],
       ["0106 (study cases - what others post)", `SELECT label, query FROM threads_topics LIMIT 1`],
       ["0107 (what a connected account may do)", `SELECT granted_scopes FROM threads_accounts LIMIT 1`],
       ["0108 (which harvested posts read as Malaysian)", `SELECT my_signal, my_reasons FROM threads_topic_posts LIMIT 1`],
       ["0109 (asking or selling, and a note on the last run)", `SELECT intent, (SELECT last_note FROM threads_topics LIMIT 1) AS n FROM threads_topic_posts LIMIT 1`],
+      /* 0110 DROPS tables, so no query can fail for want of it; the probe reads
+         the index it adds, which is the one thing it creates. */
+      ["0110 (Threads keeps a week, not an archive)", `SELECT found_at FROM threads_topic_posts INDEXED BY idx_threads_topic_posts_found LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4522,6 +4526,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0107_threads_scopes",
       "0108_threads_malaysia",
       "0109_threads_intent",
+      "0110_threads_study_only",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

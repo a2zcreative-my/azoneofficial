@@ -2,6 +2,8 @@
 
 Prepared 04-09-2026 for Alīf, CEO, A2Z Creative Marketing. Plan only; nothing has been built.
 
+> **Status, 05-09-2026 (v1.99.0).** Phase 1 (connect + import the account's own posts) shipped on 04-09 and was **withdrawn on 05-09** by the CEO's decision: *"remove library since this is not supposed to view by my staff. the objective for this Threads to make them to find a study case based on the market research and the demand based on the keywords that they want."* The Threads tab is now a **study room** — saved topics, the public posts a keyword search finds for each, and what they add up to (Malaysian or not, asking or selling, how the niche writes) — kept for **seven days** and capped (400 posts per topic, 40 topics). The own-account tables were dropped (migration 0110). Phases 2–5 below (drafting, publishing, autopilot, AI on the account's own history) are **shelved**, not scheduled; they are kept here as the record of what was considered.
+
 ## 1. What the video shows
 
 The video is a product walkthrough of **LazyThreads** by @remisiersyazwan — a single-purpose "content operating system" for one social network, Threads (Meta). Every screen is built on the same two ingredients: the account's own post history and metrics pulled from the Threads API, and a layer of rules on top that turns those numbers into advice. The screens, in the order the video shows them:

@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.99.0] — 2026-09-05 — Threads is a study room, and it keeps a week
+
+**CEO**: *"remove library since this is not supposed to view by my staff. the objective for this Threads to make them to find a study case based on the market research and the demand based on the keywords that they want. and the data should not keep too much since it is only for 7 days for them to study. Additionally, you need to make sure that D1 from Cloudflare not hold so much data for the Threads research to minimalist the requirement of D1 storage capabilities. make it properly planned and also ensure that dont touch another area tabs or data beside of Threads!"*
+
+### The plan, in one paragraph
+Threads had two halves: the connected account's **own** posts and numbers (Overview, Library, the history import, the daily snapshots) and **study cases** (public posts found for a topic). The first half is the CEO's personal Threads history shown to the staff, and it was also the half that grew without limit — one metrics row per post per day, forever. The second half is the objective. So the first half goes, entirely; the second half stays and gets a ceiling on every axis: days kept, posts per topic, topics. Nothing outside `worker/src/threads.ts`, `components/portal/threads-panel.tsx`, the Threads migrations and the Threads guards is touched; the only edits in `index.ts` are the migration bookkeeping and the cron comment.
+
+### What goes
+- **Overview and Library sections** — gone from the panel, with their state, loaders, CSV, tiles and the `/posts` and `/summary` routes behind them. Study is the section the tab opens on; **Connection is offered to management only**.
+- **The history import and the snapshots** — `importPage`, `snapshotPost`, `snapshotAccount`, baselines, the Sync now button and its route. The cron tick now does two things: refresh tokens that are due, and purge.
+- **Three tables** — migration 0110 drops `threads_posts`, `threads_post_metrics`, `threads_account_metrics`. The sync columns on `threads_accounts` are set idle and never written again (left in place: dropping columns is where a migration goes wrong).
+
+### What the database may hold, written down
+- `KEEP_DAYS = 7` — a found post is deleted seven days after it was found.
+- Search records are deleted after **8** days — the quota is a rolling 7-day window and needs a day of slack, or the day it runs would be undercounted.
+- `POSTS_PER_TOPIC = 400` — after every search, oldest-found go first, so the week's newest reading is what stays.
+- `MAX_TOPICS = 40` — a 41st topic is refused with a sentence, not a stack trace.
+- Removing a topic removes its posts on the next tick.
+- **Ceiling of the whole thing:** 40 × 400 rows of short text plus one week of search records. The Study header now shows *"Kept 7 days · N posts on file"* so the week is a figure on the screen, not a promise here.
+
+### Guard #33 rewritten where it described the old machinery (70 checks)
+The budget section now holds only `refreshDueTokens`. A new section 6 holds the week: KEEP_DAYS is seven, the purge deletes by `found_at` and by the quota window, it runs on every tick, the per-topic and topic ceilings exist, nothing names the dropped tables, 0110 drops all three, no `/posts`, `/summary`, import or snapshot remains, the panel has exactly Study and Connection with Connection gated to management, and the storage figure is on screen. Each negative-tested. `docs/THREADS-PLAN.md` carries a status note: phases 2–5 (drafting, publishing, autopilot, AI on the account's own history) are shelved.
+
+### After deploying
+Migration 0110 applies with PUSH.bat. The Connection section no longer shows "posts imported" or "last sync" — the account exists to hold the search credential and that is all it says.
+
 ## [1.98.0] — 2026-09-05 — who is ASKING for it, and who is selling it
 
 **CEO**: *"I want study case posting which is for me to find if there is anyone users in Malaysia looking for the keywords or posting that the keywords that I want to find so that I can do some research on the requirement and demand for my business study!!!!!"*

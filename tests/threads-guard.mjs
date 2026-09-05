@@ -1,11 +1,13 @@
 /**
- * Threads-workspace guard (v1.89.0) — guard #33.
+ * Threads guard (v1.89.0) — guard #33.
  *
  * CEO, 04-09-2026: *"for Threads I want new tabs all in 1 tabs for the
- * Threads with minimalist interface"*. Phase 1 connects a Threads account,
- * imports its history and snapshots its numbers. It is the first module in
- * this portal to hold a credential for a PUBLIC account that can post — so
- * the properties below are about the credential and the budget, not the UI.
+ * Threads with minimalist interface"*; and 05-09-2026: *"remove library
+ * since this is not supposed to view by my staff ... the data should not
+ * keep too much since it is only for 7 days"*. The module holds a credential
+ * for a PUBLIC account that can post, and a week of public posts found for
+ * study topics — so the properties below are about the credential, the
+ * search allowance and the retention, not the UI.
  *
  * Each check asserts a PROPERTY, per the rule at the top of
  * scripts/run-guards.mjs; none pins a line of prose or a count that a
@@ -34,6 +36,14 @@ const perms = read("worker/src/permissions.ts");
 const panel = read("components/portal/threads-panel.tsx");
 const toml = read("worker/wrangler.toml");
 
+/** The body of threadsTick, for checks about what a tick does. */
+const bodyOfTick = () => {
+  const i = threads.indexOf("export async function threadsTick(");
+  if (i < 0) return "";
+  const rest = threads.slice(i + 10);
+  const j = rest.search(/\n(?:export )?(?:async )?function |\n\/\*\* |\nexport /);
+  return rest.slice(0, j < 0 ? undefined : j);
+};
 ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing or empty — everything below passes vacuously");
 
 /* ---- 1. the token never leaves the worker ----
@@ -82,15 +92,18 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
     const i = threads.indexOf(matcher);
     return i < 0 ? "" : threads.slice(i, i + n);
   };
-  const SYNC = "/^\\/accounts\\/(\\d+)\\/sync$/";
   const DISC = "/^\\/accounts\\/(\\d+)\\/disconnect$/";
   const LABEL = "/^\\/accounts\\/(\\d+)$/";
-  ok("the three route matchers were found", [SYNC, DISC, LABEL].every((m) => threads.includes(m)),
+  ok("the two account route matchers were found", [DISC, LABEL].every((m) => threads.includes(m)),
      "the matchers moved — the checks below would pass on nothing");
-  for (const [name, m, action] of [["sync", SYNC, "threads.sync"], ["disconnect", DISC, "threads.disconnected"], ["relabel", LABEL, "threads.relabel"]]) {
+  /* v1.99.0 — there is no sync route any more: nothing of the account's own
+     is imported, so there is nothing for a manager to sync. */
+  ok("no sync route remains", !threads.includes("/sync$/") && !/\/accounts\/\$\{[^}]+\}\/sync/.test(panel),
+     "a sync of the account's own history is the thing the CEO removed");
+  for (const [name, m, action] of [["disconnect", DISC, "threads.disconnected"], ["relabel", LABEL, "threads.relabel"]]) {
     ok(`${name} is audited`, after(m, 1400).includes(`audit(env, user.id, "${action}"`), "an unaudited action on a credential is one nobody can trace");
   }
-  for (const [name, m] of [["sync", SYNC], ["disconnect", DISC], ["relabel", LABEL]]) {
+  for (const [name, m] of [["disconnect", DISC], ["relabel", LABEL]]) {
     ok(`${name} needs threads_manage`, /if \(!manage\) return err\("forbidden"/.test(after(m, 400)), "a viewer could act on the credential");
   }
   ok("connecting is audited too", /audit\(env, actorId, "threads\.connected"/.test(threads));
@@ -180,9 +193,6 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
      "Meta: Param search_type must be one of {RECENT, TOP}");
   ok("the match mode goes in search_mode", /search_mode: withMode \? mode : undefined,/.test(threads)
      && /const mode = topic\.search_type === "tag" \? "TAG" : "KEYWORD";/.test(threads));
-  ok("history import falls back on ANY failed attempt, not only code 100",
-     /for \(let i = 1; !r\.ok && i < attempts\.length/.test(threads) && !/!r\.ok && r\.code === 100/.test(threads),
-     "the A2Z account came back HTTP 500, which is not code 100, and sat at zero posts");
   /* v1.96.2 — the scope is written down at connect, and a token without it
      is refused BEFORE a search is spent. (negative-tested by dropping
      granted_scopes from the connect upsert, and by picking the search
@@ -227,12 +237,11 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
 }
 
 /* ---- 5. work is budgeted ----
-   (negative-tested by removing the `rep.spent >= rep.budget` break in the snapshot loop) */
+   (negative-tested by removing the rep.spent++ from refreshDueTokens) */
 {
-  /* Per helper: every Graph call inside a tick helper is paid for with a
-     rep.spent++ in the same function. threadsCompleteAuth is a person
-     pressing Connect, not a tick, and is not held to it. */
-  const helpers = ["refreshDueTokens", "importPage", "snapshotPost", "snapshotAccount"];
+  /* Every Graph call inside a tick helper is paid for with a rep.spent++ in
+     the same function. threadsCompleteAuth is a person pressing Connect, not
+     a tick, and is not held to it. */
   const bodyOf = (name) => {
     const i = threads.indexOf(`async function ${name}(`);
     if (i < 0) return "";
@@ -240,27 +249,56 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
     const j = rest.search(/\n(?:export )?(?:async )?function |\n\/\*\* |\nexport /);
     return rest.slice(0, j < 0 ? undefined : j);
   };
-  for (const h of helpers) {
-    const b = bodyOf(h);
-    const calls = [...b.matchAll(/graph</g)].length;
-    const spends = [...b.matchAll(/rep\.spent\+\+/g)].length;
-    ok(`${h} pays for every Graph call`, b.length > 100 && calls >= 1 && spends >= calls,
-       `${calls} call(s), ${spends} spend(s) — a call that does not spend the budget is one the free plan's ceiling will eventually kill mid-tick`);
-  }
-  ok("the snapshot loop stops at the budget", /for \(const p of due\) \{\s*\n?\s*if \(rep\.spent >= rep\.budget\) break;/.test(threads));
-  ok("the page loop stops at the budget", /while \(a\.sync_state === "importing" && pages < PAGES_PER_TICK && rep\.spent < rep\.budget\)/.test(threads));
+  const b = bodyOf("refreshDueTokens");
+  const calls = [...b.matchAll(/graph</g)].length;
+  const spends = [...b.matchAll(/rep\.spent\+\+/g)].length;
+  ok("refreshDueTokens pays for every Graph call", b.length > 100 && calls >= 1 && spends >= calls,
+     `${calls} call(s), ${spends} spend(s) — a call that does not spend the budget is one the free plan's ceiling will eventually kill mid-tick`);
   ok("the cron tick is caught", /try \{\s*\n?\s*const t = await threadsTick\(env\);[\s\S]{0,300}?\} catch/.test(index),
      "a Threads failure must never take the low-stock sweep down with it");
   ok("the tick runs on a cron that exists", /event\.cron === "\*\/30 \* \* \* \*"/.test(index) || /crons = \[[^\]]*"\*\/30 \* \* \* \*"/.test(toml));
 }
 
-/* ---- 6. snapshots are append-only ----
-   (negative-tested by turning the metrics INSERT into a plain UPDATE) */
+/* ---- 6. v1.99.0: the database holds one week, and nothing of the account's own ----
+   CEO, 05-09-2026: "remove library since this is not supposed to view by my
+   staff ... the data should not keep too much since it is only for 7 days
+   for them to study ... make sure that D1 from Cloudflare not hold so much
+   data". (negative-tested by: deleting the found_at DELETE from purgeStudy;
+   changing KEEP_DAYS to 30; removing the POSTS_PER_TOPIC trim; putting a
+   threads_posts query back; adding a "library" section to the panel) */
 {
-  ok("a snapshot is keyed by the day", /INSERT INTO threads_post_metrics \(post_id, captured_on/.test(threads));
-  ok("nothing deletes a snapshot", !/DELETE FROM threads_post_metrics|DELETE FROM threads_account_metrics/.test(threads));
-  ok("disconnecting keeps the posts", !/DELETE FROM threads_posts/.test(threads) && /UPDATE threads_accounts SET is_active = 0/.test(threads),
-     "the history is the asset; the token is what goes");
+  ok("the week is one number, and it is seven", /export const KEEP_DAYS = 7;/.test(threads),
+     "the CEO said seven days; anything else is a decision nobody made");
+  ok("the purge deletes found posts past the week",
+     /DELETE FROM threads_topic_posts WHERE found_at < datetime\('now', '-' \|\| \?1 \|\| ' days'\)`\)\.bind\(String\(KEEP_DAYS\)\)/.test(threads));
+  ok("the purge deletes search records past the quota window (a day of slack)",
+     /DELETE FROM threads_searches WHERE ran_at < datetime\('now', '-' \|\| \?1 \|\| ' days'\)`\)\.bind\(String\(KEEP_DAYS \+ 1\)\)/.test(threads),
+     "the quota counts a rolling 7 days; deleting at 7 would undercount the day it runs");
+  ok("removing a topic removes its posts", /DELETE FROM threads_topic_posts WHERE topic_id IN \(SELECT id FROM threads_topics WHERE is_active = 0\)/.test(threads));
+  ok("the purge runs on every tick", /const purged = await purgeStudy\(env\);/.test(bodyOfTick()),
+     "a purge that runs only when somebody remembers is an archive with extra steps");
+  ok("a topic has a ceiling, oldest-found go first",
+     /export const POSTS_PER_TOPIC = (\d+);/.test(threads) && Number(threads.match(/export const POSTS_PER_TOPIC = (\d+);/)[1]) <= 500
+     && /ORDER BY found_at DESC, id DESC LIMIT \?2\)`,\s*\)\.bind\(topic\.id, POSTS_PER_TOPIC\)/.test(threads));
+  ok("topics have a ceiling too", /export const MAX_TOPICS = (\d+);/.test(threads) && />= MAX_TOPICS\) \{/.test(threads));
+  ok("nothing of the account's own is stored any more",
+     !/threads_posts\b|threads_post_metrics|threads_account_metrics/.test(threads) && !/threads_posts\b|threads_post_metrics|threads_account_metrics/.test(index.replace(/\/\*[\s\S]*?\*\//g, "")),
+     "the tables are dropped by 0110; a query that names them is a 500 waiting for a click");
+  ok("migration 0110 drops the three tables", (() => {
+    try {
+      const m = read("worker/migrations/0110_threads_study_only.sql");
+      return ["threads_post_metrics", "threads_account_metrics", "threads_posts"].every((t) => m.includes(`DROP TABLE IF EXISTS ${t};`));
+    } catch { return false; }
+  })());
+  ok("no /posts or /summary route, no import, no snapshot",
+     !/path === "\/posts"/.test(threads) && !/path === "\/summary"/.test(threads) && !/importPage|snapshotPost|snapshotAccount/.test(threads));
+  ok("the panel has two sections, Study and Connection",
+     /type Section = "study" \| "connection";/.test(panel) && !/"library"|"overview"/.test(panel),
+     "Library and Overview showed the account's own posts to the staff");
+  ok("Connection is offered to management only", /\.\.\.\(canManage \? \[\["connection"/.test(panel));
+  ok("Study is the section the tab opens on", /useState<Section>\("study"\)/.test(panel));
+  ok("what the database holds is on the screen", /storage\.posts\} \{L\("posts on file"/.test(panel) && /keep_days: KEEP_DAYS/.test(threads),
+     "the week is a figure on the screen, not a promise in a changelog");
 }
 
 /* ---- 7. the tab is wired everywhere a tab must be ----
@@ -276,18 +314,9 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
 /* ---- 8. the panel keeps the house rules ----
    (negative-tested by re-filtering rows inside exportCsv) */
 {
-  ok("the CSV reads the same rows as the table", /\.\.\.posts\.map\(\(p\) => \[/.test(panel) && !/exportCsv[\s\S]{0,600}?posts\.filter\(/.test(panel),
+  ok("the CSV reads the same rows as the study list", /\.\.\.studyPosts\.map\(\(p\) => \[/.test(panel) && !/exportStudy[\s\S]{0,800}?studyPosts\.filter\(/.test(panel),
      "two definitions of the rows on screen disagree the first time a filter is added");
-  ok("every figure tile that has rows behind it opens them", (() => {
-    const tiles = [...panel.matchAll(/<StatTile [\s\S]*?\/>/g)].map((m) => m[0]);
-    const withRows = tiles.filter((t) => /Views|Posts|Tontonan|Hantaran/.test(t));
-    return tiles.length >= 4 && withRows.length >= 3 && withRows.every((t) => /onClick=/.test(t));
-  })(), "a count you can read and cannot follow is the dead end guard #31 exists for");
-  ok("the followers tile makes no promise it cannot keep", (() => {
-    const t = [...panel.matchAll(/<StatTile [\s\S]*?\/>/g)].map((m) => m[0]).find((x) => /Followers/.test(x)) ?? "";
-    return t.length > 0 && !/onClick=/.test(t);
-  })(), "followers is a number, not a list — a button there opens nothing");
-  ok("every mutation reports", ["syncNow", "disconnect", "saveLabel"].every((fn) => {
+  ok("every mutation reports", ["disconnect", "saveLabel", "addTopic", "removeTopic", "runSearch"].every((fn) => {
     const i = panel.indexOf(`const ${fn} = async`);
     if (i < 0) return false;
     const rest = panel.slice(i + 10);
@@ -299,7 +328,7 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
 
 console.log(
   fails.length === 0
-    ? `PASS — the Threads credential stays in the worker, every action on it is audited, and the work is budgeted (${pass} checks)`
+    ? `PASS — the Threads credential stays in the worker, every action on it is audited, and the database holds one week (${pass} checks)`
     : `\n${fails.map((f) => `  ✗ ${f}`).join("\n")}\n\n${fails.length} check(s) failed.`,
 );
 process.exit(fails.length === 0 ? 0 : 1);

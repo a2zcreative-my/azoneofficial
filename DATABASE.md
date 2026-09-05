@@ -402,3 +402,19 @@ returns. Index by topic and intent.
 | Version | Change |
 |---|---|
 | v1.98.0 | 0109 — intent on threads_topic_posts, last_note on threads_topics. |
+
+## v1.99.0 — migration 0110_threads_study_only.sql
+Threads becomes a study room. DROPS threads_posts, threads_post_metrics and
+threads_account_metrics — the connected account's own history, which the
+staff were never meant to read and which grew one row per post per day
+without a ceiling. Sets the sync columns on threads_accounts to idle (left in
+place; never written again). Applies the retention rule once: found posts
+older than 7 days and search records older than 8 are deleted, and an index
+on threads_topic_posts(found_at) serves the nightly purge. From here the
+worker purges on every cron tick, a topic holds at most 400 posts and there
+are at most 40 topics, so the Threads footprint in D1 is bounded by
+40 × 400 rows of short text plus one week of search records.
+
+| Version | Change |
+|---|---|
+| v1.99.0 | 0110 — three own-account tables dropped; retention index; the week applied. |

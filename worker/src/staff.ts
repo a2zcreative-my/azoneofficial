@@ -9806,7 +9806,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      The CEO, 26-08-2026, on the live shop: "This appear on the gateway
      payment!" — customers were being told "Payment gateway unavailable" and
      there was nowhere at all to find out why. The store knows (it now writes
-     Billplz's own reply down); this is the window onto it.
+     the gateway's own reply down); this is the window onto it.
 
      Relayed SERVER-SIDE with the bridge key the portal already holds, so
      nobody has to carry a credential around to see the answer. Read-only on

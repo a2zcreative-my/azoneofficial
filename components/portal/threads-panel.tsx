@@ -1,49 +1,40 @@
 "use client";
 
 /**
- * The Threads tab — v1.89.0, phase 1 of the Threads workspace.
+ * The Threads tab — the study room.
  *
- * CEO, 04-09-2026, after a walkthrough video of LazyThreads: *"for Threads I
- * want new tabs all in 1 tabs for the Threads with minimalist interface"*.
+ * v1.89.0 opened this as a workspace for the connected account's own posts
+ * (Overview, Library). v1.96.0 added Study. On 05-09-2026 the CEO decided
+ * which one the tab is for: *"remove library since this is not supposed to
+ * view by my staff. the objective for this Threads to make them to find a
+ * study case based on the market research and the demand based on the
+ * keywords that they want. and the data should not keep too much since it is
+ * only for 7 days for them to study."*
  *
- * ONE TAB, THREE SECTIONS, chosen the way the attendance card chooses its
- * area (v1.80.0): Overview, Library, Connection. Not the eleven analytics
- * sub-tabs in the video — most of those are a model's opinion dressed as a
- * screen, and the CEO asked for minimalist. What is here is what the numbers
- * support on their own:
+ * So, from v1.99.0, ONE TAB, TWO SECTIONS:
  *
- *   OVERVIEW   the 30-day brief — followers, views, views per post, posts —
- *              against the 30 days before; the five posts that did best, each
- *              with its "× baseline"; and the hours of the day the account's
- *              posts earn their views, which is where "publish around 1-3 PM"
- *              comes from without anybody guessing.
- *   LIBRARY    every post the account has ever published, imported from
- *              Threads, with a chip row that filters the table and the CSV
- *              together — one definition of "the rows on screen".
- *   CONNECTION the account itself: who connected it, when the token runs
- *              out, how far the import has got, and the buttons that need a
- *              manager (connect, sync, disconnect).
+ *   STUDY       saved topics (a name and the words to search), the public
+ *               posts the search found for each, and what they add up to:
+ *               Malaysian or not (with the reason), asking or selling, how
+ *               the niche writes. Every staff role with threads_view sees
+ *               this and only this.
+ *   CONNECTION  management only: the account whose token the search asks
+ *               with, connect / disconnect / label, the setup check.
  *
- * EVERY FIGURE OPENS. A tile on the Overview is the filter it counts — press
- * Posts and the Library opens on the last 30 days; press Views and it opens
- * sorted by views. A tile with nothing behind it (followers: a number, not a
- * list) stays a plain tile, per guard #31: never promise an action that is
- * not there.
- *
- * "× BASELINE" is the video's one good idea and is honest arithmetic here: a
- * post against the median views of the thirty posts before it on the same
- * account, computed by the worker over the whole history in order, so a
- * post from March is judged against the account of March.
+ * WHAT IS KEPT, AND FOR HOW LONG. A found post lives seven days from the day
+ * it was found, a topic holds at most 400, and there are at most 40 topics;
+ * the worker purges on every cron tick and the Study header shows what the
+ * database holds right now. Nothing about a person is looked up or stored:
+ * a found post is text, handle, time, format and link.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { StatTile, StatStrip } from "@/components/ui/stat-tile";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
-import { card, inputClassSm, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClassSm } from "@/lib/ui-styles";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -53,26 +44,8 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface Account {
   id: number; username: string; display_label: string | null; connected_at: string;
-  token_expires_at: string | null; last_sync_at: string | null; sync_error: string | null;
-  sync_state: string; connected_by_name: string | null; posts: number; metrics_on: string | null;
+  token_expires_at: string | null; connected_by_name: string | null; can_search?: number;
 }
-interface Post {
-  id: number; account_id: number; media_id: string; text: string | null; media_type: string;
-  permalink: string | null; published_at: string; has_media: number; char_count: number;
-  language_guess: string | null;
-  views: number | null; likes: number | null; replies: number | null; reposts: number | null;
-  quotes: number | null; shares: number | null; metrics_at: string | null;
-  baseline: number | null; multiplier: number | null;
-}
-interface Period { posts: number; views: number; likes: number; replies: number; avg_views: number | null; engagement_pm: number | null }
-interface Summary {
-  days: number; from: string; this: Period; prev: Period;
-  followers: { now: number | null; start: number | null; as_of: string | null };
-  by_hour: { hour: number; views: number; posts: number; avg: number }[];
-  media_median: number | null; text_median: number | null;
-  top: { id: number; text: string; permalink: string | null; published_at: string; views: number | null; likes: number | null; replies: number | null; multiplier: number | null }[];
-}
-
 interface Topic {
   id: number; label: string; query: string; search_type: string;
   last_run_at: string | null; last_error: string | null; created_by_name: string | null;
@@ -101,25 +74,11 @@ interface Findings {
 type Intent = "asking" | "selling" | "other";
 interface Quota { used: number; left: number; cap: number }
 
-type Section = "overview" | "library" | "study" | "connection";
-type Filter = "all" | "recent" | "winners" | "media" | "text";
-type Sort = "date" | "views";
+/* v1.99.0 — two sections. Overview and Library showed the connected
+   account's OWN posts and numbers; the CEO: "remove library since this is
+   not supposed to view by my staff". Connection is management's. */
+type Section = "study" | "connection";
 
-/** 12,345 → "12.3K"; the tile has room for five characters, not eight. */
-const compact = (n: number | null | undefined): string => {
-  if (n == null) return "—";
-  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(n) >= 10_000) return `${Math.round(n / 1000)}K`;
-  if (Math.abs(n) >= 1_000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
-};
-const num = (n: number | null | undefined): string => (n == null ? "—" : n.toLocaleString("en-MY"));
-/** "+12%" against the previous window, or nothing when there is no previous. */
-const delta = (now: number | null | undefined, before: number | null | undefined): string => {
-  if (now == null || before == null || before === 0) return "";
-  const pct = Math.round(((now - before) / before) * 100);
-  return `${pct >= 0 ? "+" : ""}${pct}% ${L("vs previous", "berbanding sebelum")}`;
-};
 const excerpt = (t: string | null, n = 110): string => {
   const s = (t ?? "").replace(/\s+/g, " ").trim();
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -131,7 +90,6 @@ const typeLabel = (mt: string): string =>
   : mt === "CAROUSEL_ALBUM" ? L("Carousel", "Karusel")
   : mt === "REPOST_FACADE" ? L("Repost", "Siar semula")
   : mt;
-const hourLabel = (h: number): string => `${String(h).padStart(2, "0")}:00`;
 const daysLeft = (iso: string | null): number | null => {
   if (!iso) return null;
   const d = new Date(iso.replace(" ", "T") + "Z").getTime();
@@ -155,19 +113,6 @@ function Bar({ label, n, of }: { label: string; n: number; of: number }) {
   );
 }
 
-/** The "17.7×" pill. Module scope, per guard #30. */
-function Mult({ m }: { m: number | null }) {
-  if (m == null) return <span className="text-muted-foreground text-xs">—</span>;
-  const tone = m >= 2 ? "bg-success-soft text-success" : m >= 1 ? "bg-info-soft text-info" : "bg-secondary text-muted-foreground";
-  return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${tone}`}
-      title={L("Views against the median of the 30 posts before it", "Tontonan berbanding median 30 hantaran sebelumnya")}>
-      {m}×
-    </span>
-  );
-}
-
-/** One post, opened: the whole text and the door to Threads itself. */
 function PostBody({ p }: { p: { text: string | null; permalink: string | null } }) {
   return (
     <div className="bg-secondary/40 mt-2 rounded-lg p-3 text-sm whitespace-pre-wrap">
@@ -187,30 +132,12 @@ export function ThreadsPanel() {
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
 
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSection] = useState<Section>("study");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [configured, setConfigured] = useState(true);
   const [canManage, setCanManage] = useState(false);
   const [pending, setPending] = useState(false);
   const [accLoaded, setAccLoaded] = useState(false);
-  const [account, setAccount] = useState<number | 0>(0); // 0 = all
-
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [sumLoaded, setSumLoaded] = useState(false);
-  const [openTop, setOpenTop] = useState<number | null>(null);
-
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [total, setTotal] = useState(0);
-  const [months, setMonths] = useState<string[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [month, setMonth] = useState("");
-  const [sort, setSort] = useState<Sort>("date");
-  const [q, setQ] = useState("");
-  const [qLive, setQLive] = useState("");
-  const [libLoaded, setLibLoaded] = useState(false);
-  const [openRow, setOpenRow] = useState<number | null>(null);
-
-  const [busy, setBusy] = useState<number | null>(null);
   const [label, setLabel] = useState<{ id: number; v: string } | null>(null);
 
   /* ---- study cases (v1.96.0) ---- */
@@ -239,6 +166,9 @@ export function ThreadsPanel() {
   /* v1.96.2 — why a search cannot be spent right now, known before the
      button is pressed: no account, or a token from before search existed. */
   const [searchBlocker, setSearchBlocker] = useState<"no_account" | "needs_reconnect" | null>(null);
+  /* v1.99.0 — what the database holds right now; the week is a figure on
+     screen, not a promise. */
+  const [storage, setStorage] = useState<{ posts: number; searches: number; topics: number; oldest: string | null; keep_days: number; posts_per_topic: number; max_topics: number } | null>(null);
 
   const loadAccounts = useCallback(async () => {
     const r = await api<{ accounts: Account[]; configured?: boolean; can_manage?: boolean; pending_migration?: boolean }>(`/accounts`);
@@ -252,49 +182,14 @@ export function ThreadsPanel() {
   }, []);
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
-  const loadSummary = useCallback(async () => {
-    setSumLoaded(false);
-    const r = await api<Summary>(`/summary?days=30${account ? `&account=${account}` : ""}`);
-    if (r.ok && r.data && r.data.this) setSummary(r.data);
-    else setSummary(null);
-    setSumLoaded(true);
-  }, [account]);
-  useEffect(() => { void loadSummary(); }, [loadSummary]);
-
-  /* Search waits for the typing to stop — the list is the whole history and
-     a request per keystroke is a request per keystroke. */
-  useEffect(() => {
-    const t = window.setTimeout(() => setQ(qLive.trim()), 350);
-    return () => window.clearTimeout(t);
-  }, [qLive]);
-
-  const loadPosts = useCallback(async () => {
-    setLibLoaded(false);
-    const qs = new URLSearchParams();
-    if (account) qs.set("account", String(account));
-    if (filter !== "all") qs.set("filter", filter);
-    if (month) qs.set("month", month);
-    if (sort !== "date") qs.set("sort", sort);
-    if (q) qs.set("q", q);
-    qs.set("limit", "500");
-    const r = await api<{ posts: Post[]; total: number; months: string[] }>(`/posts?${qs.toString()}`);
-    if (r.ok && r.data) {
-      setPosts(r.data.posts ?? []);
-      setTotal(r.data.total ?? 0);
-      setMonths(r.data.months ?? []);
-    } else {
-      setPosts([]); setTotal(0);
-    }
-    setLibLoaded(true);
-  }, [account, filter, month, sort, q]);
-  useEffect(() => { void loadPosts(); }, [loadPosts]);
-
   const loadTopics = useCallback(async () => {
-    const r = await api<{ topics: Topic[]; quota: Quota; can_manage?: boolean; search_blocker?: "no_account" | "needs_reconnect" | null }>(`/topics`);
+    const r = await api<{ topics: Topic[]; quota: Quota; can_manage?: boolean; search_blocker?: "no_account" | "needs_reconnect" | null;
+      storage?: { posts: number; searches: number; topics: number; oldest: string | null; keep_days: number; posts_per_topic: number; max_topics: number } }>(`/topics`);
     if (r.ok && r.data) {
       setTopics(r.data.topics ?? []);
       setQuota(r.data.quota ?? null);
       setSearchBlocker(r.data.search_blocker ?? null);
+      setStorage(r.data.storage ?? null);
       setTopic((t) => (t || r.data!.topics?.[0]?.id) ?? 0);
     }
     setTopicsLoaded(true);
@@ -390,63 +285,10 @@ export function ThreadsPanel() {
     ]);
   };
 
-  /* A tile on the Overview is a door into the Library with that filter set. */
-  const openLibrary = (f: Filter, s: Sort) => {
-    setFilter(f); setSort(s); setMonth(""); setQLive(""); setQ("");
-    setSection("library");
-  };
-
-  /* ONE definition of the rows on screen — the table and the CSV both read
-     `posts`, which the worker filtered; the export never re-filters. */
-  const exportCsv = () => {
-    const tag = [filter !== "all" ? filter : "", month].filter(Boolean).join("-");
-    downloadCsv(`threads-posts${tag ? `-${tag}` : ""}`, [
-      [`# ${L("Threads posts", "Hantaran Threads")}${account ? ` — @${accounts.find((a) => a.id === account)?.username ?? account}` : ""}`],
-      [`# ${L("Generated", "Dijana")} ${csvStampMyt()} — ${posts.length} ${L("of", "daripada")} ${total}`],
-      [],
-      [
-        L("Published (MYT)", "Disiarkan (MYT)"), L("Account", "Akaun"), L("Type", "Jenis"), L("Language", "Bahasa"),
-        L("Characters", "Aksara"), L("Views", "Tontonan"), L("Likes", "Suka"), L("Replies", "Balasan"),
-        L("Reposts", "Siar semula"), L("Quotes", "Petikan"), L("Shares", "Kongsi"),
-        L("Baseline", "Garis asas"), L("× baseline", "× garis asas"), L("Metrics as of", "Metrik setakat"),
-        L("Link", "Pautan"), L("Text", "Teks"),
-      ],
-      ...posts.map((p) => [
-        dmyMYT(p.published_at), `@${accounts.find((a) => a.id === p.account_id)?.username ?? p.account_id}`,
-        typeLabel(p.media_type), p.language_guess ?? "", p.char_count,
-        p.views, p.likes, p.replies, p.reposts, p.quotes, p.shares,
-        p.baseline, p.multiplier, dmyMYT(p.metrics_at), p.permalink ?? "", p.text ?? "",
-      ]),
-    ]);
-  };
-
-  /* ---- management actions: each one reports, either way (guard #25) ---- */
-  const syncNow = async (a: Account) => {
-    setBusy(a.id);
-    const r = await api<{ ok: boolean; report: { imported: number; snapshots: number; refreshed: number; errors: string[] }; sync_state: string | null; sync_error: string | null; error?: { message?: string } }>(
-      `/accounts/${a.id}/sync`, { method: "POST" },
-    );
-    setBusy(null);
-    if (r.ok && r.data?.report) {
-      const rep = r.data.report;
-      const more = r.data.sync_state === "importing";
-      toast(
-        L("Synced", "Disegerakkan"),
-        `${rep.imported} ${L("posts", "hantaran")} · ${rep.snapshots} ${L("snapshots", "cerapan")}` +
-          (more ? ` · ${L("more history still to fetch — press again or let the cron carry on", "sejarah masih ada — tekan lagi atau biarkan cron teruskan")}` : "") +
-          (rep.errors.length ? ` · ${rep.errors[0]}` : ""),
-        rep.errors.length ? "notice" : "success",
-      );
-    } else {
-      toast(L("Sync failed", "Penyegerakan gagal"), r.data?.error?.message ?? L("The worker did not answer", "Pelayan tidak menjawab"), "notice");
-    }
-    await Promise.all([loadAccounts(), loadSummary(), loadPosts()]);
-  };
-
   const disconnect = async (a: Account) => {
     const ok = await confirm({
       title: L(`Disconnect @${a.username}?`, `Putuskan @${a.username}?`),
-      message: L("The imported posts and their history stay. The token is removed, so nothing new is fetched until the account is connected again.", "Hantaran yang diimport dan sejarahnya kekal. Token dibuang, jadi tiada yang baharu diambil sehingga akaun disambung semula."),
+      message: L("The token is removed, so no search can be run until an account is connected again. Study topics and what they found stay until their week is up.", "Token dibuang, jadi tiada carian boleh dijalankan sehingga akaun disambung semula. Topik kajian dan hasilnya kekal sehingga minggunya tamat."),
       confirmLabel: L("Disconnect", "Putuskan"),
       variant: "danger",
     });
@@ -455,7 +297,6 @@ export function ThreadsPanel() {
     if (r.ok) toast(L("Disconnected", "Diputuskan"), `@${a.username}`);
     else toast(L("Not disconnected", "Tidak diputuskan"), r.data?.error?.message ?? "", "notice");
     await loadAccounts();
-    if (account === a.id) setAccount(0);
   };
 
   const saveLabel = async () => {
@@ -486,9 +327,6 @@ export function ThreadsPanel() {
     window.location.href = "/api/v1/integrations/threads/connect";
   };
 
-  const cur = summary?.this;
-  const prev = summary?.prev;
-  const maxHour = Math.max(1, ...(summary?.by_hour ?? []).map((h) => h.avg));
   const noAccounts = accLoaded && accounts.length === 0;
 
   return (
@@ -501,29 +339,14 @@ export function ThreadsPanel() {
           <div>
             <p className="text-sm font-semibold">Threads</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("What the account has published, what it earned, and when.", "Apa yang akaun siarkan, apa yang diperoleh, dan bila.")}
+              {L("Study cases from public Threads posts: what people in a niche ask for and offer, kept for seven days.", "Kajian kes daripada hantaran Threads awam: apa yang orang dalam sesuatu niche cari dan tawarkan, disimpan tujuh hari.")}
             </p>
           </div>
-          {accounts.length > 1 && (
-            <div className="flex flex-wrap gap-1.5">
-              {([{ id: 0, username: L("All", "Semua"), display_label: null }, ...accounts] as { id: number; username: string; display_label: string | null }[]).map((a) => (
-                <button key={a.id} type="button" aria-pressed={account === a.id}
-                  className={account === a.id
-                    ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-                    : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
-                  onClick={() => setAccount(a.id)}>
-                  {a.id ? `@${a.username}` : a.username}{a.display_label ? ` · ${a.display_label}` : ""}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {([
-            ["overview", L("Overview", "Ringkasan")],
-            ["library", L("Library", "Pustaka")],
             ["study", L("Study", "Kajian")],
-            ["connection", L("Connection", "Sambungan")],
+            ...(canManage ? [["connection", L("Connection", "Sambungan")] as [Section, string]] : []),
           ] as [Section, string][]).map(([key, lbl]) => (
             <button key={key} type="button"
               className={section === key
@@ -557,183 +380,6 @@ export function ThreadsPanel() {
         )}
       </div>
 
-      {/* ================= OVERVIEW ================= */}
-      {section === "overview" && (
-        <>
-          <StatStrip>
-            {!sumLoaded ? (
-              Array.from({ length: 4 }, (_, i) => <Skel key={i} className="h-[92px] rounded-card" />)
-            ) : (
-              <>
-                <StatTile label={L("Followers", "Pengikut")} value={compact(summary?.followers.now)} tone="brand"
-                  hint={summary?.followers.now != null && summary.followers.start != null
-                    ? `${summary.followers.now - summary.followers.start >= 0 ? "+" : ""}${num(summary.followers.now - summary.followers.start)} ${L("in 30 days", "dalam 30 hari")}`
-                    : L("first snapshot after the next sync", "cerapan pertama selepas penyegerakan")} />
-                <StatTile label={L("Views · 30 days", "Tontonan · 30 hari")} value={compact(cur?.views)} tone="info"
-                  hint={delta(cur?.views, prev?.views)}
-                  onClick={() => openLibrary("recent", "views")}
-                  title={L("Open the last 30 days, most viewed first", "Buka 30 hari terakhir, paling banyak tontonan dahulu")} />
-                <StatTile label={L("Views per post", "Tontonan setiap hantaran")} value={compact(cur?.avg_views)} tone="gold"
-                  hint={delta(cur?.avg_views, prev?.avg_views)}
-                  onClick={() => openLibrary("winners", "views")}
-                  title={L("Open the posts at 2× baseline or better", "Buka hantaran 2× garis asas atau lebih")} />
-                <StatTile label={L("Posts · 30 days", "Hantaran · 30 hari")} value={cur ? String(cur.posts) : "—"} tone="muted"
-                  hint={cur?.engagement_pm != null ? `${(cur.engagement_pm / 10).toFixed(1)}% ${L("engagement", "penglibatan")}` : delta(cur?.posts, prev?.posts)}
-                  onClick={() => openLibrary("recent", "date")}
-                  title={L("Open the last 30 days, newest first", "Buka 30 hari terakhir, terbaharu dahulu")} />
-              </>
-            )}
-          </StatStrip>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-            {/* top five */}
-            <div className={`${card} lg:col-span-3`}>
-              <p className="text-sm font-semibold">{L("Top posts · 30 days", "Hantaran teratas · 30 hari")}</p>
-              {!sumLoaded ? (
-                <div className="mt-3 space-y-2">{Array.from({ length: 5 }, (_, i) => <Skel key={i} className="h-10" />)}</div>
-              ) : !summary || summary.top.length === 0 ? (
-                <p className="text-muted-foreground mt-2 text-xs">
-                  {L("No measured posts in this window yet — the sync fills these in.", "Belum ada hantaran diukur dalam tempoh ini — penyegerakan akan mengisinya.")}
-                </p>
-              ) : (
-                <ul className="mt-2 divide-y divide-border">
-                  {summary.top.map((p) => (
-                    <li key={p.id} className="py-2">
-                      <button type="button" className="flex w-full items-start justify-between gap-3 text-left"
-                        aria-expanded={openTop === p.id} onClick={() => setOpenTop(openTop === p.id ? null : p.id)}>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm">{excerpt(p.text, 90) || <span className="text-muted-foreground">{L("(no text)", "(tiada teks)")}</span>}</span>
-                          <span className="text-muted-foreground block text-[11px]">{dmyMYT(p.published_at)}</span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-2 text-xs tabular-nums">
-                          <span title={L("Views", "Tontonan")}>{compact(p.views)}</span>
-                          <Mult m={p.multiplier} />
-                        </span>
-                      </button>
-                      {openTop === p.id && <PostBody p={p} />}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* by hour + media vs text */}
-            <div className={`${card} lg:col-span-2`}>
-              <p className="text-sm font-semibold">{L("Views by publishing hour", "Tontonan mengikut jam siaran")}</p>
-              <p className="text-muted-foreground mt-0.5 text-[11px]">{L("Average views per post, Malaysia time, last 30 days", "Purata tontonan setiap hantaran, waktu Malaysia, 30 hari terakhir")}</p>
-              {!sumLoaded ? (
-                <div className="mt-3 space-y-1.5">{Array.from({ length: 6 }, (_, i) => <Skel key={i} className="h-4" />)}</div>
-              ) : !summary || summary.by_hour.length === 0 ? (
-                <p className="text-muted-foreground mt-2 text-xs">{L("Nothing measured yet.", "Belum ada yang diukur.")}</p>
-              ) : (
-                <ul className="mt-2 space-y-1">
-                  {summary.by_hour.map((h) => (
-                    <li key={h.hour} className="flex items-center gap-2 text-[11px] tabular-nums">
-                      <span className="text-muted-foreground w-10 shrink-0">{hourLabel(h.hour)}</span>
-                      <span className="bg-secondary h-3 flex-1 overflow-hidden rounded-sm">
-                        <span className="bg-tile-info block h-full rounded-sm" style={{ width: `${Math.max(2, Math.round((h.avg / maxHour) * 100))}%` }} />
-                      </span>
-                      <span className="w-14 shrink-0 text-right">{compact(h.avg)}</span>
-                      <span className="text-muted-foreground w-8 shrink-0 text-right">×{h.posts}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {sumLoaded && summary && (summary.media_median != null || summary.text_median != null) && (
-                <p className="text-muted-foreground mt-3 text-[11px]">
-                  {L("Median views", "Median tontonan")}: {L("with media", "dengan media")} {num(summary.media_median)} · {L("text only", "teks sahaja")} {num(summary.text_median)}
-                </p>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ================= LIBRARY ================= */}
-      {section === "library" && (
-        <div className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {([
-                ["all", L("All", "Semua")],
-                ["recent", L("Last 30 days", "30 hari terakhir")],
-                ["winners", L("≥ 2× baseline", "≥ 2× garis asas")],
-                ["media", L("With media", "Dengan media")],
-                ["text", L("Text only", "Teks sahaja")],
-              ] as [Filter, string][]).map(([k, lbl]) => (
-                <button key={k} type="button" aria-pressed={filter === k}
-                  className={`rounded-full px-2.5 py-1 ${filter === k ? "bg-primary text-primary-foreground font-medium" : "border-border text-muted-foreground hover:bg-secondary/70 border"}`}
-                  onClick={() => setFilter(k)}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <select className={inputClassSm} value={month} onChange={(e) => setMonth(e.target.value)} aria-label={L("Month", "Bulan")}>
-                <option value="">{L("Every month", "Setiap bulan")}</option>
-                {months.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <select className={inputClassSm} value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label={L("Sort", "Susun")}>
-                <option value="date">{L("Newest first", "Terbaharu dahulu")}</option>
-                <option value="views">{L("Most viewed first", "Paling ditonton dahulu")}</option>
-              </select>
-              <input className={`${inputClassSm} w-40`} value={qLive} onChange={(e) => setQLive(e.target.value)}
-                placeholder={L("Find in text", "Cari dalam teks")} aria-label={L("Find in text", "Cari dalam teks")} />
-              <button type="button" className={rowBtn} onClick={exportCsv} disabled={!libLoaded || posts.length === 0}>
-                {L("Export CSV", "Eksport CSV")}
-              </button>
-            </div>
-          </div>
-          <p className="text-muted-foreground mt-2 text-[11px]">
-            {!libLoaded ? <Skel className="inline-block h-3 w-28" /> : `${posts.length} ${L("of", "daripada")} ${total} ${L("posts", "hantaran")}`}
-          </p>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[720px]">
-              <thead>
-                <tr>
-                  <th className={th}>{L("Published", "Disiarkan")}</th>
-                  <th className={th}>{L("Post", "Hantaran")}</th>
-                  <th className={th}>{L("Type", "Jenis")}</th>
-                  <th className={thR2}>{L("Views", "Tontonan")}</th>
-                  <th className={thR2}>{L("Likes", "Suka")}</th>
-                  <th className={thR2}>{L("Replies", "Balasan")}</th>
-                  <th className={thR2}>{L("× baseline", "× garis asas")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {!libLoaded && Array.from({ length: 8 }, (_, i) => (
-                  <tr key={i}><td className={td} colSpan={7}><Skel className="h-5" /></td></tr>
-                ))}
-                {libLoaded && posts.length === 0 && (
-                  <tr><td className={`${td} text-muted-foreground`} colSpan={7}>
-                    {accounts.length === 0
-                      ? L("Connect an account and the history arrives here.", "Sambungkan akaun dan sejarahnya tiba di sini.")
-                      : L("No posts match this filter.", "Tiada hantaran sepadan dengan tapisan ini.")}
-                  </td></tr>
-                )}
-                {libLoaded && posts.map((p) => (
-                  <tr key={p.id} className="align-top">
-                    <td className={`${td} whitespace-nowrap tabular-nums`}>{dmyMYT(p.published_at)}</td>
-                    <td className={`${td} max-w-[420px]`}>
-                      <button type="button" className="w-full text-left" aria-expanded={openRow === p.id}
-                        onClick={() => setOpenRow(openRow === p.id ? null : p.id)}>
-                        {excerpt(p.text) || <span className="text-muted-foreground">{L("(no text)", "(tiada teks)")}</span>}
-                      </button>
-                      {openRow === p.id && <PostBody p={p} />}
-                    </td>
-                    <td className={`${td} whitespace-nowrap`}>{typeLabel(p.media_type)}{p.language_guess ? <span className="text-muted-foreground"> · {p.language_guess.toUpperCase()}</span> : null}</td>
-                    <td className={tdR2}>{num(p.views)}</td>
-                    <td className={tdR2}>{num(p.likes)}</td>
-                    <td className={tdR2}>{num(p.replies)}</td>
-                    <td className={tdR2}><Mult m={p.multiplier} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* ================= STUDY ================= *
           CEO, 05-09-2026: *"I want to view only for study case on Product and
           Service like Hotel, product for Tudung."* Not our account - the
@@ -756,12 +402,21 @@ export function ThreadsPanel() {
                      "Apa yang orang lain siarkan tentang sesuatu subjek — hotel, tudung, apa sahaja yang klien seterusnya jual. Hantaran awam tiada kiraan tontonan, jadi ini penemuan tentang penulisan, bukan jangkauan.")}
                 </p>
               </div>
+              <span className="flex flex-wrap items-center gap-1.5">
+              {storage && (
+                <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  title={L(`A found post is deleted ${storage.keep_days} days after it was found; a topic holds at most ${storage.posts_per_topic} posts; at most ${storage.max_topics} topics. The worker purges on every tick.`,
+                           `Hantaran yang ditemui dipadam ${storage.keep_days} hari selepas ditemui; satu topik memuatkan paling banyak ${storage.posts_per_topic} hantaran; paling banyak ${storage.max_topics} topik. Pelayan membersihkan pada setiap kitaran.`)}>
+                  {L("Kept", "Disimpan")} {storage.keep_days} {L("days", "hari")} · {storage.posts} {L("posts on file", "hantaran dalam simpanan")}
+                </span>
+              )}
               {quota && (
                 <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${quota.left <= 25 ? "bg-danger-soft text-danger" : quota.left <= 100 ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}
                   title={L("Threads rations keyword searches per rolling 7 days, for the whole app. One run spends two: the top posts, then the newest.", "Threads mencatu carian kata kunci setiap 7 hari bergolek, untuk keseluruhan aplikasi. Satu larian guna dua: hantaran teratas, kemudian terbaharu.")}>
                   {quota.left} / {quota.cap} {L("searches left this week", "carian tinggal minggu ini")}
                 </span>
               )}
+              </span>
             </div>
 
             {topicsLoaded && searchBlocker && (
@@ -1142,24 +797,17 @@ export function ThreadsPanel() {
                       </p>
                       <p className="text-muted-foreground mt-0.5 text-[11px]">
                         {L("Connected", "Disambungkan")} {dmyMYT(a.connected_at)}{a.connected_by_name ? ` · ${a.connected_by_name}` : ""}
-                        {" · "}{num(a.posts)} {L("posts imported", "hantaran diimport")}
-                        {a.sync_state === "importing" && ` · ${L("history still importing", "sejarah masih diimport")}`}
+                        {" · "}{a.can_search ? L("can search", "boleh mencari") : L("cannot search yet - connect again to grant it", "belum boleh mencari - sambung semula untuk membenarkannya")}
                       </p>
                       <p className={`mt-0.5 text-[11px] ${tokenTone}`}>
                         {left == null
                           ? L("No token — connect again", "Tiada token — sambung semula")
                           : left < 0 ? L("Token expired — connect again", "Token luput — sambung semula")
                           : `${L("Token expires in", "Token luput dalam")} ${left} ${L("days", "hari")}`}
-                        {" · "}{L("last sync", "penyegerakan terakhir")} {a.last_sync_at ? dmyMYT(a.last_sync_at) : L("never", "tidak pernah")}
-                        {a.metrics_on ? ` · ${L("followers as of", "pengikut setakat")} ${a.metrics_on}` : ""}
                       </p>
-                      {a.sync_error && <p className="text-danger mt-0.5 text-[11px]">{a.sync_error}</p>}
                     </div>
                     {canManage && (
                       <div className="flex shrink-0 gap-1.5">
-                        <button type="button" className={rowBtn} disabled={busy === a.id} onClick={() => void syncNow(a)}>
-                          {busy === a.id ? <Skel className="inline-block h-3 w-14" /> : L("Sync now", "Segerak sekarang")}
-                        </button>
                         <button type="button" className={rowBtnDanger} onClick={() => void disconnect(a)}>
                           {L("Disconnect", "Putuskan")}
                         </button>
