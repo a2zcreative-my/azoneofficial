@@ -462,6 +462,29 @@ const AUG = (() => {
      "a button that 403s is worse than no button");
 }
 
+/* ---- v1.97.1: a base change reaches the open month ----
+   (CEO: "Base salaries was not sync with staff table Basic!") A base saved
+   for a person used to reach only months not yet saved; the month on screen
+   kept the old figure and nothing said so. Negative-tested by dropping the
+   `following` test, by removing the release guard, and by pricing the row
+   with netFor(u.id) instead of the row about to be written. */
+{
+  const panel = read("components/portal/payroll-panel.tsx");
+  const i = panel.indexOf('api(`/payroll/base`, { method: "POST"');
+  const win = i < 0 ? "" : panel.slice(i, i + 3000);
+  ok("saving a base carries it into the open month's row and saves that row",
+     /const following = !entries\[u\.id\] \|\| cur\.basic_cents === oldBase;/.test(win) && /await api\(`\/payroll`, \{/.test(win),
+     "a table that disagrees with the panel above it is a bug however the manual explains it");
+  ok("a month already released to staff is left as saved",
+     /if \(release\?\.released\) \{ held\.push\(u\.name\); continue; \}/.test(win),
+     "a payslip somebody has read does not change under them");
+  ok("the re-filled row is priced with THE formula, on the row about to be written",
+     /net_cents: netFor\(u\.id, next\)/.test(win) && /const netFor = \(id: number, override\?: Entry\)/.test(panel),
+     "netFor(u.id) would price the OLD basic still in React state");
+  ok("a hand-set Basic is flagged in the row with both figures, not silently replaced",
+     /\{L\("≠ base", "≠ asas"\)\} \{fmtRM\(base\[u\.id\] \?\? 0\)\}/.test(panel) && /held\.push\(u\.name\); continue; \}\s*const next: Entry/.test(win));
+}
+
 console.log(
   fails.length === 0
     ? `PASS — only a joiner or a leaver is prorated, approved paid leave costs nobody a ringgit (${pass} checks)`

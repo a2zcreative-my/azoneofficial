@@ -512,8 +512,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.4.124: the net this panel displays, computed once and SAVED with the
   // entry — /expenses sums these stored figures, so the Expenses card and
   // this total always tally after Save all.
-  const netFor = (id: number): number => {
-    const e = entry(id);
+  const netFor = (id: number, override?: Entry): number => {
+    /* v1.97.1 — `override` lets a caller price a row it is ABOUT to write
+       (Save base salaries re-filling Basic) without waiting for React state
+       to settle; the formula stays this one. */
+    const e = override ?? entry(id);
     const uRow = staff.find((x) => x.id === id);
     if (uRow && isHourly(uRow)) {
       // v1.4.183: hourly pay (auto from the clock) + commission + allowance
@@ -1103,15 +1106,64 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             type="button"
             className="bg-primary text-primary-foreground mt-3 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
             onClick={async () => {
+              /* v1.97.1 (CEO: "Base salaries was not sync with staff table
+                 Basic! then Net why didnt correcly count? this is something
+                 that bug or wrong flow!") — it was the flow. A base change
+                 used to reach only months not yet saved; the open month,
+                 already saved at the OLD base, kept it, and the only sign was
+                 a 10px "Base" link. Now a base change is carried into the
+                 open month at once, for every row that was simply following
+                 the base (Basic == old base, or never saved), and the row is
+                 saved with its net recomputed - so the table and the panel
+                 above it say the same figure the moment the button is
+                 pressed. Two things are deliberately NOT touched: a month
+                 already RELEASED to staff (a payslip somebody has read does
+                 not change under them - reopen it on purpose), and a Basic
+                 that was set by hand to something other than the old base
+                 (that was a decision; it is flagged in the row, not undone). */
               let n = 0;
+              const carried: string[] = [];
+              const held: string[] = [];
               for (const u of staff) {
-                if ((baseDraft[u.id] ?? 0) !== (base[u.id] ?? 0)) {
-                  const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: baseDraft[u.id] ?? 0 }) });
-                  if (res.ok) n++;
-                }
+                const oldBase = base[u.id] ?? 0;
+                const newBase = baseDraft[u.id] ?? 0;
+                if (newBase === oldBase) continue;
+                const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: newBase }) });
+                if (!res.ok) continue;
+                n++;
+                if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
+                if (release?.released) { held.push(u.name); continue; }
+                const cur = entry(u.id);
+                const following = !entries[u.id] || cur.basic_cents === oldBase;
+                if (!following) { held.push(u.name); continue; }
+                const next: Entry = { ...cur, basic_cents: newBase };
+                const d = workedDays[u.id];
+                const hasDays = typeof d === "number" && !Number.isNaN(d);
+                const r2 = await api(`/payroll`, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    ...next, month,
+                    ot_cents: otPay(next.basic_cents, next.ot_hours),
+                    worked_days: hasDays ? d : null,
+                    month_working_days: hasDays ? monthDays : null,
+                    net_cents: netFor(u.id, next),
+                  }),
+                });
+                if (r2.ok) carried.push(`${u.name} (${fmtRM(cur.basic_cents)} → ${fmtRM(newBase)})`);
+                else held.push(u.name);
               }
-              if (n > 0) showToast(L("Saved", "Disimpan"), L(`Base salary updated for ${n} staff`, `Gaji asas dikemas kini untuk ${n} kakitangan`));
-              else showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
+              if (n === 0) {
+                showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
+              } else {
+                const parts = [L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`)];
+                if (carried.length) parts.push(L(`${month} Basic re-filled and saved: ${carried.join(", ")}.`, `Gaji pokok ${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
+                if (held.length) parts.push(release?.released
+                  ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
+                      `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
+                  : L(`Basic for ${held.join(", ")} was set by hand, so it was left alone - the row shows the difference with a "Use base" button.`,
+                      `Gaji pokok ${held.join(", ")} ditetapkan secara manual, jadi dibiarkan - baris menunjukkan perbezaan dengan butang "Guna asas".`));
+                showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
+              }
               void load();
             }}
           >
@@ -1363,9 +1415,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                           </span>
                         )}
                         {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
-                          <button type="button" className="ml-1 text-xs underline" title={L("Reset Basic to the fixed base salary (use this to fix rows the old Prorate button shrank)", "Set semula Gaji pokok kepada gaji asas tetap (guna ini untuk membetulkan baris yang dikecilkan butang Prorate lama)")}
+                          /* v1.97.1 — a Basic that disagrees with the base is
+                             said out loud, with the two figures, not hinted at
+                             by a 10px link. The button puts the base in the
+                             draft; Save writes it. */
+                          <button type="button"
+                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning underline-offset-2 hover:underline"
+                            title={L(`Basic here is ${fmtRM(e.basic_cents)} but the base salary is ${fmtRM(base[u.id] ?? 0)}. Press to put the base in this row, then Save.`,
+                                     `Gaji pokok di sini ${fmtRM(e.basic_cents)} tetapi gaji asas ialah ${fmtRM(base[u.id] ?? 0)}. Tekan untuk meletakkan asas dalam baris ini, kemudian Simpan.`)}
                             onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
-                            {L("Base", "Asas")}
+                            {L("≠ base", "≠ asas")} {fmtRM(base[u.id] ?? 0)} · {L("Use base", "Guna asas")}
                           </button>
                         )}
                         <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id, u.name)}>

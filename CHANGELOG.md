@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.97.1] — 2026-09-05 — a base salary change reaches the month on screen
+
+**CEO**, on the Payroll tab: *"Base salaries was not sync with staff table Basic! then Net why didnt correcly count? this is something that bug or wrong flow!"*
+
+It was the flow. The Base salaries panel said, in small print, that a change "applies from the next unsaved month onwards; months already saved stay as saved". September had already been saved with the CCO at RM 3,500; his base was then raised to RM 4,000; the row kept 3,500, the net followed the row, and the only sign was a 10px "Base" link nobody would read as "these two disagree".
+
+### What changes
+- **Save base salaries now carries the change into the open month.** For every person whose base changed, if their row was simply following the base (Basic equal to the old base, or never saved), the row's Basic becomes the new base and the row is **saved at once with its net recomputed** — by the same formula, on the row about to be written, not on the old state. The toast names each row: *"09-2026 Basic re-filled and saved: Mohamad Izzudin (RM 3,500.00 → RM 4,000.00)"*.
+- **Two things are deliberately left alone**, and the toast says which and why. A month already **released** to staff is not changed under them — the row shows the difference and a button to change it on purpose. A Basic that was **set by hand** to something other than the old base was a decision, so it stays and is flagged.
+- **The flag is visible now:** an amber chip on the row — *≠ base RM 4,000.00 · Use base* — with both figures in the tooltip, instead of the old link.
+
+### On "Net didn't count correctly"
+Net follows the row's Basic, so the CCO's RM 3,500.00 was the row, not the formula. The two RM 1,923.08 nets are RM 2,000 less one approved unpaid day (2,000 ÷ 26 = RM 76.92), shown in red under each — the deduction the UL:1 mark warns about. That part is correct.
+
+Guard `payroll-days` gains four checks (89), each negative-tested: the carry-over exists and saves the row; a released month is left as saved; the re-filled row is priced with the shared formula on the new figure; a hand-set Basic is flagged, not replaced.
+
 ## [1.97.0] — 2026-09-05 — the Malaysian posts, and why each one counts
 
 **CEO**, with the first study case on screen: *"I want to search and filter the Threads post by malaysia users which is for me to do some research based on their post regarding on the Study cases that I want to view. this is to helping me to boost my product for marketing purposes!"*
