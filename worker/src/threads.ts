@@ -138,11 +138,18 @@ async function graph<T>(url: string): Promise<Graph<T>> {
   } catch (e) {
     return { ok: false, message: `network: ${e instanceof Error ? e.message : String(e)}`, code: 0 };
   }
-  const body = (await res.json().catch(() => null)) as (T & { error?: { message?: string; code?: number } }) | null;
+  const raw = await res.text().catch(() => "");
+  type Body = (T & { error?: { message?: string; code?: number } }) | null;
+  let body: Body;
+  try { body = JSON.parse(raw) as Body; } catch { body = null; }
   if (!res.ok || !body || body.error) {
+    /* v1.96.1 — a 500 from Meta arrives as an HTML page, not JSON, and
+       "HTTP 500" alone told the CEO nothing. Keep the first words of what
+       came back so the Connection section can show WHAT failed. */
+    const glimpse = body ? "" : raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
     return {
       ok: false,
-      message: body?.error?.message ?? `HTTP ${res.status}`,
+      message: body?.error?.message ?? (glimpse ? `HTTP ${res.status}: ${glimpse}` : `HTTP ${res.status}`),
       code: body?.error?.code ?? res.status,
     };
   }
@@ -356,15 +363,22 @@ async function refreshDueTokens(env: Env, rep: TickReport, onlyAccount?: number)
 /** One page of history for one account. Returns how many posts landed. */
 async function importPage(env: Env, a: AccountRow, tok: string, rep: TickReport): Promise<boolean> {
   type Page = { data?: ThreadsMedia[]; paging?: { cursors?: { after?: string }; next?: string } };
-  const ask = (fields: string) => graph<Page>(q(`${GRAPH}/v1.0/${a.threads_user_id}/threads`, {
-    fields, limit: PAGE, access_token: tok, after: a.sync_cursor ?? undefined,
+  const ask = (fields: string, limit: number) => graph<Page>(q(`${GRAPH}/v1.0/${a.threads_user_id}/threads`, {
+    fields, limit, access_token: tok, after: a.sync_cursor ?? undefined,
   }));
+  /* v1.96.1 — the first release fell back only on Meta's "unknown field"
+     code (100). The A2Z account's first import came back as a bare HTTP 500
+     instead, so nothing fell back and the account sat on "history still
+     importing" with zero posts. Now every attempt that fails hands over to
+     a plainer one: fewer fields, then a smaller page - a 500 on a hundred
+     posts is very often fine on twenty-five. Only when the plainest ask
+     also fails is the error written up. */
+  const attempts: [string, number][] = [[FULL_FIELDS, PAGE], [BASE_FIELDS, PAGE], [BASE_FIELDS, 25]];
   rep.spent++;
-  let r = await ask(FULL_FIELDS);
-  if (!r.ok && r.code === 100 && rep.spent < rep.budget) {
-    /* A field this server does not know — ask for the ones every server knows. */
+  let r = await ask(FULL_FIELDS, PAGE);
+  for (let i = 1; !r.ok && i < attempts.length && rep.spent < rep.budget; i++) {
     rep.spent++;
-    r = await ask(BASE_FIELDS);
+    r = await ask(attempts[i]![0], attempts[i]![1]);
   }
   if (!r.ok) {
     rep.errors.push(`@${a.username}: import ${r.message}`);
@@ -613,27 +627,58 @@ interface FoundPost {
  * before v1.96.0, so that reason is passed through verbatim rather than
  * flattened into "search failed".
  */
+/* v1.96.1 — Meta names its two parameters the other way round from how the
+   first release read them. `search_type` is the ORDER of the answer, TOP or
+   RECENT, and nothing else is accepted ("Param search_type must be one of
+   {RECENT, TOP}" was the CEO's first result). Whether the words are matched
+   in the post or as a topic tag is `search_mode`, KEYWORD or TAG. */
+const SEARCH_ORDERS = ["TOP", "RECENT"] as const;
+type SearchOrder = (typeof SEARCH_ORDERS)[number];
+
 async function runTopicSearch(
   env: Env, topic: { id: number; query: string; search_type: string }, tok: string, actorId: number,
-): Promise<{ ok: true; found: number; scanned: number } | { ok: false; reason: string; needs_reconnect: boolean }> {
-  const r = await graph<{ data?: FoundPost[] }>(
+  /** How many of the two orders to spend a search on. TOP alone when the
+      weekly allowance is nearly gone; TOP and RECENT otherwise, so a topic
+      re-run next week holds fresh posts as well as the ones that lasted. */
+  passes: 1 | 2 = 2,
+): Promise<{ ok: true; found: number; scanned: number; note: string | null } | { ok: false; reason: string; needs_reconnect: boolean }> {
+  const mode = topic.search_type === "tag" ? "TAG" : "KEYWORD";
+  const ask = (order: SearchOrder, withMode: boolean) => graph<{ data?: FoundPost[] }>(
     q(`${GRAPH}/v1.0/keyword_search`, {
       q: topic.query,
-      search_type: topic.search_type === "tag" ? "TAG" : "KEYWORD",
+      search_type: order,
+      search_mode: withMode ? mode : undefined,
       fields: SEARCH_FIELDS,
       access_token: tok,
     }),
   );
-  if (!r.ok) {
-    const needs = /permission|scope|oauth|access/i.test(r.message) || r.code === 10 || r.code === 190 || r.code === 200;
-    await env.DB.prepare(
-      `INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, 0, 0)`,
-    ).bind(topic.id, actorId).run();
-    await env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?1 WHERE id = ?2`)
-      .bind(r.message.slice(0, 300), topic.id).run();
-    return { ok: false, reason: r.message, needs_reconnect: needs };
+  const seen = new Map<string, FoundPost>();
+  let note: string | null = null;
+  let withMode = true;
+  for (const order of SEARCH_ORDERS.slice(0, passes)) {
+    let r = await ask(order, withMode);
+    if (!r.ok && withMode && r.code === 100 && /search_mode/i.test(r.message)) {
+      /* A server that does not know search_mode yet: run it as a plain
+         keyword search and say so, rather than fail the topic. */
+      withMode = false;
+      note = "Topic-tag search is not available on this app yet; the words were searched as keywords instead.";
+      r = await ask(order, false);
+    }
+    if (!r.ok) {
+      const needs = /permission|scope|oauth|access/i.test(r.message) || r.code === 10 || r.code === 190 || r.code === 200;
+      await env.DB.prepare(
+        `INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, 0, 0)`,
+      ).bind(topic.id, actorId).run();
+      await env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?1 WHERE id = ?2`)
+        .bind(r.message.slice(0, 300), topic.id).run();
+      return { ok: false, reason: r.message, needs_reconnect: needs };
+    }
+    for (const p of r.data.data ?? []) if (p.id && !seen.has(String(p.id))) seen.set(String(p.id), p);
+    /* One row per call to Meta - that is what the weekly allowance counts. */
+    await env.DB.prepare(`INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, ?3, 1)`)
+      .bind(topic.id, actorId, (r.data.data ?? []).length).run();
   }
-  const posts = (r.data.data ?? []).filter((p) => p.id);
+  const posts = [...seen.values()];
   const stmts = posts.map((p) => {
     const mt = p.media_type ?? "TEXT_POST";
     const tr = postTraits(p.text, mt);
@@ -649,13 +694,14 @@ async function runTopicSearch(
     );
   });
   stmts.push(
-    env.DB.prepare(`INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, ?3, 1)`)
-      .bind(topic.id, actorId, posts.length),
-    env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = NULL WHERE id = ?1`)
-      .bind(topic.id),
+    env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?2 WHERE id = ?1`)
+      .bind(topic.id, note),
   );
-  if (stmts.length) await env.DB.batch(stmts);
-  return { ok: true, found: posts.length, scanned: posts.length };
+  const results = await env.DB.batch(stmts);
+  /* New = rows the INSERTs actually wrote; a post seen last week is skipped
+     by ON CONFLICT and counts as scanned, not found. */
+  const found = results.slice(0, posts.length).reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
+  return { ok: true, found, scanned: posts.length, note };
 }
 
 /** Words worth counting: everything that is not scaffolding in either
@@ -901,9 +947,11 @@ export async function handleThreads(
         if (!acc) return err("not_configured", "Connect a Threads account first - a search needs a credential to ask with", 400);
         const tok = await tokenFor(env, acc.threads_user_id);
         if (!tok) return err("not_configured", "That account has no token - connect it again", 400);
-        const res = await runTopicSearch(env, topic, tok, user.id);
+        /* Two calls (top posts, then the newest) while the week has room for
+           them; the top posts alone when it is nearly spent. */
+        const res = await runTopicSearch(env, topic, tok, user.id, quota.left >= 2 ? 2 : 1);
         await audit(env, user.id, "threads.topic_search", "threads_topics", String(id), {
-          label: topic.label, query: topic.query, ok: res.ok, found: res.ok ? res.found : 0,
+          label: topic.label, query: topic.query, ok: res.ok, found: res.ok ? res.found : 0, scanned: res.ok ? res.scanned : 0,
         });
         if (!res.ok) {
           await logError(env, "threads_search", `${topic.label}: ${res.reason}`);
@@ -912,7 +960,7 @@ export async function handleThreads(
             quota: await searchQuota(env),
           }, 200);
         }
-        return json({ ok: true, found: res.found, quota: await searchQuota(env) });
+        return json({ ok: true, found: res.found, scanned: res.scanned, note: res.note, quota: await searchQuota(env) });
       }
     }
 

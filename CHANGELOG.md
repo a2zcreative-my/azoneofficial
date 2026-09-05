@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.96.1] — 2026-09-05 — the first two results from the Study section
+
+**CEO**, minutes after deploying 1.96.0, with two screenshots: *"2 errors: HTTP 500 / For field 'keyword_search': Param search_type must be one of {RECENT, TOP}"*.
+
+### The search sent Meta's two parameters the wrong way round
+1.96.0 put `KEYWORD` / `TAG` in `search_type`. Meta reads `search_type` as the **order** of the answer — `TOP` or `RECENT` — and the match mode is a different parameter, `search_mode`. Every search was refused at the door.
+
+- A run now asks for the **top posts** and then the **newest** (two searches from the weekly allowance; only the top posts when fewer than two are left), so a topic re-run next week holds fresh posts as well as the ones that lasted. The quota badge says so.
+- Topic-tag topics send `search_mode=TAG`. If the app is ever told it does not know `search_mode`, the words are searched as keywords and the topic says so, rather than failing.
+- The toast now says both figures — *"14 posts back, 9 new"* — because "posts back" hid whether anything new had arrived. New is counted from the rows actually written, not from what came back.
+
+### The history import gave up on a 500
+The account sat at *"0 posts imported · history still importing · sync_error HTTP 500"*. 1.96.0 fell back to the plainer field list only on Meta's "unknown field" code (100); a bare 500 is not code 100, so nothing fell back and nothing was retried. Now every failed attempt hands over to a plainer one — fewer fields, then a smaller page of 25 — and only when the plainest ask also fails is the error written up. A 500 that arrives as an HTML page (not JSON) now carries its first words instead of just the number.
+
+### After deploying
+Reconnect the A2Z account once on the Connection section (the token minted before 1.96.0 lacks the `threads_keyword_search` scope), then press **Sync now**, then run a topic.
+
+Guard #33 gains three checks (65): `search_type` carries TOP/RECENT and never the match mode; the match mode goes in `search_mode`; the import falls back on any failed attempt. Each negative-tested.
+
 ## [1.96.0] — 2026-09-05 — study cases: what the niche actually posts
 
 **CEO**, with the A2Z account finally connected: *"I want to view only for study case on Product and Service like Hotel, product for Tudung."*

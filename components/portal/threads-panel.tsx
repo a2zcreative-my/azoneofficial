@@ -321,13 +321,19 @@ export function ThreadsPanel() {
 
   const runSearch = async (t: Topic) => {
     setSearching(true);
-    const r = await api<{ ok: boolean; found?: number; reason?: string; needs_reconnect?: boolean; quota?: Quota; error?: { message?: string } }>(
+    const r = await api<{ ok: boolean; found?: number; scanned?: number; note?: string | null; reason?: string; needs_reconnect?: boolean; quota?: Quota; error?: { message?: string } }>(
       `/topics/${t.id}/search`, { method: "POST" },
     );
     setSearching(false);
     if (r.data?.quota) setQuota(r.data.quota);
     if (r.ok && r.data?.ok) {
-      toast(L("Searched", "Dicari"), `${t.label}: ${r.data.found ?? 0} ${L("posts back", "hantaran diterima")}`);
+      const scanned = r.data.scanned ?? 0;
+      const found = r.data.found ?? 0;
+      /* v1.96.1 — "12 posts back" hid whether anything was new. Say both:
+         what came back, and how many the study had not seen before. */
+      toast(L("Searched", "Dicari"),
+        `${t.label}: ${scanned} ${L("posts back", "hantaran diterima")}, ${found} ${L("new", "baharu")}${r.data.note ? ` — ${r.data.note}` : ""}`,
+        r.data.note ? "notice" : undefined);
     } else if (r.data?.needs_reconnect) {
       toast(L("Search not allowed yet", "Carian belum dibenarkan"),
         L("This account was connected before search was added. Reconnect it on the Connection section to grant it.",
@@ -725,7 +731,7 @@ export function ThreadsPanel() {
               </div>
               {quota && (
                 <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${quota.left <= 25 ? "bg-danger-soft text-danger" : quota.left <= 100 ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}
-                  title={L("Threads rations keyword searches per rolling 7 days, for the whole app", "Threads mencatu carian kata kunci setiap 7 hari bergolek, untuk keseluruhan aplikasi")}>
+                  title={L("Threads rations keyword searches per rolling 7 days, for the whole app. One run spends two: the top posts, then the newest.", "Threads mencatu carian kata kunci setiap 7 hari bergolek, untuk keseluruhan aplikasi. Satu larian guna dua: hantaran teratas, kemudian terbaharu.")}>
                   {quota.left} / {quota.cap} {L("searches left this week", "carian tinggal minggu ini")}
                 </span>
               )}

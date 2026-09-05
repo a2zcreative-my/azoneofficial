@@ -169,6 +169,20 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
      "the marketing floor should be able to read what was collected");
   ok("every topic action is audited",
      ["threads.topic_add", "threads.topic_remove", "threads.topic_search"].every((a) => threads.includes(`"${a}"`)));
+  /* v1.96.1 — the two parameters Meta actually reads. The first release put
+     KEYWORD/TAG in search_type and Meta refused every search. (negative-
+     tested by putting "KEYWORD" back in search_type, and by gating the
+     import fallback on code 100 again) */
+  ok("search_type carries the ORDER (TOP/RECENT), never the match mode",
+     /const SEARCH_ORDERS = \["TOP", "RECENT"\] as const;/.test(threads)
+     && /search_type: order,/.test(threads)
+     && !/search_type: [^,\n]*(KEYWORD|TAG)/.test(threads),
+     "Meta: Param search_type must be one of {RECENT, TOP}");
+  ok("the match mode goes in search_mode", /search_mode: withMode \? mode : undefined,/.test(threads)
+     && /const mode = topic\.search_type === "tag" \? "TAG" : "KEYWORD";/.test(threads));
+  ok("history import falls back on ANY failed attempt, not only code 100",
+     /for \(let i = 1; !r\.ok && i < attempts\.length/.test(threads) && !/!r\.ok && r\.code === 100/.test(threads),
+     "the A2Z account came back HTTP 500, which is not code 100, and sat at zero posts");
   ok("a missing scope is reported as such, not as an empty niche",
      /needs_reconnect: res\.needs_reconnect/.test(threads) && /needs_reconnect/.test(panel),
      "a search that silently returns nothing reads as a quiet subject, which is the opposite of the truth");
