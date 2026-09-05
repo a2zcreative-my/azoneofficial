@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.110.0] - 2026-09-05 - roadmap phase 05: the hotel directory becomes a pipeline
+
+**CEO**, 05-09-2026: *"what phase left? continue next phase"*. The last of the five phases from the 05-09 roadmap. The roadmap said it plainly: 442 hotels and 690 named contacts on one tab, quotations and invoices on another, nothing connecting them - *"the most valuable asset in the system is currently a phone book."*
+
+### What a hotel now has
+- **A stage** - never contacted, contacted, quoted, won, lost, dormant - shown as a coloured chip on every row. The first four move **by what happened**: logging a call moves a lead to contacted, a "quotation sent" outcome to quoted, "won the business" to won. It only ever moves forward by itself - a no-answer after a quotation does not un-quote the hotel. Lost and dormant are a person's call, set from a dropdown on the open hotel, and a later call revives them.
+- **A call log.** On an open hotel: *how did it go* (eight outcomes), *who you spoke to* (the hotel's own contacts), *call back on* (a date), and notes. Each call is stamped with who made it; the hotel remembers when it was last spoken to and when the next call is due. **Logging a call is queueable** (phase 03's outbox): in a lobby with one bar of signal it is kept on the phone and sent when the signal is back, at the time it was pressed, and the toast says *Kept - no signal* rather than pretending it failed.
+- **The client it became.** *Create client from this hotel* makes a customer row from the hotel's company, address and first contact and links it; *Link an existing client* finds one by name; the quotations and invoices in that client's name then show on the hotel, with what has been paid, what is unpaid and what was quoted.
+- **A worklist.** Chips above the list: **All · Never contacted · Due for a call · Contacted · Quoted · Won · Lost**. *Never contacted* is who to ring. *Due* is who to ring back - a follow-up date that has passed, or a contacted/quoted hotel quiet for ninety days. A never-called lead is deliberately **not** due: 300 of them would bury the ten real lapses.
+- **The map answers "where is the money".** A Hotels / Revenue toggle on the map card: by revenue the shade and the bubble are what each state's hotels have **paid**, and the side panel lists the states that have paid the most and says, for the country or the pressed state, *N of M contacted · K won*.
+
+### A watcher for it
+`hotel_followup` - *Hotel follow-up overdue or gone quiet* - tells the CEO, CCO and sales when a follow-up date has passed or a worked hotel has been quiet past the threshold (default 90 days, the CEO's to change), once, and clears when the call is logged.
+
+### Under it
+- `worker/migrations/0116_hotel_pipeline.sql`: `hotel_calls` (hotel, contact, user, outcome, notes, next_at), and on `hotels`: `customer_id`, `stage`, `last_contact_at`, `next_at`, `owner_id`, indexed. The owner is whoever last worked the hotel, unless set.
+- `worker/src/hotel-pipeline.ts`: `stageAfter()` and `isDue()` are pure and RUN by the guard; routes `GET /staff/hotels/pipeline`, `GET /staff/hotels/:id/pipeline`, `POST /:id/calls`, `PUT /:id/link`, `POST /:id/client`, `PUT /:id/stage`. Reads are open to `hotels_view`, writes behind `hotels_manage`, every write audited (`hotel.call`, `hotel.link`, `hotel.client`, `hotel.stage`).
+- The hotel list carries the new columns with a pre-0116 fallback, filters by `?stage=` and `?due=1`, and returns per-state money for the map. Guard #45 `tests/hotel-pipeline.mjs` (56 checks) runs the two rules and a call against a fake database, holds the panel's vocabulary to the worker's, the queueable route on both sides of the outbox, and the door before the list route; negative-tested four ways. `tests/watchers.mjs` learned that a ref may carry a hyphen.
+
+All five phases of the 05-09 roadmap are now shipped: 01 role landing (1.103), 02 remembered views (1.104), 03 offline outbox (1.105), 04 one desk / search everything / watchers (1.106-1.108), 05 hotel pipeline (1.110).
+
 ## [1.109.1] - 2026-09-05 - installed on a phone, the header clears the status bar
 
 **CEO**, 05-09-2026, a screenshot of the portal on his Android Home Screen: the clock, signal and battery drawn straight over the avatar and "Today". *"When I add for Home screen it is like this 🤦🏻‍♂️"*

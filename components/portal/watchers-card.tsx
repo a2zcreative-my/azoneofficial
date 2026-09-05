@@ -43,8 +43,9 @@ const LABEL_MS: Record<string, string> = {
   "Hotel MOF / Halal certificate expiring": "Sijil MOF / Halal hotel akan tamat",
   "Asset warranty ending": "Jaminan aset akan tamat",
   "Leave request waiting too long": "Permohonan cuti menunggu terlalu lama",
+  "Hotel follow-up overdue or gone quiet": "Susulan hotel tertunggak atau senyap",
 };
-const UNIT_MS: Record<string, string> = { units: "unit", days: "hari", "days ahead": "hari ke hadapan" };
+const UNIT_MS: Record<string, string> = { units: "unit", days: "hari", "days ahead": "hari ke hadapan", "days quiet": "hari senyap" };
 
 function since(sqlite: string): string {
   const t = new Date(sqlite.replace(" ", "T") + "Z").getTime();

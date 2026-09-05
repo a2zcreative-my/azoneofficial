@@ -36,6 +36,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
 import { can } from "./permissions";
+import { handleHotelPipeline, moneyByHotel, isDue, STAGES } from "./hotel-pipeline"; // v1.110.0
 
 /** The workbook's fifteen sheet names, in the workbook's own order. The
     migration's CHECK constraint carries the same fifteen; the guard fails
@@ -118,6 +119,8 @@ interface HotelRow {
   id: number; state: string; hotel_name: string; company: string | null; address: string | null;
   rooms: number | null; stars: string | null; mof_validity: string | null; halal_validity: string | null;
   notes: string | null; updated_at: string;
+  /* v1.110.0 - pipeline (0116); absent on a database without it */
+  stage?: string; customer_id?: number | null; last_contact_at?: string | null; next_at?: string | null; owner_id?: number | null;
 }
 
 async function writeContacts(env: Env, hotelId: number, contacts: ReturnType<typeof contactsFrom>): Promise<void> {
@@ -142,17 +145,37 @@ export async function handleHotels(
   const manage = can(user.role, "hotels_manage");
 
   try {
+    /* ---- v1.110.0 - the pipeline: calls, client link, stage, the due list.
+       A door into hotel-pipeline.ts; this file stays the directory. ---- */
+    if (path === "/pipeline" || /^\/\d+\/(calls|link|client|stage|pipeline)$/.test(path)) {
+      const res = await handleHotelPipeline(env, path, method, body, user, params);
+      if (res) return res;
+    }
+
     /* ---- the list, and the per-state counts the map is drawn from ---- */
     if ((path === "" || path === "/") && method === "GET") {
       const stateQ = params.get("state");
       const state = stateQ && isState(stateQ) ? stateQ.trim().toUpperCase() : null;
       const q = (params.get("q") ?? "").trim().toLowerCase().slice(0, 80);
 
-      const { results: hotels } = await env.DB.prepare(
-        `SELECT id, state, hotel_name, company, address, rooms, stars, mof_validity, halal_validity, notes, updated_at
-           FROM hotels WHERE is_active = 1 ${state ? "AND state = ?1" : ""}
-          ORDER BY state, hotel_name`,
-      ).bind(...(state ? [state] : [])).all<HotelRow>();
+      /* v1.110.0 - the pipeline columns ride along (0116). A database without
+         them yet answers the directory as it always did. */
+      let hotels: HotelRow[];
+      try {
+        ({ results: hotels } = await env.DB.prepare(
+          `SELECT id, state, hotel_name, company, address, rooms, stars, mof_validity, halal_validity, notes, updated_at,
+                  stage, customer_id, last_contact_at, next_at, owner_id
+             FROM hotels WHERE is_active = 1 ${state ? "AND state = ?1" : ""}
+            ORDER BY state, hotel_name`,
+        ).bind(...(state ? [state] : [])).all<HotelRow>());
+      } catch (e116) {
+        if (!String(e116).includes("no such column")) throw e116;
+        ({ results: hotels } = await env.DB.prepare(
+          `SELECT id, state, hotel_name, company, address, rooms, stars, mof_validity, halal_validity, notes, updated_at
+             FROM hotels WHERE is_active = 1 ${state ? "AND state = ?1" : ""}
+            ORDER BY state, hotel_name`,
+        ).bind(...(state ? [state] : [])).all<HotelRow>());
+      }
 
       const ids = hotels.map((h) => h.id);
       let contacts: { id: number; hotel_id: number; slot: number; person_name: string | null; phone: string | null; phone2: string | null; email: string | null }[] = [];
@@ -174,11 +197,21 @@ export async function handleHotels(
       /* The search runs over the hotel AND its people, because "who do we
          know at the Hilton" and "which hotel does Aida work at" are the same
          question asked from two ends. */
-      const filtered = q
+      let filtered = q
         ? rows.filter((h) =>
             [h.hotel_name, h.company, h.address, h.state].some((v) => (v ?? "").toLowerCase().includes(q))
             || h.contacts.some((c) => [c.person_name, c.phone, c.phone2, c.email].some((v) => (v ?? "").toLowerCase().includes(q))))
         : rows;
+      /* v1.110.0 - the pipeline filters: ?stage=lead|contacted|quoted|won|lost|dormant
+         and ?due=1 (follow-up date passed, or a worked hotel quiet 90 days). */
+      const stageF = params.get("stage");
+      if (stageF && (STAGES as readonly string[]).includes(stageF)) filtered = filtered.filter((h) => (h.stage ?? "lead") === stageF);
+      if (params.get("due") === "1") {
+        const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        filtered = filtered.filter((h) => isDue({ stage: h.stage ?? "lead", next_at: h.next_at ?? null, last_contact_at: h.last_contact_at ?? null }, today));
+      }
+      const money = await moneyByHotel(env, filtered.filter((h) => h.customer_id).map((h) => h.id));
+      const withMoney = filtered.map((h) => ({ ...h, money: money.get(h.id) ?? null }));
 
       const { results: counts } = await env.DB.prepare(
         `SELECT state, COUNT(*) AS n FROM hotels WHERE is_active = 1 GROUP BY state`,
@@ -187,8 +220,27 @@ export async function handleHotels(
       for (const s of MY_STATES) byState[s] = 0;
       for (const c of counts) byState[c.state] = c.n;
 
+      /* v1.110.0 - per-state money for the map's second colouring */
+      const stateMoney: Record<string, { paid_cents: number; invoiced_cents: number; quoted_cents: number; contacted: number; won: number }> = {};
+      try {
+        const { results: pm } = await env.DB.prepare(
+          `SELECT h.state, d.doc_type, d.total_cents, d.payment_status FROM hotels h JOIN sales_documents d ON d.customer_id = h.customer_id
+            WHERE h.is_active = 1 AND h.customer_id IS NOT NULL`,
+        ).all<{ state: string; doc_type: string; total_cents: number; payment_status: string | null }>();
+        const { results: ps } = await env.DB.prepare(
+          `SELECT state, SUM(CASE WHEN stage != 'lead' THEN 1 ELSE 0 END) AS contacted, SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won FROM hotels WHERE is_active = 1 GROUP BY state`,
+        ).all<{ state: string; contacted: number; won: number }>();
+        for (const st of MY_STATES) stateMoney[st] = { paid_cents: 0, invoiced_cents: 0, quoted_cents: 0, contacted: 0, won: 0 };
+        for (const r of ps) if (stateMoney[r.state]) { stateMoney[r.state]!.contacted = r.contacted; stateMoney[r.state]!.won = r.won; }
+        for (const r of pm) {
+          const sm = stateMoney[r.state]; if (!sm) continue;
+          if (r.doc_type === "QT") sm.quoted_cents += r.total_cents;
+          if (r.doc_type === "INV") { sm.invoiced_cents += r.total_cents; if (r.payment_status === "paid") sm.paid_cents += r.total_cents; }
+        }
+      } catch { /* pre-0116 */ }
+
       return json({
-        hotels: filtered, total: rows.length, states: MY_STATES, by_state: byState,
+        hotels: withMoney, total: rows.length, states: MY_STATES, by_state: byState, state_money: stateMoney,
         can_manage: manage,
       });
     }

@@ -192,7 +192,7 @@ function fakeEnv(fixture) {
   for (const w of W.WATCHERS) ok(`${w.key} points at a real tab`, allTabs.includes(w.tab), w.tab);
   const roles = [...(perms.match(/export type Role =([\s\S]*?);/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   for (const w of W.WATCHERS) ok(`${w.key} tells real roles`, w.audience.every((r) => roles.includes(r)), w.audience.join(","));
-  ok("refs are stable per thing, not per run", W.WATCHERS.every((w) => /ref: `[a-z]+:\$\{/.test(src.slice(src.indexOf(`key: "${w.key}"`), src.indexOf(`key: "${w.key}"`) + 1500))));
+  ok("refs are stable per thing, not per run", W.WATCHERS.every((w) => /ref: `[a-z-]+:\$\{/.test(src.slice(src.indexOf(`key: "${w.key}"`), src.indexOf(`key: "${w.key}"`) + 1500))));
   ok("the card follows the desk on the Dashboard", page.indexOf("<OneDesk") > 0 && page.indexOf("<WatchersCard") > page.indexOf("<OneDesk"));
   ok("the card is remembered and live", /useCachedApi<Data>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(card) && /bumpVersion\(env, "watchers"\)/.test(src));
   ok("only the CEO changes a rule", /if \(user\.role !== "ceo" && user\.role !== "super_admin"\) return json\(\{ error: \{ code: "forbidden", message: "Only the CEO changes a watcher"/.test(src));

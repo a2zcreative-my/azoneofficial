@@ -34,10 +34,23 @@
  * the worker, TAB_ROLES.Hotels on the client. The list is 442 hotels with
  * named people and their mobile numbers, so seeing it and changing it are
  * the same tier.
+ *
+ * v1.110.0 (roadmap phase 05) — THE DIRECTORY BECOMES A PIPELINE. Each row
+ * now says where the hotel stands (never contacted, contacted, quoted, won,
+ * lost, dormant), when it was last spoken to, when the next call is due, and
+ * what it has paid. The chips above the list turn 442 rows into a worklist:
+ * "Never contacted" is who to ring, "Due" is who to ring back. An open hotel
+ * shows its call log, the client it became with the quotations and invoices
+ * in its name, and a two-field form to log the call you just made - which is
+ * QUEUEABLE, so it is kept on the phone in a lobby with no signal and sent
+ * later at the time it was pressed. The map gains a second colouring, by
+ * revenue, because "where is the money" is the question the phone book could
+ * never answer. worker/src/hotel-pipeline.ts is the other half.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
+import { fmtRM } from "@/lib/format";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
@@ -53,15 +66,89 @@ import { getLang } from "@/lib/i18n";
 import { STATES } from "@/lib/malaysia-map";
 
 const api = makeApi("/staff/hotels");
+const staffApi = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface Contact {
   id?: number; person_name: string | null; phone: string | null; phone2: string | null; email: string | null;
 }
+interface Money { invoiced: number; paid: number; quoted: number; docs: number }
 interface Hotel {
   id: number; state: string; hotel_name: string; company: string | null; address: string | null;
   rooms: number | null; stars: string | null; mof_validity: string | null; halal_validity: string | null;
   notes: string | null; updated_at?: string; contacts: Contact[];
+  /* v1.110.0 - the pipeline facts; absent until migration 0116 is on the database */
+  stage?: string; customer_id?: number | null; last_contact_at?: string | null; next_at?: string | null;
+  owner_id?: number | null; money?: Money | null;
+}
+interface StateMoney { paid_cents: number; invoiced_cents: number; quoted_cents: number; contacted: number; won: number }
+interface ListData {
+  hotels: Hotel[]; states: string[]; by_state: Record<string, number>; state_money?: Record<string, StateMoney>;
+  can_manage?: boolean; pending_migration?: boolean;
+}
+
+/* ---- the pipeline vocabulary, one place, both languages ---- */
+const STAGE_LABEL: Record<string, [string, string]> = {
+  lead: ["Never contacted", "Belum dihubungi"],
+  contacted: ["Contacted", "Dihubungi"],
+  quoted: ["Quoted", "Disebut harga"],
+  won: ["Won", "Menang"],
+  lost: ["Lost", "Kalah"],
+  dormant: ["Dormant", "Senyap"],
+};
+/* the colour says the stage before the word does; semantic, not the accent */
+const STAGE_CLASS: Record<string, string> = {
+  lead: "bg-secondary text-muted-foreground",
+  contacted: "bg-primary/10 text-primary",
+  quoted: "bg-gold/15 text-gold",
+  won: "bg-success-soft text-success",
+  lost: "bg-destructive/10 text-destructive",
+  dormant: "bg-secondary text-muted-foreground line-through",
+};
+const OUTCOME_LABEL: Record<string, [string, string]> = {
+  spoke: ["Spoke to them", "Bercakap dengan mereka"],
+  no_answer: ["No answer", "Tiada jawapan"],
+  callback: ["Asked to call back", "Minta panggil semula"],
+  not_interested: ["Not interested", "Tidak berminat"],
+  meeting: ["Meeting set", "Mesyuarat ditetapkan"],
+  sent_quote: ["Quotation sent", "Sebut harga dihantar"],
+  won: ["Won the business", "Dapat urusan"],
+  lost: ["Lost", "Kalah"],
+};
+const OUTCOMES = Object.keys(OUTCOME_LABEL);
+/* the chips above the list: "" is every hotel, "due" is the worklist, the rest are stages */
+const FILTERS: { key: string; en: string; ms: string }[] = [
+  { key: "", en: "All", ms: "Semua" },
+  { key: "lead", en: "Never contacted", ms: "Belum dihubungi" },
+  { key: "due", en: "Due for a call", ms: "Perlu dipanggil" },
+  { key: "contacted", en: "Contacted", ms: "Dihubungi" },
+  { key: "quoted", en: "Quoted", ms: "Disebut harga" },
+  { key: "won", en: "Won", ms: "Menang" },
+  { key: "lost", en: "Lost", ms: "Kalah" },
+];
+const stageLabel = (s: string | undefined) => { const p = STAGE_LABEL[s ?? "lead"] ?? STAGE_LABEL.lead!; return L(p[0], p[1]); };
+const outcomeLabel = (o: string) => { const p = OUTCOME_LABEL[o]; return p ? L(p[0], p[1]) : o; };
+
+/** Today in Malaysia as YYYY-MM-DD - a follow-up is overdue against this, not UTC. */
+const todayMyt = (): string => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+/** "2026-09-12" → "12-09-2026" - the house date order. */
+const dmy = (iso: string): string => { const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : iso; };
+/** SQLite "YYYY-MM-DD HH:MM:SS" (UTC) → "today", "3d ago", "2mo ago". */
+function ago(sqlite: string): string {
+  const t = new Date(sqlite.replace(" ", "T") + "Z").getTime();
+  if (Number.isNaN(t)) return "";
+  const d = Math.floor((Date.now() - t) / 86_400_000);
+  if (d <= 0) return L("today", "hari ini");
+  if (d < 30) return L(`${d}d ago`, `${d}h lalu`);
+  return L(`${Math.floor(d / 30)}mo ago`, `${Math.floor(d / 30)}b lalu`);
+}
+/** Sen → "RM 12.5k" for a map bubble that has room for five characters. */
+function rmShort(cents: number): string {
+  const rmv = cents / 100;
+  if (rmv >= 1_000_000) return `${(rmv / 1_000_000).toFixed(1)}M`;
+  if (rmv >= 10_000) return `${Math.round(rmv / 1000)}k`;
+  if (rmv >= 1000) return `${(rmv / 1000).toFixed(1)}k`;
+  return String(Math.round(rmv));
 }
 
 /** The geometry names a state "Kuala Lumpur"; the workbook named it
@@ -79,6 +166,250 @@ const stateKey = (geometryName: string): string => geometryName.toUpperCase();
 const NOT_A_WORKBOOK_STATE = new Set(["LABUAN"]);
 const PICKABLE = STATES.map((sh) => stateKey(sh.name)).filter((s) => !NOT_A_WORKBOOK_STATE.has(s)).sort();
 
+/* ======================================================================
+   THE PIPELINE ON ONE HOTEL — v1.110.0. Module scope (house rule #30): a
+   component defined inside HotelsPanel would remount on every keystroke in
+   the search box and lose the half-typed call note.
+   ====================================================================== */
+interface CallRow { id: number; contact_id: number | null; called_at: string; outcome: string; notes: string | null; next_at: string | null; by_name: string | null; contact_name: string | null }
+interface DocRow { id: number; doc_type: string; doc_number: string; total_cents: number; payment_status: string | null; delivery_status: string | null; created_at: string }
+interface ClientRow { id: number; company: string; contact_person: string | null; phone: string | null }
+interface PipeData { hotel: { stage: string; customer_id: number | null }; calls: CallRow[]; client: ClientRow | null; docs: DocRow[]; money: Money }
+interface ClientPick { id: number; company: string; name: string | null; phone: string | null }
+type Toast = (title: string, sub?: string, variant?: "success" | "notice") => void;
+
+function HotelPipeline({ hotel, canManage, toast, onChanged }: { hotel: Hotel; canManage: boolean; toast: Toast; onChanged: () => Promise<void> }) {
+  const view = useCachedApi<PipeData>(`/staff/hotels/${hotel.id}/pipeline`, true, ["hotels"]);
+  const [outcome, setOutcome] = useState<string>("spoke");
+  const [contactId, setContactId] = useState<string>(hotel.contacts[0]?.id ? String(hotel.contacts[0].id) : "");
+  const [notes, setNotes] = useState("");
+  const [nextAt, setNextAt] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [clients, setClients] = useState<ClientPick[] | null>(null);
+  const [clientQ, setClientQ] = useState("");
+
+  const data = view.data;
+  const changed = async () => { view.refresh(); await onChanged(); };
+
+  /* ---- log a call: QUEUEABLE, so it may come back "queued" with no signal ---- */
+  const logCall = async () => {
+    setBusy("call");
+    const body = { outcome, contact_id: contactId ? Number(contactId) : null, notes: notes.trim() || null, next_at: nextAt || null };
+    const r = await staffApi<{ ok?: boolean; stage?: string; error?: { message?: string } }>(`/hotels/${hotel.id}/calls`, { method: "POST", body: JSON.stringify(body) });
+    setBusy(null);
+    if (r.queued) {
+      toast(L("Kept — no signal", "Disimpan — tiada isyarat"),
+        L(`Your call note for ${hotel.hotel_name} is on this phone and will be sent when you are back online.`, `Nota panggilan anda untuk ${hotel.hotel_name} ada pada telefon ini dan akan dihantar apabila anda kembali dalam talian.`));
+      setNotes(""); setNextAt("");
+      return;
+    }
+    if (r.ok) {
+      toast(L("Call logged", "Panggilan direkodkan"),
+        `${hotel.hotel_name} — ${outcomeLabel(outcome)}${r.data?.stage ? ` · ${L("now", "kini")} ${stageLabel(r.data.stage)}` : ""}${nextAt ? ` · ${L("call back", "panggil semula")} ${dmy(nextAt)}` : ""}`);
+      setNotes(""); setNextAt("");
+      await changed();
+    } else {
+      toast(L("Not logged", "Tidak direkodkan"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+    }
+  };
+
+  /* ---- the stage by hand: lost and dormant are a person's call ---- */
+  const setStage = async (stage: string) => {
+    setBusy("stage");
+    const r = await staffApi<{ ok?: boolean; error?: { message?: string } }>(`/hotels/${hotel.id}/stage`, { method: "PUT", body: JSON.stringify({ stage }) });
+    setBusy(null);
+    if (r.ok) { toast(L("Stage set", "Peringkat ditetapkan"), `${hotel.hotel_name} — ${stageLabel(stage)}`); await changed(); }
+    else toast(L("Not changed", "Tidak diubah"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+  };
+
+  /* ---- the client: make one from the hotel, link an existing one, or unlink ---- */
+  const createClient = async () => {
+    setBusy("client");
+    const r = await staffApi<{ ok?: boolean; customer_id?: number; error?: { message?: string } }>(`/hotels/${hotel.id}/client`, { method: "POST", body: "{}" });
+    setBusy(null);
+    if (r.ok) { toast(L("Client created", "Klien dicipta"), L(`${hotel.hotel_name} is now a client — quotations and invoices in its name will show here.`, `${hotel.hotel_name} kini klien — sebut harga dan invois atas namanya akan dipaparkan di sini.`)); await changed(); }
+    else toast(L("Not created", "Tidak dicipta"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+  };
+  const link = async (customerId: number | null, name: string) => {
+    setBusy("link");
+    const r = await staffApi<{ ok?: boolean; error?: { message?: string } }>(`/hotels/${hotel.id}/link`, { method: "PUT", body: JSON.stringify({ customer_id: customerId }) });
+    setBusy(null);
+    if (r.ok) {
+      toast(customerId ? L("Client linked", "Klien dipautkan") : L("Client unlinked", "Klien dinyahpaut"), customerId ? `${hotel.hotel_name} → ${name}` : hotel.hotel_name);
+      setLinking(false); setClientQ("");
+      await changed();
+    } else toast(L("Not linked", "Tidak dipautkan"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+  };
+  const openLinker = async () => {
+    setLinking(true);
+    if (clients) return;
+    const r = await staffApi<{ clients?: ClientPick[] } | ClientPick[]>(`/clients/summary`);
+    const list = Array.isArray(r.data) ? r.data : (r.data?.clients ?? []);
+    setClients(r.ok ? list : []);
+  };
+  const clientMatches = useMemo(() => {
+    const needle = clientQ.trim().toLowerCase();
+    const list = clients ?? [];
+    return (needle ? list.filter((c) => [c.company, c.name, c.phone].some((v) => (v ?? "").toLowerCase().includes(needle))) : list).slice(0, 8);
+  }, [clients, clientQ]);
+
+  if (view.loading) {
+    return <div className="border-border/70 mt-3 space-y-2 border-t pt-3" aria-busy="true"><Skel className="h-3 w-40" /><Skel className="h-8 rounded-lg" /><Skel className="h-3 w-56" /></div>;
+  }
+  if (view.failed && !data) {
+    return (
+      <p className="text-warning mt-3 text-[11px]">
+        {L("The pipeline is not on this database yet — run the deploy so migration 0116 applies.", "Saluran belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0116 digunakan.")}
+      </p>
+    );
+  }
+  const calls = data?.calls ?? [];
+  const docs = data?.docs ?? [];
+  const client = data?.client ?? null;
+  const money = data?.money ?? { invoiced: 0, paid: 0, quoted: 0, docs: 0 };
+  const stage = data?.hotel.stage ?? hotel.stage ?? "lead";
+
+  return (
+    <div className="border-border/70 mt-3 border-t pt-3">
+      {/* ---- where it stands, and the money ---- */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2 py-px text-[11px] font-medium ${STAGE_CLASS[stage] ?? STAGE_CLASS.lead}`}>{stageLabel(stage)}</span>
+          {canManage && (
+            <select className={`${inputClassSm} w-auto`} value={stage} disabled={busy === "stage"} aria-label={L("Set the stage by hand", "Tetapkan peringkat secara manual")}
+              onChange={(e) => { if (e.target.value !== stage) void setStage(e.target.value); }}>
+              {Object.keys(STAGE_LABEL).map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
+            </select>
+          )}
+        </span>
+        {money.docs > 0 && (
+          <span className="text-muted-foreground flex flex-wrap gap-x-3 text-[11px] tabular-nums">
+            {money.paid > 0 && <span className="text-success">{fmtRM(money.paid)} {L("paid", "dibayar")}</span>}
+            {money.invoiced - money.paid > 0 && <span>{fmtRM(money.invoiced - money.paid)} {L("unpaid", "belum dibayar")}</span>}
+            {money.quoted > 0 && <span className="text-gold">{fmtRM(money.quoted)} {L("quoted", "disebut")}</span>}
+          </span>
+        )}
+      </div>
+
+      {/* ---- the client it became ---- */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Client", "Klien")}</span>
+        {client ? (
+          <>
+            <span className="font-medium">{client.company}</span>
+            {client.contact_person && <span className="text-muted-foreground">{client.contact_person}</span>}
+            {canManage && <button type="button" className="text-muted-foreground text-[11px] underline" disabled={busy === "link"} onClick={() => void link(null, "")}>{L("Unlink", "Nyahpaut")}</button>}
+          </>
+        ) : (
+          <>
+            <span className="text-muted-foreground">{L("Not a client yet", "Belum klien")}</span>
+            {canManage && !linking && (
+              <>
+                <button type="button" className={rowBtn} disabled={busy === "client"} onClick={() => void createClient()}>{L("Create client from this hotel", "Cipta klien daripada hotel ini")}</button>
+                <button type="button" className={rowBtn} onClick={() => void openLinker()}>{L("Link an existing client", "Pautkan klien sedia ada")}</button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {linking && !client && (
+        <div className="bg-secondary/60 mt-2 rounded-lg p-2">
+          <input className={`${inputClassSm} w-full`} autoFocus value={clientQ} placeholder={L("Type the client's company or name", "Taip syarikat atau nama klien")}
+            aria-label={L("Find a client", "Cari klien")} onChange={(e) => setClientQ(e.target.value)} />
+          {clients === null ? (
+            <div className="mt-2 space-y-1"><Skel className="h-3 w-40" /><Skel className="h-3 w-32" /></div>
+          ) : clientMatches.length === 0 ? (
+            <p className="text-muted-foreground mt-2 text-[11px]">{clients.length === 0 ? L("The client list is not available to you.", "Senarai klien tidak tersedia untuk anda.") : L("No client matches that.", "Tiada klien sepadan.")}</p>
+          ) : (
+            <ul className="mt-1.5 space-y-0.5">
+              {clientMatches.map((c) => (
+                <li key={c.id}>
+                  <button type="button" className="hover:bg-card flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left" disabled={busy === "link"} onClick={() => void link(c.id, c.company)}>
+                    <span className="truncate font-medium">{c.company}</span>
+                    <span className="text-muted-foreground shrink-0 text-[11px]">{c.name ?? c.phone ?? ""}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="text-muted-foreground mt-1.5 text-[11px] underline" onClick={() => { setLinking(false); setClientQ(""); }}>{L("Cancel", "Batal")}</button>
+        </div>
+      )}
+      {docs.length > 0 && (
+        <ul className="mt-2 space-y-0.5">
+          {docs.slice(0, 8).map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-x-2 text-[11px]">
+              <span className="bg-secondary rounded px-1.5 py-px font-mono">{d.doc_number}</span>
+              <span className="tabular-nums">{fmtRM(d.total_cents)}</span>
+              {d.doc_type === "INV" && <span className={d.payment_status === "paid" ? "text-success" : "text-warning"}>{d.payment_status === "paid" ? L("paid", "dibayar") : L("unpaid", "belum dibayar")}</span>}
+              <span className="text-muted-foreground">{dmy(d.created_at)}</span>
+            </li>
+          ))}
+          {docs.length > 8 && <li className="text-muted-foreground text-[11px]">{L(`and ${docs.length - 8} more on the Sales tab`, `dan ${docs.length - 8} lagi pada tab Jualan`)}</li>}
+        </ul>
+      )}
+
+      {/* ---- log the call you just made ---- */}
+      {canManage && (
+        <div className="bg-secondary/60 mt-3 rounded-lg p-2.5">
+          <p className="mb-1.5 text-[10px] font-semibold tracking-wider uppercase">{L("Log a call", "Rekod panggilan")}</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <label>
+              <span className={fieldLabel}>{L("How did it go", "Bagaimana hasilnya")}</span>
+              <select className={inputClassSm} value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+                {OUTCOMES.map((o) => <option key={o} value={o}>{outcomeLabel(o)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className={fieldLabel}>{L("Who you spoke to", "Siapa yang anda hubungi")}</span>
+              <select className={inputClassSm} value={contactId} onChange={(e) => setContactId(e.target.value)}>
+                <option value="">{L("(not recorded)", "(tidak direkodkan)")}</option>
+                {hotel.contacts.filter((c) => c.id).map((c) => <option key={c.id} value={String(c.id)}>{c.person_name || c.phone || `#${c.id}`}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className={fieldLabel}>{L("Call back on", "Panggil semula pada")}</span>
+              <input type="date" className={inputClassSm} value={nextAt} min={todayMyt()} onChange={(e) => setNextAt(e.target.value)} />
+            </label>
+          </div>
+          <textarea className={`${inputClassSm} mt-2 w-full`} rows={2} maxLength={1000} value={notes} placeholder={L("What was said, what they need, what you promised", "Apa yang dikatakan, apa yang mereka perlukan, apa yang anda janjikan")}
+            aria-label={L("Call notes", "Nota panggilan")} onChange={(e) => setNotes(e.target.value)} />
+          <div className="mt-2 flex items-center gap-2">
+            <button type="button" className={btnSmPrimary} disabled={busy === "call"} onClick={() => void logCall()}>
+              {busy === "call" ? <Skel className="inline-block h-3 w-12" /> : L("Log call", "Rekod panggilan")}
+            </button>
+            <span className="text-muted-foreground text-[11px]">{L("Kept on this phone if there is no signal.", "Disimpan pada telefon ini jika tiada isyarat.")}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ---- the call log ---- */}
+      <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">
+        {calls.length ? L(`Calls (${calls.length})`, `Panggilan (${calls.length})`) : L("Calls", "Panggilan")}
+      </p>
+      {calls.length === 0 ? (
+        <p className="text-muted-foreground mt-1 text-[11px]">{L("Nobody has logged a call to this hotel yet.", "Belum ada siapa merekod panggilan ke hotel ini.")}</p>
+      ) : (
+        <ul className="divide-border/60 mt-1 divide-y">
+          {calls.slice(0, 20).map((c) => (
+            <li key={c.id} className="py-1.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                <span className="font-medium">{outcomeLabel(c.outcome)}</span>
+                {c.contact_name && <span className="text-muted-foreground">{L("with", "dengan")} {c.contact_name}</span>}
+                <span className="text-muted-foreground">{c.by_name ?? ""} · {dmy(c.called_at)} · {ago(c.called_at)}</span>
+                {c.next_at && <span className="text-muted-foreground">{L("call back", "panggil semula")} {dmy(c.next_at)}</span>}
+              </div>
+              {c.notes && <p className="mt-0.5 whitespace-pre-wrap text-xs">{c.notes}</p>}
+            </li>
+          ))}
+          {calls.length > 20 && <li className="text-muted-foreground pt-1.5 text-[11px]">{L(`and ${calls.length - 20} earlier`, `dan ${calls.length - 20} lebih awal`)}</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const emptyHotel = (): Hotel => ({
   id: 0, state: "KUALA LUMPUR", hotel_name: "", company: "", address: "",
   rooms: null, stars: "", mof_validity: "", halal_validity: "", notes: "",
@@ -95,6 +426,9 @@ export function HotelsPanel() {
   const [open, setOpen] = useState<number | null>(null);
   const [draft, setDraft] = useState<Hotel | null>(null);
   const [saving, setSaving] = useState(false);
+  /* v1.110.0 - the worklist chip ("" all, "due", or a stage) and the map's colouring */
+  const [filter, setFilter] = useState<string>("");
+  const [mapMode, setMapMode] = useState<"hotels" | "revenue">("hotels");
 
   /* Typing waits for the pause — the list is 442 hotels and their people. */
   useEffect(() => {
@@ -109,21 +443,29 @@ export function HotelsPanel() {
      instantly the second time. A write on any hotel bumps the "hotels" topic
      and the open view refetches by itself, so nobody works from a list a
      colleague changed a minute ago. */
-  const view = useCachedApi<{ hotels: Hotel[]; states: string[]; by_state: Record<string, number>; can_manage?: boolean; pending_migration?: boolean }>(
-    `/staff/hotels?${state ? `state=${encodeURIComponent(state)}&` : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`,
+  const filterQs = filter === "due" ? "&due=1" : filter ? `&stage=${filter}` : "";
+  const view = useCachedApi<ListData>(
+    `/staff/hotels?${state ? `state=${encodeURIComponent(state)}&` : ""}${q ? `q=${encodeURIComponent(q)}` : ""}${filterQs}`,
     true, ["hotels"],
   );
   const hotels = useMemo(() => view.data?.hotels ?? [], [view.data]);
   const states = useMemo(() => view.data?.states ?? [], [view.data]);
   const byState = useMemo(() => view.data?.by_state ?? {}, [view.data]);
+  const stateMoney = useMemo(() => view.data?.state_money ?? {}, [view.data]);
   const canManage = Boolean(view.data?.can_manage);
   const pending = Boolean(view.data?.pending_migration);
+  /* the pipeline columns exist once 0116 has run; before that the rows have no stage */
+  const pipelineOn = hotels.length === 0 || hotels[0]?.stage !== undefined;
   const loaded = !view.loading;
   const refresh = view.refresh;
   const load = useCallback(async () => { refresh(); }, [refresh]);
 
   const total = useMemo(() => Object.values(byState).reduce((a, b) => a + b, 0), [byState]);
   const maxState = useMemo(() => Math.max(1, ...Object.values(byState)), [byState]);
+  const totalPaid = useMemo(() => Object.values(stateMoney).reduce((a, b) => a + b.paid_cents, 0), [stateMoney]);
+  const maxPaid = useMemo(() => Math.max(1, ...Object.values(stateMoney).map((m) => m.paid_cents)), [stateMoney]);
+  const byRevenue = mapMode === "revenue";
+  const today = todayMyt();
 
   const save = async () => {
     if (!draft) return;
@@ -191,15 +533,29 @@ export function HotelsPanel() {
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">{L("Hotels by state", "Hotel mengikut negeri")}</p>
+            <p className="text-sm font-semibold">{byRevenue ? L("Revenue by state", "Hasil mengikut negeri") : L("Hotels by state", "Hotel mengikut negeri")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Press a state to see its hotels. The shade is how many are in it.",
-                 "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan bilangannya.")}
+              {byRevenue
+                ? L("Press a state to see its hotels. The shade is what its hotels have paid.",
+                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan apa yang telah dibayar hotelnya.")
+                : L("Press a state to see its hotels. The shade is how many are in it.",
+                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan bilangannya.")}
             </p>
           </div>
           <span className="flex flex-wrap items-center gap-1.5">
+            {/* v1.110.0 - the second colouring: where the money is, not where the hotels are */}
+            {pipelineOn && (
+              <span role="radiogroup" aria-label={L("Colour the map by", "Warnakan peta mengikut")} className="bg-secondary flex rounded-full p-0.5 text-[11px]">
+                {(["hotels", "revenue"] as const).map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={mapMode === m} onClick={() => setMapMode(m)}
+                    className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${mapMode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}>
+                    {m === "hotels" ? L("Hotels", "Hotel") : L("Revenue", "Hasil")}
+                  </button>
+                ))}
+              </span>
+            )}
             <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1 text-[11px] font-medium">
-              {total} {L("hotels", "hotel")} · {states.length} {L("states", "negeri")}
+              {byRevenue ? `${fmtRM(totalPaid)} ${L("paid", "dibayar")}` : `${total} ${L("hotels", "hotel")} · ${states.length} ${L("states", "negeri")}`}
             </span>
             {state && (
               <button type="button" className={rowBtn} onClick={() => setState("")}>
@@ -240,20 +596,28 @@ export function HotelsPanel() {
               {(state ? [...STATES.filter((x) => stateKey(x.name) !== state), ...STATES.filter((x) => stateKey(x.name) === state)] : STATES).map((sh) => {
                 const key = stateKey(sh.name);
                 const n = byState[key] ?? 0;
+                const paid = stateMoney[key]?.paid_cents ?? 0;
+                /* by revenue the weight is what the state's hotels have paid; a
+                   state with hotels but no money yet is the neutral fill */
+                const w = byRevenue ? paid / maxPaid : n / maxState;
+                const has = byRevenue ? paid > 0 : n > 0;
                 const isSel = state === key;
+                const label = byRevenue
+                  ? `${sh.name}: ${fmtRM(paid)} ${L("paid", "dibayar")} · ${n} ${L("hotels", "hotel")}`
+                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
                 return (
                   <path key={sh.name} d={sh.d}
                     role="button" tabIndex={0} aria-pressed={isSel}
-                    aria-label={`${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}
+                    aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
                     className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
-                    fill={n > 0 ? "var(--gold-solid)" : "var(--secondary)"}
-                    fillOpacity={n > 0 ? 0.3 + 0.55 * (n / maxState) : 1}
+                    fill={has ? "var(--gold-solid)" : "var(--secondary)"}
+                    fillOpacity={has ? 0.3 + 0.55 * w : 1}
                     stroke={isSel ? "var(--primary)" : "var(--border)"}
                     strokeWidth={isSel ? 2.5 : 1}
                     strokeLinejoin="round">
-                    <title>{`${sh.name} · ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}</title>
+                    <title>{label}</title>
                   </path>
                 );
               })}
@@ -265,20 +629,27 @@ export function HotelsPanel() {
               {STATES.map((sh) => {
                 const key = stateKey(sh.name);
                 const n = byState[key] ?? 0;
+                const paid = stateMoney[key]?.paid_cents ?? 0;
                 if (!n) return null;
-                const r = 9 + Math.sqrt(n / maxState) * 9;
+                if (byRevenue && !paid) return null;
+                const r = byRevenue ? 11 + Math.sqrt(paid / maxPaid) * 9 : 9 + Math.sqrt(n / maxState) * 9;
                 const isSel = state === key;
+                const label = byRevenue
+                  ? `${sh.name}: ${fmtRM(paid)} ${L("paid", "dibayar")}`
+                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
                 return (
                   <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel}
-                    aria-label={`${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}
+                    aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
                     className="cursor-pointer outline-none">
                     <circle cx={sh.cx} cy={sh.cy} r={r}
                       fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"}
                       strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
-                    <text x={sh.cx} y={sh.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>{n}</text>
-                    <title>{`${sh.name} · ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}</title>
+                    <text x={sh.cx} y={sh.cy + 3.5} textAnchor="middle" style={{ font: `700 ${byRevenue ? 8 : 10}px sans-serif`, fill: "#fff" }}>
+                      {byRevenue ? rmShort(paid) : n}
+                    </text>
+                    <title>{label}</title>
                   </g>
                 );
               })}
@@ -307,20 +678,42 @@ export function HotelsPanel() {
                   {state && <button type="button" className={btnSm} onClick={() => setState("")}>{L("All states", "Semua negeri")}</button>}
                 </div>
                 <div className="bg-secondary mt-2.5 rounded-lg px-2.5 py-2">
-                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Hotels", "Hotel")}</p>
-                  <p className="text-lg font-bold tabular-nums">{state ? (byState[state] ?? 0) : total}</p>
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{byRevenue ? L("Paid", "Dibayar") : L("Hotels", "Hotel")}</p>
+                  <p className="text-lg font-bold tabular-nums">
+                    {byRevenue ? fmtRM(state ? (stateMoney[state]?.paid_cents ?? 0) : totalPaid) : (state ? (byState[state] ?? 0) : total)}
+                  </p>
+                  {pipelineOn && (() => {
+                    /* the pipeline in one line: how many of them have been spoken to, how many are won */
+                    const sm = state ? stateMoney[state] : null;
+                    const contacted = sm ? sm.contacted : Object.values(stateMoney).reduce((a, b) => a + b.contacted, 0);
+                    const won = sm ? sm.won : Object.values(stateMoney).reduce((a, b) => a + b.won, 0);
+                    const n = state ? (byState[state] ?? 0) : total;
+                    return (
+                      <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
+                        {L(`${contacted} of ${n} contacted · ${won} won`, `${contacted} daripada ${n} dihubungi · ${won} menang`)}
+                      </p>
+                    );
+                  })()}
                 </div>
-                <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">{L("Most hotels", "Hotel terbanyak")}</p>
+                <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">
+                  {byRevenue ? L("Most paid", "Paling banyak dibayar") : L("Most hotels", "Hotel terbanyak")}
+                </p>
                 <ul className="mt-1.5 space-y-1">
-                  {Object.entries(byState).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => (
+                  {(byRevenue
+                    ? Object.entries(stateMoney).map(([st, m]) => [st, m.paid_cents] as [string, number]).filter(([, v]) => v > 0)
+                    : Object.entries(byState)
+                  ).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => (
                     <li key={st}>
                       <button type="button" onClick={() => setState(state === st ? "" : st)}
                         className={`flex w-full items-center justify-between gap-2 text-xs ${state === st ? "font-semibold" : ""}`}>
                         <span className="truncate">{st}</span>
-                        <span className="tabular-nums">{n}</span>
+                        <span className="tabular-nums">{byRevenue ? fmtRM(n) : n}</span>
                       </button>
                     </li>
                   ))}
+                  {byRevenue && totalPaid === 0 && (
+                    <li className="text-muted-foreground text-[11px]">{L("No hotel is linked to a paying client yet. Open a hotel and link its client.", "Belum ada hotel dipautkan kepada klien yang membayar. Buka sesebuah hotel dan pautkan kliennya.")}</li>
+                  )}
                 </ul>
               </>
             )}
@@ -356,6 +749,21 @@ export function HotelsPanel() {
             )}
           </span>
         </div>
+
+        {/* ---- v1.110.0: the worklist chips. "Never contacted" is who to ring;
+            "Due" is who to ring back - a follow-up date that has passed, or a
+            worked hotel quiet for ninety days. The server does the filtering
+            (?stage=, ?due=1), so each chip is its own remembered view. ---- */}
+        {pipelineOn && (
+          <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label={L("Show hotels that are", "Tunjuk hotel yang")}>
+            {FILTERS.map((f) => (
+              <button key={f.key} type="button" role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${filter === f.key ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                {L(f.en, f.ms)}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ---- the editor: one form, create and edit alike ---- */}
         {draft && (
@@ -451,6 +859,8 @@ export function HotelsPanel() {
         ) : hotels.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-xs">
             {q ? L("Nothing matches that.", "Tiada yang sepadan.")
+               : filter === "due" ? L("Nobody is due a call. Every follow-up date is ahead and no worked hotel has gone quiet.", "Tiada siapa perlu dipanggil. Semua tarikh susulan masih ke hadapan dan tiada hotel yang senyap.")
+               : filter ? L(`No hotel is at "${stageLabel(filter)}"${state ? ` in ${state}` : ""}.`, `Tiada hotel pada "${stageLabel(filter)}"${state ? ` di ${state}` : ""}.`)
                : L("No hotels in this state yet.", "Belum ada hotel di negeri ini.")}
           </p>
         ) : (
@@ -485,6 +895,20 @@ export function HotelsPanel() {
                       {h.company || L("(no company named)", "(syarikat tidak dinyatakan)")}
                       {h.contacts.length ? ` · ${h.contacts.length} ${h.contacts.length === 1 ? L("contact", "kenalan") : L("contacts", "kenalan")}` : ` · ${L("no contact", "tiada kenalan")}`}
                     </span>
+                    {/* v1.110.0 - the pipeline facts on the row: stage, last spoken to, next call, money */}
+                    {h.stage !== undefined && (
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                        <span className={`rounded-full px-2 py-px font-medium ${STAGE_CLASS[h.stage] ?? STAGE_CLASS.lead}`}>{stageLabel(h.stage)}</span>
+                        {h.last_contact_at && <span className="text-muted-foreground">{L("spoke", "bercakap")} {ago(h.last_contact_at)}</span>}
+                        {h.next_at && (
+                          <span className={h.next_at <= today ? "text-warning font-medium" : "text-muted-foreground"}>
+                            {h.next_at <= today ? L("call back due", "panggil semula perlu") : L("call back", "panggil semula")} {dmy(h.next_at)}
+                          </span>
+                        )}
+                        {h.money && h.money.paid > 0 && <span className="text-success tabular-nums">{fmtRM(h.money.paid)} {L("paid", "dibayar")}</span>}
+                        {h.money && h.money.paid === 0 && h.money.quoted > 0 && <span className="text-gold tabular-nums">{fmtRM(h.money.quoted)} {L("quoted", "disebut")}</span>}
+                      </span>
+                    )}
                   </button>
                   {canManage && (
                     <span className="flex shrink-0 flex-wrap gap-1.5">
@@ -522,6 +946,9 @@ export function HotelsPanel() {
                       </ul>
                     )}
                     {h.notes && <p className="text-muted-foreground mt-2 whitespace-pre-wrap">{h.notes}</p>}
+                    {h.stage !== undefined && (
+                      <HotelPipeline hotel={h} canManage={canManage} toast={toast} onChanged={load} />
+                    )}
                   </div>
                 )}
               </li>

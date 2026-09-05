@@ -147,6 +147,34 @@ export const WATCHERS: readonly Watcher[] = [
     },
   },
   {
+    /* v1.110.0 (roadmap phase 05) - the pipeline's lapses. A follow-up date
+       that has passed, or a hotel that was being worked (contacted or quoted)
+       and has heard nothing for `threshold` days. A never-called lead is NOT a
+       finding: on day one that is 442 of them, and 442 pushes is how a bell
+       gets muted on its first morning. Leads are the worklist on the map. */
+    key: "hotel_followup", label: "Hotel follow-up overdue or gone quiet", audience: ["ceo", "cco", "sales_marketing"],
+    thresholdLabel: "days quiet", defaultThreshold: 90, tab: "Hotels",
+    async check(env, t) {
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results } = await env.DB.prepare(
+        `SELECT id, hotel_name, state, stage, next_at, last_contact_at FROM hotels
+          WHERE is_active = 1 AND (next_at IS NOT NULL OR stage IN ('contacted', 'quoted'))`,
+      ).all<{ id: number; hotel_name: string; state: string; stage: string; next_at: string | null; last_contact_at: string | null }>();
+      const out: Finding[] = [];
+      for (const h of results) {
+        if (h.next_at && h.next_at.slice(0, 10) <= today) {
+          out.push({ ref: `hotel-followup:${h.id}`, title: `${h.hotel_name} (${h.state}): follow-up was due ${h.next_at.slice(0, 10)}` });
+          continue;
+        }
+        if ((h.stage === "contacted" || h.stage === "quoted") && h.last_contact_at) {
+          const quiet = Math.floor((Date.now() - new Date(h.last_contact_at.replace(" ", "T") + "Z").getTime()) / 86_400_000);
+          if (quiet > t) out.push({ ref: `hotel-quiet:${h.id}`, title: `${h.hotel_name} (${h.state}): ${h.stage}, nothing for ${quiet} days` });
+        }
+      }
+      return out.slice(0, 80);
+    },
+  },
+  {
     key: "leave_aging", label: "Leave request waiting too long", audience: ["ceo", "hr_admin"],
     thresholdLabel: "days", defaultThreshold: 3, tab: "Leave",
     async check(env, t) {
