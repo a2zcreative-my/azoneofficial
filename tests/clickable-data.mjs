@@ -106,8 +106,14 @@ const ok = (label, cond, extra = "") => {
        handler, and that handler opens the record. */
     ["a staff face opens the record", "components/staff/staff-directory.tsx",
      /const press = \(u: Staff\) => \{[\s\S]{0,300}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
+    /* v1.99.2 — asserted as a property over EVERY <StaffBubble …/> in the
+       file, not as one window that a new prop can widen past. Whatever the
+       layouts are, each one's face must press the single `press` handler. */
     ["every face on the circle and on the phone row presses that handler", "components/staff/staff-directory.tsx",
-     /<StaffBubble u=\{u\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}[\s\S]{0,2500}?<StaffBubble key=\{u\.id\}[\s\S]{0,300}?onPress=\{\(\) => press\(u\)\}/, "two layouts, one door"],
+     (src) => {
+       const tags = [...src.matchAll(/<StaffBubble[\s\S]*?\/>/g)].map((m) => m[0]);
+       return tags.length >= 2 && tags.every((t) => /onPress=\{\(\) => press\(/.test(t));
+     }, "two layouts, one door"],
     /* v1.94.1 — the field is a square, so a ring is a circle. Percentages
        of a 1600x460 strip drew a flat ellipse and ran the outer ring into
        the labels below it. */
@@ -132,7 +138,10 @@ const ok = (label, cond, extra = "") => {
      /function LeaveDetail\([\s\S]{0,2500}?L\("HR reviewed"[\s\S]{0,600}?L\("Pre-approved"[\s\S]{0,600}?L\("Final"/, "who decided it, and when, is what a manager opens a leave to see"],
   ];
   for (const [label, file, re, why] of cases) {
-    ok(label, re.test(read(file)), why);
+    /* v1.99.2 — a case may be a regex OR a predicate over the file, so a
+       check can assert a property across every occurrence instead of one
+       hand-measured window. */
+    ok(label, typeof re === "function" ? re(read(file)) : re.test(read(file)), why);
   }
 }
 

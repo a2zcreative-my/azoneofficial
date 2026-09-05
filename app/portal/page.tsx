@@ -33,7 +33,7 @@ import {
   type PersonAccess,
   type TabName,
 } from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
-import { buildDocHtml, type DocFull, type DocItem } from "@/lib/doc-template";
+import { buildDocHtml, docPageFit, type DocFull, type DocItem } from "@/lib/doc-template";
 import { buildDocPdf, sharePdfFile } from "@/lib/doc-pdf";
 import { buildLeavePdf } from "@/lib/form-pdf";
 /* v1.28.0 — legal document identity: a STAMPED document (leave form, invoice
@@ -9533,7 +9533,7 @@ function Sales({ user }: { user: User }) {
        bullets), but stripping them on every keystroke is what stopped him
        typing a space at all. Over ten lines is refused out loud rather than
        silently cut, which is what the old .slice(0, 10) did. */
-    const MAX_SUB = 10;
+    const MAX_SUB = 12;
     const overflowing = doc.items.find(
       (i) => (i.sub ?? []).filter((s) => s.trim()).length > MAX_SUB
     );
@@ -9544,6 +9544,19 @@ function Sales({ user }: { user: User }) {
           `"${overflowing.name}" has more than ${MAX_SUB} detail lines — trim it first`,
           `"${overflowing.name}" ada lebih ${MAX_SUB} baris butiran — sila kurangkan dahulu`
         ),
+        "notice"
+      );
+      return;
+    }
+    /* v1.99.2 — the page budget, checked once at save with the SAME
+       measurement the template prints by. The editor already stops the Add
+       button; this catches a description typed long after the line existed. */
+    const fitNow = docPageFit(doc.items, doc.doc_type);
+    if (fitNow.over) {
+      showToast(
+        L("No changes", "Tiada perubahan"),
+        L("This would run past one page. Shorten a description, remove a detail line, or split it into a second document.",
+          "Ini akan melebihi satu halaman. Pendekkan keterangan, buang satu baris butiran, atau pecahkan kepada dokumen kedua."),
         "notice"
       );
       return;
@@ -10676,21 +10689,62 @@ function Sales({ user }: { user: User }) {
             {/* v1.41.0: the name-datalist is gone — product lines are picked
                 from the catalogue select above (SKU + list price fill
                 automatically), services are free text. */}
-            <button
-              type="button"
-              className="text-xs underline"
-              onClick={() =>
-                setDoc((d) => ({
-                  ...d,
-                  items: [
-                    ...d.items,
-                    { name: "", qty: 1, unit_price_cents: 0 },
-                  ],
-                }))
-              }
-            >
-              {L("+ Add line", "+ Tambah baris")}
-            </button>
+            {/* v1.99.2 (CEO: "for the Item / service description I want to
+                add more line if require as long as not exceed to 1 page!") —
+                as many lines as the work needs, and never a second page.
+                The bar is the page itself: the same measurement the template
+                uses (docPageFit), so what it says here is what prints. Over
+                about two-thirds full the table prints tighter automatically;
+                at 100% the button stops rather than letting the document
+                spill onto a page whose footer and signatures are orphaned. */}
+            {(() => {
+              const fit = docPageFit(doc.items, doc.doc_type);
+              const tone = fit.over ? "bg-danger" : fit.ratio > 0.85 ? "bg-warning" : "bg-primary";
+              return (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <button
+                    type="button"
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium ${fit.over || fit.room === 0
+                      ? "bg-secondary text-muted-foreground cursor-not-allowed"
+                      : "bg-secondary text-foreground hover:bg-secondary/70"}`}
+                    disabled={fit.over || fit.room === 0}
+                    title={fit.over || fit.room === 0
+                      ? L("The page is full — remove a line or shorten a description to add another",
+                          "Halaman penuh — buang satu baris atau pendekkan keterangan untuk menambah lagi")
+                      : L("Add another item line", "Tambah satu baris lagi")}
+                    onClick={() =>
+                      setDoc((d) => ({
+                        ...d,
+                        items: [
+                          ...d.items,
+                          { name: "", qty: 1, unit_price_cents: 0 },
+                        ],
+                      }))
+                    }
+                  >
+                    {L("+ Add line", "+ Tambah baris")}
+                  </button>
+                  <span className="flex min-w-[9rem] flex-1 items-center gap-2">
+                    <span className="bg-secondary h-1.5 flex-1 overflow-hidden rounded-full">
+                      <span className={`block h-full rounded-full transition-all ${tone}`}
+                        style={{ width: `${Math.min(100, Math.round(fit.ratio * 100))}%` }} />
+                    </span>
+                    <span className={`text-[11px] whitespace-nowrap ${fit.over ? "text-danger font-medium" : "text-muted-foreground"}`}
+                      title={L("One A4 page. Detail lines and long descriptions use it up faster than plain lines.",
+                               "Satu halaman A4. Baris butiran dan keterangan panjang menggunakannya lebih cepat daripada baris biasa.")}>
+                      {fit.over
+                        ? L("Over one page", "Melebihi satu halaman")
+                        : `${doc.items.length} ${doc.items.length === 1 ? L("line", "baris") : L("lines", "baris")} · ${L("room for", "ruang untuk")} ${fit.room} ${L("more", "lagi")}`}
+                    </span>
+                  </span>
+                  {fit.dense && !fit.over && (
+                    <span className="text-muted-foreground text-[11px]">
+                      {L("prints tighter to stay on one page", "dicetak lebih padat agar kekal satu halaman")}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             <div
               className={`grid grid-cols-2 gap-3 ${doc.doc_type !== "DO" ? "sm:grid-cols-3" : ""}`}
             >

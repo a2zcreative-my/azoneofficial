@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.99.2] — 2026-09-05 — as many document lines as fit one page, and a Circle that breathes
+
+Two things the CEO asked for in the same sitting.
+
+### 1. "Add more line if require as long as not exceed to 1 page!"
+The document editor never capped item lines — but nothing told anyone where the page ended either, so a long quotation silently spilled onto a second sheet whose footer, acceptance block and signatures were orphaned. Every A2Z document is designed as ONE page.
+
+So the page is now a **budget, measured in millimetres** by `docPageFit()` in `lib/doc-template.ts` — from the template's own geometry (A4 less print padding, less letterhead, meta strip, address panels, table head, totals block, acceptance/payment block, footer). It is used **twice, from one definition**:
+
+- **In the editor:** a slim bar beside *+ Add line* reading *"6 lines · room for 9 more"*, amber past 85%, and the button stops at the line that would overflow instead of letting it. A long description or a stack of detail lines eats the budget faster than a plain line, and the bar shows that as you type. Save re-checks with the same function and refuses with a sentence naming the ways out (shorten, remove a detail line, split into a second document).
+- **On the paper:** when the lines need the room, the item table prints in a **denser style** (tighter padding and leading, same design) rather than spilling. The editor says so: *"prints tighter to stay on one page"*.
+
+Detail lines per item raised 10 → 12, since the page — not an arbitrary number — is now the real limit.
+
+### 2. "Still not nice for UI/UX!" — the Circle, third pass
+The diagnosis was the **caption**, not the radius or the colour. A name and a role pinned under every floating face means each person needs a 112 × 110px box on a circle; on a nine-person ring those boxes touch, which is why "Nurfarah Suaidah" wrapped to two lines and Izzudin's role sat under Nasuha's chin.
+
+The orbit now carries **faces only**. The name floats over the face as a chip on hover or keyboard focus (positioned, so it can never push a neighbour), and **one caption bar under the field** — fixed height, so nothing moves — names whoever is hovered or open, with their position, their leaving date if they have gone, and their birthday if it is close. The spoke to the hovered face brightens. With the captions gone the ring widens and the faces sit further apart; the circle finally has air in it, and exactly one label is on screen at a time, which is why it stays legible. The phone grid keeps its captions.
+
+Guard `clickable-data` gains a predicate form so a check can assert a property across **every** `<StaffBubble/>` in the file — that each one presses the single `press` handler — instead of one hand-measured window that any new prop widens past. Negative-tested.
+
 ## [1.99.1] — 2026-09-05 — the Circle, redrawn
 
 **CEO**, a screenshot of the Staff circle: *"make this circle bubbles looks better and nice interface!"*

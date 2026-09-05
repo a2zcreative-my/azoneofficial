@@ -489,7 +489,10 @@ function circleLayout(list: Staff[]): Orbit[] {
      to eight comfortably (arc >= 180px on a 640px field); more splits into
      two, then three, the senior half inward. */
   const n = rest.length;
-  const radii = n <= 8 ? [n <= 4 ? 30 : 36] : n <= 16 ? [25, 44] : [19, 33, 46];
+  /* v1.99.2 — no captions on the orbit, so a face is a 72px disc and
+     nothing more: the ring can be wider and the faces closer without a
+     single collision. */
+  const radii = n <= 9 ? [n <= 4 ? 28 : 38] : n <= 18 ? [24, 43] : [18, 32, 45];
   const per = Math.ceil(n / radii.length);
   radii.forEach((r, ringIdx) => {
     const members = rest.slice(ringIdx * per, (ringIdx + 1) * per);
@@ -508,9 +511,13 @@ function circleLayout(list: Staff[]): Orbit[] {
   return out;
 }
 
-function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "md", cake = null, faded = false }: {
+function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "md", cake = null, faded = false, caption = true, onFocusPerson }: {
   u: Staff; open: boolean; selectMode: boolean; selected: boolean; delayMs: number; onPress: () => void;
   size?: "md" | "lg"; cake?: { days: number; turns: number } | null; faded?: boolean;
+  /* v1.99.2 — the orbit draws faces WITHOUT captions (a fixed caption under a
+     floating face is what collided); the grid keeps them. */
+  caption?: boolean;
+  onFocusPerson?: (u: Staff | null) => void;
 }) {
   const lang = getLang();
   const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
@@ -525,7 +532,11 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
     : open ? "ring-primary ring-4 scale-105" : gone ? "ring-border ring-2 grayscale" : "ring-card ring-2 shadow-md";
   return (
     <button type="button"
-      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[112px] ${faded && !open ? "opacity-45 hover:opacity-100" : ""}`}
+      className={`sd-bubble group relative flex shrink-0 flex-col items-center gap-1.5 text-center ${caption ? "w-full sm:w-[112px]" : ""} ${faded && !open ? "opacity-45 hover:opacity-100" : ""}`}
+      onMouseEnter={() => onFocusPerson?.(u)}
+      onMouseLeave={() => onFocusPerson?.(null)}
+      onFocus={() => onFocusPerson?.(u)}
+      onBlur={() => onFocusPerson?.(null)}
       style={{ animationDelay: `${delayMs}ms`, ["--sd-drift" as string]: `${4 + (delayMs % 7) * 0.4}s` }}
       aria-pressed={selectMode ? selected : open}
       title={selectMode
@@ -558,13 +569,26 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
           becoming "Mohd Alif Far…". The circle at sm+ keeps one line. */}
       {/* v1.94.1 — two lines on the circle too. "Mohd Alif Far…" on a
           desktop was the phone bug wearing a bigger screen. */}
-      <span className={`line-clamp-2 w-full leading-tight font-semibold ${size === "lg" ? "text-sm" : "text-xs"}`}>{givenNames(displayName(u))}</span>
-      {/* v1.99.1 — the role as a small pill, so the caption reads as a label
-          and not as a second, greyer name. A leaver's says when they left. */}
-      <span className={`inline-block max-w-full truncate rounded-full px-2 py-px text-[10px] leading-4 ${gone ? "bg-secondary text-muted-foreground" : size === "lg" ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground/80"}`}>
-        {gone ? `${L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}${u.left_on ? ` · ${dmy(u.left_on)}` : ""}`
-              : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
-      </span>
+      {caption ? (
+        <>
+          <span className={`line-clamp-2 w-full leading-tight font-semibold ${size === "lg" ? "text-sm" : "text-xs"}`}>{givenNames(displayName(u))}</span>
+          {/* v1.99.1 — the role as a small pill, so the caption reads as a label
+              and not as a second, greyer name. A leaver's says when they left. */}
+          <span className={`inline-block max-w-full truncate rounded-full px-2 py-px text-[10px] leading-4 ${gone ? "bg-secondary text-muted-foreground" : size === "lg" ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground/80"}`}>
+            {gone ? `${L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}${u.left_on ? ` · ${dmy(u.left_on)}` : ""}`
+                  : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
+          </span>
+        </>
+      ) : (
+        /* v1.99.2 — on the orbit the name is a chip that FLOATS above the
+           face on hover or focus. It is positioned, so it cannot push a
+           neighbour or wrap the layout; it is the reason the orbit can now
+           breathe instead of reserving 110px of caption per person. */
+        <span aria-hidden
+          className="bg-foreground text-background pointer-events-none absolute -top-2 left-1/2 z-30 -translate-x-1/2 -translate-y-full scale-95 rounded-full px-2.5 py-1 text-[11px] leading-none font-medium whitespace-nowrap opacity-0 shadow-lg transition-all duration-150 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100">
+          {givenNames(displayName(u))}
+        </span>
+      )}
     </button>
   );
 }
@@ -583,6 +607,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
   /* v1.92.0 — pressing a circle opens the record, or ticks it for printing. */
   const [selectMode, setSelectMode] = useState(false);
+  /* v1.99.2 — who the orbit is naming right now (hover or keyboard focus).
+     The orbit itself carries no captions, so this is where the name goes. */
+  const [focus, setFocus] = useState<Staff | null>(null);
   const todayS = todayIso();
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
@@ -962,30 +989,33 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             {/* The wrapper's padding is where the outermost ring's LABELS
                 live: a face centred at 47% of the square still puts half a
                 104px cell outside it. */}
-            {/* v1.99.1 — the field: a soft radial wash, one dashed orbit per
-                ring (turning very slowly), a hairline spoke from the centre
-                to every face. The square is 40rem, and the padding around it
-                is where the outermost labels live. */}
-            <div className="hidden px-14 pt-6 pb-12 sm:block">
-            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[40rem]"
-              style={{ background: "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 9%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 42%, transparent 70%)" }}>
+            {/* v1.99.2 — CEO: "still not nice for UI/UX!". The diagnosis was
+                the caption: a name and a role pinned under every floating
+                face means each person needs a 112 x 110px box on a circle,
+                and on a nine-person ring those boxes touch — Nurfarah wrapped
+                to two lines, Izzudin's role sat under Nasuha's chin. Nothing
+                about radius or colour fixes that.
+
+                So the orbit carries FACES ONLY. The name floats over the face
+                on hover, and one caption bar under the field — fixed height,
+                so nothing ever moves — names whoever is hovered or open. The
+                circle finally has air in it, and every label is legible
+                because only one is on screen at a time. */}
+            <div className="hidden px-8 pt-6 pb-4 sm:block">
+            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[34rem]"
+              style={{ background: "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 8%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 45%, transparent 72%)" }}>
               {(() => {
                 const placed = loaded ? circleLayout(ordered) : [];
-                const radii = loaded ? [...new Set(placed.filter((p) => p.ring > 0).map((p) => p.r))] : [36];
+                const radii = loaded ? [...new Set(placed.filter((p) => p.ring > 0).map((p) => p.r))] : [38];
                 return (
                   <>
-                    {/* the orbits */}
                     {radii.map((r) => (
-                      <span key={r} aria-hidden className="sd-ring-dash border-primary/25 pointer-events-none absolute rounded-full border border-dashed"
+                      <span key={r} aria-hidden className="sd-ring-dash border-primary/20 pointer-events-none absolute rounded-full border border-dashed"
                         style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
                     ))}
-                    {radii.map((r) => (
-                      <span key={`glow-${r}`} aria-hidden className="pointer-events-none absolute rounded-full shadow-[0_0_0_10px_color-mix(in_oklab,var(--primary)_4%,transparent)]"
-                        style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
-                    ))}
-                    {/* the spokes — centre to each face, under everything */}
                     {placed.filter((p) => p.ring > 0).map((p) => (
-                      <span key={`spoke-${p.u.id}`} aria-hidden className="bg-primary/15 pointer-events-none absolute left-1/2 top-1/2 h-px origin-left"
+                      <span key={`spoke-${p.u.id}`} aria-hidden
+                        className={`pointer-events-none absolute top-1/2 left-1/2 h-px origin-left transition-colors ${focus?.id === p.u.id || open.has(p.u.id) ? "bg-primary/50" : "bg-primary/12"}`}
                         style={{ width: `${p.r}%`, transform: `rotate(${p.angleDeg}deg)` }} />
                     ))}
                   </>
@@ -995,29 +1025,57 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 const a = -Math.PI / 2 + (2 * Math.PI * i) / 8;
                 return (
                   <div key={`skel-${i}`} className="absolute -translate-x-1/2 -translate-y-1/2" aria-hidden
-                    style={{ left: `${50 + 36 * Math.cos(a)}%`, top: `${50 + 36 * Math.sin(a)}%` }}>
+                    style={{ left: `${50 + 38 * Math.cos(a)}%`, top: `${50 + 38 * Math.sin(a)}%` }}>
                     <Skel className="h-[4.5rem] w-[4.5rem] rounded-full" />
                   </div>
                 );
               })}
               {!loaded && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" aria-hidden><Skel className="h-24 w-24 rounded-full" /></div>}
               {loaded && circleLayout(ordered).map(({ u, left, top, ring }, i) => (
-                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) ? "z-20" : ring === 0 ? "z-10" : "z-[1]"}`}
+                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) || focus?.id === u.id ? "z-20" : ring === 0 ? "z-10" : "z-[1]"}`}
                   style={{ left: `${left}%`, top: `${top}%` }}>
                   <StaffBubble u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 45}
-                    size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={gone(u)} onPress={() => press(u)} />
+                    size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={gone(u)} caption={false}
+                    onFocusPerson={setFocus} onPress={() => press(u)} />
                 </div>
               ))}
               {loaded && staff.length === 0 && !loadError && (
                 <p className="text-muted-foreground absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
               )}
             </div>
-            {loaded && staff.length > 0 && (
-              <p className="text-muted-foreground mt-2 text-center text-[11px]">
-                {L("Clockwise from the top in company order — CEO at the centre, then COO, CCO, admin, HR, sales & marketing, designers, live hosts. Faded faces have left the company.",
-                   "Ikut jam dari atas mengikut susunan syarikat — CEO di tengah, kemudian COO, CCO, admin, HR, jualan & pemasaran, pereka, hos siaran langsung. Wajah pudar telah meninggalkan syarikat.")}
-              </p>
-            )}
+            {/* the caption bar — one line, fixed height, never moves */}
+            {loaded && staff.length > 0 && (() => {
+              const who = focus ?? ordered.find((u) => open.has(u.id)) ?? null;
+              return (
+                <div className="mt-3 flex min-h-[3.25rem] flex-col items-center justify-center gap-1 text-center">
+                  {who ? (
+                    <>
+                      <p className="text-sm font-semibold">{displayName(who)}</p>
+                      <p className="flex flex-wrap items-center justify-center gap-1.5 text-xs">
+                        <span className="bg-secondary text-foreground/80 rounded-full px-2 py-0.5">
+                          {who.position || L(who.role.replace(/_/g, " "), ROLE_MS[who.role] ?? who.role.replace(/_/g, " "))}
+                        </span>
+                        {gone(who) && (
+                          <span className="bg-secondary text-muted-foreground rounded-full px-2 py-0.5">
+                            {L(who.employment_status ?? "", STATUS_MS[who.employment_status ?? ""] ?? "")}{who.left_on ? ` · ${dmy(who.left_on)}` : ""}
+                          </span>
+                        )}
+                        {cakeFor(who) && (
+                          <span className="bg-warning-soft text-warning rounded-full px-2 py-0.5">
+                            🎂 {cakeFor(who)!.days === 0 ? L("today", "hari ini") : `${cakeFor(who)!.days} ${L("day(s)", "hari")}`}
+                          </span>
+                        )}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      {L("Hover a face to see who it is · press to open the record. Clockwise from the top in company order, CEO at the centre.",
+                         "Tuding pada wajah untuk melihat namanya · tekan untuk buka rekod. Ikut jam dari atas mengikut susunan syarikat, CEO di tengah.")}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             </div>
             {/* the row — phones, where an orbit is a pile */}
             {/* v1.94.0 — CEO, a phone screenshot: names cut to "Mohd Alif

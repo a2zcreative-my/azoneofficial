@@ -47,6 +47,76 @@ export interface DocFull {
 /* autoPrint: the portal's popup should raise the print dialog the moment it
    opens (that is what the PDF button is for). The customer's shared link must
    NOT — they get a Save as PDF button instead. */
+/**
+ * v1.99.2 — HOW MUCH OF ONE A4 PAGE THE LINES TAKE.
+ *
+ * CEO, 05-09-2026: *"for the Item / service description I want to add more
+ * line if require as long as not exceed to 1 page!"* Both halves matter: as
+ * many lines as the work needs, and never a second page. Every A2Z document
+ * is designed as ONE page - the acceptance block and the signatures sit at
+ * the bottom of it - so a document that spills does not gain a page, it
+ * breaks its own footer.
+ *
+ * So the page is a BUDGET, measured here, in millimetres, and used twice:
+ * the editor shows how full the page is and stops at the line that would
+ * overflow, and the template switches to a denser table when the document
+ * needs the room. One definition, so the bar in the editor and the paper
+ * agree.
+ *
+ * The numbers are the template's own geometry (A4 297mm less 2 x 14mm print
+ * padding = 269mm of content), less the furniture that is always there:
+ * letterhead ~46, meta strip ~12, the two address panels ~26, table head ~7,
+ * amount-in-words + totals ~34 (not on a DO), notes ~0-12, acceptance or
+ * payment block with the signatures ~52, footer ~10.
+ */
+export interface PageFit {
+  /** millimetres the item table will take */
+  used: number;
+  /** millimetres it may take */
+  capacity: number;
+  /** the table must print tighter for this to fit */
+  dense: boolean;
+  /** it does not fit even tight */
+  over: boolean;
+  /** 0-1, for a progress bar */
+  ratio: number;
+  /** how many more plain lines would still fit */
+  room: number;
+}
+
+const MM = {
+  row: 6.6, sub: 4.0, sku: 3.4,          // normal density
+  rowDense: 5.4, subDense: 3.4, skuDense: 2.9,
+};
+
+export function docPageFit(
+  items: { name?: string; sku?: string; sub?: string[] }[],
+  docType: string,
+  notes?: string | null,
+): PageFit {
+  const isDO = docType === "DO";
+  const notesMm = notes && notes.trim() ? Math.min(12, 4 + Math.ceil(notes.length / 110) * 4) : 0;
+  const capacity = Math.max(30, 269 - (46 + 12 + 26 + 7 + (isDO ? 0 : 34) + 52 + 10) - notesMm);
+  const measure = (dense: boolean) => items.reduce((mm, it) => {
+    const subs = (it.sub ?? []).filter((x) => (x ?? "").trim()).length;
+    /* A long description wraps; ~54 characters to the line in that column. */
+    const wraps = Math.max(1, Math.ceil(((it.name ?? "").length || 1) / 54));
+    return mm
+      + (dense ? MM.rowDense : MM.row) * wraps
+      + (it.sku ? (dense ? MM.skuDense : MM.sku) : 0)
+      + subs * (dense ? MM.subDense : MM.sub);
+  }, 0);
+  const normal = measure(false);
+  const dense = normal > capacity;
+  const used = dense ? measure(true) : normal;
+  const per = dense ? MM.rowDense : MM.row;
+  return {
+    used, capacity, dense, over: used > capacity,
+    ratio: Math.min(1.2, used / capacity),
+    room: Math.max(0, Math.floor((capacity - used) / per)),
+  };
+}
+
 export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: string): string {
   /* v1.28.0: a document forever shows the entity that ISSUED it — legacy
      rows (issuer_code NULL) stay AZ ONE OFFICIAL, new rows are A2Z. */
@@ -54,6 +124,10 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   const items: DocItem[] = (() => {
     try { return JSON.parse(doc.items); } catch { return []; }
   })();
+  /* v1.99.2 — measured before anything is drawn: a line-heavy document
+     prints its table tighter rather than spilling onto a second page whose
+     footer and signatures would be orphaned. */
+  const fit = docPageFit(items, doc.doc_type, doc.notes);
   const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
   const rm = (c: number) => (c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dOnly = (v: string) => dmy(v.slice(0, 10));
@@ -248,6 +322,13 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .items .nm { font-weight: 700; }
     .items .sku { font-size: 9px; color: #8a93a6; font-weight: 400; }
     .items ul { margin: 3px 0 0; padding-left: 13px; color: #5b6472; font-size: 10px; line-height: 1.5; }
+    /* v1.99.2 — the denser table, used only when the document needs the room
+       to stay on one page. Same design, tighter leading: the alternative is a
+       second page whose footer and signatures are orphaned. */
+    .items.dense td { padding: 3.5px 7px; font-size: 10.5px; }
+    .items.dense .nm { font-size: 10.5px; }
+    .items.dense .sku { font-size: 8.5px; }
+    .items.dense ul { margin: 2px 0 0; font-size: 9.5px; line-height: 1.35; }
     .mid { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
     .words { flex: 1 1 0; min-width: 0; border: 1px solid #1a2946; border-radius: 5px; padding: 7px 9px; }
     .words .bt { font-size: 7.5px; letter-spacing: .14em; color: #8a93a6; font-weight: 700; }
@@ -312,7 +393,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     </div>
     ${shipBlock}
   </div>
-  <table class="items">
+  <table class="items${fit.dense ? " dense" : ""}">
     <thead><tr>
       <th class="c" style="width:5%">No</th>
       <th>${isService ? "Description of services" : "Description"}</th>
