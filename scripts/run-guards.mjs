@@ -92,6 +92,7 @@ const GUARDS = [
   ["render-stability", "no component is declared inside another - React would rebuild the subtree every render and any input inside it would lose focus mid-keystroke"],
   ["threads-guard", "the Threads credential never leaves the worker, every action on it is audited, and a sync tick spends a budget it cannot exceed"],
   ["person-access", "one person can be granted or refused a tab above the role - deny beats allow, Dashboard and Profile cannot be refused, and only the CEO can do it"],
+  ["threads-malaysia", "a study post is Malaysian because its own text says so - Malay not Indonesian, RM, a Malaysian place - with the reason stored beside it, and nothing about a person is ever looked up"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

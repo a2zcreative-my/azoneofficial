@@ -263,18 +263,69 @@ export interface PostTraits {
   language_guess: string | null;
 }
 
+/* v1.97.0 — Malay is not Indonesian. The two share yang/dan/untuk, so a
+   count of those alone calls half of Jakarta "Malay". These are the words
+   that belong to one side only, and they decide. */
+const ID_ONLY = /\b(gak|nggak|enggak|banget|aja|gue|gua|elo|udah|bisa|gimana|kalo|sih|dong|deh|yuk|kayak|enak|rupiah|rp|idr|jakarta|bandung|surabaya|jogja|yogyakarta|medan|bali|indonesia|indo|kalian|bikin|dapet|emang|ngga|pengen|lho|kok|makasih|gitu|gini|kapan|diskon|liburan|toko|kerudung|jilbab|nggak|beneran|doang)\b/gi;
+const MS_ONLY = /\b(tak|nak|dah|kat|je|korang|awak|dorang|macam|sedap|kedai|ringgit|boleh|jugak|sikit|pasal|weh|wei|meh|lor|akak|makcik|pakcik|tudung|bawal|lepak|mamak|tapau|percutian|bercuti|diskaun|promosi|tempahan|tempah|kompem|confirm|memang|takde|xde|jom|dekat|rumah sewa|kereta sewa)\b/gi;
+/* A Malaysian place or price is the strongest single tell: a stranger writing
+   in English about a stay in Langkawi at RM 180 a night is a Malaysian post
+   by any useful definition. */
+const MY_PLACES = /\b(malaysia|malaysian|kuala lumpur|kl|klcc|selangor|shah alam|petaling jaya|pj|subang|puchong|cyberjaya|putrajaya|johor|johor bahru|jb|penang|pulau pinang|georgetown|melaka|malacca|perak|ipoh|kedah|alor setar|langkawi|kelantan|kota bharu|terengganu|kuala terengganu|pahang|kuantan|cameron highlands|genting|negeri sembilan|seremban|perlis|sabah|kota kinabalu|kk|sarawak|kuching|miri|labuan|port dickson|desaru|cherating|redang|perhentian|tioman|bukit bintang|bangsar|damansara|cheras|ampang|klang|kajang|seri kembangan)\b/gi;
+const MY_PRICE = /\b(rm\s?\d[\d,.]*|\d[\d,.]*\s?rm|ringgit)\b/gi;
+const MY_STRONG = /\b(tudung|bawal|korang|dorang|tapau|mamak|lepak|jom|takde|kompem|diskaun|percutian|tempahan|makcik|pakcik|jugak|sikit|kedai runcit|touch n go|tng|grabfood|shopee malaysia|lazada malaysia|jakim|halal jakim|ptptn|epf|kwsp|myvi|proton|perodua)\b/gi;
+
+export interface MalaysiaSignal { my_signal: number; my_reasons: string | null }
+
+/** What the text itself gives away about being Malaysian - Threads says
+    nothing about where a person is, so this is the whole basis. Returned
+    with its reasons, in words, so a reader can see what tipped it. */
+export function malaysiaSignal(text: string | null | undefined, languageGuess: string | null): MalaysiaSignal {
+  const t = (text ?? "").toLowerCase();
+  if (!t) return { my_signal: 0, my_reasons: null };
+  const reasons: string[] = [];
+  let score = 0;
+  const places = [...new Set((t.match(MY_PLACES) ?? []).map((p) => p.toLowerCase()))];
+  if (places.length) { score += 2; reasons.push(places.slice(0, 2).join(", ")); }
+  if (MY_PRICE.test(t)) { score += 2; reasons.push("RM price"); }
+  MY_PRICE.lastIndex = 0;
+  const msOnly = (t.match(MS_ONLY) ?? []).length;
+  const idOnly = (t.match(ID_ONLY) ?? []).length;
+  /* Words nobody outside Malaysia writes: one is enough on its own. */
+  const strong = [...new Set((t.match(MY_STRONG) ?? []).map((w) => w.toLowerCase()))];
+  if (strong.length) { score += 2; reasons.push(`Malaysian word: ${strong.slice(0, 2).join(", ")}`); }
+  if (languageGuess === "ms") { score += 2; reasons.push("Malay wording"); }
+  else if (msOnly >= 2) { score += 1; reasons.push("Malay words"); }
+  if (idOnly > msOnly && idOnly >= 2) { score -= 3; reasons.push("reads Indonesian"); }
+  const my_signal = score >= 2 ? 1 : 0;
+  return { my_signal, my_reasons: my_signal ? reasons.join(" · ").slice(0, 120) : (reasons.length ? reasons.join(" · ").slice(0, 120) : null) };
+}
+
 export function postTraits(text: string | null | undefined, mediaType: string): PostTraits {
   const t = (text ?? "").trim();
   const firstLine = t.split(/\r?\n/)[0]?.slice(0, 160) ?? "";
-  const ms = (t.match(MS_WORDS) ?? []).length;
-  const en = (t.match(EN_WORDS) ?? []).length;
+  const low = t.toLowerCase();
+  /* v1.97.0 — three-way. `shared` is the yang/dan/untuk both languages use;
+     it says "Malay or Indonesian", and the *_ONLY lists say which. The bar
+     is two words, not three: a 13-character post ("BETA - Tudung") was
+     "unclear" under the old rule. */
+  const shared = (low.match(MS_WORDS) ?? []).length;
+  const msOnly = (low.match(MS_ONLY) ?? []).length;
+  const idOnly = (low.match(ID_ONLY) ?? []).length;
+  const en = (low.match(EN_WORDS) ?? []).length;
+  const malayish = shared + msOnly + idOnly;
+  let language_guess: string | null = null;
+  if (malayish + en >= 2) {
+    if (malayish >= en) language_guess = idOnly > msOnly ? "id" : "ms";
+    else language_guess = "en";
+  }
   return {
     char_count: t.length,
     has_number_hook: /\d/.test(firstLine) ? 1 : 0,
     has_question_hook: firstLine.includes("?") ? 1 : 0,
     has_cta: CTA.test(t) ? 1 : 0,
     has_media: mediaType === "TEXT_POST" || mediaType === "REPOST_FACADE" ? 0 : 1,
-    language_guess: ms + en < 3 ? null : ms >= en ? "ms" : "en",
+    language_guess,
   };
 }
 
@@ -708,15 +759,20 @@ async function runTopicSearch(
   const stmts = posts.map((p) => {
     const mt = p.media_type ?? "TEXT_POST";
     const tr = postTraits(p.text, mt);
+    /* my_reasons is written as "" rather than NULL when nothing was found:
+       NULL is reserved for "not scored yet" (rows from before 0108). */
+    const my = malaysiaSignal(p.text, tr.language_guess);
     return env.DB.prepare(
       `INSERT INTO threads_topic_posts (topic_id, media_id, username, text, permalink, media_type, published_at,
-                                        char_count, has_number_hook, has_question_hook, has_cta, has_media, language_guess)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                                        char_count, has_number_hook, has_question_hook, has_cta, has_media, language_guess,
+                                        my_signal, my_reasons)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
        ON CONFLICT (topic_id, media_id) DO NOTHING`,
     ).bind(
       topic.id, String(p.id), p.username ?? null, p.text ?? null, p.permalink ?? null, mt,
       p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 19).replace("T", " ") : null,
       tr.char_count, tr.has_number_hook, tr.has_question_hook, tr.has_cta, tr.has_media, tr.language_guess,
+      my.my_signal, my.my_reasons ?? "",
     );
   });
   stmts.push(
@@ -914,7 +970,8 @@ export async function handleThreads(
         `SELECT t.id, t.label, t.query, t.search_type, t.last_run_at, t.last_error, t.created_at,
                 u.name AS created_by_name,
                 (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS posts,
-                (SELECT COUNT(DISTINCT p.username) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS accounts
+                (SELECT COUNT(DISTINCT p.username) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS accounts,
+                (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id AND p.my_signal = 1) AS my_posts
            FROM threads_topics t LEFT JOIN users u ON u.id = t.created_by
           WHERE t.is_active = 1 ORDER BY t.label`,
       ).all();
@@ -1014,19 +1071,40 @@ export async function handleThreads(
       const topicId = Number(params.get("topic") ?? 0) || null;
       if (!topicId) return err("invalid_input", "topic is required", 400);
       const qtext = (params.get("q") ?? "").trim().toLowerCase().slice(0, 80);
+      /* v1.97.0 — ?my=1 keeps only posts the text itself marks as Malaysian
+         (Malay wording, RM prices, a Malaysian place). Threads carries no
+         country, so this is the whole basis, and the reasons travel with
+         each row. */
+      const onlyMy = params.get("my") === "1";
       const { results } = await env.DB.prepare(
         `SELECT id, media_id, username, text, permalink, media_type, published_at, char_count,
-                has_number_hook, has_question_hook, has_cta, has_media, language_guess, found_at
+                has_number_hook, has_question_hook, has_cta, has_media, language_guess, found_at,
+                my_signal, my_reasons
            FROM threads_topic_posts WHERE topic_id = ?1
           ORDER BY published_at DESC NULLS LAST, found_at DESC LIMIT 500`,
       ).bind(topicId).all<{
         id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
         media_type: string | null; published_at: string | null; char_count: number;
         has_number_hook: number; has_question_hook: number; has_cta: number; has_media: number;
-        language_guess: string | null; found_at: string;
+        language_guess: string | null; found_at: string; my_signal: number; my_reasons: string | null;
       }>();
-      const rows = qtext ? results.filter((r) => (r.text ?? "").toLowerCase().includes(qtext)) : results;
-      return json({ posts: rows, findings: studyFindings(rows), total: results.length });
+      /* Rows harvested before 0108 (my_reasons NULL) are scored now, once,
+         and the score is written back so the next open reads it. */
+      const unscored = results.filter((r) => r.my_reasons === null);
+      if (unscored.length) {
+        const fixes = unscored.slice(0, 100).map((r) => {
+          const tr = postTraits(r.text, r.media_type ?? "TEXT_POST");
+          const my = malaysiaSignal(r.text, tr.language_guess);
+          r.language_guess = tr.language_guess; r.my_signal = my.my_signal; r.my_reasons = my.my_reasons ?? "";
+          return env.DB.prepare(`UPDATE threads_topic_posts SET my_signal = ?1, my_reasons = ?2, language_guess = ?3 WHERE id = ?4`)
+            .bind(r.my_signal, r.my_reasons, r.language_guess, r.id);
+        });
+        await env.DB.batch(fixes);
+      }
+      const my_total = results.filter((r) => r.my_signal).length;
+      const scoped = onlyMy ? results.filter((r) => r.my_signal) : results;
+      const rows = qtext ? scoped.filter((r) => (r.text ?? "").toLowerCase().includes(qtext)) : scoped;
+      return json({ posts: rows, findings: studyFindings(rows), total: results.length, my_total, only_my: onlyMy });
     }
 
     /* ---- summary: the brief at the top of the tab ---- */

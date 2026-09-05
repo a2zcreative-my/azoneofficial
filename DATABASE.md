@@ -376,3 +376,16 @@ answers "An unknown error occurred".
 | Version | Change |
 |---|---|
 | v1.96.2 | 0107 — granted_scopes on threads_accounts. |
+
+## v1.97.0 — migration 0108_threads_malaysia.sql
+threads_topic_posts.my_signal (0/1) and my_reasons: whether a harvested public
+post reads as Malaysian, and why, in words. Threads carries no country, so
+this is computed from the text alone at harvest — Malay wording that is Malay
+rather than Indonesian, a price in RM, a Malaysian place — and stored beside
+the post so the Study section can filter on it and a reader can see what
+tipped it. my_reasons NULL means "not scored yet" (rows from before 0108; the
+study route scores them on first open). Nothing about a person is looked up.
+
+| Version | Change |
+|---|---|
+| v1.97.0 | 0108 — my_signal + my_reasons on threads_topic_posts, index by topic and signal. |

@@ -76,13 +76,15 @@ interface Summary {
 interface Topic {
   id: number; label: string; query: string; search_type: string;
   last_run_at: string | null; last_error: string | null; created_by_name: string | null;
-  posts: number; accounts: number;
+  posts: number; accounts: number; my_posts?: number;
 }
 interface StudyPost {
   id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
   media_type: string | null; published_at: string | null; char_count: number;
   has_number_hook: number; has_question_hook: number; has_cta: number; has_media: number;
   language_guess: string | null; found_at: string;
+  /* v1.97.0 — what the text gives away about being Malaysian, and why */
+  my_signal?: number; my_reasons?: string | null;
 }
 interface Findings {
   posts: number; accounts: number; with_media: number; median_chars: number | null;
@@ -215,6 +217,13 @@ export function ThreadsPanel() {
   const [findings, setFindings] = useState<Findings | null>(null);
   const [studyLoaded, setStudyLoaded] = useState(false);
   const [studyQ, setStudyQ] = useState("");
+  /* v1.97.0 (CEO: "search and filter the Threads post by malaysia users") —
+     on by default: the study is for Malaysian marketing, so the Malaysian
+     posts are the reading and "All" is the check. Threads carries no
+     country, so "Malaysian" means the post itself says so. */
+  const [onlyMy, setOnlyMy] = useState(true);
+  const [myTotal, setMyTotal] = useState(0);
+  const [studyTotal, setStudyTotal] = useState(0);
   const [newTopic, setNewTopic] = useState({ label: "", query: "", search_type: "keyword" });
   const [searching, setSearching] = useState(false);
   const [openStudy, setOpenStudy] = useState<number | null>(null);
@@ -286,11 +295,15 @@ export function ThreadsPanel() {
   const loadStudy = useCallback(async () => {
     if (!topic) { setStudyPosts([]); setFindings(null); setStudyLoaded(true); return; }
     setStudyLoaded(false);
-    const r = await api<{ posts: StudyPost[]; findings: Findings }>(`/study?topic=${topic}${studyQ ? `&q=${encodeURIComponent(studyQ)}` : ""}`);
-    if (r.ok && r.data) { setStudyPosts(r.data.posts ?? []); setFindings(r.data.findings ?? null); }
-    else { setStudyPosts([]); setFindings(null); }
+    const r = await api<{ posts: StudyPost[]; findings: Findings; total?: number; my_total?: number }>(
+      `/study?topic=${topic}${onlyMy ? "&my=1" : ""}${studyQ ? `&q=${encodeURIComponent(studyQ)}` : ""}`,
+    );
+    if (r.ok && r.data) {
+      setStudyPosts(r.data.posts ?? []); setFindings(r.data.findings ?? null);
+      setMyTotal(r.data.my_total ?? 0); setStudyTotal(r.data.total ?? 0);
+    } else { setStudyPosts([]); setFindings(null); }
     setStudyLoaded(true);
-  }, [topic, studyQ]);
+  }, [topic, studyQ, onlyMy]);
   useEffect(() => { if (section === "study") void loadStudy(); }, [section, loadStudy]);
 
   const addTopic = async () => {
@@ -352,16 +365,17 @@ export function ThreadsPanel() {
     const t = topics.find((x) => x.id === topic);
     downloadCsv(`threads-study-${(t?.label ?? "topic").replace(/\W+/g, "-").toLowerCase()}`, [
       [`# ${L("Study case", "Kajian kes")}: ${t?.label ?? ""} — ${t?.query ?? ""}`],
-      [`# ${L("Generated", "Dijana")} ${csvStampMyt()} — ${studyPosts.length} ${L("public posts", "hantaran awam")}`],
+      [`# ${L("Generated", "Dijana")} ${csvStampMyt()} — ${studyPosts.length} ${L("public posts", "hantaran awam")}${onlyMy ? ` — ${L("Malaysian posts only (the text itself says so)", "Hantaran Malaysia sahaja (teksnya sendiri menunjukkannya)")}` : ""}`],
       [`# ${L("Public posts carry no view counts — these are the words, not the reach", "Hantaran awam tiada kiraan tontonan — ini perkataannya, bukan jangkauannya")}`],
       [],
       [L("Published (MYT)", "Disiarkan (MYT)"), L("Account", "Akaun"), L("Type", "Jenis"), L("Language", "Bahasa"),
        L("Characters", "Aksara"), L("Number hook", "Cangkuk nombor"), L("Question hook", "Cangkuk soalan"),
-       L("Call to action", "Ajakan bertindak"), L("Link", "Pautan"), L("Text", "Teks")],
+       L("Call to action", "Ajakan bertindak"), L("Malaysian", "Malaysia"), L("Why", "Sebab"), L("Link", "Pautan"), L("Text", "Teks")],
       ...studyPosts.map((p) => [
         dmyMYT(p.published_at), p.username ? `@${p.username}` : "", typeLabel(p.media_type ?? ""),
         p.language_guess ?? "", p.char_count,
         p.has_number_hook ? "yes" : "", p.has_question_hook ? "yes" : "", p.has_cta ? "yes" : "",
+        p.my_signal ? "yes" : "", p.my_reasons ?? "",
         p.permalink ?? "", p.text ?? "",
       ]),
     ]);
@@ -789,7 +803,7 @@ export function ThreadsPanel() {
                   aria-label={L("Topic name", "Nama topik")}
                   onChange={(e) => setNewTopic((d) => ({ ...d, label: e.target.value }))} />
                 <input className={inputClassSm} value={newTopic.query} maxLength={100}
-                  placeholder={L("Search for — e.g. tudung", "Cari — cth. tudung")}
+                  placeholder={L("Search for — e.g. tudung bawal, hotel murah", "Cari — cth. tudung bawal, hotel murah")}
                   aria-label={L("Search words", "Perkataan carian")}
                   onChange={(e) => setNewTopic((d) => ({ ...d, query: e.target.value }))} />
                 <select className={inputClassSm} value={newTopic.search_type} aria-label={L("Search kind", "Jenis carian")}
@@ -799,6 +813,15 @@ export function ThreadsPanel() {
                 </select>
                 <button type="button" className={rowBtn} onClick={() => void addTopic()}>{L("Add topic", "Tambah topik")}</button>
               </div>
+            )}
+            {canManage && (
+              /* v1.97.0 — the search has no country filter, so the words are
+                 the filter: Malay words return Malaysian posts. Said once,
+                 here, where the words are typed. */
+              <p className="text-muted-foreground mt-1.5 text-[11px]">
+                {L("Tip: Threads cannot filter by country, so search in the words Malaysians use — \u201chotel murah\u201d, \u201ctudung bawal\u201d, \u201cstaycation KL\u201d. The Malaysia switch below then keeps the posts whose own text says so.",
+                   "Petua: Threads tidak boleh menapis mengikut negara, jadi cari dengan perkataan yang digunakan rakyat Malaysia — \u201chotel murah\u201d, \u201ctudung bawal\u201d, \u201cstaycation KL\u201d. Suis Malaysia di bawah kemudian mengekalkan hantaran yang teksnya sendiri menunjukkannya.")}
+              </p>
             )}
 
             {topic > 0 && (() => {
@@ -811,6 +834,7 @@ export function ThreadsPanel() {
                     {t.search_type === "tag" ? ` (${L("topic tag", "tag topik")})` : ""}
                     {t.last_run_at ? ` · ${L("last run", "kali terakhir")} ${dmyMYT(t.last_run_at)}` : ` · ${L("never run", "belum dijalankan")}`}
                     {t.accounts > 0 ? ` · ${t.accounts} ${L("accounts", "akaun")}` : ""}
+                    {t.posts > 0 ? ` · ${t.my_posts ?? 0} ${L("of", "daripada")} ${t.posts} ${L("read as Malaysian", "dibaca sebagai Malaysia")}` : ""}
                   </span>
                   {canManage && (
                     <>
@@ -864,7 +888,7 @@ export function ThreadsPanel() {
                       <p className="mb-1 font-medium">{L("Which language", "Bahasa apa")}</p>
                       <ul className="space-y-1">
                         {findings.languages.map((l) => (
-                          <Bar key={l.code} label={l.code === "ms" ? L("Malay", "Melayu") : l.code === "en" ? L("English", "Inggeris") : L("unclear", "tidak jelas")} n={l.n} of={findings.posts} />
+                          <Bar key={l.code} label={l.code === "ms" ? L("Malay", "Melayu") : l.code === "en" ? L("English", "Inggeris") : l.code === "id" ? L("Indonesian", "Indonesia") : L("unclear", "tidak jelas")} n={l.n} of={findings.posts} />
                         ))}
                       </ul>
                     </div>
@@ -890,7 +914,25 @@ export function ThreadsPanel() {
               {/* the posts themselves */}
               <div className={`${card} lg:col-span-3`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">{L("The posts", "Hantaran")}</p>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{L("The posts", "Hantaran")}</p>
+                    {/* v1.97.0 — Malaysian posts first. Threads does not say where a
+                        person is; a post is "Malaysian" when its own words say so -
+                        Malay wording, an RM price, a Malaysian place - and each row
+                        carries the reason. */}
+                    <span className="bg-secondary inline-flex rounded-full p-0.5 text-[11px]" role="group" aria-label={L("Which posts", "Hantaran mana")}
+                      title={L("Threads carries no country. A post counts as Malaysian when the text itself gives it away: Malay wording, a price in RM, a Malaysian place.",
+                               "Threads tiada negara. Hantaran dikira Malaysia apabila teksnya sendiri menunjukkannya: bahasa Melayu, harga dalam RM, tempat di Malaysia.")}>
+                      <button type="button" aria-pressed={onlyMy} onClick={() => setOnlyMy(true)}
+                        className={`rounded-full px-2.5 py-1 font-medium transition-colors ${onlyMy ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+                        {L("Malaysia", "Malaysia")} {studyLoaded ? `(${myTotal})` : ""}
+                      </button>
+                      <button type="button" aria-pressed={!onlyMy} onClick={() => setOnlyMy(false)}
+                        className={`rounded-full px-2.5 py-1 font-medium transition-colors ${!onlyMy ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+                        {L("All", "Semua")} {studyLoaded ? `(${studyTotal})` : ""}
+                      </button>
+                    </span>
+                  </span>
                   <span className="flex flex-wrap items-center gap-1.5">
                     <input className={`${inputClassSm} w-40`} value={studyQ}
                       placeholder={L("Find in text", "Cari dalam teks")} aria-label={L("Find in text", "Cari dalam teks")}
@@ -910,7 +952,9 @@ export function ThreadsPanel() {
                 ) : studyPosts.length === 0 ? (
                   <p className="text-muted-foreground mt-2 text-xs">
                     {studyQ ? L("No post here uses that word.", "Tiada hantaran menggunakan perkataan itu.")
-                            : L("Nothing collected yet — press Search now.", "Belum ada yang dikumpul — tekan Cari sekarang.")}
+                      : onlyMy && studyTotal > 0 ? L(`None of the ${studyTotal} posts reads as Malaysian. Switch to All to see them, or search in Malay words - the words themselves pick Malaysian posts.`,
+                                                     `Tiada satu pun daripada ${studyTotal} hantaran dibaca sebagai Malaysia. Tukar ke Semua untuk melihatnya, atau cari dengan perkataan Melayu - perkataan itu sendiri memilih hantaran Malaysia.`)
+                      : L("Nothing collected yet — press Search now.", "Belum ada yang dikumpul — tekan Cari sekarang.")}
                   </p>
                 ) : (
                   <ul className="divide-border mt-2 max-h-[32rem] divide-y overflow-y-auto">
@@ -919,14 +963,28 @@ export function ThreadsPanel() {
                         <button type="button" className="w-full text-left" aria-expanded={openStudy === p.id}
                           onClick={() => setOpenStudy(openStudy === p.id ? null : p.id)}>
                           <span className="flex flex-wrap items-baseline justify-between gap-x-2">
-                            <span className="text-xs font-medium">{p.username ? `@${p.username}` : L("unknown", "tidak diketahui")}</span>
+                            <span className="flex items-center gap-1.5 text-xs font-medium">
+                              {p.username ? `@${p.username}` : L("unknown", "tidak diketahui")}
+                              {p.my_signal ? (
+                                <span className="bg-success-soft text-success rounded-full px-1.5 py-px text-[10px] font-semibold" title={p.my_reasons || undefined}>MY</span>
+                              ) : null}
+                            </span>
                             <span className="text-muted-foreground text-[11px]">
                               {p.published_at ? dmyMYT(p.published_at) : ""} · {typeLabel(p.media_type ?? "")} · {p.char_count} {L("chars", "aksara")}
                             </span>
                           </span>
                           <span className="mt-0.5 block text-sm">{excerpt(p.text, 160) || <span className="text-muted-foreground">{L("(no text)", "(tiada teks)")}</span>}</span>
                         </button>
-                        {openStudy === p.id && <PostBody p={{ text: p.text, permalink: p.permalink }} />}
+                        {openStudy === p.id && (
+                          <>
+                            <PostBody p={{ text: p.text, permalink: p.permalink }} />
+                            {p.my_reasons ? (
+                              <p className="text-muted-foreground mt-1 text-[11px]">
+                                {p.my_signal ? L("Reads as Malaysian:", "Dibaca sebagai Malaysia:") : L("Not counted as Malaysian:", "Tidak dikira Malaysia:")} {p.my_reasons}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>

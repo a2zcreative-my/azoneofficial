@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.97.0] — 2026-09-05 — the Malaysian posts, and why each one counts
+
+**CEO**, with the first study case on screen: *"I want to search and filter the Threads post by malaysia users which is for me to do some research based on their post regarding on the Study cases that I want to view. this is to helping me to boost my product for marketing purposes!"*
+
+### What Threads does not give us
+A public post carries no country. There is no location on the author, no country filter on the search, no field to ask for. So "Malaysian" cannot be read off Meta — and nothing about a person is looked up to get it (OD-20a stands: this is the text of a public post and nothing else).
+
+### What the post itself gives away
+The worker now scores every harvested post from its words, at harvest: **Malay wording that is Malay rather than Indonesian** (tak, nak, dah, korang — not gak, banget, aja), **a price in RM**, **a Malaysian place** (KL, Johor, Penang, Langkawi, Sabah …), and a short list of words nobody outside Malaysia writes (tudung, bawal, tapau, jom …). Indonesian markers pull the score down by name. The verdict is stored as `my_signal` and the **reason beside it** as `my_reasons` — "penang · Malay wording", "RM price", "reads Indonesian" — because a number nobody can check is a number nobody should trust.
+
+### On the Study section
+- **Malaysia / All** switch above the posts, Malaysia on by default; the findings panel ("What this niche does") recomputes for whichever is showing, so the hooks, lengths and hours are the Malaysian niche's, not the world's.
+- Every post carries a small **MY** badge (hover for the reason); the reason is printed when the post is opened. The topic line says "12 of 40 read as Malaysian".
+- Language is now three-way: Malay, English, **Indonesian** — and the bar dropped from three words to two, so a 13-character post is no longer "unclear".
+- The CSV gains *Malaysian* and *Why* columns and says in its header when it is Malaysian-only.
+- A tip under the topic form: the search has no country filter, so **the words are the filter** — "hotel murah", "tudung bawal", "staycation KL" return Malaysian posts by themselves.
+
+### Migration 0108
+`my_signal`, `my_reasons` on threads_topic_posts, indexed by topic and signal. Rows harvested before it are scored the first time the study is opened.
+
+### Guard #35 — tests/threads-malaysia.mjs (20 checks)
+Runs the real functions, bundled from the worker, on sentences a Malaysian would not argue with — four that must read Malaysian, three (Jakarta, Lisbon, Bandung) that must not — and reads the source for the properties: the signal takes only text, nothing about a person is fetched, the reason is stored beside the verdict. Negative-tested.
+
+### A note on what came back
+The first search returned one post — the CEO's own. That is Meta's **Development mode**: the keyword search answers only with posts from people who hold a role on the app until the app is switched to **Live**. The Study section works; the niche arrives when the app does.
+
 ## [1.96.2] — 2026-09-05 — "An unknown error occurred" said in words
 
 **CEO**, pressing Search now on *Hotel Malaysia*: *"An unknown error occurred"*.
