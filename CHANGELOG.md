@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.102.0] - 2026-09-05 - the CEO's own tab order, and two tabs parked
+
+**CEO**, 05-09-2026, writing the entire tab list out himself, in the order he wants to read it, ending: *"Stokis - inactive this for future usage. Content - inactive this for future usage."*
+
+### The order is his
+`ALL_TABS` in `lib/portal-tabs.ts` now runs: home, then what the company **sells** (Ecommerce, Inventory, Sales, Assets, Hotels, Threads), then the **ELFIA** store's own three, then the **people** stack (HR, Attendance, Tasks, News, Staff, Leave, Claims, Payroll), then the **money** stack (Finance, Reconciliation, Commission, Ads Fund, Purchasing, Accounting), then your own account. That list also decides the **phone bottom bar**, which shows the first four tabs a role can see - so on a phone the thumb row is now Dashboard, Ecommerce, Inventory, Sales.
+
+**No tab was renamed.** His list says "News" and "Staff", which is what those two tabs have displayed on screen since `lib/i18n.ts` got its dictionary - `Announcements` and `Staff Details` are internal keys. Renaming the keys would have changed nothing visible and orphaned every tab-access override and per-person grant saved under the old names, so the keys stayed.
+
+### The sidebar was the real complaint
+The desktop rail had its **own** ordering (`SECTIONS` in `side-nav.tsx`), written at v1.13.0 and never revisited. Five tabs added since - **Hotels, Threads, ELFIA Store, Web Orders and ELFIA Traffic** - had never been placed in a section at all, so they fell through to an unlabelled "Other" group at the bottom of the rail. That is what he was looking at.
+
+The sections are now **cuts of the one sequence**, not a second ordering laid over it: read the tabs down the sidebar and you get `ALL_TABS` exactly. Six groups - Overview, Business, ELFIA, People, Finance, Account - nothing orphaned. `tests/registry-parity.mjs` now fails the build if the sidebar ever resequences the registry or leaves a tab unplaced again.
+
+### Parked, not deleted
+**Stokis** and **Content** are finished features he intends to switch on later, so deleting them would mean writing them twice; and merely unticking them in the access card leaves defaults sitting in `TAB_ROLES` ready to reappear the day somebody resets an override.
+
+So `PARKED_TABS` is a **third rail** in `canSeeTab`, and it sits **above** the super_admin bypass, above saved overrides, and above per-person grants:
+
+- Nobody sees them - not even a super admin. A tab taken off the product should not still be there for one account; that is how a half-finished feature becomes a support question.
+- They drop out of the 🔐 access card, and out of the worker's `TAB_ACCESS_TABS`, so the **API refuses to grant one** even if a request arrives naming it.
+- A stale override or personal grant in `system_meta` naming them cannot bring them back.
+- The **"Who sees what"** card still lists them, struck through, saying *"built but switched off for everyone"* rather than "hidden by the role" - which would have been untrue and would have invited a press that could only fail.
+- Their panels, routes, role defaults and hints all stay exactly where they are. **Un-parking is deleting a name from one list.**
+
+Guards: `registry-parity` gained four checks (the parked list is real, the rail sits above the bypass, the worker whitelist drops parked tabs, the sidebar reads as the registry) and `person-access` nine. Each negative-tested: moving the rail below the super_admin bypass, dropping a tab from the sections, reordering the sections, leaving a parked tab in the worker whitelist, removing the rail, and reporting a parked tab as role-hidden all fail.
+
 ## [1.101.1] - 2026-09-05 - a list that scrolls, and a chart you can edit from
 
 **CEO**, 05-09-2026, with the Hotels tab and the new Organisation view side by side: *"Every state 442 shown show the list too long, should scrollable at least. also for Organisation, I want to edit back if I want to change their reporting to HOD."*

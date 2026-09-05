@@ -47,7 +47,25 @@ const ALL_TABS = [...allTabsM[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 /* Dashboard and Profile are every role's home and identity — always visible,
    deliberately not overridable. Everything else must be governable. */
 const ALWAYS_VISIBLE = new Set(["Dashboard", "Profile"]);
-const governable = new Set(ALL_TABS.filter((t) => !ALWAYS_VISIBLE.has(t)));
+/* v1.102.0 — a PARKED tab (CEO: "Stokis - inactive this for future usage")
+   is built and shown to nobody. It is still a real tab with a panel, a role
+   default and a hint, so it stays in ALL_TABS; but it must NOT be in the
+   worker's grant whitelist, because the API refusing to grant what the portal
+   will never draw is what stops a parked tab coming back through a saved
+   override. */
+const parkedM = registry.match(/const PARKED_TABS: readonly string\[\] = \[([^\]]*)\]/);
+const PARKED = new Set([...(parkedM?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+if (!parkedM) fail("PARKED_TABS not found in lib/portal-tabs.ts");
+else ok(`PARKED_TABS: ${[...PARKED].join(", ") || "none"}`);
+const governable = new Set(ALL_TABS.filter((t) => !ALWAYS_VISIBLE.has(t) && !PARKED.has(t)));
+for (const t of PARKED) {
+  if (!ALL_TABS.includes(t)) fail(`PARKED_TABS names "${t}", which is not a tab — parking is hiding a tab, not inventing one`);
+}
+if (!/if \(PARKED_TABS\.includes\(tab\)\) return false;/.test(registry)) {
+  fail("canSeeTab does not refuse parked tabs — PARKED_TABS would be a list nothing reads");
+} else if (registry.indexOf("if (PARKED_TABS.includes(tab)) return false;") > registry.indexOf('if (role === "super_admin") return true;')) {
+  fail("the parked rail sits BELOW the super_admin bypass — a tab taken off the product must not still be there for one account");
+} else ok("parked tabs are refused, above the super_admin bypass");
 
 const accessM = staff.match(/const TAB_ACCESS_TABS = \[([^\]]*)\]/);
 const accessTabs = new Set([...(accessM?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]));
@@ -71,9 +89,30 @@ for (const [file, src, name] of [["app/portal/page.tsx", page, "page"], ["compon
    name a tab that no longer exists. */
 const hintBlock = registry.match(/const TAB_HINTS[\s\S]*?^\};/m)?.[0] ?? "";
 for (const h of [...hintBlock.matchAll(/^\s*(?:"([^"]+)"|([A-Za-z][A-Za-z ]*?)):\s*\{/gm)].map((m) => m[1] ?? m[2])) {
-  if (!governable.has(h)) fail(`TAB_HINTS has an entry for "${h}", which is not a governable tab`);
+  /* A parked tab keeps its hint: un-parking should be deleting one name from
+     PARKED_TABS, not a scavenger hunt for the pieces that were removed with
+     it. */
+  if (!governable.has(h) && !PARKED.has(h)) fail(`TAB_HINTS has an entry for "${h}", which is not a governable tab`);
 }
 ok("TAB_HINTS names only real tabs");
+
+/* v1.102.0 — the sidebar is a CUT of the registry, not a second ordering.
+   CEO, 05-09-2026, re-sorting the whole list himself: five tabs added since
+   v1.13.0 had never been placed in a section and were falling through to
+   "Other" at the bottom of the rail, which is what he was looking at. */
+{
+  const nav = readFileSync("components/layout/side-nav.tsx", "utf8");
+  const secM = nav.match(/export const SECTIONS: \{ title: string; tabs: string\[\] \}\[\] = \[([\s\S]*?)^\];/m);
+  const sectioned = [...(secM?.[1] ?? "").matchAll(/tabs: \[([^\]]*)\]/g)]
+    .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]));
+  const shown = ALL_TABS.filter((t) => !PARKED.has(t));
+  if (!secM) fail("SECTIONS not found in components/layout/side-nav.tsx");
+  else if (JSON.stringify(sectioned) !== JSON.stringify(shown)) {
+    const missing = shown.filter((t) => !sectioned.includes(t));
+    const extra = sectioned.filter((t) => !shown.includes(t));
+    fail(`the sidebar's sections do not read as the registry's order — ${missing.length ? `unplaced (falls under "Other"): ${missing.join(", ")}` : ""}${extra.length ? ` not a shown tab: ${extra.join(", ")}` : ""}${!missing.length && !extra.length ? "same tabs, different sequence" : ""}`);
+  } else ok("the sidebar's sections read as ALL_TABS, in order, with nothing orphaned");
+}
 
 /* Defaults must only name roles the card can actually toggle — a default
    listing a role with no chip is a permission nobody can revoke from the UI. */

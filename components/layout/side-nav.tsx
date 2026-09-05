@@ -23,16 +23,31 @@ import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 
 interface NavItem { name: string; label: string }
 
-/** Presentation grouping only — see the note above. Order defines display order. */
+/**
+ * Presentation grouping only — see the note above. Order defines display order.
+ *
+ * v1.102.0 — CEO, 05-09-2026, writing the whole tab list out in the order he
+ * wants it. These sections are now CUTS of that one sequence, not a second
+ * ordering laid over it: read the tabs down this list and you get exactly
+ * ALL_TABS in lib/portal-tabs.ts, which is also the order of the phone bottom
+ * bar. tests/registry-parity.mjs holds the two together, because a sidebar
+ * that resequences the registry is a second answer to "what order are the
+ * tabs in", and the whole point of v1.79.0 was that there is one.
+ *
+ * Five tabs had never been placed at all — Hotels, Threads, ELFIA Store, Web
+ * Orders and ELFIA Traffic all landed after v1.13.0 and fell through to
+ * "Other" at the bottom of the rail. That is what the CEO was looking at.
+ *
+ * Stokis and Content are absent because they are PARKED, and a parked tab
+ * never reaches this component: it is filtered out of `items` upstream.
+ */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
-  { title: "Overview", tabs: ["Dashboard", "Announcements"] },
-  { title: "Work", tabs: ["Tasks", "Content"] },
-  { title: "Sales", tabs: ["Sales", "Ecommerce", "Stokis"] },
-  { title: "Inventory", tabs: ["Inventory", "Assets", "Purchasing"] },
-  { title: "Human Resources", tabs: ["HR", "Staff Details", "Attendance", "Leave"] },
-  { title: "Finance", tabs: ["Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Accounting"] },
-  { title: "System", tabs: ["Users"] },
-  { title: "My HR", tabs: ["Profile"] },
+  { title: "Overview", tabs: ["Dashboard"] },
+  { title: "Business", tabs: ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "Threads"] },
+  { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },
+  { title: "People", tabs: ["HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
+  { title: "Finance", tabs: ["Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting"] },
+  { title: "Account", tabs: ["Profile", "Users"] },
 ];
 
 export function SideNav({

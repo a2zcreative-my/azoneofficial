@@ -4745,7 +4745,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Threads", "Hotels", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

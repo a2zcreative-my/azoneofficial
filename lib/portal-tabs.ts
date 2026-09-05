@@ -29,36 +29,49 @@
 
 /** Tab order IS the product. v1.22.0, the CEO's own sequence: the phone
     bottom bar shows the first FOUR tabs a role can see, so this list decides
-    every role's thumb row. Do not reorder without asking him. */
+    every role's thumb row. Do not reorder without asking him.
+ *
+ *  v1.102.0 - he re-sorted it himself, 05-09-2026, writing the whole list out
+ *  in the order he wants to read it. It now runs: home, then what the company
+ *  SELLS (Ecommerce through Threads), then the ELFIA store's own three, then
+ *  the PEOPLE stack, then the MONEY stack, then your own account. The two
+ *  names in his list that are not the keys below - "News" and "Staff" - are
+ *  what these two tabs have DISPLAYED since lib/i18n.ts got its DICT: the
+ *  long keys are internal and renaming them would only orphan the tab-access
+ *  overrides saved under them, for no visible gain.
+ *
+ *  components/layout/side-nav.tsx cuts this same sequence into labelled
+ *  sections without resequencing it, so the desktop rail and the phone bar
+ *  read in one order. */
 export const ALL_TABS = [
   "Dashboard",
-  "Attendance",
   "Ecommerce",
   "Inventory",
+  "Sales",
+  "Assets",
+  "Hotels",
+  "Threads",
   "ELFIA Store",
   "Web Orders",
   "ELFIA Traffic",
-  "Sales",
-  "Announcements",
   "HR",
+  "Attendance",
+  "Tasks",
+  "Announcements",
   "Staff Details",
   "Leave",
   "Claims",
   "Payroll",
   "Finance",
-  "Tasks",
-  "Content",
-  "Threads",
-  "Hotels",
   "Reconciliation",
   "Commission",
   "Ads Fund",
   "Purchasing",
   "Accounting",
-  "Stokis",
-  "Assets",
   "Profile",
   "Users",
+  "Stokis",
+  "Content",
 ] as const;
 
 export type TabName = (typeof ALL_TABS)[number];
@@ -67,9 +80,32 @@ export type TabName = (typeof ALL_TABS)[number];
     reading your own payslip are not permissions. */
 export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Profile"];
 
-/** Every tab the 🔐 card governs, in the portal's own order. */
+/**
+ * PARKED — built, kept, and shown to nobody.
+ *
+ * CEO, 05-09-2026, at the end of his tab list: *"Stokis - inactive this for
+ * future usage. Content - inactive this for future usage."*
+ *
+ * Not deleted, because both are finished features he intends to switch on;
+ * deleting them would mean writing them twice. Not merely unticked in the 🔐
+ * card either, because an unticked tab is one press from being on and its
+ * defaults are still sitting in TAB_ROLES below, ready to reappear the day
+ * somebody resets an override.
+ *
+ * So this is a rail, in the same place as the other two: `canSeeTab` answers
+ * NO for a parked tab before it consults an override, a person's own grant,
+ * or the super_admin bypass. Nobody sees them, nobody can be given them, and
+ * the worker's whitelist drops them so the API refuses to grant one either.
+ * Their panels, routes, roles and hints all stay exactly where they are -
+ * un-parking is deleting a name from this list.
+ */
+export const PARKED_TABS: readonly string[] = ["Stokis", "Content"];
+
+/** Every tab the 🔐 card governs, in the portal's own order. A parked tab is
+    not offered: a checkbox that cannot change what anyone sees is worse than
+    no checkbox. */
 export const GOVERNABLE_TABS: readonly TabName[] = ALL_TABS.filter(
-  (t) => !ALWAYS_VISIBLE.includes(t),
+  (t) => !ALWAYS_VISIBLE.includes(t) && !PARKED_TABS.includes(t),
 );
 
 /** The role chips the card offers. super_admin is deliberately absent: it
@@ -202,6 +238,8 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Reconciliation: { en: "channel settlements", ms: "penyelesaian saluran" },
   Purchasing: { en: "suppliers + POs", ms: "pembekal + PO" },
   Accounting: { en: "GL — keep tight", ms: "GL — kawal ketat" },
+  /* v1.102.0 - Content and Stokis are PARKED, not gone. Their hints stay so
+     that un-parking is one deletion from PARKED_TABS and nothing else. */
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
   Assets: { en: "equipment register", ms: "daftar peralatan" },
   Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
@@ -228,6 +266,13 @@ export function canSeeTab(
 ): boolean {
   if (!role) return true; // pre-auth render: the strip is skeleton anyway
   if (ALWAYS_VISIBLE.includes(tab)) return true;
+  /* v1.102.0 - the parked rail, and it sits ABOVE the super_admin bypass on
+     purpose. A tab the CEO has taken off the product should not still be
+     there for one account: that is how a half-finished feature gets used and
+     becomes a support question. It also sits above the override and the
+     per-person grant, so a stale row in system_meta naming a parked tab
+     cannot bring it back. */
+  if (PARKED_TABS.includes(tab)) return false;
   // The escape hatch: an override that locks everyone out (even the CEO)
   // must still leave one account able to undo it.
   if (role === "super_admin") return true;
@@ -271,7 +316,7 @@ export interface PersonAccess {
 }
 
 /** What a person's tab strip is, and why each tab is where it is. */
-export type TabReason = "always" | "role" | "granted" | "refused" | "role_hidden";
+export type TabReason = "always" | "role" | "granted" | "refused" | "role_hidden" | "parked";
 
 export function accessOf(
   role: string | null | undefined,
@@ -282,6 +327,11 @@ export function accessOf(
     const sees = canSeeTab(role, tab, overrides, person);
     let reason: TabReason;
     if (ALWAYS_VISIBLE.includes(tab)) reason = "always";
+    /* v1.102.0 - a parked tab is still LISTED here, and says why. The review
+       card is the CEO asking "what does this person see"; answering it by
+       quietly omitting two tabs, or by calling them hidden-by-role when the
+       role has nothing to do with it, is answering a different question. */
+    else if (PARKED_TABS.includes(tab)) reason = "parked";
     else if (role !== "super_admin" && person?.deny?.includes(tab)) reason = "refused";
     else if (role !== "super_admin" && person?.allow?.includes(tab) && !canSeeTab(role, tab, overrides, null)) reason = "granted";
     else reason = sees ? "role" : "role_hidden";

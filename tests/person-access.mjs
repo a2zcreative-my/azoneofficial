@@ -70,6 +70,27 @@ const ok = (label, cond, extra = "") => {
   ok("accessOf covers every tab exactly once", rows.length === ALL_TABS.length && new Set(rows.map((r) => r.tab)).size === ALL_TABS.length);
   ok("accessOf explains a grant", by[hiddenTab].sees && by[hiddenTab].reason === "granted");
   ok("accessOf explains a refusal", !by[seenTab].sees && by[seenTab].reason === "refused");
+  /* v1.102.0 - CEO: "Stokis - inactive this for future usage." A parked tab
+     must be refused to EVERYBODY, above every other rule, and must say that
+     is why - not "hidden by your role", which invites the CEO to press it and
+     grant a tab the worker no longer accepts. */
+  {
+    const { PARKED_TABS } = mod;
+    ok("PARKED_TABS is exported", Array.isArray(PARKED_TABS) && PARKED_TABS.length > 0);
+    for (const parked of PARKED_TABS ?? []) {
+      ok(`${parked} is refused to a super admin, who bypasses everything else`,
+         canSeeTab("super_admin", parked, {}, null) === false,
+         "a tab taken off the product must not still be there for one account");
+      ok(`${parked} cannot be brought back by an override`,
+         canSeeTab("ceo", parked, { [parked]: ["ceo"] }, null) === false,
+         "a stale row in system_meta would otherwise un-park it");
+      ok(`${parked} cannot be brought back by a personal grant`,
+         canSeeTab("ceo", parked, {}, { allow: [parked], deny: [] }) === false);
+      ok(`${parked} says it is parked, not that a role hid it`,
+         by[parked]?.reason === "parked" && by[parked]?.sees === false,
+         `reason is ${by[parked]?.reason}`);
+    }
+  }
   ok("accessOf explains an always-visible tab", ALWAYS_VISIBLE.every((t) => by[t].sees && by[t].reason === "always"));
   ok("a redundant grant reads as the role, not as a grant",
      accessOf(role, {}, { allow: [seenTab], deny: [] }).find((r) => r.tab === seenTab).reason === "role",

@@ -50,18 +50,23 @@ function TabChip({ tab, reason, onPress }: { tab: string; reason: TabReason; onP
   const label = t(tab, lang);
   const mark = reason === "granted" ? " +" : reason === "refused" ? " −" : "";
   const tone =
-    reason === "always" ? "bg-secondary text-muted-foreground"
+    reason === "parked" ? "bg-secondary/60 text-muted-foreground line-through"
+    : reason === "always" ? "bg-secondary text-muted-foreground"
     : reason === "granted" ? "bg-success-soft text-success"
     : reason === "refused" ? "bg-danger-soft text-danger"
     : reason === "role" ? "border-border border bg-card"
     : "border-border text-muted-foreground border border-dashed";
   const hint =
-    reason === "always" ? L("Always visible — cannot be refused", "Sentiasa kelihatan — tidak boleh ditolak")
+    reason === "parked" ? L("Built but switched off for everyone — it cannot be granted until it is switched back on", "Dibina tetapi dimatikan untuk semua — ia tidak boleh diberikan sehingga dihidupkan semula")
+    : reason === "always" ? L("Always visible — cannot be refused", "Sentiasa kelihatan — tidak boleh ditolak")
     : reason === "granted" ? L("Granted to this person beyond the role — press to return to the role rule", "Diberi kepada orang ini melebihi peranan — tekan untuk kembali kepada peraturan peranan")
     : reason === "refused" ? L("Refused for this person — press to return to the role rule", "Ditolak untuk orang ini — tekan untuk kembali kepada peraturan peranan")
     : reason === "role" ? L("Seen because of the role — press to refuse it for this person only", "Kelihatan kerana peranan — tekan untuk menolaknya bagi orang ini sahaja")
     : L("Hidden by the role — press to grant it to this person only", "Tersembunyi oleh peranan — tekan untuk memberikannya kepada orang ini sahaja");
-  if (!onPress) return <span className={`rounded-full px-2.5 py-1 text-xs ${tone}`} title={hint}>{label}</span>;
+  /* v1.102.0 - a parked chip is text, not a button. Pressing it would ask the
+     worker to grant a tab its own whitelist no longer contains, so the only
+     thing it could do is fail. */
+  if (!onPress || reason === "parked") return <span className={`rounded-full px-2.5 py-1 text-xs ${tone}`} title={hint}>{label}</span>;
   return (
     <button type="button" className={`rounded-full px-2.5 py-1 text-xs transition hover:opacity-80 ${tone}`} title={hint} onClick={onPress}>
       {label}{mark}
