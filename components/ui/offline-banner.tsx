@@ -86,7 +86,8 @@ export function OfflineBanner() {
   if (!line && refused.length === 0) return null;
 
   return (
-    <div className="fixed top-0 left-0 z-50 flex w-full flex-col items-stretch gap-px text-sm font-medium">
+    <div className="fixed top-0 left-0 z-50 flex w-full flex-col items-stretch gap-px text-sm font-medium"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {line && (
         <div className={`flex items-center justify-center px-4 py-2 backdrop-blur ${isOffline ? "bg-destructive/90 text-destructive-foreground" : "bg-primary/90 text-primary-foreground"}`}
           role="status" aria-live="polite">

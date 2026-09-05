@@ -1948,7 +1948,7 @@ interface AttRecord {
   gps?: string | null;
   /* v1.76.0 — resolved per person per date on the server. `rest_day` is what
      makes weekend answerable for somebody whose pattern works Saturday. */
-  day_kind?: "workday" | "rest_day";
+  day_kind?: "workday" | "rest_day" | "hourly";
   shift_label?: string;
   pending?: boolean;
   /* v1.80.0 — a punch outside the pattern that a live session or a roster
@@ -2873,7 +2873,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     local.slice(0, 10),
                     local.slice(11, 16),
                     markOf(r),
-                    r.day_kind === "rest_day" ? L("rest day", "hari rehat") : L("working day", "hari bekerja"),
+                    r.day_kind === "rest_day" ? L("rest day", "hari rehat") : r.day_kind === "hourly" ? L("part-time, by the clock", "sambilan, mengikut jam") : L("working day", "hari bekerja"),
                     r.shift_label ?? "",
                     r.pending ? L("waiting CEO", "menunggu CEO") : L("counted", "dikira"),
                     attLoc(r)?.text ?? L("no location", "tiada lokasi"),
@@ -3008,6 +3008,16 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     <span className="text-info ml-1.5 whitespace-nowrap font-medium"
                       title={L("Outside this person's working days", "Di luar hari bekerja orang ini")}>
                       · {L("rest day", "hari rehat")}
+                    </span>
+                  )}
+                  {/* v1.109.0 - CEO: "live host part time should count as part
+                      time working which is based on their working hour and
+                      minus 1 hour of break". No pattern, no rest day: the
+                      hours are the hours, less one hour of break past five. */}
+                  {r.day_kind === "hourly" && (
+                    <span className="text-info ml-1.5 whitespace-nowrap font-medium"
+                      title={L("Part-time: paid by the clock, clock-out minus clock-in less one hour of break when the day ran past five hours", "Sambilan: dibayar mengikut jam, daftar keluar tolak daftar masuk kurang satu jam rehat apabila hari melebihi lima jam")}>
+                      · {L("part-time · by the clock", "sambilan · mengikut jam")}
                     </span>
                   )}
                   {/* v1.80.0 — outside the pattern, but on the roster or the

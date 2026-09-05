@@ -12,6 +12,7 @@ import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActA
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
+import { BREAK_AFTER_MINUTES, hourlyBreakFor } from "./hourly"; // v1.109.0 - paid by the clock, less the break
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
@@ -289,10 +290,9 @@ export interface DayShift {
   breakMinutes: number;
 }
 
-/** THE STATUTORY TRIGGER for an unpaid break - Employment Act 1955
-    s.60A(1)(a): no employee shall work more than five consecutive hours
-    without a period of leisure of not less than thirty minutes. */
-const BREAK_AFTER_MINUTES = 5 * 60;
+/* BREAK_AFTER_MINUTES, HOURLY_BREAK_MINUTES and hourlyBreakFor live in
+   hourly.ts (v1.109.0) so tests/hourly-by-the-clock.mjs can run them without
+   bundling this file. */
 
 /** The break this day actually earns. ONCE, and only if a block runs past
     five hours: a six-hour afternoon earns it, and the two-hour evening block
@@ -1981,8 +1981,13 @@ export async function handleStaff(
     const inWindow = windowAt(sh, mins);
     const assigned = inWindow ? null
       : (await assignedResolver(env, todayMYT, todayMYT))(user.id, todayMYT, mins);
+    /* v1.109.0 - an hourly host is not late, not early, not on a rest day:
+       there is no pattern to be measured against. The hours are the hours. */
+    const hourlyPunch = await isHourlyUserId(env, user.id);
     let flag: string;
-    if (assigned) {
+    if (hourlyPunch && !assigned) {
+      flag = "hourly";
+    } else if (assigned) {
       /* Scheduled by name, on the roster or the live board. Not late, not a
          rest-day anomaly - working time, and the register says which job. */
       flag = "assigned";
@@ -3065,7 +3070,7 @@ export async function handleStaff(
     /* The pending flag only exists after 0100; ask for it only then. */
     const pendingCol = (await notPendingSql(env)) ? ", a.pending_approval" : "";
     const { results } = await env.DB.prepare(
-      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps${pendingCol}
+      `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, u.employment_status, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps${pendingCol}
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
@@ -3082,18 +3087,22 @@ export async function handleStaff(
        reason the schedule is: this loop runs over every punch in the month. */
     const assignedAtR = await assignedResolver(env, `${month}-01`, `${month}-31`);
     const annotated: Record<string, unknown>[] = [];
-    for (const r of results as { user_id: number; created_at: string; type: string; pending_approval?: number | null }[]) {
+    for (const r of results as { user_id: number; role: string; employment_status: string | null; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
       const dateIso = myt.toISOString().slice(0, 10);
       const shR = shiftAtR(r.user_id, dateIso);
       const inWin = windowAt(shR, minutes);
       const asg = inWin ? null : assignedAtR(r.user_id, dateIso, minutes);
+      /* v1.109.0 - a part-time host has no pattern and no rest days: every
+         day worked is paid by the clock. Marking a Saturday punch "rest day"
+         for her was the pattern speaking about somebody it does not govern. */
+      const hourly = isHourlyUser(r.role, r.employment_status);
       annotated.push({
         ...r,
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
-        workday: shR.kind === "workday",
-        day_kind: shR.kind,
+        workday: hourly ? true : shR.kind === "workday",
+        day_kind: hourly ? "hourly" : shR.kind,
         /* Both blocks, so a split day reads "11:00-17:00 + 20:30-22:30" and
            the CEO can see the eight hours rather than infer them. */
         shift_label: shiftLabel(shR),
@@ -8064,36 +8073,37 @@ export async function handleStaff(
      view, the save route and the recompute button — single source of truth. */
   /* PART_TIME_LH_RATE_CENTS and isHourlyUser are at module scope (v1.77.0,
      v1.78.0) - see the notes beside them. */
-  /* v1.80.0 — THE GAP IN A SPLIT DAY IS NOT PAID.
+  /* v1.109.0 — A PART-TIME HOST IS PAID BY THE CLOCK, LESS THE BREAK.
    *
-   * The CEO chose one clock-in and one clock-out for a split day, so a host
-   * on 11:00-17:00 plus 20:30-22:30 punches in at 11:00 and out at 22:30.
-   * Last-out minus first-in reads 11.5 hours; he worked 8. The three and a
-   * half hours in between he spent at home, and at RM15/h that gap was
-   * RM 52.50 a day of pay for being away.
+   * The CEO, 05-09-2026, with a Saturday on the register - a live host in at
+   * 11:05, out at 22:30, both punches marked "rest day": *"if live host part
+   * time should count as part time working which is based on their working
+   * hour and minus 1 hour of break"*.
    *
-   * So the span is INTERSECTED with what the person was actually due to be
-   * doing: their scheduled blocks, plus any live session or roster block that
-   * covers time outside them (the CEO's *"if yes, then it is consider their
-   * working time"*).
+   * So, for an hourly person, a day's paid minutes are clock-out minus
+   * clock-in, minus ONE HOUR of unpaid break - the break only when the day
+   * ran past five hours, which is the same statutory trigger the salaried
+   * pattern uses (BREAK_AFTER_MINUTES, Employment Act s.60A) and the reason a
+   * three-hour evening session is not docked an hour it never took.
    *
-   * THE FALLBACK MATTERS AS MUCH AS THE RULE. When there is nothing to
-   * intersect with — a rest day worked, an unassigned evening, a database
-   * that has not applied 0099 — the whole span counts, exactly as it did
-   * before. A schedule the system cannot read must never silently zero
-   * somebody's wage.
+   * WHAT THIS REPLACES. v1.80.0 intersected the span with the scheduled
+   * blocks and any assigned session, so the gap in a split day was not paid
+   * and a punch on a "rest day" fell back to the whole span with nothing
+   * deducted. That gave the Saturday above eleven and a half hours, and
+   * would have given a host on an assigned 20:30-22:30 session who stayed
+   * on till 23:00 exactly two. The CEO's rule is simpler and is his to make:
+   * a part-timer has no pattern and no rest days - the hours are the hours.
+   * The one consequence worth naming: the gap in a split day is paid again.
+   * If that is not wanted, the intersection is in the history at v1.80.0.
    *
-   * Both figures are returned. A change that quietly reduces a payslip is
-   * the kind this system has been burned by, so the panel shows "clocked
-   * 11h30 -> counted 8h00" and says why, rather than a smaller number with
-   * no explanation.
+   * Both figures are still returned. A change that quietly changes a payslip
+   * is the kind this system has been burned by, so the panel shows "clocked
+   * 11h25 · 1h00 break" and says why, rather than a smaller number alone.
    */
-  let shiftAtP: ShiftLookup | null = null;
-  let assignedAtP: AssignedLookup | null = null;
   const clockedMinutes = async (
     userId: number,
     month: string,
-  ): Promise<{ counted: number; clocked: number; trimmed: number }> => {
+  ): Promise<{ counted: number; clocked: number; breaks: number; days: number }> => {
     /* An unapproved punch pays nobody - this is an hourly host's wage. */
     const notPending = await notPendingSql(env);
     const { results } = await env.DB.prepare(
@@ -8104,38 +8114,18 @@ export async function handleStaff(
        WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2${notPending}
        GROUP BY d`,
     ).bind(userId, month).all<{ d: string; i: string | null; o: string | null }>();
-    /* Read once and reused across every hourly person in the run — this
-       helper is itself called inside a loop over staff (v1.77.0 rule). */
-    shiftAtP ??= await shiftResolver(env);
-    assignedAtP ??= await assignedResolver(env, `${month}-01`, `${month}-31`);
-    let counted = 0;
-    let clocked = 0;
+    let counted = 0, clocked = 0, breaks = 0, days = 0;
     for (const r of results) {
       if (!r.i || !r.o) continue; // an unpaired day earns nothing until fixed
-      const inM = new Date(r.i + "Z").getTime();
-      const outM = new Date(r.o + "Z").getTime();
-      const span = Math.round((outM - inM) / 60000);
+      const span = Math.round((new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000);
       if (span <= 0) continue;
+      const brk = hourlyBreakFor(span);
       clocked += span;
-      const mytMin = (ms: number) => {
-        const d = new Date(ms + 8 * 3600 * 1000);
-        return d.getUTCHours() * 60 + d.getUTCMinutes();
-      };
-      const from = mytMin(inM);
-      const to = from + span; // may run past midnight; the windows simply stop
-      const sh = shiftAtP(userId, r.d);
-      let day = minutesInWindows(sh, from, to);
-      /* Assigned work outside the pattern counts too, and only the part of it
-         that is both inside the punch span AND outside the scheduled blocks —
-         so an evening session that overlaps a scheduled block is never paid
-         twice. */
-      for (let m = from; m < to; m++) {
-        if (windowAt(sh, m)) continue;
-        if (assignedAtP(userId, r.d, m)) day++;
-      }
-      counted += day > 0 ? day : span;
+      breaks += brk;
+      counted += span - brk;
+      days++;
     }
-    return { counted, clocked, trimmed: Math.max(0, clocked - counted) };
+    return { counted, clocked, breaks, days };
   };
   const hourlyPayCents = (mins: number) => Math.round((mins * PART_TIME_LH_RATE_CENTS) / 60);
 
@@ -8163,7 +8153,8 @@ export async function handleStaff(
            Shown beside the figure so a smaller number than last month is
            explainable without opening the register. */
         r.hourly_clocked_live = cm.clocked;
-        r.hourly_trimmed_live = cm.trimmed;
+        r.hourly_break_live = cm.breaks;
+        r.hourly_days_live = cm.days;
         r.hourly_rate_live = PART_TIME_LH_RATE_CENTS;
         r.hourly_pay_live = hourlyPayCents(cm.counted);
       }

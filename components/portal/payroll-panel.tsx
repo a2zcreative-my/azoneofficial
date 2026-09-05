@@ -81,7 +81,11 @@ interface Entry {
      how many minutes that was. Shown beside the figure: a wage that goes DOWN
      because of a code change must say so on the row, not in a changelog. */
   hourly_clocked_live?: number;
-  hourly_trimmed_live?: number;
+  /* v1.109.0 - the unpaid break deducted this month (one hour per day that
+     ran past five hours), and the days it was deducted across. Replaces
+     hourly_trimmed_live: a part-timer is no longer trimmed to a pattern. */
+  hourly_break_live?: number;
+  hourly_days_live?: number;
 }
 
 /* v1.4.183 (CEO): a PART-TIME LIVE HOST is paid RM15.00/hour on clocked
@@ -1261,14 +1265,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         <span className="block text-xs" title={L("Auto from clock in–out, counting only time inside the person's scheduled blocks plus any live session or roster block outside them. RM15.00/hour (CEO rule). Not editable.", "Auto daripada daftar masuk–keluar, mengira hanya masa dalam blok berjadual orang itu campur sesi LIVE atau blok roster di luarnya. RM15.00/jam (peraturan CEO). Tidak boleh disunting.")}>
                           <span className="font-medium">{(hourlyPay / 100).toFixed(2)}</span>
                           <span className="text-muted-foreground"> · {hmLabel(hourlyMins)}{L(" × RM15/h", " × RM15/jam")}</span>
-                          {/* v1.80.0 — the gap in a split day is not paid, and
-                              this is where a smaller number than last month
-                              gets explained on the row itself. */}
-                          {(e.hourly_trimmed_live ?? 0) > 0 && (
+                          {/* v1.109.0 — CEO: "based on their working hour and
+                              minus 1 hour of break". The row says what the
+                              clock said and what came off it, so a figure that
+                              is an hour a day short of the clock explains
+                              itself where the eye already is. */}
+                          {(e.hourly_break_live ?? 0) > 0 && (
                             <span className="text-muted-foreground block text-[10px]"
-                              title={L(`Clocked ${hmLabel(e.hourly_clocked_live ?? 0)} in total. ${hmLabel(e.hourly_trimmed_live ?? 0)} of that fell outside the scheduled blocks with no live session or roster block covering it — the gap between an afternoon and an evening shift, for example — so it is not paid.`, `Berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} semuanya. ${hmLabel(e.hourly_trimmed_live ?? 0)} daripadanya di luar blok berjadual tanpa sesi LIVE atau blok roster yang meliputinya — jurang antara syif petang dan malam, contohnya — jadi ia tidak dibayar.`)}>
-                              {L(`clocked ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_trimmed_live ?? 0)} off-schedule`,
-                                 `berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_trimmed_live ?? 0)} luar jadual`)}
+                              title={L(`Clocked ${hmLabel(e.hourly_clocked_live ?? 0)} in total over ${e.hourly_days_live ?? 0} day(s). One hour of unpaid break is deducted on each day that ran past five hours — ${hmLabel(e.hourly_break_live ?? 0)} this month.`, `Berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} semuanya dalam ${e.hourly_days_live ?? 0} hari. Satu jam rehat tanpa gaji ditolak pada setiap hari yang melebihi lima jam — ${hmLabel(e.hourly_break_live ?? 0)} bulan ini.`)}>
+                              {L(`clocked ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_break_live ?? 0)} break`,
+                                 `berdaftar ${hmLabel(e.hourly_clocked_live ?? 0)} · ${hmLabel(e.hourly_break_live ?? 0)} rehat`)}
                             </span>
                           )}
                         </span>

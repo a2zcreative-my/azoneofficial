@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.109.1] - 2026-09-05 - installed on a phone, the header clears the status bar
+
+**CEO**, 05-09-2026, a screenshot of the portal on his Android Home Screen: the clock, signal and battery drawn straight over the avatar and "Today". *"When I add for Home screen it is like this 🤦🏻‍♂️"*
+
+### Why
+The manifest asks for `viewport-fit=cover`, so an installed app runs edge to edge - the system bar is drawn over the page, and the page is expected to keep its own content clear of it. The **bottom** bar has done exactly that for its inset since v1.10.0. The **top** never had to: in a browser tab the inset is zero, and until phones started drawing under the status bar nobody saw the gap.
+
+### Fix
+Every sticky mobile header - portal, admin, account - and the connection line now pad their top by `env(safe-area-inset-top)`, **added to** their own padding rather than swapped for it, so in a browser tab they look exactly as before and when installed they sit under the status bar with their content below it. Being sticky, the portal header keeps clearing the bar as the page scrolls.
+
+`tests/shell-scroll.mjs` now finds every `sticky top-0` header in the three pages and holds it to clearing the inset, added to its own padding; negative-tested by removing the style from the portal header.
+
+## [1.109.0] - 2026-09-05 - a part-time live host is paid by the clock, less the break
+
+**CEO**, 05-09-2026, with a Saturday on the attendance register - Nurul in at 11:05, out at 22:30, both punches marked *rest day*: *"if live host part time should count as part time working which is based on their working hour and minus 1 hour of break"*.
+
+### What was wrong
+Two things, from the same root: a part-time live host was being measured against a shift pattern that does not govern her.
+
+- **Her hours were trimmed to a pattern.** Since v1.80.0 an hourly person's pay was the overlap of her punch span with her scheduled blocks and assigned sessions - written for a host on an explicit split shift, so the gap between an afternoon and an evening block was not paid. On a day the pattern called a rest day there was nothing to overlap, so the whole span counted with **nothing deducted**: the Saturday above would have paid 11 h 25.
+- **The register called her Saturday a rest day.** The pattern spoke about somebody it does not govern - a part-timer has no rest days; every day worked is a working day.
+
+### The rule now
+For an hourly person, a day's paid minutes are **clock-out minus clock-in, minus one hour of unpaid break** - the break only when the day ran past five hours, which is the statutory trigger the salaried pattern already uses (Employment Act 1955 s.60A(1)(a)). A three-hour evening session took no break and is not docked one. The Saturday above: 11 h 25 clocked, **10 h 25 paid**, RM 156.25.
+
+The rule lives in `worker/src/hourly.ts`, one small file, so it can be run by its guard without bundling `staff.ts`.
+
+**One consequence worth naming.** The v1.80.0 split-day trim is gone for hourly staff: a host who clocks in at 11:00 for an afternoon block and out at 22:30 after an evening one is paid the span less one hour. The CEO's words were *"based on their working hour"*; if the gap should not be paid, the intersection is in the history at v1.80.0 and is one decision away.
+
+### What you see
+- The register marks a part-timer's punches **part-time · by the clock** instead of *rest day*, and her clock-in toast reads *Counted by the clock* instead of late/early/rest day.
+- The payroll row shows **clocked 11 h 25 · 1 h 00 break** beside the figure, with the rule on hover - a wage an hour a day under the clock explains itself where the eye already is.
+
+### Guards
+**#44** (`tests/hourly-by-the-clock.mjs`) runs the rule on the CEO's Saturday and the edges around it: three hours pays three, exactly five pays five, 5 h 01 pays 4 h 01, eight pays seven. Negative-tested by deducting the break every day and by triggering at ≥ 5 h instead of > 5 h. The v1.80.0 checks in `shift-schedule.mjs` that held the old rule now hold the new one as firmly.
+
 ## [1.108.0] - 2026-09-05 - roadmap phase 04c: Watchers and the morning brief
 
 ### What was wrong

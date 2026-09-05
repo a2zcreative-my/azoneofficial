@@ -1006,6 +1006,11 @@ function Dashboard({
         half_day: L("Half day (after 12:00)", "Separuh hari (selepas 12:00)"),
         early_out: L("Early out (before 18:00)", "Keluar awal (sebelum 18:00)"),
         completed: L("Shift completed", "Syif selesai"),
+        /* v1.109.0 - a part-time host is paid by the clock; the punch says so
+           instead of measuring her against hours that do not apply */
+        hourly: L("Counted by the clock", "Dikira mengikut jam"),
+        assigned: L("Assigned work", "Kerja yang ditugaskan"),
+        rest_day: L("Rest day", "Hari rehat"),
       };
       const now = new Date(Date.now() + 8 * 3600 * 1000);
       const hhmm = now.toISOString().slice(11, 16);
@@ -13482,7 +13487,17 @@ export default function PortalPage() {
           breaks it out of <main>'s padding so it spans the full working area,
           and it stays sticky/bordered instead of dissolving into the page as
           it did before. Every mobile class is unchanged. */}
-        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2 backdrop-blur md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:py-3 md:backdrop-blur-none">
+        {/* v1.109.1 — CEO, 05-09-2026, the portal installed on his Android
+            Home Screen: the clock, signal and battery drawn straight over the
+            avatar and "Today". The manifest asks for viewport-fit=cover, so
+            an installed app runs edge to edge and the status bar is OURS to
+            clear. The header pads its top by the safe-area inset - zero in a
+            browser tab, the status bar's height when installed - and, being
+            sticky, keeps clearing it as the page scrolls. The bottom bar has
+            done the same for its inset since v1.10.0; the top simply never
+            had to until phones started drawing under it. */}
+        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 pb-2 backdrop-blur [--hdr-pt:0.5rem] md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:pb-3 md:backdrop-blur-none md:[--hdr-pt:0.75rem]"
+          style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
           <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
             {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title

@@ -45,7 +45,7 @@ const ok = (label, cond, extra = "") => {
   ok("every counting query uses it", uses >= 6,
      `${uses} references (1 definition + 5 call sites expected) — a counting query without it pays out on an unapproved claim`);
   for (const [what, re] of [
-    ["hourly pay", /const clockedMinutes[\s\S]{0,600}?\$\{notPending\}/],
+    ["hourly pay", /const clockedMinutes[\s\S]{0,900}?\$\{notPending\}/],
     ["the payslip's working days", /const wd = await env\.DB\.prepare\([\s\S]{0,300}?\$\{notPendingX\}/],
     ["the payroll day-fill", /COUNT\(DISTINCT date\(created_at, '\+8 hours'\)\) AS days[\s\S]{0,200}?\$\{notPendingA\}/],
     ["the absence scan", /const notPendingS = await notPendingSql\(env\);[\s\S]{0,500}?\$\{notPendingS\}/],
@@ -276,19 +276,29 @@ const ok = (label, cond, extra = "") => {
      /const assignedAtE = await assignedResolver\(env, `\$\{month\}-01`/.test(staff),
      "the v1.77.0 rule: a lookup inside a loop comes from a resolver read once");
 
-  /* The money. */
-  ok("hourly pay counts the overlap with the schedule, not the span",
-     /let day = minutesInWindows\(sh, from, to\);/.test(staff),
-     "last-out minus first-in pays for the gap between an afternoon and an evening shift");
-  ok("assigned minutes are never paid twice",
-     /if \(windowAt\(sh, m\)\) continue;/.test(staff),
-     "an evening session overlapping a scheduled block would be counted by both");
-  ok("nothing to measure against means the whole span still counts",
-     /counted \+= day > 0 \? day : span;/.test(staff),
-     "a rest day worked, or a database without 0099, must never silently zero a wage");
-  ok("the payslip shows what was clocked as well as what was counted",
-     /hourly_clocked_live/.test(staff) && /hourly_trimmed_live/.test(staff) &&
-     /off-schedule/.test(read("components/portal/payroll-panel.tsx")),
+  /* The money.
+     v1.109.0 - SUPERSEDED RULE. v1.80.0 paid an hourly host the overlap of
+     the punch span with the scheduled blocks and any assigned session. The
+     CEO, 05-09-2026: "live host part time should count as part time working
+     which is based on their working hour and minus 1 hour of break". So the
+     span IS the pay, less one hour of break on a day that ran past five
+     hours, and a part-timer has no pattern to be measured against. The four
+     checks below hold the new rule as firmly as the old ones held the old. */
+  ok("hourly pay is the clock span, less the break",
+     /const brk = hourlyBreakFor\(span\);[\s\S]{0,120}?counted \+= span - brk;/.test(staff),
+     "the CEO's rule: working hours minus one hour of break");
+  ok("the break is one hour, once, and only past five hours",
+     /export const HOURLY_BREAK_MINUTES = 60;/.test(read("worker/src/hourly.ts")) &&
+     /return spanMinutes > BREAK_AFTER_MINUTES \? HOURLY_BREAK_MINUTES : 0;/.test(read("worker/src/hourly.ts")),
+     "a three-hour evening session took no break and must not be docked one");
+  ok("a part-timer is not measured against a pattern",
+     !/let day = minutesInWindows\(sh, from, to\);/.test(staff) &&
+     /day_kind: hourly \? "hourly" : shR\.kind,/.test(staff) &&
+     /if \(hourlyPunch && !assigned\) \{\s*flag = "hourly";/.test(staff),
+     "a Saturday punch marked rest day for someone paid by the clock was the pattern speaking about somebody it does not govern");
+  ok("the payslip shows what was clocked and what came off it",
+     /hourly_clocked_live/.test(staff) && /hourly_break_live/.test(staff) &&
+     /break`/.test(read("components/portal/payroll-panel.tsx")),
      "a change that reduces a wage has to say so on the row");
 
   /* The editor. */
@@ -334,8 +344,11 @@ const ok = (label, cond, extra = "") => {
      time of 1 hour". A 10:00-18:00 day is eight hours on the clock and seven
      of work, and everybody owed seven was being judged against eight. */
   ok("a day carries its unpaid break", /breakMinutes: number;/.test(staff));
+  /* v1.109.0 - the constant moved to hourly.ts, shared with the part-timer's
+     rule; staff.ts imports it and the pattern still reads it. */
   ok("the break is earned by law, not by policy",
-     /const BREAK_AFTER_MINUTES = 5 \* 60;/.test(staff) &&
+     /export const BREAK_AFTER_MINUTES = 5 \* 60;/.test(read("worker/src/hourly.ts")) &&
+     /import \{ BREAK_AFTER_MINUTES, hourlyBreakFor \} from "\.\/hourly"/.test(staff) &&
      /sh\.windows\.some\(\(w\) => w\.end - w\.start > BREAK_AFTER_MINUTES\)/.test(staff),
      "Employment Act 1955 s.60A(1)(a) - five consecutive hours is what earns a break, so a two-hour evening block earns none");
   ok("the break comes off ONCE",

@@ -85,6 +85,30 @@ ok("the worker records which axis the report is about",
   }
 }
 
+/* v1.109.1 — INSTALLED, THE STATUS BAR IS OURS TO CLEAR. The CEO, 05-09-2026,
+   the portal on his Android Home Screen: the clock, signal and battery drawn
+   over the avatar and "Today". viewport-fit=cover (app/layout.tsx) means an
+   installed app runs edge to edge, so every sticky mobile header must pad
+   its top by env(safe-area-inset-top) - zero in a browser tab, the bar's
+   height when installed. The bottom bar has done this for its inset since
+   v1.10.0. Negative-tested by removing the style from the portal header. */
+{
+  ok("the viewport still asks for edge to edge", /viewportFit: "cover"/.test(read("app/layout.tsx")),
+     "without it the fix below is harmless and the app keeps a browser-coloured bar");
+  for (const f of ["app/portal/page.tsx", "app/admin/page.tsx", "app/account/page.tsx"]) {
+    const src = read(f);
+    const headers = [...src.matchAll(/<header className="[^"]*sticky top-0[^"]*"(?:\s*\n?\s*style=\{\{[^}]*\}\})?/g)].map((m) => m[0]);
+    ok(`${f} has sticky mobile headers to check`, headers.length > 0);
+    for (const h of headers) {
+      ok(`${f}: a sticky top-0 header clears the status bar`, /env\(safe-area-inset-top, 0px\)/.test(h),
+         "installed on a phone, the clock and battery are drawn over it");
+      ok(`${f}: the header keeps its own top padding on top of the inset`, /calc\(var\(--hdr-pt\) \+ env\(safe-area-inset-top/.test(h) && /\[--hdr-pt:/.test(h),
+         "the inset is added to the padding, not swapped for it - in a browser tab the header must look exactly as before");
+    }
+  }
+  ok("the connection line clears it too", /paddingTop: "env\(safe-area-inset-top, 0px\)"/.test(read("components/ui/offline-banner.tsx")));
+}
+
 console.log(
   fails.length === 0
     ? `PASS — on desktop the shell scrolls and the document does not (${pass} checks)`

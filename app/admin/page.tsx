@@ -1044,7 +1044,8 @@ function AdminPageSkeleton() {
       }
     >
     <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
+        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
         <div className="space-y-1.5">
           <Skel className="hidden h-3 w-64 md:block" />
           <Skel className="h-6 w-36" />
@@ -1206,7 +1207,8 @@ export default function AdminPage() {
     <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
+        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
         <div>
           {/* v1.27.0: the console's main header. It was the only monolingual
               string left in /admin, so it gets its BM twin here too. */}
